@@ -1,52 +1,63 @@
 # Cujo
 
-An agent that runs each new dependency a pull request adds inside an isolated
-sandbox, records what the package actually does — files written, processes
-spawned, network calls attempted — and posts a review to the PR only after a
-human approves. Built on [TrueForge](https://github.com/truefoundry/trueforge),
-TrueFoundry's open-source agent harness.
+Cujo reviews the dependencies a pull request adds. It installs each new PyPI
+package in a throwaway sandbox, records what the install does, and posts a
+verdict on the PR — blocking a merge only after a human approves.
 
-> Name is a placeholder.
+> "Cujo" is a working name and may change. It appears throughout as a
+> find-replaceable string.
 
 ## Why
 
-A pull request that adds a dependency is a request to run a stranger's code on
-your machine. A diff of the lockfile tells you nothing about what that code does
-when installed. Cujo installs it in a sandbox that holds no credentials and has
-no route to the internet except a proxy it controls, then reports what happened.
-Posting the review is the one irreversible action, and the harness pauses for a
-human before it.
+`pip install` runs a package's `setup.py` before any of your own code executes.
+A pull request that adds a dependency is asking you to run a stranger's code,
+and the diff shows none of what that code does. Cujo runs it first, somewhere it
+can do no harm, and tells you what happened.
 
-## Stack (this milestone)
+## How it works
 
-Stock TrueForge in hosted mode:
+1. A PR adds or bumps a dependency in `requirements.txt`. The Cujo GitHub App
+   receives the `pull_request` webhook.
+2. Ingress verifies the webhook, diffs out the changed specifiers, and starts one
+   agent session with the PR context.
+3. The agent provisions a Daytona sandbox and runs `sniff.py`, which installs the
+   dependency behind a logging proxy and records the hosts it contacts, the files
+   it touches, and the processes it spawns.
+4. The agent scores that report against a rubric and reaches one verdict:
+   `cleared`, `warn`, or `denied`.
+5. A `cleared` or `warn` review posts automatically as `cujo-guard[bot]`. A
+   `denied` verdict requests changes — and that one action pauses until a human
+   approves it in the TrueForge UI.
 
-- `Dockerfile` — installs `@truefoundry/trueforge` from npm.
-- `docker-compose.yml` — `postgres`, `redis`, and the `server` (API + UI on
-  port 8790).
+No secret ever enters the sandbox. A dependency name goes in; a JSON report comes
+out. That single narrow crossing is the property the whole design protects.
 
-Model provider (Gemini) and sandbox provider (Daytona) are configured in the
-TrueForge UI after first boot, not via env.
+## Built on TrueForge
 
-## Run it yourself
+Cujo runs on [TrueForge](https://trueforge.dev), an open-source agent harness,
+used as published — no fork. The harness supplies the model runtime, the Daytona
+sandbox, the MCP tool the agent calls to post a review, and the human-approval
+gate that holds the blocking review. Cujo is the agent, the review rubric, the
+sandbox detonation script, and the webhook ingress built on top.
 
-```bash
-cp .env.example .env      # fill in POSTGRES_* and PUBLIC_BASE_URL
-docker compose up --build # UI + API on port 8790
-```
+## Layout
 
-Then open the UI, and in Settings add a model provider key (Gemini works on the
-free tier) and a Daytona sandbox key. Send a chat turn that runs a command in a
-sandbox to confirm everything is wired.
+| Path | What |
+|------|------|
+| `docs/` | Canonical spec. The code follows these docs; a design change lands here first. |
+| `ingress/` | Webhook receiver that turns a PR event into an agent session. *(code time)* |
+| `github-mcp/` | MCP server the agent calls to post a review as the GitHub App. *(code time)* |
+| `sniff.py` | The in-sandbox detonation script. *(code time)* |
 
-## Roadmap
+Start with [docs/architecture.md](docs/architecture.md) for the mental model, then
+[docs/spec.md](docs/spec.md) for the contracts the code follows.
 
-- Ingress: GitHub webhook → one TrueForge session per PR.
-- `sniff.py`: install each new dependency in the sandbox behind a logging proxy,
-  diff the filesystem and processes, emit a JSON report.
-- A `SKILL.md` review rubric; the GitHub review posted after human approval.
-- Two demo PRs (one clean, one hostile).
+## Status
+
+Pre-code. The harness is deployed and live; the docs are the design of record and
+the demo repos (`orders-api`, `evil-package`) exist. The application code has not
+landed yet.
 
 ## License
 
-MIT.
+MIT. See [LICENSE](LICENSE).
