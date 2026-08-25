@@ -1,0 +1,7 @@
+.env
+.playwright-mcp/
+# Local working screenshots from setup, not part of the project
+*.png
+
+# Internal strategy/reference docs — keep local, not in the public repo
+context/
