@@ -45,18 +45,42 @@ sandbox detonation script, and the webhook ingress built on top.
 | Path | What |
 |------|------|
 | `docs/` | Canonical spec. The code follows these docs; a design change lands here first. |
-| `ingress/` | Webhook receiver that turns a PR event into an agent session. *(code time)* |
-| `github-mcp/` | MCP server the agent calls to post a review as the GitHub App. *(code time)* |
-| `sniff.py` | The in-sandbox detonation script. *(code time)* |
+| `apps/ingress/` | Webhook receiver that turns a PR event into an agent session. *(skeleton)* |
+| `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. *(skeleton)* |
+| `packages/gh-app-auth/` | Shared GitHub App installation-token auth. *(skeleton)* |
+| `sniff.py` | The in-sandbox detonation script. *(skeleton)* |
+| `docker-compose.yml` | The TrueForge harness stack: `server`, Postgres, Redis. |
 
 Start with [docs/architecture.md](docs/architecture.md) for the mental model, then
 [docs/spec.md](docs/spec.md) for the contracts the code follows.
 
+## Run it
+
+The TrueForge harness runs as a Docker Compose stack:
+
+```bash
+cp .env.example .env      # set POSTGRES_* and PUBLIC_BASE_URL
+docker compose up --build # UI + API on port 8790
+```
+
+Open the UI, then in Settings add a model provider key and a Daytona sandbox key.
+Send a chat turn that runs a command in a sandbox to confirm it is wired.
+
+The service skeletons under `apps/` build and test with pnpm; `sniff.py` runs with
+`uv`:
+
+```bash
+corepack enable && pnpm install
+pnpm lint && pnpm typecheck && pnpm test
+uv sync && uv run pytest
+```
+
 ## Status
 
-Pre-code. The harness is deployed and live; the docs are the design of record and
-the demo repos (`orders-api`, `evil-package`) exist. The application code has not
-landed yet.
+Early. The harness is deployed and live, the docs are the design of record, and
+the repo scaffolding — workspace, tooling, CI — is in place. The service code
+under `apps/` and `sniff.py` is still skeleton; the detonation and review logic
+land next.
 
 ## License
 
