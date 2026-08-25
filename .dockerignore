@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+.git
+.github
+docs
+*.pem
+.env
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+*.png
+.playwright-mcp

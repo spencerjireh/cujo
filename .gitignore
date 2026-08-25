@@ -3,3 +3,15 @@
 .playwright-mcp/
 # Local working screenshots from setup, not part of the project
 *.png
+
+# Node / TypeScript
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
