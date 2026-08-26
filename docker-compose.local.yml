@@ -9,7 +9,9 @@
 #
 # Published ports bind to 127.0.0.1 (loopback) only, so the services — including
 # unauthenticated Redis and Postgres — are reachable from this machine but not
-# from the local network.
+# from the local network. On Linux this isolation relies on Docker Engine
+# >= 28.0; older engines can still route loopback-published ports from the LAN.
+# Docker Desktop (macOS/Windows) runs the engine in a VM and is unaffected.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 #

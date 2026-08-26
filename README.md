@@ -77,8 +77,13 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 
 That publishes the TrueForge UI + API on `http://localhost:8790`, plus
 `ingress` (8080), `github-mcp` (8081), Postgres (5432), and Redis (6379) for
-inspection. Other targets: `make down`, `make logs`, `make ps`, `make clean`
-(drops the database volume). Run `make help` for the full list.
+inspection. All ports bind to `127.0.0.1` (loopback) only. Other targets:
+`make down`, `make logs`, `make ps`, `make clean` (drops the database volume).
+Run `make help` for the full list.
+
+> On Linux, loopback isolation of published ports relies on Docker Engine
+> `>= 28.0`; older engines can route `127.0.0.1`-published ports from the LAN.
+> Docker Desktop (macOS/Windows) runs the engine in a VM and is unaffected.
 
 Open the UI at http://localhost:8790, then in Settings add a model provider key
 and a Daytona sandbox key. Send a chat turn that runs a command in a sandbox to
