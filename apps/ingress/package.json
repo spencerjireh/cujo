@@ -1,0 +1,14 @@
+{
+  "name": "@cujo/ingress",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cujo/gh-app-auth": "workspace:*"
+  }
+}

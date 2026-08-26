@@ -1,0 +1,22 @@
+# Sources and provenance
+
+Where the reference docs came from, so a later reader can tell a fetched fact
+from a design choice.
+
+- [hackathon.md](hackathon.md) — pulled from the hackathon page and kickoff blog
+  on 2026-08-23. Facts about dates, requirements, judging, and tracks are quoted
+  from those pages; verify against the official rules before submission.
+- [trueforge.md](trueforge.md) — distilled from the TrueForge repo and
+  trueforge.dev docs on 2026-08-23. It restates public documentation; the live
+  docs win if they diverge.
+
+Everything else in `docs/` — architecture, spec, decisions, demo — is Cujo's own
+design, not a quoted source.
+
+## Primary sources
+
+- Hackathon page — https://www.wemakedevs.org/hackathons/trueforge
+- Kickoff blog — https://www.wemakedevs.org/blogs/agent-harness-hackathon-kick-off
+- TrueForge repo — https://github.com/truefoundry/trueforge
+- TrueForge docs index — https://trueforge.dev/llms.txt
+- WeMakeDevs Discord (support) — https://discord.gg/wemakedevs
