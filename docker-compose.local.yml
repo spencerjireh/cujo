@@ -7,6 +7,10 @@
 # This file changes nothing about how the stack deploys: it is never referenced
 # by the base compose file and is only applied when you pass it explicitly.
 #
+# Published ports bind to 127.0.0.1 (loopback) only, so the services — including
+# unauthenticated Redis and Postgres — are reachable from this machine but not
+# from the local network.
+#
 #   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 #
 # or just `make up-local`. See .env.example for the POSTGRES_* values; a local
@@ -19,20 +23,20 @@ services:
     environment:
       PUBLIC_BASE_URL: http://localhost:8790
     ports:
-      - '8790:8790' # TrueForge UI + API
+      - '127.0.0.1:8790:8790' # TrueForge UI + API
 
   ingress:
     ports:
-      - '8080:8080' # webhook receiver
+      - '127.0.0.1:8080:8080' # webhook receiver
 
   github-mcp:
     ports:
-      - '8081:8081' # internal MCP server (review posting)
+      - '127.0.0.1:8081:8081' # internal MCP server (review posting)
 
   postgres:
     ports:
-      - '5432:5432' # inspect with: psql -h localhost -U cujo cujo
+      - '127.0.0.1:5432:5432' # inspect with: psql -h localhost -U cujo cujo
 
   redis:
     ports:
-      - '6379:6379' # inspect with: redis-cli -h localhost ping
+      - '127.0.0.1:6379:6379' # inspect with: redis-cli -h localhost ping
