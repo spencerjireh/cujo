@@ -14,6 +14,7 @@ FROM node:24-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080
-COPY --from=build /repo/apps/ingress/dist ./dist
+COPY --from=build --chown=node:node /repo/apps/ingress/dist ./dist
+USER node
 EXPOSE 8080
 CMD ["node", "dist/index.js"]

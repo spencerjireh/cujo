@@ -14,6 +14,7 @@ FROM node:24-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8081
-COPY --from=build /repo/apps/github-mcp/dist ./dist
+COPY --from=build --chown=node:node /repo/apps/github-mcp/dist ./dist
+USER node
 EXPOSE 8081
 CMD ["node", "dist/index.js"]

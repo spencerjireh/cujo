@@ -67,5 +67,70 @@ services:
     stop_grace_period: 35s
     restart: unless-stopped
 
+  # Public webhook receiver (skeleton: /healthz only). Routed by Coolify/Traefik,
+  # so no published ports here. Hardened: non-root image, read-only rootfs, no
+  # extra capabilities.
+  ingress:
+    build:
+      context: .
+      dockerfile: apps/ingress/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Internal MCP server the agent calls to post reviews (skeleton: /healthz only).
+  # Holds the GitHub App private key in the next milestone, so the same hardening
+  # applies.
+  github-mcp:
+    build:
+      context: .
+      dockerfile: apps/github-mcp/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 8081
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   pgdata:
