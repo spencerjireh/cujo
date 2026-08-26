@@ -49,22 +49,48 @@ sandbox detonation script, and the webhook ingress built on top.
 | `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. *(skeleton)* |
 | `packages/gh-app-auth/` | Shared GitHub App installation-token auth. *(skeleton)* |
 | `sniff.py` | The in-sandbox detonation script. *(skeleton)* |
-| `docker-compose.yml` | The TrueForge harness stack: `server`, Postgres, Redis. |
+| `docker-compose.yml` | The TrueForge harness stack: `server`, Postgres, Redis. The file the deploy uses. |
+| `docker-compose.local.yml` | Local overlay: publishes service ports and points `PUBLIC_BASE_URL` at `localhost`. Never used by the deploy. |
+| `Makefile` | Local run helpers (`make up-local`, `down`, `logs`, `clean`). |
 
 Start with [docs/architecture.md](docs/architecture.md) for the mental model, then
 [docs/spec.md](docs/spec.md) for the contracts the code follows.
 
 ## Run it
 
-The TrueForge harness runs as a Docker Compose stack:
+The TrueForge harness runs as a Docker Compose stack. Locally, run it with the
+`docker-compose.local.yml` overlay, which publishes the service ports to your
+host and points `PUBLIC_BASE_URL` at `localhost` (the base `docker-compose.yml`
+publishes no ports, because in the deploy a reverse proxy terminates TLS and
+routes to the services on the internal network):
 
 ```bash
-cp .env.example .env      # set POSTGRES_* and PUBLIC_BASE_URL
-docker compose up --build # UI + API on port 8790
+cp .env.example .env   # set POSTGRES_*; PUBLIC_BASE_URL is overridden locally
+make up-local          # docker compose up with the local overlay
 ```
 
-Open the UI, then in Settings add a model provider key and a Daytona sandbox key.
-Send a chat turn that runs a command in a sandbox to confirm it is wired.
+`make up-local` is shorthand for:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+```
+
+That publishes the TrueForge UI + API on `http://localhost:8790`, plus
+`ingress` (8080), `github-mcp` (8081), Postgres (5432), and Redis (6379) for
+inspection. All ports bind to `127.0.0.1` (loopback) only. Other targets:
+`make down`, `make logs`, `make ps`, `make clean` (drops the database volume).
+Run `make help` for the full list.
+
+> On Linux, loopback isolation of published ports relies on Docker Engine
+> `>= 28.0`; older engines can route `127.0.0.1`-published ports from the LAN.
+> Docker Desktop (macOS/Windows) runs the engine in a VM and is unaffected.
+
+Open the UI at http://localhost:8790, then in Settings add a model provider key
+and a Daytona sandbox key. Send a chat turn that runs a command in a sandbox to
+confirm it is wired.
+
+The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
+are for local runs only and never touch how it deploys.
 
 The service skeletons under `apps/` build and test with pnpm; `sniff.py` runs with
 `uv`:
