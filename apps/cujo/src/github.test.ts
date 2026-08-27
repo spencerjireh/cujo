@@ -4,6 +4,7 @@ vi.mock("@cujo/gh-app-auth", () => ({
   normalisePrivateKey: (pem: string) => pem,
   getInstallationIdForRepo: vi.fn(async () => 42),
   getInstallationToken: vi.fn(async () => "ghs_token"),
+  getAppJwt: vi.fn(async () => "app_jwt"),
 }));
 
 import { GitHubReader } from "./github";
@@ -93,5 +94,46 @@ describe("GitHubReader.alreadyReviewed", () => {
       body: [review("cujo-guard[bot]", "old"), { user: null, commit_id: "h" }],
     }));
     expect(await new GitHubReader("1", "pem", impl).alreadyReviewed("o/r", 7, "h")).toBe(false);
+  });
+});
+
+describe("GitHubReader.installedRepos", () => {
+  /** The App JWT and an installation token authenticate different calls here. */
+  function fakeAppFetch(repos: string[]) {
+    const auth: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      auth.push(new Headers(init?.headers).get("authorization") ?? "");
+      const body = url.pathname.endsWith("/app/installations")
+        ? [{ id: 42 }]
+        : { repositories: repos.map((full_name) => ({ full_name })) };
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    return { impl: impl as unknown as typeof fetch, calls: impl, auth };
+  }
+
+  it("lists every repo the App is installed on, sorted and deduplicated", async () => {
+    const { impl, auth } = fakeAppFetch(["o/b", "o/a", "o/a"]);
+    const reader = new GitHubReader("1", "pem", impl);
+    expect(await reader.installedRepos()).toEqual(["o/a", "o/b"]);
+    // The installation list is the App's own read; the repos are the
+    // installation's.
+    expect(auth[0]).toBe("Bearer app_jwt");
+    expect(auth[1]).toBe("Bearer ghs_token");
+  });
+
+  it("caches, because autocomplete asks on every keystroke", async () => {
+    const { impl, calls } = fakeAppFetch(["o/a"]);
+    const reader = new GitHubReader("1", "pem", impl);
+    await reader.installedRepos();
+    const after = calls.mock.calls.length;
+    await reader.installedRepos();
+    expect(calls.mock.calls.length).toBe(after);
+  });
+
+  it("throws rather than return a short list when GitHub refuses", async () => {
+    const impl = vi.fn(async () => new Response("{}", { status: 500 }));
+    const reader = new GitHubReader("1", "pem", impl as unknown as typeof fetch);
+    await expect(reader.installedRepos()).rejects.toThrow("returned 500");
   });
 });

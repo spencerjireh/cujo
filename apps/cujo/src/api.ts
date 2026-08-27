@@ -55,6 +55,7 @@ function serializeChannel(record: DiscordChannelRecord) {
     guild_id: record.guildId,
     channel_name: record.channelName,
     notify_role_id: record.notifyRoleId,
+    bound_by: record.boundBy,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -216,6 +217,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
       guildId,
       channelName: channel.name ?? null,
       notifyRoleId,
+      boundBy: c.get("email"),
     });
     return c.json(serializeChannel(stored));
   });
@@ -223,6 +225,61 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
   app.delete("/discord/channels/:owner/:name", (c) => {
     const repo = `${c.req.param("owner")}/${c.req.param("name")}`;
     if (!deps.store.deleteDiscordChannel(repo)) {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
+    return c.json({ ok: true });
+  });
+
+  // Contract 8, tier one. Which Discord server may manage which repo. Only an
+  // operator decides this, so it stays on the Access-gated host and the
+  // decision carries their email (decision 27).
+  app.get("/discord/authorizations", (c) =>
+    c.json({
+      authorizations: deps.store.listGuildRepos().map((a) => ({
+        guild_id: a.guildId,
+        guild_name: a.guildName,
+        repo: a.repo,
+        authorized_by: a.authorizedBy,
+        authorized_at: a.authorizedAt,
+      })),
+    }),
+  );
+
+  app.put("/discord/authorizations/:guildId/:owner/:name", async (c) => {
+    const discord = deps.discord;
+    if (!discord) return c.json({ ok: false, error: "discord is not configured" }, 503);
+    const guildId = c.req.param("guildId");
+    const owner = c.req.param("owner");
+    const name = c.req.param("name");
+    if (!SNOWFLAKE.test(guildId)) return c.json({ ok: false, error: "bad guild id" }, 400);
+    if (!REPO_SEGMENT.test(owner) || !REPO_SEGMENT.test(name)) {
+      return c.json({ ok: false, error: "bad repo name" }, 400);
+    }
+    // The bot must already be in the server, or the commands can never appear
+    // there and the authorization would be a promise nothing can keep.
+    const guilds = await discord.listGuilds().catch(() => null);
+    if (!guilds) return c.json({ ok: false, error: "could not read the bot's servers" }, 400);
+    const guild = guilds.find((g) => g.id === guildId);
+    if (!guild) return c.json({ ok: false, error: "the bot is not in that server" }, 400);
+
+    const stored = deps.store.authorizeGuildRepo({
+      guildId,
+      repo: `${owner}/${name}`,
+      guildName: guild.name,
+      authorizedBy: c.get("email"),
+    });
+    return c.json({
+      guild_id: stored.guildId,
+      guild_name: stored.guildName,
+      repo: stored.repo,
+      authorized_by: stored.authorizedBy,
+      authorized_at: stored.authorizedAt,
+    });
+  });
+
+  app.delete("/discord/authorizations/:guildId/:owner/:name", (c) => {
+    const repo = `${c.req.param("owner")}/${c.req.param("name")}`;
+    if (!deps.store.revokeGuildRepo(c.req.param("guildId"), repo)) {
       return c.json({ ok: false, error: "not found" }, 404);
     }
     return c.json({ ok: true });

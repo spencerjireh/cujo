@@ -102,6 +102,8 @@ services:
       # Optional Discord notifications (spec Contract 7). Unset means the
       # service runs without them; the repo-to-channel map lives in the store.
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      # The application public key, which gates the /cujo command (Contract 8).
+      DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:-}
       CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-}
       # One turn, stream retries included; the Daytona idle stop is derived from it.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}
