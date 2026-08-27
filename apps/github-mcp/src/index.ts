@@ -1,31 +1,29 @@
-import { createServer } from "node:http";
-import { getInstallationToken } from "@cujo/gh-app-auth";
+/**
+ * github-mcp: the MCP server the agent calls to post a review as the Cujo
+ * GitHub App (docs/spec.md Contract 4). It is the only service that holds the
+ * App private key, and it is write-only: it posts reviews and reads nothing
+ * but the PR's diff to validate anchors.
+ */
+
+import { createGitHubClient } from "./github";
+import { createApp } from "./server";
+
+export { createApp } from "./server";
 
 const PORT = Number(process.env.PORT ?? 8081);
 
-/**
- * github-mcp skeleton: the MCP server the agent calls to post a review as the
- * Cujo GitHub App. For now it only answers health checks; the review-posting
- * tools and the App-authed token flow land in the next milestone (see
- * docs/spec.md Contract 4).
- */
-export function createApp() {
-  return createServer((req, res) => {
-    if (req.url === "/healthz") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, service: "github-mcp" }));
-      return;
-    }
-    res.writeHead(404, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: false }));
-  });
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
 }
 
-// Wired to the shared GitHub App auth contract (implementation pending).
-export const authProvider = getInstallationToken;
-
 if (import.meta.url === `file://${process.argv[1]}`) {
-  createApp().listen(PORT, () => {
+  const github = createGitHubClient({
+    appId: requireEnv("GITHUB_APP_ID"),
+    privateKey: requireEnv("GITHUB_APP_PRIVATE_KEY"),
+  });
+  createApp({ github }).listen(PORT, () => {
     console.log(`github-mcp listening on :${PORT}`);
   });
 }

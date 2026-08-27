@@ -28,7 +28,7 @@ sandbox is thrown away afterwards.
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
 | **`sniff.py`** | The in-sandbox sensor script. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
-| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. *(Currently the `apps/ingress` skeleton; the rename follows.)* |
+| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
@@ -43,8 +43,8 @@ Two zones, with a narrow bridge between them.
   dependencies, the check subagents' scripts, `sniff.py`, and the logging
   proxy.
 
-Only two things cross the bridge: PR code and dependency names go in, and JSON
-reports come out. (Cujo's own sensor script and the commands the subagents run
+Only two things cross the bridge: the PR (its code and its public metadata) and
+dependency names go in, and JSON reports come out. (Cujo's own sensor script and the commands the subagents run
 go in too; they are ours, carry no secret, and are the instrument, not the
 specimen.) No secret ever enters the sandbox. This is the property the
 whole design protects, so keep it in mind when reading the flow below.
@@ -101,7 +101,7 @@ Every crossing, with what it carries and what protects it:
 | GitHub → `apps/cujo` | HTTPS webhook on `cujo-ingress.spencerjireh.com` | PR opened or synchronized: repo, PR number, base and head SHA | HMAC signature |
 | `apps/cujo` → TrueForge | HTTP on the compose network | `sessions.create` with the inline agent spec; `createTurnStream` with the PR context; `listTurnEvents` on restart | None needed; TrueForge has no public API route |
 | TrueForge → `apps/cujo` | The same stream, reverse direction | Events tagged by `thread_id`: `thread.created`, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
-| TrueForge → sandbox | Daytona API, then commands inside the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The dependency names from the manifest diff. Cujo's own `sniff.py` and the commands the subagents run. | Daytona key on the server; nothing in the box. Private repos are a non-goal, so no clone credential exists to leak |
+| TrueForge → sandbox | Daytona API, then commands inside the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The PR's public metadata (number, SHAs, changed files, title, description). The dependency names from the manifest diff. Cujo's own `sniff.py` and the commands the subagents run. | Daytona key on the server; nothing in the box. Private repos are a non-goal, so no clone credential exists to leak |
 | Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block | None; treated as untrusted data |
 | Sandbox → internet | Through the in-sandbox proxy | Whatever the PR or a dependency tries to reach; logged, becomes evidence | None; the decoy secret is the only "secret" it can find |
 | TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
@@ -200,10 +200,12 @@ Coolify in a single `docker-compose` project so the services share a network.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
 
-The hostname layout above is the target. The DNS records and the Access app for
-`cujo-harness.spencerjireh.com` exist; today `cujo.spencerjireh.com` still
-routes to TrueForge in Coolify, and pointing it at `apps/cujo` (and
-`cujo-harness` at TrueForge) is a Coolify change that lands with the service.
+The DNS records and the two Access apps exist, and Coolify routes
+`cujo-harness.spencerjireh.com` to `server`. The `cujo` service's two hostnames
+are attached in Coolify once this compose file is on `main`, because Coolify
+only offers domains for services it has parsed from the deployed file.
+Configuration reaches the services as environment variables set in Coolify;
+`.env.example` lists every name.
 
 The Coolify control plane runs on a separate host (netcup) that never executes
 untrusted code.

@@ -25,11 +25,18 @@ services:
     environment:
       PUBLIC_BASE_URL: http://localhost:8790
     ports:
-      - '127.0.0.1:8790:8790' # TrueForge UI + API
+      - '127.0.0.1:8790:8790' # TrueForge operator console + API
 
-  ingress:
+  cujo:
+    environment:
+      # Host dispatch (spec Contract 6): both hostnames resolve to loopback, so
+      # curl with -H 'Host: cujo.localhost' or open http://cujo.localhost:8080.
+      CUJO_UI_HOST: cujo.localhost
+      CUJO_WEBHOOK_HOST: cujo-ingress.localhost
+      # No Cloudflare Access locally; the process logs a warning on start.
+      CUJO_DEV_NO_ACCESS: '1'
     ports:
-      - '127.0.0.1:8080:8080' # webhook receiver
+      - '127.0.0.1:8080:8080' # Cujo UI + API, and the webhook receiver
 
   github-mcp:
     ports:
