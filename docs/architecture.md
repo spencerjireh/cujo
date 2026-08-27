@@ -99,7 +99,7 @@ Every crossing, with what it carries and what protects it:
 | From → To | Transport | What crosses | Auth |
 |-----------|-----------|--------------|------|
 | GitHub → `apps/cujo` | HTTPS webhook on `cujo-ingress.spencerjireh.com` | PR opened or synchronized: repo, PR number, base and head SHA | HMAC signature |
-| `apps/cujo` → TrueForge | HTTP on the compose network | `sessions.create` with the inline agent spec; `createTurnStream` with the PR context; `listTurnEvents` on restart | None needed; TrueForge has no public API route |
+| `apps/cujo` → TrueForge | HTTP on the compose network | `sessions.create` with the inline agent spec; `createTurn` with the PR context, then `subscribeToTurn`; `listEvents` on restart | None needed; TrueForge has no public API route |
 | TrueForge → `apps/cujo` | The same stream, reverse direction | Events tagged by `thread_id`: `thread.created`, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
 | TrueForge → sandbox | Daytona API, then commands inside the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The PR's public metadata (number, SHAs, changed files, title, description). The dependency names from the manifest diff. Cujo's own `sniff.py` and the commands the subagents run. | Daytona key on the server; nothing in the box. Private repos are a non-goal, so no clone credential exists to leak |
 | Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block | None; treated as untrusted data |
@@ -108,7 +108,7 @@ Every crossing, with what it carries and what protects it:
 | TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` (free) or `post_blocking_review` (paused until a human allows) | Internal |
 | `github-mcp` → GitHub | REST API | The review: summary body plus inline comments, as `cujo-guard[bot]` | Installation token minted from the App private key |
 | Human → `apps/cujo` | HTTPS through Cloudflare Access on `cujo.spencerjireh.com` | Reads runs, check cards, findings, the drafted review. Writes one thing: approve or reject | Email OTP; the approve route checks the Access JWT and records the approver |
-| `apps/cujo` → TrueForge | HTTP on the compose network | `createTurnStream` with `user.tool_approval {allow \| deny}`; the turn resumes | Internal |
+| `apps/cujo` → TrueForge | HTTP on the compose network | `createTurn` with `user.tool_approval {allow \| deny}`, then `subscribeToTurn`; the turn resumes | Internal |
 
 ## The approval path
 
@@ -126,7 +126,7 @@ sequenceDiagram
   participant M as github-mcp
 
   GH->>C: pull_request webhook (HMAC)
-  C->>TF: sessions.create / createTurnStream(PR context)
+  C->>TF: sessions.create / createTurn(PR context) + subscribeToTurn
   TF->>Sub: spawn tests, probes, smoke, detonation
   TF-->>C: thread.created (title = check name)
   Sub-->>TF: JSON report
@@ -138,7 +138,7 @@ sequenceDiagram
   C->>C: run status = blocked_pending
   H->>C: opens run, reads drafted review
   H->>C: Approve
-  C->>TF: createTurnStream(user.tool_approval allow)
+  C->>TF: createTurn(user.tool_approval allow) + subscribeToTurn
   TF->>M: post_blocking_review proceeds
   M->>GH: REQUEST_CHANGES review as cujo-guard[bot]
   TF-->>C: tool.response, turn.done
@@ -147,7 +147,9 @@ sequenceDiagram
 
 On Reject, step 14 sends `deny`; the agent posts nothing and the run ends
 `denied`. With no `critical` finding the agent calls `post_advisory_review`
-instead, which is not gated, and steps 8 to 14 do not happen.
+instead, which is not gated, and steps 8 to 14 do not happen. If a new head
+is pushed while a run is still going, that run ends `superseded` and the new
+head gets its own run on the same session; only the newest head is reviewed.
 
 ## End-to-end flow
 

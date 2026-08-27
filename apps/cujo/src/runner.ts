@@ -11,6 +11,8 @@ interface RunState {
   cujoResumeTurnIds: Set<string>;
   subscribedTurnIds: Set<string>;
   pollTimer: NodeJS.Timeout | null;
+  /** Set once a newer head replaced this run; the fold then reports it. */
+  superseded: boolean;
 }
 
 export interface RunView {
@@ -44,6 +46,10 @@ function errorTurnDone(id: string, message: string): StreamEvent {
  * the projection, and tells SSE subscribers. The stream is the primary source;
  * a poll on the session catches turns Cujo did not start (Contract 6,
  * "a resume apps/cujo did not send is still tracked").
+ *
+ * One session serves every run on a PR, so a run must know which turns are
+ * its own: the id of each turn Cujo creates is recorded before its first
+ * event, and turns recorded by another run on the session are never adopted.
  */
 export class Runner {
   private readonly states = new Map<string, RunState>();
@@ -63,9 +69,10 @@ export class Runner {
     if (!s) {
       s = {
         events: [],
-        cujoResumeTurnIds: new Set(),
+        cujoResumeTurnIds: new Set(this.store.listCujoTurns(runId)),
         subscribedTurnIds: new Set(),
         pollTimer: null,
+        superseded: false,
       };
       this.states.set(runId, s);
     }
@@ -82,12 +89,17 @@ export class Runner {
   private refold(runId: string): Projection {
     const s = this.state(runId);
     const projection = fold(s.events, { cujoResumeTurnIds: s.cujoResumeTurnIds });
+    if (s.superseded) projection.status = "superseded";
+    const run = this.store.getRun(runId);
+    // The run may have recorded a turn whose turn.created has not arrived yet.
+    for (const turnId of run?.turnIds ?? []) {
+      if (!projection.turnIds.includes(turnId)) projection.turnIds.push(turnId);
+    }
     this.store.putProjection(runId, projection);
     const patch: Parameters<Store["updateRun"]>[1] = {
       status: projection.status,
       turnIds: projection.turnIds,
     };
-    const run = this.store.getRun(runId);
     if (projection.externalResume && run && !run.approver) {
       patch.approver = "external";
       patch.decidedAt = new Date().toISOString();
@@ -110,14 +122,33 @@ export class Runner {
     return true;
   }
 
-  /** The turn the run is on, from the newest turn.created seen. */
+  /** Record a turn as the run's own before any of its events arrive. */
+  private adoptTurn(runId: string, turnId: string): void {
+    this.state(runId).subscribedTurnIds.add(turnId);
+    const run = this.store.getRun(runId);
+    if (run && !run.turnIds.includes(turnId)) {
+      this.store.updateRun(runId, { turnIds: [...run.turnIds, turnId] });
+    }
+  }
+
+  /** The turn the run is on: the newest turn.created seen, else the last recorded. */
   private currentTurnId(runId: string): string | null {
     const s = this.state(runId);
     for (let i = s.events.length - 1; i >= 0; i -= 1) {
       const e = s.events[i];
       if (e?.type === "turn.created") return e.turnId;
     }
-    return null;
+    return this.store.getRun(runId)?.turnIds.at(-1) ?? null;
+  }
+
+  /** Turns recorded by other runs on the same session; never this run's. */
+  private foreignTurnIds(run: RunRecord): Set<string> {
+    const foreign = new Set<string>();
+    for (const other of this.store.listRunsForSession(run.sessionId)) {
+      if (other.id === run.id) continue;
+      for (const turnId of other.turnIds) foreign.add(turnId);
+    }
+    return foreign;
   }
 
   /**
@@ -127,7 +158,6 @@ export class Runner {
    * One watchdog covers the whole sequence.
    */
   async consume(runId: string, stream: AsyncIterable<StreamEvent>): Promise<void> {
-    const s = this.state(runId);
     let projection: Projection | null = null;
     let sawTerminal = false;
     let timedOut = false;
@@ -151,7 +181,6 @@ export class Runner {
 
     try {
       let current: AsyncIterable<StreamEvent> | null = stream;
-      let attempt = 0;
       while (current && !timedOut) {
         try {
           await drain(current);
@@ -161,6 +190,9 @@ export class Runner {
           current = null;
           const turnId = this.currentTurnId(runId);
           const run = this.store.getRun(runId);
+          // The budget is per drop: a stream that recovers earns a fresh one,
+          // and the watchdog bounds the whole sequence.
+          let attempt = 0;
           while (attempt < this.retryDelaysMs.length && turnId && run && !timedOut) {
             const delay = this.retryDelaysMs[attempt] ?? 0;
             attempt += 1;
@@ -186,19 +218,70 @@ export class Runner {
     else if (this.isTerminal(projection.status)) this.stopPolling(runId);
   }
 
-  /** Start a run's first turn and fold it in the background. */
-  start(run: RunRecord, message: string): void {
-    void this.harness
-      .startTurn(run.sessionId, message)
-      .then((stream) => this.consume(run.id, stream))
-      .catch((error) => {
-        console.error(`run ${run.id}: could not start turn`, error);
-        this.push(
-          run.id,
-          errorTurnDone(`cujo-start-error-${Date.now()}`, `could not start turn: ${String(error)}`),
-        );
-        this.refold(run.id);
-      });
+  /**
+   * Subscribe to a recorded turn and consume it. The subscribe happens inside
+   * the stream so a failure takes the same resubscribe path as a drop.
+   */
+  private follow(runId: string, sessionId: string, turnId: string): Promise<void> {
+    const harness = this.harness;
+    async function* lazy(): AsyncIterable<StreamEvent> {
+      yield* await harness.subscribe(sessionId, turnId);
+    }
+    return this.consume(runId, lazy());
+  }
+
+  /** End a run that never got a turn: the webhook could not prepare it. */
+  fail(runId: string, message: string): void {
+    this.push(runId, errorTurnDone(`cujo-start-error-${Date.now()}`, message));
+    this.refold(runId);
+  }
+
+  /**
+   * A newer head on the same PR replaced this run. The run stops following
+   * its turn, no decision can be made on it (the decision claim requires
+   * blocked_pending), and a turn still running on the harness is cancelled
+   * so it cannot post a review for a stale head. Resolves once the cancel
+   * has been sent, so the caller can start the newer head's turn after it.
+   */
+  async supersede(runId: string): Promise<void> {
+    const s = this.state(runId);
+    if (s.superseded) return;
+    s.superseded = true;
+    this.stopPolling(runId);
+    const run = this.store.getRun(runId);
+    const live = run && run.turnIds.length > 0 && !this.isTerminal(run.status);
+    this.refold(runId);
+    if (!live) return;
+    try {
+      await this.harness.cancelTurn(run.sessionId);
+    } catch (error) {
+      // Already finished, or the harness is unreachable: nothing to cancel.
+      console.warn(`run ${runId}: cancel after supersede failed`, error);
+    }
+  }
+
+  /**
+   * Start a run's first turn and fold it to the end. The turn is recorded as
+   * the run's own before the subscribe, so a failed subscribe or a restart
+   * in between can recover it instead of treating the run as turnless.
+   */
+  async start(run: RunRecord, message: string): Promise<void> {
+    if (this.store.getRun(run.id)?.status !== "running" || this.state(run.id).superseded) return;
+    let turnId: string;
+    try {
+      turnId = await this.harness.startTurn(run.sessionId, message);
+    } catch (error) {
+      console.error(`run ${run.id}: could not start turn`, error);
+      this.fail(run.id, `could not start turn: ${String(error)}`);
+      return;
+    }
+    this.adoptTurn(run.id, turnId);
+    if (this.state(run.id).superseded) {
+      // Replaced while the turn was being created; do not let it run on.
+      await this.harness.cancelTurn(run.sessionId).catch(() => {});
+      return;
+    }
+    await this.follow(run.id, run.sessionId, turnId);
   }
 
   /**
@@ -220,40 +303,33 @@ export class Runner {
       return { ok: false, reason: "already decided" };
     }
     this.stopPolling(runId);
-    let stream: AsyncIterable<StreamEvent>;
+    let turnId: string;
     try {
-      stream = await this.harness.resume(view.run.sessionId, view.projection.approval, decision);
+      turnId = await this.harness.resume(view.run.sessionId, view.projection.approval, decision);
     } catch (error) {
       this.store.clearDecision(runId);
       this.startPolling(runId);
       return { ok: false, reason: `resume failed: ${String(error)}` };
     }
-    // The resume turn's id is only known from its turn.created event, so mark
-    // it as Cujo's own the moment it appears.
-    const marked = this.markFirstTurnAsOwn(runId, stream);
-    void this.consume(runId, marked).then(() => this.refold(runId));
+    // Cujo's own resume, recorded before the subscribe and before its
+    // turn.created, so the fold never mistakes it for an external one, on
+    // this process or after a restart.
+    this.state(runId).cujoResumeTurnIds.add(turnId);
+    this.store.addCujoTurn(runId, turnId);
+    this.adoptTurn(runId, turnId);
+    void this.follow(runId, view.run.sessionId, turnId).then(() => this.refold(runId));
     return { ok: true };
-  }
-
-  private async *markFirstTurnAsOwn(
-    runId: string,
-    stream: AsyncIterable<StreamEvent>,
-  ): AsyncIterable<StreamEvent> {
-    const s = this.state(runId);
-    for await (const event of stream) {
-      if (event.type === "turn.created") s.cujoResumeTurnIds.add(event.turnId);
-      yield event;
-    }
   }
 
   /**
    * Select the events that belong to this run from the whole session: the
-   * run's first turn and every turn chained to it by previousTurnId. A run
-   * with no recorded turn yet starts at the first turn created after the run.
+   * run's recorded turns and every turn chained to them by previousTurnId,
+   * except turns another run on the session recorded as its own.
    */
   static selectRunEvents(
     run: RunRecord,
     items: { turnId: string; event: SessionEvent }[],
+    foreignTurnIds: ReadonlySet<string> = new Set(),
   ): { events: SessionEvent[]; turnIds: Set<string> } {
     const own = new Set<string>(run.turnIds);
     const events: SessionEvent[] = [];
@@ -261,8 +337,7 @@ export class Runner {
       const event = item.event;
       if (event.type === "turn.created" && !own.has(event.turnId)) {
         const chained = event.previousTurnId !== null && own.has(event.previousTurnId);
-        const starts = own.size === 0 && event.createdAt >= run.createdAt;
-        if (chained || starts) own.add(event.turnId);
+        if (chained && !foreignTurnIds.has(event.turnId)) own.add(event.turnId);
       }
       if (own.has(item.turnId)) events.push(event);
     }
@@ -272,24 +347,21 @@ export class Runner {
   /** Rebuild from the session's persisted events after a restart. */
   async rehydrate(run: RunRecord): Promise<void> {
     const s = this.state(run.id);
+    if (run.turnIds.length === 0) {
+      // The process died between the claim and the turn. Nothing on the
+      // session is known to be this run's; a redelivery re-claims the head.
+      this.fail(run.id, "run lost before its turn started");
+      return;
+    }
     const items = await this.harness.listEvents(run.sessionId);
-    const { events, turnIds } = Runner.selectRunEvents(run, items);
+    const { events, turnIds } = Runner.selectRunEvents(run, items, this.foreignTurnIds(run));
     s.events = events;
     s.subscribedTurnIds = new Set(turnIds);
     const projection = this.refold(run.id);
     const last = s.events.at(-1);
-    if (projection.status === "running" && last && last.type !== TERMINAL_EVENT) {
+    if (projection.status === "running" && (!last || last.type !== TERMINAL_EVENT)) {
       const turnId = projection.turnIds.at(-1);
-      if (turnId) {
-        void this.harness
-          .subscribe(run.sessionId, turnId)
-          .then((stream) => this.consume(run.id, stream))
-          .catch((error) => {
-            console.error(`run ${run.id}: resubscribe after restart failed`, error);
-            this.push(run.id, errorTurnDone(`cujo-rehydrate-${Date.now()}`, "turn stream lost"));
-            this.refold(run.id);
-          });
-      }
+      if (turnId) void this.follow(run.id, run.sessionId, turnId);
     } else if (projection.status === "blocked_pending") {
       this.startPolling(run.id);
     }
@@ -319,14 +391,15 @@ export class Runner {
     try {
       const turns = await this.harness.listTurns(run.sessionId);
       const lastKnown = run.turnIds.at(-1);
+      const foreign = this.foreignTurnIds(run);
       const next = turns.find(
-        (t) => t.previousTurnId === lastKnown && !s.subscribedTurnIds.has(t.id),
+        (t) =>
+          t.previousTurnId === lastKnown && !s.subscribedTurnIds.has(t.id) && !foreign.has(t.id),
       );
       if (!next) return;
-      s.subscribedTurnIds.add(next.id);
+      this.adoptTurn(runId, next.id);
       this.stopPolling(runId);
-      const stream = await this.harness.subscribe(run.sessionId, next.id);
-      await this.consume(runId, stream);
+      await this.follow(runId, run.sessionId, next.id);
     } catch (error) {
       console.error(`run ${runId}: poll failed`, error);
     }
