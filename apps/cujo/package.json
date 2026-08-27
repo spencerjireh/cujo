@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:int": "vitest run --config vitest.contract.config.ts"
   },
   "dependencies": {
     "@cujo/gh-app-auth": "workspace:*",

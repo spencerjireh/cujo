@@ -40,3 +40,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -f apps/${{ matrix.service }}/Dockerfile -t cujo-${{ matrix.service }}:ci .
+
+  # Harness contract tests: a real TrueForge server and github-mcp from the
+  # compose file, a stub model provider in the test process.
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: corepack enable
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: make test-int-up
+      - run: make test-int
+      - if: always()
+        run: |
+          docker compose -p cujo-int -f docker-compose.yml -f docker-compose.test.yml logs server github-mcp | tail -200
+          make test-int-down

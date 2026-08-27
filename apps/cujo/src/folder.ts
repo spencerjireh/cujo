@@ -66,17 +66,36 @@ export function parseReport(text: string): unknown | null {
   return null;
 }
 
-function parseReview(call: TrueForgeApi.ChatCompletionMessageToolCall): DraftedReview | null {
-  if (!REVIEW_TOOLS.has(call.function.name)) return null;
+const CALL_TOOL = "call_tool";
+
+/**
+ * The review tool call, whichever way the harness exposed the tool to the
+ * model: directly by name, or through TrueForge's `call_tool` meta-tool
+ * (`{mcp_server, tool_name, input}`), which is what the server does by
+ * default (contract test: "a review goes through call_tool").
+ */
+export function parseReview(
+  call: TrueForgeApi.ChatCompletionMessageToolCall,
+): DraftedReview | null {
   let args: Record<string, unknown> = {};
   try {
     args = JSON.parse(call.function.arguments) as Record<string, unknown>;
   } catch {
     // A review with unparseable arguments still counts as a drafted review.
   }
+  let tool = call.function.name;
+  if (tool === CALL_TOOL) {
+    if (typeof args.tool_name !== "string") return null;
+    tool = args.tool_name;
+    args = (args.input && typeof args.input === "object" ? args.input : {}) as Record<
+      string,
+      unknown
+    >;
+  }
+  if (!REVIEW_TOOLS.has(tool)) return null;
   const comments = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];
   return {
-    tool: call.function.name as DraftedReview["tool"],
+    tool: tool as DraftedReview["tool"],
     toolCallId: call.id,
     body: typeof args.body === "string" ? args.body : "",
     comments,
@@ -186,8 +205,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           break;
         }
         if (p.approval) {
-          if (p.gatedResponseSeen) p.status = "blocked_posted";
-          else if (p.decision === "deny") p.status = "denied";
+          // A denied call still gets a tool.response (the refusal), so the
+          // decision is checked before the response.
+          if (p.decision === "deny") p.status = "denied";
+          else if (p.gatedResponseSeen) p.status = "blocked_posted";
           else if (p.decision === "allow") {
             p.status = "error";
             p.error = "approval allowed but the review tool never responded";
