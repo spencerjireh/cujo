@@ -42,7 +42,21 @@ function blockedView(): RunView {
     toolCallId: "c1",
     body: "b",
     comments: [{ path: "a.py", line: 3, body: "off by one" }],
+    findings: [],
   };
+  projection.hardRuleHits = [
+    {
+      source: "hard_rule",
+      check: "tests",
+      severity: "critical",
+      title: "1 test passes on base and fails on head",
+      evidence: "t_a",
+    },
+  ];
+  projection.findings = [
+    ...projection.hardRuleHits,
+    { source: "agent", check: "smoke", severity: "info", title: "boots", evidence: "200" },
+  ];
   projection.approval = { threadId: "main", toolCallId: "c1", sourceEventId: "mm-1" };
   return {
     run: {
@@ -93,7 +107,12 @@ describe("api", () => {
       id: "r1",
       status: "blocked_pending",
       turn_ids: ["t1"],
-      findings: [{ path: "a.py", line: 3, body: "off by one" }],
+      findings: [
+        { source: "hard_rule", severity: "critical", check: "tests" },
+        { source: "agent", severity: "info", check: "smoke" },
+      ],
+      hard_rule_hits: [{ severity: "critical" }],
+      review: { comments: [{ path: "a.py", line: 3, body: "off by one" }] },
       approval: { threadId: "main", toolCallId: "c1" },
       external_resume: false,
     });

@@ -3,7 +3,9 @@
  * answers /v1/chat/completions (streaming and not) with a canned reply built
  * from the last user message, so a TrueForge turn completes without a real
  * model. A message containing SLOW is answered after a delay, which is how
- * the tests hold a turn open long enough to cancel it.
+ * the tests hold a turn open long enough to cancel it. A message `SAY <text>`
+ * is answered with that text verbatim, which is how a sub-agent spawned by
+ * the stub ends with a check report.
  */
 
 import { type Server, createServer } from "node:http";
@@ -90,7 +92,8 @@ export async function startStubModel(): Promise<StubModel> {
     const lastUser = messages.map((m) => m.role).lastIndexOf("user");
     const toolResultSeen = messages.slice(lastUser + 1).some((m) => m.role === "tool");
     const call = toolResultSeen ? null : plannedCall(prompt, body.tools);
-    const reply = toolResultSeen ? "posted" : `echo: ${prompt}`;
+    const say = /SAY ([\s\S]*)$/.exec(prompt);
+    const reply = toolResultSeen ? "posted" : say?.[1] ? say[1] : `echo: ${prompt}`;
     const id = `chatcmpl-${Date.now()}`;
     const created = Math.floor(Date.now() / 1000);
     const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };

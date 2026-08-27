@@ -283,3 +283,25 @@ for a commit nobody is looking at. The webhook confirms the head with GitHub
 rather than trusting delivery order, because a delayed delivery for an older
 commit can arrive after the newer one. Chosen over keeping both runs live,
 which would let a human approve a blocking review on a stale SHA.
+
+## 21. The hard rules are re-derived in `apps/cujo`, not only in the rubric
+
+Contract 3 calls Layer 1 "deterministic, code", but until this decision the
+rules lived in two places that are both untrusted at the moment of judgment:
+prose in `agent/SKILL.md` that the model applies, and `derived` booleans that
+`sniff.py` computes inside the sandbox. `apps/cujo` now reads every check
+report as its `thread.done` arrives and derives the hard-rule findings itself
+(`apps/cujo/src/findings.ts`), so a `critical` the sensors recorded cannot be
+reasoned away or dropped between the sandbox and the review. The agent's own
+findings ride on the review tool call as `findings[]` and are merged after the
+hard-rule ones.
+
+What `apps/cujo` cannot do is stop the advisory review from posting:
+`post_advisory_review` is deliberately ungated. So when the agent posts an
+advisory review while a hard rule has tripped, the run ends `error` with the
+rule named, not `clean`. Chosen over gating the advisory tool too (every review
+would then wait for a human, which is the product's value lost) and over
+re-posting a blocking review from `apps/cujo` (that would make `apps/cujo` a
+second author of reviews and break "one review per turn"). The rubric still
+carries the rules so the common case takes the blocking path on its own; the
+trusted-side check is the tripwire behind the tripwire.

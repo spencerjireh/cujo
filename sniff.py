@@ -558,6 +558,9 @@ def sensor_env(config: dict[str, Any]) -> dict[str, str]:
         "NO_PROXY": "",
         "PYTHONPATH": pythonpath,
         "CUJO_AUDIT_LOG": str(paths["audit_log"]),
+        # Marks a sensed process as running inside Cujo's sandbox. The demo
+        # sample (evil-package) keeps its payload inert unless this is set.
+        "CUJO_SANDBOX": "1",
     }
 
 

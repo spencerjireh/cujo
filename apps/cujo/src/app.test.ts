@@ -83,6 +83,10 @@ describe("host dispatch", () => {
 
   it("requires an Access assertion on every UI route", async () => {
     const { app } = build();
+    expect((await app.fetch(req(UI, "/"))).status).toBe(401);
+    const page = await app.fetch(req(UI, "/", { headers: { "cf-access-jwt-assertion": "good" } }));
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
     expect((await app.fetch(req(UI, "/runs"))).status).toBe(401);
     const ok = await app.fetch(
       req(UI, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
