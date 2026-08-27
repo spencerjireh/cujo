@@ -36,7 +36,11 @@ const pad = size * 0.1;
 const width = (box.x2 - box.x1 + pad * 2).toFixed(1);
 const height = (box.y2 - box.y1 + pad * 2).toFixed(1);
 const d = path.toPathData(2);
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${(box.x1 - pad).toFixed(1)} ${(box.y1 - pad).toFixed(1)} ${width} ${height}" role="img" aria-label="${text}">
+const label = text.replace(
+  /[&<>"]/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+);
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${(box.x1 - pad).toFixed(1)} ${(box.y1 - pad).toFixed(1)} ${width} ${height}" role="img" aria-label="${label}">
   <path fill="currentColor" d="${d}"/>
 </svg>
 `;

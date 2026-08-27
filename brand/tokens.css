@@ -13,7 +13,7 @@
   --sev-critical: #b8321c;
   --sev-critical-bg: #f6dcd6;
   --sev-high: #8f5d00;
-  --sev-high-bg: #f3e3c2;
+  --sev-high-bg: #f8ecd6;
   --sev-medium: #6f5a00;
   --sev-medium-bg: #efe8bf;
   --sev-low: #6a6259;
@@ -63,8 +63,8 @@
     --sev-high-bg: #3a2c0a;
     --sev-medium: #e6cf4a;
     --sev-medium-bg: #35300f;
-    --sev-low: #8f877c;
-    --sev-low-bg: #26231f;
+    --sev-low: #958d82;
+    --sev-low-bg: #211e1a;
     --sev-info: #66b0f0;
     --sev-info-bg: #14283a;
   }
@@ -87,8 +87,8 @@
   --sev-high-bg: #3a2c0a;
   --sev-medium: #e6cf4a;
   --sev-medium-bg: #35300f;
-  --sev-low: #8f877c;
-  --sev-low-bg: #26231f;
+  --sev-low: #958d82;
+  --sev-low-bg: #211e1a;
   --sev-info: #66b0f0;
   --sev-info-bg: #14283a;
 }
