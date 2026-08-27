@@ -12,6 +12,11 @@ from a design choice.
   were verified by reading the TrueForge source (SDK 0.1.3) on 2026-08-27; the
   file paths cited there are in that repo at that date.
 
+- Contract 7's Discord facts — the message endpoints, the `allowed_mentions`
+  shape, the embed character limits, and the 429 body — were read from
+  docs.discord.com on 2026-08-27. They restate public documentation; the live
+  docs win if they diverge.
+
 Everything else in `docs/` — architecture, spec, decisions, demo — is Cujo's own
 design, not a quoted source.
 
@@ -22,3 +27,5 @@ design, not a quoted source.
 - TrueForge repo — https://github.com/truefoundry/trueforge
 - TrueForge docs index — https://trueforge.dev/llms.txt
 - WeMakeDevs Discord (support) — https://discord.gg/wemakedevs
+- Discord message resource — https://docs.discord.com/developers/resources/message
+- Discord rate limits — https://docs.discord.com/developers/topics/rate-limits
