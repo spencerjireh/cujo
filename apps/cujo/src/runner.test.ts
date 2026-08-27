@@ -128,14 +128,54 @@ describe("Runner.start", () => {
       yield reviewCall("c1");
       yield turnDone("t1");
     }
-    const startTurn = vi.fn(async () => ({ turnId: "t1", stream: stream() }));
-    const runner = new Runner(store, { startTurn } as unknown as Harness, {
+    const startTurn = vi.fn(async () => "t1");
+    const subscribe = vi.fn(async () => stream());
+    const runner = new Runner(store, { startTurn, subscribe } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.start(r, "review it");
     expect(startTurn).toHaveBeenCalledWith("s", "review it");
+    expect(subscribe).toHaveBeenCalledWith("s", "t1");
     expect(seenAtFirstEvent).toEqual(["t1"]);
     expect(store.getRun(r.id)).toMatchObject({ status: "clean", turnIds: ["t1"] });
+  });
+
+  it("keeps the turn and resubscribes when the first subscribe fails", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const events = [
+      turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ];
+    const subscribe = vi.fn(async () => streamOf(events));
+    let recordedBeforeSubscribe: string[] = [];
+    subscribe.mockImplementationOnce(async () => {
+      recordedBeforeSubscribe = store.getRun(r.id)?.turnIds ?? [];
+      throw new Error("subscribe failed");
+    });
+    const runner = new Runner(
+      store,
+      { startTurn: async () => "t1", subscribe } as unknown as Harness,
+      { turnTimeoutMs: 10_000, retryDelaysMs: [0] },
+    );
+    await runner.start(r, "review it");
+    expect(recordedBeforeSubscribe).toEqual(["t1"]);
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(store.getRun(r.id)).toMatchObject({ status: "clean", turnIds: ["t1"] });
+  });
+
+  it("does not create a turn for a run that is no longer running", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const startTurn = vi.fn();
+    const runner = new Runner(store, { startTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    await runner.supersede(r.id);
+    await runner.start(r, "review it");
+    expect(startTurn).not.toHaveBeenCalled();
+    expect(store.getRun(r.id)?.status).toBe("superseded");
   });
 
   it("ends the run in error, with no turn, when the harness refuses the turn", async () => {
@@ -154,11 +194,14 @@ describe("Runner.start", () => {
 });
 
 describe("Runner.supersede", () => {
-  it("moves a blocked run to superseded and refuses a decision on it", async () => {
+  it("moves a blocked run to superseded, cancels its turn, and refuses a decision", async () => {
     const store = new Store(":memory:");
     const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
     const resume = vi.fn();
-    const runner = new Runner(store, { resume } as unknown as Harness, { turnTimeoutMs: 10_000 });
+    const cancelTurn = vi.fn(async () => {});
+    const runner = new Runner(store, { resume, cancelTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
     await runner.consume(
       r.id,
       streamOf([
@@ -168,13 +211,33 @@ describe("Runner.supersede", () => {
       ]),
     );
     expect(store.getRun(r.id)?.status).toBe("blocked_pending");
-    runner.supersede(r.id);
+    await runner.supersede(r.id);
+    expect(cancelTurn).toHaveBeenCalledWith("s");
     expect(store.getRun(r.id)?.status).toBe("superseded");
     expect(store.getProjection(r.id)?.status).toBe("superseded");
     const decision = await runner.approve(r.id, "allow", "a@x");
     expect(decision.ok).toBe(false);
     expect(resume).not.toHaveBeenCalled();
     runner.stopAll();
+  });
+
+  it("sends no cancel for a run that has no turn, and survives a failed cancel", async () => {
+    const store = new Store(":memory:");
+    const a = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h1", sessionId: "s" }).run;
+    const b = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h2", sessionId: "s" }).run;
+    store.updateRun(b.id, { turnIds: ["t2"] });
+    const cancelTurn = vi.fn(async () => {
+      throw new Error("no running turn");
+    });
+    const runner = new Runner(store, { cancelTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    await runner.supersede(a.id);
+    expect(cancelTurn).not.toHaveBeenCalled();
+    await runner.supersede(b.id);
+    expect(cancelTurn).toHaveBeenCalledTimes(1);
+    expect(store.getRun(a.id)?.status).toBe("superseded");
+    expect(store.getRun(b.id)?.status).toBe("superseded");
   });
 });
 
@@ -260,8 +323,11 @@ describe("Runner.approve", () => {
   async function blocked() {
     const store = new Store(":memory:");
     const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
-    const resume = vi.fn(async () => ({ turnId: "t2", stream: streamOf([]) }));
-    const runner = new Runner(store, { resume } as unknown as Harness, { turnTimeoutMs: 10_000 });
+    const resume = vi.fn(async () => "t2");
+    const subscribe = vi.fn(async () => streamOf([]));
+    const runner = new Runner(store, { resume, subscribe } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
     await runner.consume(
       r.id,
       streamOf([
@@ -271,7 +337,7 @@ describe("Runner.approve", () => {
       ]),
     );
     expect(store.getRun(r.id)?.status).toBe("blocked_pending");
-    return { store, runner, resume, id: r.id };
+    return { store, runner, resume, subscribe, id: r.id };
   }
 
   it("resumes once and rejects a second decision", async () => {
@@ -296,18 +362,20 @@ describe("Runner.approve", () => {
   });
 
   it("records its own resume turn so the fold does not call it external", async () => {
-    const { store, runner, resume, id } = await blocked();
+    const { store, runner, subscribe, id } = await blocked();
     const approval: TrueForgeApi.TurnInputItem = {
       type: "user.tool_approval",
       threadId: "main",
       toolCallId: "c1",
       approval: { status: "allow" },
     };
-    resume.mockResolvedValueOnce({
-      turnId: "t2",
-      stream: streamOf([turnCreated("t2", "t1", "2026-08-27T10:05:00Z", [approval])]),
+    let recordedBeforeSubscribe: string[] = [];
+    subscribe.mockImplementationOnce(async () => {
+      recordedBeforeSubscribe = store.listCujoTurns(id);
+      return streamOf([turnCreated("t2", "t1", "2026-08-27T10:05:00Z", [approval])]);
     });
     expect((await runner.approve(id, "allow", "a@x")).ok).toBe(true);
+    await vi.waitFor(() => expect(recordedBeforeSubscribe).toEqual(["t2"]));
     await vi.waitFor(() => expect(store.getRun(id)?.turnIds).toEqual(["t1", "t2"]));
     expect(store.listCujoTurns(id)).toEqual(["t2"]);
     expect(store.getProjection(id)?.externalResume).toBe(false);

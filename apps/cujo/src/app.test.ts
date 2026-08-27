@@ -16,9 +16,22 @@ function fakeRunner(store: Store): Runner {
     start: vi.fn(async () => {}),
     approve: vi.fn(),
     fail: vi.fn((runId: string) => store.updateRun(runId, { status: "error" })),
-    supersede: vi.fn((runId: string) => store.updateRun(runId, { status: "superseded" })),
+    supersede: vi.fn(async (runId: string) => {
+      store.updateRun(runId, { status: "superseded" });
+    }),
   } as unknown as Runner;
 }
+
+const prOf = (headSha: string) => ({
+  repo: "o/r",
+  prNumber: 7,
+  title: "t",
+  body: "",
+  baseSha: "b",
+  headSha,
+  cloneUrl: "https://github.com/o/r.git",
+  changedFiles: ["a.py"],
+});
 
 function build(overrides: Partial<{ runner: Runner; github: GitHubReader }> = {}) {
   const store = new Store(":memory:");
@@ -30,16 +43,7 @@ function build(overrides: Partial<{ runner: Runner; github: GitHubReader }> = {}
     overrides.github ??
     ({
       alreadyReviewed: vi.fn(async () => false),
-      pullRequest: vi.fn(async () => ({
-        repo: "o/r",
-        prNumber: 7,
-        title: "t",
-        body: "",
-        baseSha: "b",
-        headSha: "h",
-        cloneUrl: "https://github.com/o/r.git",
-        changedFiles: ["a.py"],
-      })),
+      pullRequest: vi.fn(async () => prOf("h")),
     } as unknown as GitHubReader);
   const app = createApp({
     uiHost: UI,
@@ -225,16 +229,7 @@ describe("webhook", () => {
 
   it("ends a run whose preparation fails and lets a redelivery re-claim the head", async () => {
     const pullRequest = vi.fn().mockRejectedValueOnce(new Error("502 from GitHub"));
-    pullRequest.mockResolvedValue({
-      repo: "o/r",
-      prNumber: 7,
-      title: "t",
-      body: "",
-      baseSha: "b",
-      headSha: "h",
-      cloneUrl: "https://github.com/o/r.git",
-      changedFiles: ["a.py"],
-    });
+    pullRequest.mockResolvedValue(prOf("h"));
     const github = {
       alreadyReviewed: vi.fn(async () => false),
       pullRequest,
@@ -257,25 +252,51 @@ describe("webhook", () => {
     expect(store.getRun(firstId)).toBeNull();
   });
 
+  const headPayload = (sha: string) =>
+    JSON.stringify({
+      action: "synchronize",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: { head: { sha } },
+    });
+
   it("supersedes the unfinished run of an older head when a newer one arrives", async () => {
-    const { app, runner, store, nextSettled } = build();
+    const pullRequest = vi.fn(async () => prOf("h"));
+    const github = { alreadyReviewed: async () => false, pullRequest } as unknown as GitHubReader;
+    const { app, runner, store, nextSettled } = build({ github });
     let done = nextSettled();
     const first = (await (await deliver(app)).json()) as { run_id: string };
     await done;
     store.updateRun(first.run_id, { status: "blocked_pending" });
 
-    const newer = JSON.stringify({
-      action: "synchronize",
-      number: 7,
-      repository: { full_name: "o/r" },
-      pull_request: { head: { sha: "h2" } },
-    });
+    // GitHub now reports h2 as the head.
+    pullRequest.mockResolvedValue(prOf("h2"));
     done = nextSettled();
-    const second = (await (await deliver(app, newer)).json()) as { run_id: string };
+    const second = (await (await deliver(app, headPayload("h2"))).json()) as { run_id: string };
     await done;
     expect(runner.supersede).toHaveBeenCalledWith(first.run_id);
     expect(runner.supersede).not.toHaveBeenCalledWith(second.run_id);
     expect(store.getRun(first.run_id)?.status).toBe("superseded");
     expect(runner.start).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a delayed delivery for an older head replace the current run", async () => {
+    // GitHub's head is h2 throughout; the h1 delivery arrives late.
+    const pullRequest = vi.fn(async () => prOf("h2"));
+    const github = { alreadyReviewed: async () => false, pullRequest } as unknown as GitHubReader;
+    const { app, runner, store, nextSettled } = build({ github });
+    let done = nextSettled();
+    const current = (await (await deliver(app, headPayload("h2"))).json()) as { run_id: string };
+    await done;
+    expect(runner.start).toHaveBeenCalledOnce();
+
+    done = nextSettled();
+    const stale = (await (await deliver(app, headPayload("h1"))).json()) as { run_id: string };
+    await done;
+    expect(runner.supersede).toHaveBeenCalledWith(stale.run_id);
+    expect(runner.supersede).not.toHaveBeenCalledWith(current.run_id);
+    expect(store.getRun(stale.run_id)?.status).toBe("superseded");
+    expect(store.getRun(current.run_id)?.status).toBe("running");
+    expect(runner.start).toHaveBeenCalledOnce();
   });
 });

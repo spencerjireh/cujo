@@ -52,6 +52,17 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
         return;
       }
       const pr = await deps.github.pullRequest(run.repo, run.prNumber);
+      // Delivery order is not commit order: a delayed delivery for an older
+      // head must not replace the run for the head GitHub reports now.
+      if (pr.headSha !== run.headSha) {
+        await deps.runner.supersede(run.id);
+        return;
+      }
+      // This is the current head, so a review of any older head is stale.
+      const scope = { repo: run.repo, prNumber: run.prNumber };
+      for (const old of deps.store.listUnfinishedRuns(scope)) {
+        if (old.id !== run.id) await deps.runner.supersede(old.id);
+      }
       await deps.runner.start(run, buildTurnMessage(pr));
     } catch (error) {
       // The run ends in error with no turn, which lets a redelivery re-claim
@@ -96,11 +107,6 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
     if (!created) {
       return c.json({ ok: true, ignored: "duplicate delivery", run_id: run.id }, 200);
     }
-    // A review of an older head is stale the moment a newer one exists.
-    for (const old of deps.store.listUnfinishedRuns({ repo, prNumber })) {
-      if (old.id !== run.id) deps.runner.supersede(old.id);
-    }
-
     void prepare(run);
     return c.json({ ok: true, run_id: run.id }, 202);
   });
