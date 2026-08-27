@@ -1,6 +1,6 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { Runner } from "./runner";
+import { ANY_RUN, type RunView, Runner } from "./runner";
 import { Store } from "./store";
 import type { Harness, StreamEvent } from "./trueforge";
 import type { RunRecord } from "./types";
@@ -138,6 +138,37 @@ describe("Runner.start", () => {
     expect(subscribe).toHaveBeenCalledWith("s", "t1");
     expect(seenAtFirstEvent).toEqual(["t1"]);
     expect(store.getRun(r.id)).toMatchObject({ status: "clean", turnIds: ["t1"] });
+  });
+
+  it("tells a process-wide subscriber about every run, and survives one that throws", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const events = [
+      turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ];
+    const runner = new Runner(
+      store,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => streamOf(events),
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+    );
+    const perRun: (RunView | null)[] = [];
+    const anyRun: (RunView | null)[] = [];
+    runner.changes.on(r.id, (v: RunView | null) => perRun.push(v));
+    runner.changes.on(ANY_RUN, (v: RunView | null) => anyRun.push(v));
+    // A subscriber must never be able to fail a run: emit() is synchronous and
+    // would otherwise rethrow into the fold.
+    runner.changes.on(ANY_RUN, () => {
+      throw new Error("subscriber exploded");
+    });
+    await runner.start(r, "review it");
+    expect(anyRun).toEqual(perRun);
+    expect(anyRun.at(-1)?.run.status).toBe("clean");
+    expect(store.getRun(r.id)).toMatchObject({ status: "clean" });
   });
 
   it("keeps the turn and resubscribes when the first subscribe fails", async () => {

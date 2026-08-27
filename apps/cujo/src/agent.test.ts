@@ -88,6 +88,21 @@ describe("buildAgentSpec", () => {
     });
   });
 
+  it("carries no server-side secret into the spec the sandbox runs under", () => {
+    // The spec defines the session the sandbox runs in, so it is the one place
+    // a secret could cross the trust boundary. buildAgentSpec takes only the
+    // two fields it needs, which is what keeps this true.
+    const withSecrets = {
+      ...config,
+      discordBotToken: "SENTINEL-DISCORD-TOKEN",
+      githubAppPrivateKey: "SENTINEL-PEM",
+      githubWebhookSecret: "SENTINEL-HMAC",
+    } as unknown as Config;
+    const serialized = JSON.stringify(buildAgentSpec(withSecrets, "rubric {{CUJO_SNIFF_URL}}"));
+    expect(serialized).not.toContain("SENTINEL");
+    expect(serialized).not.toContain("discordBotToken");
+  });
+
   it("loads the real rubric, which carries the sensor URL placeholder", () => {
     const rubric = loadRubric();
     expect(rubric).toContain("{{CUJO_SNIFF_URL}}");

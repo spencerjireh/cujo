@@ -48,6 +48,10 @@ The split between deterministic code and agent reasoning is fixed:
   not observed. A network-namespace or iptables redirect inside the sandbox
   closes that gap later.
 - Remediation (a fix PR on `critical`) is a stretch, not a requirement.
+- Approving a blocking review from Discord. Contract 7 notifies; it does not
+  decide. The design leaves room for an interactions endpoint on the webhook
+  host, but the button is not built and approval stays behind Cloudflare
+  Access (decision 23).
 
 ## Contract 1 — the trigger
 
@@ -442,6 +446,8 @@ The API `apps/cujo` serves on `cujo.spencerjireh.com`:
 | `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
 | `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
 
+The `/discord/*` routes on the same host are Contract 7.
+
 One process serves two hostnames, so the split between them is enforced in the
 process, not only at the edge:
 
@@ -463,6 +469,145 @@ process, not only at the edge:
 Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
 subagent was given the review tool, which the design forbids. `apps/cujo` logs
 it, marks the run `error`, and does not offer an approve button for it.
+
+## Contract 7 — Discord notifications
+
+A review that blocks a pull request is only useful if someone finds out. Cujo
+posts to a Discord channel as a bot, so a team sees a run start, sees it land,
+and is told once — loudly — when a run is waiting on a human.
+
+The feature is optional and off by default. Without `DISCORD_BOT_TOKEN` the
+service runs exactly as before and posts nothing.
+
+**What is configuration and what is data.** The bot token is a secret and lives
+in the environment. The repo-to-channel binding is operator data and lives in
+the run store behind the API, so adding a repo needs no redeploy and the write
+can be validated against Discord (decision 24). One repo binds to at most one
+channel, with an optional `notify_role_id` the ping mentions. A repo with no
+binding is never notified.
+
+**One card per run, edited in place.** Every run gets one message, posted when
+the run first reaches a status worth showing and rewritten on each later status
+change. A push to the pull request starts a new run (Contract 5), so it gets
+its own card and the earlier run's card is rewritten to say it was superseded.
+
+| Status | Colour | The card says | Fields |
+|--------|--------|---------------|--------|
+| `running` | blurple | Review running. | `Head`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
+| `clean` | green | No critical finding; the advisory review posted. | `Checks`, `Findings` (counts by severity), `Summary`. |
+| `blocked_pending` | yellow | Blocked, waiting for a human. | Up to three critical findings with their anchor and a clipped line of evidence, then `Checks`. Also sends the ping below. |
+| `blocked_posted` | red | The blocking review posted, and who decided. | Critical findings, `Checks`. |
+| `denied` | grey | The block was rejected; nothing was posted. | Critical findings, `Checks`. |
+| `error` | orange | The run ended in error. | `Error`. |
+| `superseded` | dark grey | Replaced by a newer commit. | `Head` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
+
+Two runs get no card at all: a run whose repo has no binding, and an `error`
+run with no turn. The second is the "lost before its turn started" case, which
+a webhook redelivery re-claims under a fresh run id (Contract 6) — a card for
+it would sit in the channel beside the real one.
+
+**The ping.** A Discord edit notifies nobody, so the one moment that needs a
+person cannot be an edit. On `blocked_pending` Cujo posts a second, short
+message that mentions `notify_role_id` and links to the run, and edits that
+message to "resolved" once the run leaves `blocked_pending`. With no role
+configured it still posts, without a mention: a new message is what raises the
+channel's unread mark, which is the entire point.
+
+Both ping steps are deduped on their own durable marker rather than on the
+run's status, because the card is written first and a matching status would
+otherwise hide outstanding work. The ping is sent at most once per run, keyed
+on its message id, so a crash between the card and the ping still sends it. The
+resolving edit is keyed on its own flag, so a failed edit is retried on the
+next event and after a restart — otherwise a channel could keep showing an
+actionable "needs a human" alert for a run nobody can decide any more. The role
+a ping mentions is only used when the repo is still bound to the channel the
+run's card lives in; a repo re-bound to another server mid-run gets a ping with
+no mention rather than one naming a role that server never had.
+
+**Every string in a payload is attacker-controlled** (decision 26). The PR
+title comes from GitHub, and finding titles, evidence, the summary and the
+error were written by a model that had just read the code in a stranger's pull
+request. So, without exception:
+
+1. Every payload carries `allowed_mentions: {"parse": []}`. Without it a pull
+   request titled `@everyone` pings the server. The ping's own mention is the
+   one exception, and it is an explicit `roles: [id]` for the configured role,
+   never a parsed one.
+2. Derived text is markdown-escaped (`` \ ` * _ ~ | [ ] ( ) ``), so nothing
+   renders as formatting and no `[label](url)` becomes a live link.
+3. Escaping the link syntax is not enough, because Discord also linkifies a
+   bare web address and an `<https://…>` autolink and a backslash stops
+   neither. So the scheme and the bare `www.` form are defanged —
+   `http[:]//example.com` — before the escape pass, which keeps the address
+   readable as evidence and unclickable. The only real URL on a card is the
+   run's own link.
+4. Control characters and the zero-width and bidi ranges are **removed**, not
+   escaped. A bidi override can render "not critical" as "critical"; escaping
+   does not stop that, only deletion does.
+5. Every string is truncated by code point, not UTF-16 unit, so a clipped emoji
+   cannot leave a lone surrogate. Limits: content 2000, embed title 256,
+   description 4096, field value 1024, footer 2048, 25 fields.
+6. The 6000-character total across an embed is a hard clamp, not a hope. Fields
+   are dropped in reverse priority until the payload fits. Exceeding it is a
+   400 that loses the card for the whole run, since every later edit then has
+   no message id to edit.
+7. No derived string is ever written into an embed URL field.
+8. The ping's `content` is structural only — the repo (validated when the
+   channel was bound), the PR number, and Cujo's own link.
+
+**Delivery is at-least-once, and never blocks a run.** A failed send is logged
+and dropped; nothing about a run's status, review, or approval depends on
+Discord. Sends run on one serial queue, so an edit cannot overtake the create
+it depends on and a fan-out across many pull requests cannot exceed Discord's
+global rate. A 429 is retried once against `retry_after`. A `PATCH` answered
+`10008` (Unknown Message) means the card was deleted, and a fresh one is
+posted. A crash between Discord's 200 and the store write costs a duplicate
+card rather than a missed one; Discord has no idempotency key, and that is the
+safe direction. The channel is pinned to the run when its card is created, so
+re-pointing a repo mid-run cannot edit a message into a channel that never held
+it.
+
+The API `apps/cujo` serves on `cujo.spencerjireh.com`, behind the same Access
+check as every other route in Contract 6:
+
+| Route | Returns or does |
+|-------|-----------------|
+| `GET /discord/channels` | Every binding, and `configured`: whether a bot token is set at all. |
+| `PUT /discord/channels/:owner/:name` | Body `{channel_id, notify_role_id?}`. Validates against Discord, then stores the binding with the guild and channel name Discord reported. |
+| `DELETE /discord/channels/:owner/:name` | Removes the binding. 404 when there was none. |
+| `GET /discord/guilds` | The servers the bot is in, so a picker need not ask for a raw id. |
+| `GET /discord/guilds/:id/channels` | That server's postable channels, in channel order. |
+
+The repo is two path segments rather than one, because `owner/name` holds a
+slash and `%2F` is handled differently by the router, the proxy, and `curl`.
+It is stored lower-cased: GitHub repo names are case-insensitive and
+`repository.full_name` carries whatever casing the owner typed, so a binding
+typed by hand would otherwise silently never match.
+
+The write is validated because a wrong id would otherwise fail silently at the
+first blocked run: `channel_id` must be a Discord id, the bot must be able to
+read the channel, and the channel must be a guild text or announcement channel
+in a server. A channel the bot cannot read and a channel that does not exist
+give the **same** answer on purpose — the difference would let an operator
+probe channels across all of Discord — and the real status is logged instead.
+A `notify_role_id` is checked against the server's roles, so "the ping mentions
+nobody" becomes an error at bind time.
+
+Reading a channel is not permission to post an embed in it, so the write also
+resolves the bot's effective permissions there — its roles, then the channel's
+overwrites applied `@everyone` first, then the union of the bot's role
+overwrites, then its own, with `Administrator` short-circuiting — and refuses
+the binding unless View Channel, Send Messages and Embed Links all survive. A
+channel-level deny would otherwise bind cleanly and then fail on every run,
+which is exactly the silent failure this route exists to prevent.
+
+The three routes that call Discord answer 503 with no token configured; the two
+that only read and write the store still work.
+
+**The token stays on the server.** `DISCORD_BOT_TOKEN` is held by `apps/cujo`
+alone. It is not in the agent spec, not in the turn message, not in any command
+that reaches the sandbox, and it never appears in an error message or a log
+line. Nothing on the notification path touches the sandbox at all.
 
 ## Stretch — remediation
 

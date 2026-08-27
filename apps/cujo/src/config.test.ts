@@ -41,6 +41,24 @@ describe("loadConfig", () => {
     expect(config.sniffUrl).toContain("sniff.py");
   });
 
+  it("treats an empty Discord token as no token, which is what compose sends", () => {
+    // docker-compose passes an unset optional as `${X:-}`, so the process sees
+    // the empty string rather than an absent variable.
+    expect(loadConfig(base).discordBotToken).toBeNull();
+    expect(loadConfig({ ...base, DISCORD_BOT_TOKEN: "" }).discordBotToken).toBeNull();
+    expect(loadConfig({ ...base, DISCORD_BOT_TOKEN: "tok" }).discordBotToken).toBe("tok");
+  });
+
+  it("derives the UI base URL from the UI host, and lets it be overridden", () => {
+    expect(loadConfig(base).uiBaseUrl).toBe("https://cujo.spencerjireh.com");
+    expect(loadConfig({ ...base, CUJO_UI_BASE_URL: "" }).uiBaseUrl).toBe(
+      "https://cujo.spencerjireh.com",
+    );
+    expect(loadConfig({ ...base, CUJO_UI_BASE_URL: "http://cujo.localhost:8080/" }).uiBaseUrl).toBe(
+      "http://cujo.localhost:8080",
+    );
+  });
+
   it("parses the model provider list and registers it only with a URL and a key", () => {
     const config = loadConfig({
       ...base,
