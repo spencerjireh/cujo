@@ -236,6 +236,12 @@ Two layers decide severity, in order.
 - `derived.egress_to_unknown_host` on the `detonation` check — an install
   called a host that is neither a package index nor allowlisted.
 
+The hard rules are tripwires, not proofs of absence. Each fires only on
+positive evidence a sensor recorded, so a sensor gap (a direct socket the
+proxy did not see) can produce a missed `critical`, never a false one. A
+`false` in the sensor block means "not observed," and Layer 2 treats it that
+way.
+
 **Layer 2 — the agent judges the rest** against the rubric carried as its
 instructions (the `SKILL.md`):
 
