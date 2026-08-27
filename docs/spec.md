@@ -609,6 +609,92 @@ alone. It is not in the agent spec, not in the turn message, not in any command
 that reaches the sandbox, and it never appears in an error message or a log
 line. Nothing on the notification path touches the sandbox at all.
 
+## Contract 8 — the `/cujo` slash command
+
+Contract 7 routes notifications; deciding where they go was an operator's job
+over the Access-gated API. That put the fiddly part — which channel, which
+role — in the wrong place, behind a login the people who care about the channel
+may not have. This contract moves that choice into Discord without moving the
+decision that matters.
+
+**Two tiers** (decision 27). They answer different questions and carry
+different authority:
+
+| Tier | Question | Who decides | Where |
+|------|----------|-------------|-------|
+| Authorization | Which repos may this Discord server see at all? | An operator, identified by a Cloudflare Access email | `PUT /discord/authorizations/:guildId/:owner/:name` on the UI host |
+| Binding | Which channel, and which role gets pinged? | A member with Manage Server | `/cujo` in that server |
+
+So the reach of a server is always a decision with an email attached to it,
+recorded in `authorized_by`, and everything inside that reach is self-serve.
+A binding records who made it too: an email, or `discord:<user id>`.
+
+Revoking an authorization also drops the binding it permitted. Leaving the
+channel bound would keep a server receiving reviews it may no longer see.
+
+**The command.** One `/cujo` with four subcommands, so a server gets one entry
+in the picker. `channel:` and `role:` are Discord's own option types, which
+render as native pickers; `repo:` is completed from the repos the Cujo App is
+installed on, narrowed to the ones this server is authorized for, so the list
+doubles as the answer to "what can I bind here".
+
+| Subcommand | Does |
+|------------|------|
+| `/cujo watch repo channel [role]` | Sends that repo's cards to that channel, pinging that role when a review blocks. |
+| `/cujo unwatch repo` | Stops sending them. |
+| `/cujo status` | What this server is authorized for, and where each repo currently goes. |
+| `/cujo test repo` | Posts a sample card to the bound channel. It exercises the token, the channel permissions and the rendering at once, which nothing else can do without waiting for a real pull request. |
+
+Every reply is ephemeral, so configuring makes no noise in the channel.
+
+**The gates, in order.** A command is refused unless all of these hold, and the
+reply says which one failed:
+
+1. It came from a server, not a direct message.
+2. The invoker has Manage Server. Discord enforces this itself through
+   `default_member_permissions`, which hides the command from everyone below
+   the bar — but a server admin can change that default, so the handler checks
+   the interaction's own `member.permissions` as well. A permission check that
+   lives only on the client is not a permission check.
+3. The server is authorized for the repo (tier one above).
+4. For `watch`: the channel is in **this** server, is a text or announcement
+   channel, and the bot has View Channel, Send Messages and Embed Links there,
+   resolved through the overwrites exactly as Contract 7's bind route does. The
+   channel option comes from this server's own picker, but a request is a
+   request; nothing stops a crafted one naming a channel somewhere else.
+5. For `watch` with a role: the role is in this server.
+
+**Transport.** `POST /discord/interactions` on `cujo-ingress.spencerjireh.com`,
+the same host as the GitHub webhook and for the same reason (decision 7):
+Discord cannot solve a Cloudflare Access challenge. It is signature-gated
+ingress, so the UI host answers 404 for it, in the process and not only at the
+edge.
+
+Each request is verified with Ed25519 over `timestamp + rawBody`, from
+`X-Signature-Ed25519` and `X-Signature-Timestamp`, against the application's
+public key in `DISCORD_PUBLIC_KEY`. That is a different value from the bot
+token, and it is checked on the raw body before anything is parsed. An invalid
+signature is **401** — Discord probes the endpoint with a deliberately bad
+signature when the URL is saved and refuses it unless it answers exactly that.
+A `PING` is answered with a `PONG`.
+
+Discord allows three seconds to respond and a bind needs several Discord round
+trips, so a command is answered immediately with a deferred ephemeral reply and
+filled in when the work is done. Autocomplete cannot be deferred, so the repo
+list is cached and a slow or failing GitHub read falls back to the repos Cujo
+already knows about rather than showing an empty picker.
+
+Commands are registered per server at startup, with a full replace, so a
+definition cannot drift from the code across deploys and a change is visible at
+once (decision 28). A server the bot joins later gets its commands at the next
+start.
+
+**What this endpoint may not do.** It routes notifications. It cannot approve a
+blocking review, and it must not be extended to, because that would swap a
+policy-verified email for Discord channel membership on the one action the
+whole product gates. Contract 4 and decision 23 own that decision; this one
+does not reopen it.
+
 ## Stretch — remediation
 
 If hackathon time allows, add a third gated tool `open_remediation_pr`: on a

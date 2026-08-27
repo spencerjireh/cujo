@@ -32,6 +32,7 @@ sandbox is thrown away afterwards.
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
 | **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). Optional: with no bot token the service runs and says nothing. |
+| **`/cujo` command** | The other half, also in `apps/cujo`. A server a Cujo operator has authorized for a repo picks its own channel and ping role from inside Discord (Contract 8). Slash commands over an HTTP interactions endpoint, not a gateway. It routes notifications and nothing else — approval stays in the Cujo UI. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
 
 ## The trust boundary
@@ -115,6 +116,7 @@ Every crossing, with what it carries and what protects it:
 | `github-mcp` → GitHub | REST API | The review: summary body plus inline comments, as `cujo-guard[bot]` | Installation token minted from the App private key |
 | Human → `apps/cujo` | HTTPS through Cloudflare Access on `cujo.spencerjireh.com` | Reads runs, check cards, findings, the drafted review. Writes one thing: approve or reject | Email OTP; the approve route checks the Access JWT and records the approver |
 | `apps/cujo` → TrueForge | HTTP on the compose network | `createTurn` with `user.tool_approval {allow \| deny}`, then `subscribeToTurn`; the turn resumes | Internal |
+| Discord → `apps/cujo` | HTTPS to `cujo-ingress.spencerjireh.com` | A `/cujo` interaction: the server, the invoking member and their permissions, and the chosen repo, channel and role (Contract 8) | Ed25519 over `timestamp + rawBody`, verified against `DISCORD_PUBLIC_KEY`; an invalid signature is 401 |
 | `apps/cujo` → Discord | HTTPS to `discord.com/api/v10` | One card per run, edited in place: repo, PR number, status, check names, finding titles and evidence, and the run's Cujo link. Every derived string escaped, stripped of bidi, truncated, and mention-suppressed (Contract 7) | `Authorization: Bot`; `DISCORD_BOT_TOKEN`, held only by `apps/cujo` and never near the sandbox |
 
 ## The approval path
@@ -201,9 +203,12 @@ Coolify in a single `docker-compose` project so the services share a network.
   (decision 17).
 - **`postgres` + `redis`** — TrueForge hosted-mode state.
 - **`cujo`** — the `apps/cujo` service on two hostnames.
-  `https://cujo-ingress.spencerjireh.com` carries only the webhook route, with
-  no Access policy, since GitHub cannot solve an OTP challenge; the HMAC
-  signature protects it. `https://cujo.spencerjireh.com` carries the Cujo UI
+  `https://cujo-ingress.spencerjireh.com` carries the two signature-gated
+  ingress routes, with no Access policy, since neither GitHub nor Discord can
+  solve an OTP challenge: `/webhook`, protected by the HMAC signature, and
+  `/discord/interactions`, protected by Ed25519 (Contract 8). That URL is what
+  the Discord application's Interactions Endpoint is set to.
+  `https://cujo.spencerjireh.com` carries the Cujo UI
   and API behind Access; this is where a human sees a paused run and approves
   a block. A volume holds its SQLite run store. It needs outbound HTTPS to
   `api.github.com` and, when Discord is configured, to `discord.com`; with no
