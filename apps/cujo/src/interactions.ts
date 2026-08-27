@@ -43,8 +43,11 @@ const AUTOCOMPLETE_RESULT = 8;
 /** Only the invoker sees the reply, so configuring makes no channel noise. */
 const EPHEMERAL = 1 << 6;
 
-/** Discord's own cap on an autocomplete response. */
+/** Discord's own caps: choices per response, and the length of each. */
 const MAX_CHOICES = 25;
+const MAX_CHOICE_LENGTH = 100;
+/** And on the content of a message, which a deferred reply is. */
+const MAX_CONTENT = 2000;
 
 /**
  * Autocomplete cannot be deferred and Discord allows three seconds, so a cold
@@ -161,10 +164,15 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
     }
 
     if (command?.name === "unwatch") {
-      const removed = deps.store.deleteDiscordChannel(normalized);
-      return removed
-        ? `Stopped sending \`${normalized}\` review updates here.`
-        : `\`${normalized}\` was not being sent anywhere.`;
+      // A binding is global to the repo, so a server may only take down its
+      // own: otherwise one authorized server could silence another's reviews.
+      const existing = deps.store.getDiscordChannel(normalized);
+      if (!existing) return `\`${normalized}\` was not being sent anywhere.`;
+      if (existing.guildId !== guildId) {
+        return `\`${normalized}\` is being sent to another server. A Cujo operator can move it.`;
+      }
+      deps.store.deleteDiscordChannel(normalized);
+      return `Stopped sending \`${normalized}\` review updates here.`;
     }
     if (command?.name === "watch") {
       return watch(deps, { guildId, userId, repo: normalized, command });
@@ -259,11 +267,17 @@ async function repoChoices(
   // rather than showing an empty picker.
   const candidates = installed.length > 0 ? installed : [...authorized];
   const typed = focusedValue(interaction).toLowerCase();
-  return candidates
-    .filter((repo) => authorized.has(repo.toLowerCase()))
-    .filter((repo) => repo.toLowerCase().includes(typed))
-    .slice(0, MAX_CHOICES)
-    .map((repo) => ({ name: repo, value: repo }));
+  return (
+    candidates
+      .filter((repo) => authorized.has(repo.toLowerCase()))
+      .filter((repo) => repo.toLowerCase().includes(typed))
+      // A choice value must be the exact repo, and Discord caps it at 100
+      // characters, so a longer name cannot be offered — it can still be
+      // typed, and the bind accepts it.
+      .filter((repo) => repo.length <= MAX_CHOICE_LENGTH)
+      .slice(0, MAX_CHOICES)
+      .map((repo) => ({ name: repo, value: repo }))
+  );
 }
 
 function status(deps: InteractionDeps, guildId: string): string {
@@ -279,7 +293,26 @@ function status(deps: InteractionDeps, guildId: string): string {
     const role = binding.notifyRoleId ? `, pinging <@&${binding.notifyRoleId}>` : "";
     return `• \`${authorization.repo}\` → <#${binding.channelId}>${role}`;
   });
-  return lines.join("\n");
+  return fitLines(lines);
+}
+
+/**
+ * Discord refuses a message over 2000 characters, and a deferred reply that
+ * fails leaves the invoker staring at "thinking" forever. So a long list is
+ * cut with a count rather than sent whole.
+ */
+function fitLines(lines: string[]): string {
+  const kept: string[] = [];
+  let length = 0;
+  for (const line of lines) {
+    const tail = `\n…and ${lines.length - kept.length} more`;
+    if (length + line.length + 1 + tail.length > MAX_CONTENT) {
+      return `${kept.join("\n")}${tail}`;
+    }
+    kept.push(line);
+    length += line.length + 1;
+  }
+  return kept.join("\n");
 }
 
 async function watch(
@@ -289,6 +322,22 @@ async function watch(
   const channelId = optionValue(input.command, "channel");
   if (!channelId) return "Pick a channel.";
   const roleId = optionValue(input.command, "role");
+
+  // One repo notifies one channel (Contract 7), so a repo another authorized
+  // server already claimed is not this server's to redirect.
+  const existing = deps.store.getDiscordChannel(input.repo);
+  if (existing?.guildId && existing.guildId !== input.guildId) {
+    return `\`${input.repo}\` is already being sent to another server. A Cujo operator can move it.`;
+  }
+
+  // A repo the App is not installed on can be bound and then never notified,
+  // which is the silent failure the rest of this route exists to prevent. Only
+  // refuse on a list Cujo actually managed to read: GitHub being down is not a
+  // reason to block a bind.
+  const installed = await deps.github.installedRepos().catch(() => null);
+  if (installed && !installed.some((repo) => repo.toLowerCase() === input.repo)) {
+    return `Cujo's GitHub App is not installed on \`${input.repo}\`, so it would never have anything to send.`;
+  }
 
   const channel = await deps.discord.getChannel(channelId).catch(() => null);
   if (!channel) return "Cujo cannot see that channel.";
@@ -317,6 +366,12 @@ async function watch(
     return `Cujo needs View Channel, Send Messages and Embed Links in <#${channelId}>.`;
   }
 
+  // Re-checked here, not only at the top: the Discord round trips above are
+  // awaits, and an operator revoking this server in the meantime must not end
+  // with a binding written for a server that may no longer see the repo.
+  if (!deps.store.isGuildAuthorized(input.guildId, input.repo)) {
+    return `This server is no longer authorized for \`${input.repo}\`.`;
+  }
   deps.store.putDiscordChannel({
     repo: input.repo,
     channelId,

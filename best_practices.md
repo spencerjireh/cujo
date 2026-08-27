@@ -18,4 +18,10 @@ this file when reviewing pull requests; keep the two in sync.
   stdlib-only and the rubric runs it with the sandbox's `python3`, because the
   sandbox image is not ours and does not carry `uv`.
 - Never install `evil-package` outside the Daytona sandbox — it is an intentional
-  malicious sample.
+  malicious sample. Keep the name out of `apps/` and `packages/` entirely, tests
+  included, so the tripwire stays a tripwire.
+- Schema changes in `apps/cujo`: prefer a new table. To alter one that already
+  exists in the deployed database, append to `MIGRATIONS` in `store.ts` — never
+  edit a past entry, and never change a `CREATE TABLE` in place, which applies
+  to a fresh database and silently not to a live one
+  (see `docs/decisions.md` 25 and 29).

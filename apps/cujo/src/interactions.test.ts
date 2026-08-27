@@ -300,7 +300,7 @@ describe("interactions endpoint", () => {
   it("reports what this server watches, and what it merely may watch", async () => {
     const built = build();
     authorize(built.store);
-    authorize(built.store, "spencerjireh/evil-package");
+    authorize(built.store, "spencerjireh/other-repo");
     built.store.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
@@ -311,7 +311,7 @@ describe("interactions endpoint", () => {
     const content = await reply(built, command("status"));
     expect(content).toContain(`spencerjireh/orders-api\` → <#${CHANNEL}>`);
     expect(content).toContain(`<@&${ROLE}>`);
-    expect(content).toContain("evil-package` — authorized, not being sent anywhere");
+    expect(content).toContain("other-repo` — authorized, not being sent anywhere");
   });
 
   it("posts a sample card, and reports a channel it cannot post to", async () => {
@@ -393,6 +393,107 @@ describe("interactions endpoint", () => {
     });
     const body = (await res.json()) as { data: { choices: { value: string }[] } };
     expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
+  });
+
+  it("will not take a repo another authorized server already claimed", async () => {
+    const built = build();
+    authorize(built.store);
+    built.store.putDiscordChannel({
+      repo: "spencerjireh/orders-api",
+      channelId: "888888888888888888",
+      guildId: "999999999999999999",
+      channelName: "theirs",
+      notifyRoleId: null,
+    });
+    const watched = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(watched).toContain("another server");
+    // And it cannot silence them either.
+    const unwatched = await reply(
+      built,
+      command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+    );
+    expect(unwatched).toContain("another server");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")?.channelId).toBe(
+      "888888888888888888",
+    );
+  });
+
+  it("re-checks authorization after the Discord round trips, not only before", async () => {
+    const built = build();
+    authorize(built.store);
+    // Revoked while `watch` was awaiting Discord.
+    built.discord.listRoles.mockImplementationOnce(async () => {
+      built.store.revokeGuildRepo(GUILD, "spencerjireh/orders-api");
+      return [{ id: GUILD, name: "@everyone", permissions: CAN_POST }];
+    });
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain("no longer authorized");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("refuses a repo the GitHub App is not installed on", async () => {
+    const built = build({ repos: ["spencerjireh/something-else"] });
+    authorize(built.store);
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain("not installed");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("still binds when GitHub cannot be reached", async () => {
+    const built = build();
+    authorize(built.store);
+    built.github.installedRepos.mockRejectedValueOnce(new Error("github is down"));
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain(`<#${CHANNEL}>`);
+  });
+
+  it("keeps a long status reply under Discord's message limit", async () => {
+    const built = build();
+    for (let i = 0; i < 200; i++) authorize(built.store, `spencerjireh/repo-${i}`);
+    const content = await reply(built, command("status"));
+    expect(content.length).toBeLessThanOrEqual(2000);
+    expect(content).toContain("more");
+  });
+
+  it("never offers a repo name Discord would refuse as a choice", async () => {
+    const long = `spencerjireh/${"x".repeat(120)}`;
+    const built = build({ repos: ["spencerjireh/orders-api", long] });
+    authorize(built.store);
+    authorize(built.store, long);
+    const res = await post(built.app, {
+      type: 4,
+      application_id: "app1",
+      token: "tok",
+      guild_id: GUILD,
+      data: { name: "cujo", options: [{ type: 1, name: "watch", options: [] }] },
+    });
+    const body = (await res.json()) as { data: { choices: { value: string }[] } };
+    expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
+    for (const choice of body.data.choices) expect(choice.value.length).toBeLessThanOrEqual(100);
   });
 
   it("refuses to act outside a server", async () => {
