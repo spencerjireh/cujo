@@ -303,9 +303,10 @@ event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
 from the `model.message` event that `source_event_id` names, marks the run
 `blocked_pending`, and shows the review with the findings and the evidence in
 the Cujo UI. A human approves or rejects there. `apps/cujo` resumes the turn
-with `sessions.createTurnStream(sessionId, {input: [{type:
+with `sessions.createTurn(sessionId, {input: [{type:
 'user.tool_approval', threadId: 'main', toolCallId, approval: {status:
-'allow' | 'deny'}}]})`. On `allow` the blocking review posts as
+'allow' | 'deny'}}]})` and then `subscribeToTurn` on the returned id, which it
+records as its own before any event arrives. On `allow` the blocking review posts as
 `cujo-guard[bot]`. On `deny` the agent posts nothing and ends the turn; the
 rubric says so explicitly, so a denied block never degrades into an advisory
 review nobody asked for.
