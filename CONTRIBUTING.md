@@ -59,7 +59,7 @@ Why the change is needed, not what the diff already shows.
   `test`. Mark a breaking change with `!` after the type or a
   `BREAKING CHANGE:` footer.
 - `scope` is optional and names the part touched: `cujo`, `github-mcp`,
-  `gh-app-auth`, `sniff`, `compose`, `docs`.
+  `gh-app-auth`, `sniff`, `compose`, `docs`, `brand`.
 - The summary is imperative, lower-case, has no trailing period, and fits in
   72 characters. `feat(cujo): add HMAC check to the webhook`, not
   `Added HMAC checking.`

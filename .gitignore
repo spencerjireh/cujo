@@ -3,6 +3,7 @@
 .playwright-mcp/
 # Local working screenshots from setup, not part of the project
 *.png
+!brand/**/*.png
 
 # Node / TypeScript
 node_modules/
@@ -15,3 +16,6 @@ coverage/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
+# brand render output
+brand/logo/png/

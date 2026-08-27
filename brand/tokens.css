@@ -1,0 +1,94 @@
+/* Cujo brand tokens. Source of truth: brand/tokens.json. Light on :root, dark under the guarded blocks. */
+:root {
+  --bg: #f5f1ea;
+  --bg-raised: #fcfaf6;
+  --fg: #1c1917;
+  --fg-muted: #6a6259;
+  --line: #d9d2c6;
+
+  --accent: #8f5d00;
+  --accent-fill: #b57600;
+  --accent-fg: #f5f1ea;
+
+  --sev-critical: #b8321c;
+  --sev-critical-bg: #f6dcd6;
+  --sev-high: #8f5d00;
+  --sev-high-bg: #f3e3c2;
+  --sev-medium: #6f5a00;
+  --sev-medium-bg: #efe8bf;
+  --sev-low: #6a6259;
+  --sev-low-bg: #e6e0d6;
+  --sev-info: #1d62a3;
+  --sev-info-bg: #d6e4f3;
+
+  --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.5rem;
+  --text-3xl: 3.5rem;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f0e0c;
+    --bg-raised: #1a1815;
+    --fg: #ede6da;
+    --fg-muted: #a39b90;
+    --line: #2c2924;
+
+    --accent: #f2a900;
+    --accent-fill: #f2a900;
+    --accent-fg: #0f0e0c;
+
+    --sev-critical: #ff5c45;
+    --sev-critical-bg: #3a1a15;
+    --sev-high: #f2a900;
+    --sev-high-bg: #3a2c0a;
+    --sev-medium: #e6cf4a;
+    --sev-medium-bg: #35300f;
+    --sev-low: #8f877c;
+    --sev-low-bg: #26231f;
+    --sev-info: #66b0f0;
+    --sev-info-bg: #14283a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f0e0c;
+  --bg-raised: #1a1815;
+  --fg: #ede6da;
+  --fg-muted: #a39b90;
+  --line: #2c2924;
+
+  --accent: #f2a900;
+  --accent-fill: #f2a900;
+  --accent-fg: #0f0e0c;
+
+  --sev-critical: #ff5c45;
+  --sev-critical-bg: #3a1a15;
+  --sev-high: #f2a900;
+  --sev-high-bg: #3a2c0a;
+  --sev-medium: #e6cf4a;
+  --sev-medium-bg: #35300f;
+  --sev-low: #8f877c;
+  --sev-low-bg: #26231f;
+  --sev-info: #66b0f0;
+  --sev-info-bg: #14283a;
+}
