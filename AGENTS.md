@@ -70,7 +70,14 @@ thing GitHub or a human touches:
   Cloudflare Access JWT as the second gate (`CUJO_DEV_NO_ACCESS=1` disables it
   locally). Approve resumes the paused turn with `user.tool_approval`.
 - `store.ts` loads `node:sqlite` at runtime, not by import, so vitest leaves it
-  alone.
+  alone. Its whole schema is one `CREATE TABLE IF NOT EXISTS` block with no
+  migration path, so additive change means a new table, never a new column
+  (decision 24).
+- `notifier.ts` keeps one Discord card per run and pings when a run blocks
+  (spec Contract 7). `discord.ts` is the REST client and `discord-card.ts` the
+  pure payload builder, where every derived string is escaped, stripped and
+  truncated. Optional: no `DISCORD_BOT_TOKEN`, no notifications. The agent has
+  no Discord tool, and the token never leaves `apps/cujo`.
 
 `apps/github-mcp` is a stateless Streamable HTTP MCP server with two tools:
 `post_advisory_review` and `post_blocking_review`. Only the blocking one is

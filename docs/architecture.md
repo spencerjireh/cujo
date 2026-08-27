@@ -31,6 +31,7 @@ sandbox is thrown away afterwards.
 | **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
+| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 22). Optional: with no bot token the service runs and says nothing. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
 
 ## The trust boundary
@@ -38,7 +39,8 @@ sandbox is thrown away afterwards.
 Two zones, with a narrow bridge between them.
 
 - **Trusted (our server):** the TrueForge harness, the Cujo agent and its API
-  keys, `apps/cujo`, and `github-mcp`. Secrets live here.
+  keys, `apps/cujo`, and `github-mcp`. Secrets live here, the Discord bot token
+  among them.
 - **Untrusted and disposable (the Daytona sandbox):** the PR's code, its
   dependencies, the check subagents' scripts, `sniff.py`, and the logging
   proxy.
@@ -61,6 +63,7 @@ flowchart LR
     GH[GitHub<br/>orders-api PRs]
     Human[Human reviewer<br/>browser]
     LLM[Model provider<br/>LLM API]
+    Discord[Discord channel<br/>bound to the repo]
   end
 
   subgraph server [Our server - compose network - secrets live here]
@@ -89,6 +92,9 @@ flowchart LR
   TF -- "commands" --> SB
   SB -- "JSON reports" --> TF
   SB -. "egress via proxy - logged" .-> Canary
+  %% Appended last on purpose: linkStyle below indexes edges by declaration
+  %% order, so inserting one earlier recolours the wrong arrows.
+  Cujo -- "card per run + ping<br/>bot token" --> Discord
 
   linkStyle 2,3,6,7 stroke:#b85c0b,stroke-width:2.5px
   style sandbox stroke-dasharray: 6 4
@@ -109,6 +115,7 @@ Every crossing, with what it carries and what protects it:
 | `github-mcp` → GitHub | REST API | The review: summary body plus inline comments, as `cujo-guard[bot]` | Installation token minted from the App private key |
 | Human → `apps/cujo` | HTTPS through Cloudflare Access on `cujo.spencerjireh.com` | Reads runs, check cards, findings, the drafted review. Writes one thing: approve or reject | Email OTP; the approve route checks the Access JWT and records the approver |
 | `apps/cujo` → TrueForge | HTTP on the compose network | `createTurn` with `user.tool_approval {allow \| deny}`, then `subscribeToTurn`; the turn resumes | Internal |
+| `apps/cujo` → Discord | HTTPS to `discord.com/api/v10` | One card per run, edited in place: repo, PR number, status, check names, finding titles and evidence, and the run's Cujo link. Every derived string escaped, stripped of bidi, truncated, and mention-suppressed (Contract 7) | `Authorization: Bot`; `DISCORD_BOT_TOKEN`, held only by `apps/cujo` and never near the sandbox |
 
 ## The approval path
 
@@ -198,7 +205,9 @@ Coolify in a single `docker-compose` project so the services share a network.
   no Access policy, since GitHub cannot solve an OTP challenge; the HMAC
   signature protects it. `https://cujo.spencerjireh.com` carries the Cujo UI
   and API behind Access; this is where a human sees a paused run and approves
-  a block. A volume holds its SQLite run store.
+  a block. A volume holds its SQLite run store. It needs outbound HTTPS to
+  `api.github.com` and, when Discord is configured, to `discord.com`; with no
+  `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
 
