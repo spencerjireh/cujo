@@ -9,6 +9,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cujo/gh-app-auth": "workspace:*"
+    "@cujo/gh-app-auth": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "3.25.76"
   }
 }

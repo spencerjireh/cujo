@@ -247,3 +247,19 @@ process TrueForge calls as a tool; folding it in would put the key in the
 public-facing service. The approve route validates the Cloudflare Access JWT
 (`Cf-Access-Jwt-Assertion`) so a direct request cannot skip the OTP, and
 records the approver's email on the run as the human-oversight audit trail.
+
+## 19. The sensor script reaches the sandbox by public URL, not by upload
+
+The agent fetches `sniff.py` with `curl` from `CUJO_SNIFF_URL`, the raw GitHub
+URL of this repo's `main`, before any check runs. Nothing on the server pushes
+the file in, so the trust boundary stays as decision 4 states it: the only
+things that enter the sandbox are the PR's public clone and Cujo's own script
+and commands, fetched without a credential. The cost is that a sandbox needs
+egress to `raw.githubusercontent.com` at setup, which is on the known-host list
+anyway. Pinning the URL to a commit instead of `main` is a one-variable change
+when the script is stable; during the hackathon `main` keeps the sandbox and
+the repo in step.
+
+The harness's own Git-backed skills would carry the rubric the same way, and
+are the natural next step: `agent/SKILL.md` is already in the skill format so
+registering it as a skill later is a bootstrap call, not a rewrite.

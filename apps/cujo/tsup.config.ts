@@ -5,7 +5,6 @@ export default defineConfig({
   format: ["esm"],
   target: "node24",
   clean: true,
-  // Bundle the workspace package into the output so the runtime image needs no
-  // node_modules.
-  noExternal: ["@cujo/gh-app-auth"],
+  // Bundle every dependency so the runtime image needs no node_modules.
+  noExternal: [/(.*)/],
 });

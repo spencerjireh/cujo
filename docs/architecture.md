@@ -28,7 +28,7 @@ sandbox is thrown away afterwards.
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
 | **`sniff.py`** | The in-sandbox sensor script. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
-| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. *(Currently the `apps/ingress` skeleton; the rename follows.)* |
+| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
@@ -200,10 +200,12 @@ Coolify in a single `docker-compose` project so the services share a network.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
 
-The hostname layout above is the target. The DNS records and the Access app for
-`cujo-harness.spencerjireh.com` exist; today `cujo.spencerjireh.com` still
-routes to TrueForge in Coolify, and pointing it at `apps/cujo` (and
-`cujo-harness` at TrueForge) is a Coolify change that lands with the service.
+The DNS records and the two Access apps exist, and Coolify routes
+`cujo-harness.spencerjireh.com` to `server`. The `cujo` service's two hostnames
+are attached in Coolify once this compose file is on `main`, because Coolify
+only offers domains for services it has parsed from the deployed file.
+Configuration reaches the services as environment variables set in Coolify;
+`.env.example` lists every name.
 
 The Coolify control plane runs on a separate host (netcup) that never executes
 untrusted code.

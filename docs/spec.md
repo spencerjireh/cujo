@@ -198,6 +198,18 @@ The sensors, layered from language-agnostic to language-specific:
   (including pip running `setup.py`), so it gives the richer `files_read` and
   `subprocesses` lists and a second, independent source for `decoy_read`.
 
+The block also carries `subprocesses[]` (from the audit hook) and a
+`sensitive` flag on each `fs_changes` entry, so the `derived` booleans can be
+traced to the rows that set them.
+
+`sniff.py` exposes the sensors as four commands the rubric (`agent/SKILL.md`)
+names: `setup` seeds the decoy, starts the proxy and the watcher, and prints
+the environment every later command must carry; `run --check NAME -- CMD...`
+wraps one command and prints its report with the sensor block; `detonate
+--dependency SPEC` is the detonation check; `teardown` stops the daemons. The
+agent fetches the script from `CUJO_SNIFF_URL`, a public raw URL of this repo,
+with no credential.
+
 `decoy_in_egress` stays `false` until TLS interception can confirm the value
 left the box. The `derived` block holds the booleans the hard rules read.
 `egress_to_unknown_host` is true when a host is neither a known package index

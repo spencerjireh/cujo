@@ -1,8 +1,9 @@
 # Cujo — stock TrueForge harness in hosted mode (Postgres + Redis, not SQLite).
 #
 # No ports are published here: the deploy runs behind a reverse proxy that
-# terminates TLS and routes the public origin to the `server` service on port
-# 8790. For a local run with ports on your host, use docker-compose.local.yml
+# terminates TLS and routes cujo-harness.spencerjireh.com to `server` (8790)
+# and cujo.spencerjireh.com plus cujo-ingress.spencerjireh.com to `cujo`
+# (8080). For a local run with ports on your host, use docker-compose.local.yml
 # (`make up-local`). Secrets come from the deploy environment, never this file.
 
 services:
@@ -69,16 +70,39 @@ services:
     stop_grace_period: 35s
     restart: unless-stopped
 
-  # Public webhook receiver (skeleton: /healthz only). Routed by Coolify/Traefik,
-  # so no published ports here. Hardened: non-root image, read-only rootfs, no
-  # extra capabilities.
-  ingress:
+  # The Cujo service: webhook receiver, run store, TrueForge event folder, UI and
+  # API, approve endpoint. Serves two hostnames from one process (spec Contract
+  # 6); Coolify/Traefik routes both here, so no published ports. Hardened:
+  # non-root image, read-only rootfs except the SQLite volume, no extra
+  # capabilities.
+  cujo:
     build:
       context: .
-      dockerfile: apps/ingress/Dockerfile
+      dockerfile: apps/cujo/Dockerfile
     environment:
       NODE_ENV: production
       PORT: 8080
+      TRUEFORGE_BASE_URL: http://server:8790
+      GITHUB_MCP_URL: http://github-mcp:8081/mcp
+      CUJO_DB_PATH: /data/cujo.db
+      CUJO_UI_HOST: ${CUJO_UI_HOST}
+      CUJO_WEBHOOK_HOST: ${CUJO_WEBHOOK_HOST}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
+      CUJO_MODEL: ${CUJO_MODEL}
+      CUJO_SNIFF_URL: ${CUJO_SNIFF_URL:-https://raw.githubusercontent.com/spencerjireh/cujo/main/sniff.py}
+      # Optional one-time bootstrap of the harness (model + sandbox providers).
+      # Leave unset to configure them in the operator console instead.
+      MODEL_PROVIDER_NAME: ${MODEL_PROVIDER_NAME:-}
+      MODEL_PROVIDER_BASE_URL: ${MODEL_PROVIDER_BASE_URL:-}
+      MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}
+      MODEL_PROVIDER_MODELS: ${MODEL_PROVIDER_MODELS:-}
+      DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
+    volumes:
+      - cujodata:/data
     read_only: true
     tmpfs:
       - /tmp
@@ -101,11 +125,13 @@ services:
     depends_on:
       server:
         condition: service_healthy
+      github-mcp:
+        condition: service_healthy
     restart: unless-stopped
 
-  # Internal MCP server the agent calls to post reviews (skeleton: /healthz only).
-  # Holds the GitHub App private key in the next milestone, so the same hardening
-  # applies.
+  # Internal MCP server the agent calls to post reviews. It is the only service
+  # that holds the GitHub App private key besides cujo, so the same hardening
+  # applies. Never routed by Traefik.
   github-mcp:
     build:
       context: .
@@ -113,6 +139,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8081
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
     read_only: true
     tmpfs:
       - /tmp
@@ -136,3 +164,4 @@ services:
 
 volumes:
   pgdata:
+  cujodata:
