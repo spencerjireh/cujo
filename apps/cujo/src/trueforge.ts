@@ -161,7 +161,8 @@ export class Harness {
   /** Every persisted event on the session's active branch, oldest first. */
   async listEvents(sessionId: string): Promise<{ turnId: string; event: SessionEvent }[]> {
     const items: { turnId: string; event: SessionEvent }[] = [];
-    const page = await this.client.sessions.listEvents(sessionId, { limit: 200 });
+    // 100 is the server's maximum page size; the SDK page walks the rest.
+    const page = await this.client.sessions.listEvents(sessionId, { limit: 100 });
     for await (const item of page) items.push({ turnId: item.turnId, event: item.event });
     // The API lists newest first.
     return items.reverse();
