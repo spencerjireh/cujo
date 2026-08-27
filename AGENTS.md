@@ -70,9 +70,15 @@ thing GitHub or a human touches:
   Cloudflare Access JWT as the second gate (`CUJO_DEV_NO_ACCESS=1` disables it
   locally). Approve resumes the paused turn with `user.tool_approval`.
 - `store.ts` loads `node:sqlite` at runtime, not by import, so vitest leaves it
-  alone. Its whole schema is one `CREATE TABLE IF NOT EXISTS` block with no
-  migration path, so additive change means a new table, never a new column
-  (decision 25).
+  alone. Its schema is one `CREATE TABLE IF NOT EXISTS` block plus an ordered
+  `MIGRATIONS` list applied by `PRAGMA user_version` (decision 29). Prefer a
+  new table; use a migration only to alter one that already exists in the
+  deployed database.
+- `interactions.ts` serves the `/cujo` slash command on the **webhook** host,
+  Ed25519-verified (spec Contract 8); `discord-commands.ts` is the command
+  definition. A server picks its own channel and role; which repos it may reach
+  is authorized by an operator over the Access-gated API. Nothing here approves
+  a review, and it must not grow that (decision 27).
 - `notifier.ts` keeps one Discord card per run and pings when a run blocks
   (spec Contract 7). `discord.ts` is the REST client and `discord-card.ts` the
   pure payload builder, where every derived string is escaped, stripped and

@@ -420,3 +420,77 @@ Access policy's membership, so a card discloses finding titles and evidence to
 a wider audience than the Cujo UI does. Private repos are a non-goal for this
 milestone, so everything on a card is already public. That stops being true the
 day private repos are in scope, and this is the entry to reopen.
+
+## 27. Two tiers: an operator authorizes a server, the server configures itself
+
+Decision 24 put the repo-to-channel binding behind Cloudflare Access, which
+made every routing change an operator's errand and put the choice behind a
+login the people who care about the channel may not have. Moving it wholesale
+into Discord would have replaced "an email that passes an Access policy" with
+"a member of a Discord server", and those are not the same principal: a member
+could point a repo at a channel only they are in and the team would quietly
+stop hearing that reviews were blocked.
+
+So the two questions are split. Which repos a server may reach is authorized by
+an operator over the Access-gated API and recorded with their email. Which
+channel and which role, inside that reach, is a `/cujo` command anyone with
+Manage Server can run. The annoying part moves to the people who feel the
+annoyance; the part worth an audit trail keeps one.
+
+Rejected: Manage Server alone, with the repo restricted to the App's
+installations. It is defensible today — Public Bot is off, so the only servers
+holding the bot are ones the owner invited — but it rests on a fact nothing in
+the system enforces or notices changing, and it would silently weaken the first
+time the bot joined a second server. Also rejected: a guild allowlist in the
+environment, which needs a redeploy per server and cannot express per-repo
+reach.
+
+Manage Server is enforced twice: Discord hides the command below that bar
+through `default_member_permissions`, and the handler re-checks the
+interaction's own `member.permissions`, because a server admin can change that
+default and a check that lives only on the client is not a check.
+
+What does not change: nobody approves a blocking review from Discord. The
+interactions endpoint now exists, which makes an Approve button a small diff,
+and that is exactly why Contract 8 says in writing that it must not be built
+without its own entry here. An interaction proves channel membership; the
+Access JWT proves an email against a policy and is what `approver` records
+(decision 23).
+
+## 28. Slash commands over the HTTP interactions endpoint, registered per server
+
+Discord can be talked to two ways: a gateway WebSocket, or an interactions
+endpoint it posts to. Decision 23 already rejected the gateway for
+notifications — a second always-on connection with its own reconnect state
+machine — and commands do not need it either: slash commands, autocomplete and
+deferred replies are all HTTP callbacks. So `/cujo` is a route on the existing
+Hono app, on the webhook host, verified with `node:crypto`'s Ed25519 and no new
+dependency.
+
+Registered per server rather than globally. A guild command appears the moment
+it is written where a global one takes up to an hour to propagate, which is the
+difference between a demo that works and one that does not. Registration is a
+full replace on every start, so a definition cannot drift from the code across
+deploys. The cost is that a server the bot joins later has no commands until the
+next start; registering both ways would cover that, but Discord treats a global
+and a guild command as separate, so `/cujo` would appear twice in the picker
+with identical descriptions, and that confusion is worse than the gap.
+
+## 29. The store gets a migration path, at the first change that needed one
+
+Decision 25 chose new tables over new columns because `apps/cujo` had no way to
+alter a table that already exists in a deployed database, and wrote down the
+shape of the fix for whoever needed it first. Recording who bound a repo to a
+channel is that change: `discord_channels` already ships, so `bound_by` had to
+be a column on it or a second table existing only to hold one string.
+
+The mechanism is the one that entry described. `PRAGMA user_version` — SQLite's
+own four-byte slot, so it needs no table — is read in the constructor, and each
+statement in an ordered, append-only list runs inside the transaction that
+bumps the version. A container killed mid-migration comes back either before or
+after a migration, never halfway. A fresh database creates the tables at their
+original shape and then runs the same migrations a deployed one does, so the two
+converge rather than drifting into two schemas that happen to match today.
+
+Adding a table is still simpler and still preferred. This is for altering one
+that is already out there.

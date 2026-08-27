@@ -131,6 +131,23 @@ curl -X PUT http://localhost:8080/discord/channels/OWNER/NAME \
 can see, so the ids need not be copied out of Discord by hand. A repo with no
 binding is never notified, and with no token set the service runs as before.
 
+Better, let the server configure itself (Contract 8). Set `DISCORD_PUBLIC_KEY`
+to the application's public key, point the application's **Interactions
+Endpoint URL** at `https://$CUJO_WEBHOOK_HOST/discord/interactions`, re-invite
+the bot with the `applications.commands` scope alongside `bot`, then authorize
+the server for a repo:
+
+```bash
+curl -X PUT http://localhost:8080/discord/authorizations/GUILD_ID/OWNER/NAME \
+  -H 'Host: cujo.localhost'
+```
+
+Anyone in that server with Manage Server can then run `/cujo watch`, picking
+the channel and ping role from Discord's own dropdowns, `/cujo status` to see
+where each repo goes, and `/cujo test` to post a sample card and prove the path
+works. Which repos a server may reach stays an operator's decision; which
+channel they land in does not.
+
 The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
 are for local runs only and never touch how it deploys.
 
