@@ -305,3 +305,23 @@ re-posting a blocking review from `apps/cujo` (that would make `apps/cujo` a
 second author of reviews and break "one review per turn"). The rubric still
 carries the rules so the common case takes the blocking path on its own; the
 trusted-side check is the tripwire behind the tripwire.
+
+## 22. A brand system in `brand/`: guard dog, amber, dark and light
+
+Cujo had no logo, palette, or type, and the Savile Row track judges the UI on
+the video and the running product (see 17). One source of truth in `brand/`
+now feeds the UI, the README, and the video, so they cannot drift apart. The
+choices: keep the name and read it as a guard dog on a chain (loyal, watchful,
+contained), which is what `cujo-guard[bot]` and the approval gate already say;
+a flat geometric dog head with one amber eye as the mark; lowercase `cujo` in
+Bricolage Grotesque with JetBrains Mono for evidence; warm near-black and warm
+bone grounds with both themes built at once; amber as the brand accent and
+`high`, red reserved for `critical` so the two never blur.
+
+Rejected: renaming (the name is short, memorable, and already in every
+handle); the rabid reading (it undercuts the restraint story); a cage-only or
+detonation mark (abstract, loses the name); pixel and single-line styles (fail
+at 16 px); red-orange as the accent (too close to critical). Five hand-authored
+candidates stay in `brand/logo/candidates/` with prompts for a raster route, so
+the mark can be swapped without redoing the system. The tagline is deliberately
+unset. Wiring the tokens and favicon into `apps/cujo` is a separate change.

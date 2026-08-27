@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" color="#1c1917" role="img" aria-label="Cujo mark, c4-collar">
+  <polygon fill="currentColor" points="10,50 10,22 16,4 26,20 40,20 58,32 56,42 42,42 38,50"/>
+  <polygon fill="currentColor" points="10,54 37,54 34,60 10,60"/>
+  <circle fill="#f2a900" cx="40" cy="30" r="3.5"/>
+</svg>
