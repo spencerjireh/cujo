@@ -127,6 +127,18 @@ pnpm lint && pnpm typecheck && pnpm test
 uv sync && uv run pytest
 ```
 
+Those are unit tests; every external boundary is faked. The harness contract
+tests run `apps/cujo` against a real TrueForge server and github-mcp from the
+compose file, with a stub model provider in the test process:
+
+```bash
+make test-int        # starts the stack under project cujo-int, then runs them
+make test-int-down   # stops it
+```
+
+They check what the unit tests assume (turn ids, replay, chaining, cancel,
+the approval gate, resume, and the fold of real events) and run in CI.
+
 ## Status
 
 The pipeline is in: webhook to session, the four checks, the sensors, the hard

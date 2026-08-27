@@ -141,6 +141,30 @@ export class Runner {
     return this.store.getRun(runId)?.turnIds.at(-1) ?? null;
   }
 
+  /**
+   * Replace stream events with their persisted versions. The server's turn
+   * stream sends `model.message` as an id-only stub (the text and tool calls
+   * arrive as deltas and are persisted whole), so the events kept for the
+   * fold are refreshed from `listEvents`, matched by id. A failed read keeps
+   * the stream's events; the next decision point reads again.
+   */
+  private async hydrate(runId: string): Promise<void> {
+    const run = this.store.getRun(runId);
+    if (!run) return;
+    const s = this.state(runId);
+    const own = new Set([...run.turnIds, ...s.subscribedTurnIds]);
+    let items: { turnId: string; event: SessionEvent }[];
+    try {
+      items = await this.harness.listEvents(run.sessionId);
+    } catch (error) {
+      console.error(`run ${runId}: could not read persisted events`, error);
+      return;
+    }
+    const persisted = new Map<string, SessionEvent>();
+    for (const item of items) if (own.has(item.turnId)) persisted.set(item.event.id, item.event);
+    s.events = s.events.map((e) => persisted.get(e.id) ?? e);
+  }
+
   /** Turns recorded by other runs on the same session; never this run's. */
   private foreignTurnIds(run: RunRecord): Set<string> {
     const foreign = new Set<string>();
@@ -174,7 +198,14 @@ export class Runner {
       for await (const event of source) {
         if (event.type === "model.message.delta") continue;
         if (event.type === TERMINAL_EVENT) sawTerminal = true;
-        if (this.push(runId, event)) projection = this.refold(runId);
+        const fresh = this.push(runId, event);
+        // The stream's model.message is a stub without content or tool calls;
+        // the persisted copy has both. Re-read at the points a decision is
+        // made so the fold sees the drafted review and the summary.
+        if (fresh && (sawTerminal || event.type === "tool.approval_required")) {
+          await this.hydrate(runId);
+        }
+        if (fresh) projection = this.refold(runId);
         if (sawTerminal) return;
       }
     };

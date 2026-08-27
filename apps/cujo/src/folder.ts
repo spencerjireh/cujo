@@ -66,17 +66,46 @@ export function parseReport(text: string): unknown | null {
   return null;
 }
 
-function parseReview(call: TrueForgeApi.ChatCompletionMessageToolCall): DraftedReview | null {
-  if (!REVIEW_TOOLS.has(call.function.name)) return null;
-  let args: Record<string, unknown> = {};
+const CALL_TOOL = "call_tool";
+const REVIEW_MCP_SERVER = "github-mcp";
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function parseArguments(raw: string): Record<string, unknown> {
   try {
-    args = JSON.parse(call.function.arguments) as Record<string, unknown>;
+    return asObject(JSON.parse(raw));
   } catch {
     // A review with unparseable arguments still counts as a drafted review.
+    return {};
   }
+}
+
+/**
+ * The review tool call, whichever way the harness exposed the tool to the
+ * model: directly by name, or through TrueForge's `call_tool` meta-tool
+ * (`{mcp_server, tool_name, input}`), which is what the server does by
+ * default (contract test: "a review goes through call_tool"). Through
+ * `call_tool` the server must be github-mcp: a same-named tool elsewhere
+ * posts nothing, and a run must not fold clean on it.
+ */
+export function parseReview(
+  call: TrueForgeApi.ChatCompletionMessageToolCall,
+): DraftedReview | null {
+  let args = parseArguments(call.function.arguments);
+  let tool = call.function.name;
+  if (tool === CALL_TOOL) {
+    if (args.mcp_server !== REVIEW_MCP_SERVER || typeof args.tool_name !== "string") return null;
+    tool = args.tool_name;
+    args = asObject(args.input);
+  }
+  if (!REVIEW_TOOLS.has(tool)) return null;
   const comments = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];
   return {
-    tool: call.function.name as DraftedReview["tool"],
+    tool: tool as DraftedReview["tool"],
     toolCallId: call.id,
     body: typeof args.body === "string" ? args.body : "",
     comments,
@@ -186,8 +215,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           break;
         }
         if (p.approval) {
-          if (p.gatedResponseSeen) p.status = "blocked_posted";
-          else if (p.decision === "deny") p.status = "denied";
+          // A denied call still gets a tool.response (the refusal), so the
+          // decision is checked before the response.
+          if (p.decision === "deny") p.status = "denied";
+          else if (p.gatedResponseSeen) p.status = "blocked_posted";
           else if (p.decision === "allow") {
             p.status = "error";
             p.error = "approval allowed but the review tool never responded";

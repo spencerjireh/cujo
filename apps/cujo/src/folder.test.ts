@@ -1,6 +1,6 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
-import { fold, parseReport } from "./folder";
+import { fold, parseReport, parseReview } from "./folder";
 
 type Ev = TrueForgeApi.SessionEvent;
 const at = "2026-08-27T00:00:00Z";
@@ -151,19 +151,25 @@ describe("fold", () => {
     expect(p.externalResume).toBe(false);
   });
 
-  it("is denied after a deny resume with no gated response", () => {
-    const p = fold(
-      [
-        turnCreated("t1"),
-        reviewCall("call-1", "post_blocking_review", review),
-        approvalRequired("main", "call-1", "mm-call-1"),
-        turnDone(),
-        turnCreated("t2", resume("deny")),
-        turnDone(),
-      ],
-      { cujoResumeTurnIds: new Set(["t2"]) },
+  it("is denied after a deny resume, with or without the refusal tool.response", () => {
+    const paused = [
+      turnCreated("t1"),
+      reviewCall("call-1", "post_blocking_review", review),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+    ];
+    const options = { cujoResumeTurnIds: new Set(["t2"]) };
+    expect(fold([...paused, turnCreated("t2", resume("deny")), turnDone()], options).status).toBe(
+      "denied",
     );
-    expect(p.status).toBe("denied");
+    // The server answers a denied call with a tool.response carrying the
+    // refusal (contract test: "a denied blocking review folds to denied").
+    expect(
+      fold(
+        [...paused, turnCreated("t2", resume("deny")), toolResponse("call-1"), turnDone()],
+        options,
+      ).status,
+    ).toBe("denied");
   });
 
   it("marks a resume Cujo did not send as external", () => {
@@ -212,6 +218,89 @@ describe("fold", () => {
     expect(p.checks[0]).toMatchObject({ title: "tests", isCheck: true, status: "done" });
     expect(p.checks[0]?.report).toEqual({ check: "tests", base_pass_head_fail: ["t_a"] });
     expect(p.checks[1]).toMatchObject({ title: "helper", isCheck: false, status: "running" });
+  });
+});
+
+describe("parseReview", () => {
+  const callTool = (id: string, args: unknown) =>
+    ({
+      id,
+      type: "function",
+      function: { name: "call_tool", arguments: JSON.stringify(args) },
+      toolInfo: { type: "truefoundry-system", name: "call_tool" },
+    }) as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+
+  it("reads a review posted through the call_tool meta-tool", () => {
+    const parsed = parseReview(
+      callTool("c1", {
+        mcp_server: "github-mcp",
+        tool_name: "post_blocking_review",
+        input: review,
+      }),
+    );
+    expect(parsed).toEqual({
+      tool: "post_blocking_review",
+      toolCallId: "c1",
+      body: "What ran",
+      comments: [{ path: "a.py", line: 3, body: "boom" }],
+    });
+  });
+
+  it("ignores call_tool for anything but a review tool on github-mcp, and malformed input", () => {
+    expect(parseReview(callTool("c2", { mcp_server: "x", tool_name: "list_tools" }))).toBeNull();
+    expect(parseReview(callTool("c3", { mcp_server: "github-mcp" }))).toBeNull();
+    // A same-named tool on another server posts nothing.
+    expect(
+      parseReview(callTool("c5", { mcp_server: "other", tool_name: "post_advisory_review" })),
+    ).toBeNull();
+    expect(
+      parseReview(
+        callTool("c4", {
+          mcp_server: "github-mcp",
+          tool_name: "post_advisory_review",
+          input: "not an object",
+        }),
+      ),
+    ).toMatchObject({ tool: "post_advisory_review", body: "", comments: [] });
+    // JSON that is not an object must not throw mid-fold.
+    for (const raw of ["null", "[]", "42", '"s"', "{not json"]) {
+      const call = {
+        id: "c6",
+        type: "function",
+        function: { name: "call_tool", arguments: raw },
+      } as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+      expect(parseReview(call)).toBeNull();
+    }
+    const direct = {
+      id: "c7",
+      type: "function",
+      function: { name: "post_advisory_review", arguments: "null" },
+    } as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+    expect(parseReview(direct)).toMatchObject({ tool: "post_advisory_review", comments: [] });
+  });
+
+  it("folds a call_tool review the same as a direct one", () => {
+    const message: Ev = {
+      type: "model.message",
+      id: "mm-1",
+      createdAt: at,
+      threadId: "main",
+      toolCalls: [
+        callTool("call-1", {
+          mcp_server: "github-mcp",
+          tool_name: "post_blocking_review",
+          input: review,
+        }) as unknown as TrueForgeApi.ToolCall,
+      ],
+    };
+    const p = fold([
+      turnCreated("t1"),
+      message,
+      approvalRequired("main", "call-1", "mm-1"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("blocked_pending");
+    expect(p.review?.tool).toBe("post_blocking_review");
   });
 });
 

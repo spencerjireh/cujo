@@ -95,6 +95,18 @@ Cujo never shows a person the bundled UI (decision 17). Everything `apps/cujo` n
 - **Auth.** OIDC when `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` are set; otherwise a fixed local admin identity with no token. There is no API-key mode. Cujo runs without OIDC and reaches the server only on the compose network.
 - **Subagent spawn is not gated.** The dynamic sub-agent tool has `is_approval_required: false`; only tools marked for approval pause a turn.
 
+### Verified against a running server
+
+The harness contract tests (`make test-int`, `apps/cujo/src/trueforge.contract.test.ts`) run `apps/cujo` against the published server image with a stub model provider. What they established, beyond the source reading above:
+
+- **The model sees meta-tools, not the MCP tools.** The tool list a turn sends to the model is `list_tools`, `get_tool_info`, `call_tool`, `create_sub_agent`, and a few built-ins; an MCP tool is invoked as `call_tool({mcp_server, tool_name, input})`. The approval gate keys on the inner `tool_name`, so `requireApprovalForTools: ['post_blocking_review']` still pauses the turn. The folder reads a review out of either shape.
+- **The streamed `model.message` is a stub.** On the turn stream it carries only `id`, `threadId`, `createdAt`; the text arrives as `model.message.delta` and the tool calls do not arrive at all. The persisted event from `listEvents` has both, so `apps/cujo` re-reads the session's events at every decision point (`tool.approval_required`, `turn.done`) before folding.
+- **`listEvents` caps `limit` at 100** and the SDK page iterates the rest.
+- **A paused turn ends.** `tool.approval_required` is followed by `turn.done` with `status: 'done'`, `output: null`, and the approval under `requiredActions`.
+- **A denied call still gets a `tool.response`** carrying the refusal, so the fold checks the decision before the response.
+- **Creating a turn while one runs cancels the old one** (`cancelled-for-next-turn`), but a subscriber to the old turn is never told; only `sessions.cancel` (`client-cancelled`) closes the stream. `apps/cujo` cancels explicitly before starting a newer head's turn.
+- **`createTurn` then `subscribeToTurn`** gives the turn id before any event; a later subscribe replays the turn from `turn.created`, finished or not.
+
 Source files, for the reader who wants to check: `packages/trueforge-core/src/core/events/schema.ts` (event shapes), `packages/trueforge-core/src/core/runtime/AgentThread.ts` (resume validation), `packages/trueforge-core/src/core/capabilities/builtins/DynamicSubAgents.ts` (spawn tool), `packages/trueforge/src/config.ts` (OIDC), `packages/trueforge-sdk/src/api/resources/sessions/client/Client.ts` (SDK methods).
 
 ## Repo layout
