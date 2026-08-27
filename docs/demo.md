@@ -28,7 +28,7 @@ writes a dropper file to `$HOME` (a change outside the workspace).
 
 1. A PR on `orders-api` adds a small feature with a test (for example, a
    `GET /orders/{id}/summary` route).
-2. The webhook fires; ingress starts a turn in the PR's Cujo session.
+2. The webhook fires; `apps/cujo` starts a turn in the PR's Cujo session.
 3. `tests` passes on base and head. `probes` calls the new route handler with a
    few inputs and gets what the diff claims. `smoke` boots the app and the new
    endpoint returns 200. No manifest changed, so `detonation` does not run.
@@ -44,15 +44,15 @@ fully automatic.
 1. A PR on `orders-api` refactors the order-total helper (for example, moves
    rounding from per-line to per-order). The diff reads as a tidy cleanup, and
    Qodo's review says so.
-2. The webhook fires; ingress starts a turn.
+2. The webhook fires; `apps/cujo` starts a turn.
 3. `tests` reports `test_order_total_rounding` in `base_pass_head_fail`.
    `probes` shows a two-line order that totals one cent off. `smoke` still
    returns 200.
 4. The hard rule forces a `critical` finding anchored on the changed line. The
    agent calls `post_blocking_review`, which is gated, and the turn pauses.
-5. In the TrueForge UI the paused session shows the proposed REQUEST_CHANGES
-   review with the failing test output and the probe result. A human clicks
-   Allow.
+5. In the Cujo UI the run turns `blocked_pending` and shows the proposed
+   REQUEST_CHANGES review with the failing test output and the probe result. A
+   human clicks Approve.
 6. The blocking review posts as `cujo-guard[bot]` with an inline comment on the
    rounding line, and gates the merge.
 
@@ -63,13 +63,13 @@ review cleared.
 
 1. A PR on `orders-api` adds `git+https://github.com/spencerjireh/evil-package`
    to `requirements.txt`.
-2. The webhook fires; ingress starts a turn.
+2. The webhook fires; `apps/cujo` starts a turn.
 3. `requirements.txt` changed, so `detonation` runs `sniff.py` against the git
    URL. The report shows egress to the canary host, `decoy_read: true`, and a
    dropper written outside the workspace.
 4. The hard rules force `critical`. The agent calls `post_blocking_review`, the
-   turn pauses, a human reviews the forensic report in the TrueForge UI and
-   clicks Allow.
+   turn pauses, a human reviews the forensic report in the Cujo UI and clicks
+   Approve.
 5. The blocking review posts as `cujo-guard[bot]` and gates the merge.
 
 This is the case that shows a real sandbox detonation catching a supply-chain
@@ -81,9 +81,11 @@ pattern, with the one consequential action held for a human.
    reviewer that only reads it cannot know.
 2. **PR 1, clean** (30s): open the PR, show the subagents run, show Cujo
    auto-post a review with the execution summary.
-3. **PR 2, regression** (60s): open the PR, show Qodo clear it, show Cujo's
-   `tests` subagent catch the failure, land on the paused session in the UI,
-   approve, see the inline comment block the merge.
+3. **PR 2, regression** (60s): open the PR, show Qodo clear it, watch the
+   check cards fill in the Cujo UI as the subagents run, see `tests` catch the
+   failure, land on the paused run, approve, see the inline comment block the
+   merge. One-second cut to the TrueForge operator console showing the same
+   turn paused: the harness is doing the work and Cujo is its client.
 4. **PR 3, hostile** (50s): open the PR, watch the detonation, show the report
    catching the exfiltration attempt, approve the block.
 5. **Close** (20s): one flow covering every requirement — subagents in a

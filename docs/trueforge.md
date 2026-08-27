@@ -83,6 +83,20 @@ Named reusable agents: `client.agents.create({ name, manifest: { model, instruct
 
 Deeper SDK docs: https://trueforge.dev/api/use-agent (streaming, approvals, reconnects) and the API Reference tab (OpenAPI).
 
+### Driving it headless
+
+Cujo never shows a person the bundled UI (decision 17). Everything `apps/cujo` needs was verified against the TrueForge source, SDK 0.1.3, on 2026-08-27:
+
+- **Inline agent per session.** `sessions.create({ agent: { spec: { model, instructions, mcpServers: [{ name }], config: { sandbox }, skills } } })`. `mcpServers` entries reference a server by the name it was registered under (Settings > Connectors or the MCP servers API), so register `github-mcp` once with `require_approval_for_tools: ['post_blocking_review']`.
+- **Every event carries `thread_id`.** `main` for the parent; a unique id per subagent. `thread.created` has `parent.{thread_id, tool_call_id}` and `title`; `thread.done` has `state: {status: 'done', output}` or `{status: 'error', error, output?}`, where `output` is the subagent's final `model.message`. Child-thread `tool.response` events arrive in the same turn stream.
+- **The approval pause.** `tool.approval_required` with `thread_id` and `tool_calls[{id, source_event_id}]`; `source_event_id` names the `model.message` that holds the tool call's name and arguments. The turn then ends with `turn.done` and `required_actions`.
+- **Resume.** `sessions.createTurnStream(sessionId, { input: [{ type: 'user.tool_approval', threadId, toolCallId, approval: { status: 'allow' } }] })`, or `{ status: 'deny', reason }`. One send must answer every pending approval on that thread; a second answer for an already-decided call is rejected.
+- **Rebuild after a restart.** `sessions.listEvents(sessionId)`, `sessions.listTurnEvents(sessionId, turnId)`, and `sessions.subscribeToTurn(sessionId, turnId)` for a turn still running.
+- **Auth.** OIDC when `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` are set; otherwise a fixed local admin identity with no token. There is no API-key mode. Cujo runs without OIDC and reaches the server only on the compose network.
+- **Subagent spawn is not gated.** The dynamic sub-agent tool has `is_approval_required: false`; only tools marked for approval pause a turn.
+
+Source files, for the reader who wants to check: `packages/trueforge-core/src/core/events/schema.ts` (event shapes), `packages/trueforge-core/src/core/runtime/AgentThread.ts` (resume validation), `packages/trueforge-core/src/core/capabilities/builtins/DynamicSubAgents.ts` (spawn tool), `packages/trueforge/src/config.ts` (OIDC), `packages/trueforge-sdk/src/api/resources/sessions/client/Client.ts` (SDK methods).
+
 ## Repo layout
 
 `/packages` (modular components), `/docs`, `/benchmark`, `/scripts`, `/charts/trueforge` (Helm). TypeScript, pnpm workspaces, ESLint, Prettier.

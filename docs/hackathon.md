@@ -106,4 +106,5 @@ Tools we depend on:
 This project:
 
 - Submission repo — https://github.com/spencerjireh/cujo
-- Live harness — https://cujo.spencerjireh.com
+- Live product (Cujo UI, target) — https://cujo.spencerjireh.com
+- TrueForge operator console — https://cujo-harness.spencerjireh.com

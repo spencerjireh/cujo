@@ -19,7 +19,7 @@ first, somewhere it can do no harm, and tells you what it saw.
 
 1. A PR is opened or updated. The Cujo GitHub App receives the `pull_request`
    webhook.
-2. Ingress verifies the webhook and starts one agent turn with the PR context:
+2. Cujo verifies the webhook and starts one agent turn with the PR context:
    repo, PR number, base and head SHAs, changed files.
 3. The agent provisions a Daytona sandbox, clones both SHAs, seeds a decoy
    secret, and starts a logging proxy. Then it spawns one subagent per check:
@@ -35,7 +35,7 @@ first, somewhere it can do no harm, and tells you what it saw.
 5. With no `critical` finding, the review posts automatically as
    `cujo-guard[bot]`: a summary of what ran plus inline comments. With one, the
    review requests changes — and that one action pauses until a human approves
-   it in the TrueForge UI.
+   it in the Cujo UI.
 
 No secret ever enters the sandbox. PR code and dependency names go in; JSON
 reports come out. That single narrow crossing is the property the whole design
@@ -47,15 +47,17 @@ Cujo runs on [TrueForge](https://trueforge.dev), an open-source agent harness,
 used as published — no fork. The harness supplies the model runtime, the Daytona
 sandbox, the subagents, the MCP tool the agent calls to post a review, and the
 human-approval gate that holds the blocking review. Cujo is the agent, the
-review rubric, the in-sandbox sensor script, and the webhook ingress built on
-top.
+review rubric, the in-sandbox sensor script, and the service built on top:
+webhook in, a UI that shows each run and holds the approve button, and the SDK
+calls that drive the harness. Cujo's UI is a client of the harness API; the
+bundled TrueForge UI is used only as an operator console.
 
 ## Layout
 
 | Path | What |
 |------|------|
 | `docs/` | Canonical spec. The code follows these docs; a design change lands here first. |
-| `apps/ingress/` | Webhook receiver that turns a PR event into an agent turn. *(skeleton)* |
+| `apps/cujo/` | The Cujo service: webhook receiver, run store, TrueForge event folder, the Cujo UI and API, and the approve endpoint. *(skeleton, currently named `apps/ingress`)* |
 | `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. *(skeleton)* |
 | `packages/gh-app-auth/` | Shared GitHub App installation-token auth. *(skeleton)* |
 | `sniff.py` | The in-sandbox sensor script: dependency detonation plus the egress, filesystem, and decoy-secret sensors every check shares. *(skeleton)* |
@@ -95,9 +97,10 @@ Run `make help` for the full list.
 > `>= 28.0`; older engines can route `127.0.0.1`-published ports from the LAN.
 > Docker Desktop (macOS/Windows) runs the engine in a VM and is unaffected.
 
-Open the UI at http://localhost:8790, then in Settings add a model provider key
-and a Daytona sandbox key. Send a chat turn that runs a command in a sandbox to
-confirm it is wired.
+Open the TrueForge UI at http://localhost:8790, then in Settings add a model
+provider key and a Daytona sandbox key. Send a chat turn that runs a command in
+a sandbox to confirm it is wired. This is the operator console; the Cujo UI that
+shows runs and holds the approve button is not built yet.
 
 The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
 are for local runs only and never touch how it deploys.
