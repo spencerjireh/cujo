@@ -4,12 +4,6 @@ import type { Config } from "./config";
 export type StreamEvent = TrueForgeApi.TurnStreamingEvent;
 export type SessionEvent = TrueForgeApi.SessionEvent;
 
-/** A turn Cujo created: its id is known before the first event arrives. */
-export interface StartedTurn {
-  turnId: string;
-  stream: AsyncIterable<StreamEvent>;
-}
-
 /**
  * The only client of the TrueForge server (decision 17). Thin: it names the
  * calls apps/cujo makes so the rest of the code never touches the SDK shapes.
@@ -118,20 +112,21 @@ export class Harness {
   }
 
   /**
-   * Create the turn, then subscribe to it. Two calls instead of one streaming
-   * call so the turn id is known before any event arrives: the run records it
-   * at once and never has to guess which turn on the shared session is its own.
+   * Create the turn and return its id; the caller subscribes separately. Two
+   * calls instead of one streaming call so the run can record the turn as its
+   * own before the fallible subscribe, and never has to guess which turn on
+   * the shared session is its own.
    */
   private async createTurn(
     sessionId: string,
     input: TrueForgeApi.TurnInputItem[],
-  ): Promise<StartedTurn> {
+  ): Promise<string> {
     const { data } = await this.client.sessions.createTurn(sessionId, { input });
-    const stream = await this.subscribe(sessionId, data.id);
-    return { turnId: data.id, stream };
+    return data.id;
   }
 
-  startTurn(sessionId: string, message: string): Promise<StartedTurn> {
+  /** Start the run's first turn; resolves to the turn id. */
+  startTurn(sessionId: string, message: string): Promise<string> {
     return this.createTurn(sessionId, [{ type: "user.message", content: message }]);
   }
 
@@ -140,7 +135,7 @@ export class Harness {
     sessionId: string,
     approval: { threadId: string; toolCallId: string },
     decision: "allow" | "deny",
-  ): Promise<StartedTurn> {
+  ): Promise<string> {
     return this.createTurn(sessionId, [
       {
         type: "user.tool_approval",
@@ -156,6 +151,11 @@ export class Harness {
 
   subscribe(sessionId: string, turnId: string): Promise<AsyncIterable<StreamEvent>> {
     return this.client.sessions.subscribeToTurn(sessionId, turnId, {});
+  }
+
+  /** Cancel the session's running last turn, if any. */
+  async cancelTurn(sessionId: string): Promise<void> {
+    await this.client.sessions.cancel(sessionId, {});
   }
 
   /** Every persisted event on the session's active branch, oldest first. */

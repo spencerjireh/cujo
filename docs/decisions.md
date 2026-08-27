@@ -263,3 +263,23 @@ the repo in step.
 The harness's own Git-backed skills would carry the rubric the same way, and
 are the natural next step: `agent/SKILL.md` is already in the skill format so
 registering it as a skill later is a bootstrap call, not a rewrite.
+
+## 20. One run, one turn chain; the newest head supersedes the rest
+
+Decision 16 puts every run on a PR in one session, so a run must know which
+turns on that session are its own. It records the id of each turn it creates
+(`createTurn`, then `subscribeToTurn`) before the first event, and Cujo's own
+resume turns are persisted too; a turn another run recorded is never adopted,
+and a run with no recorded turn after a restart ends in `error` rather than
+guessing from timestamps. That errored, turnless run does not hold its head,
+so a redelivery re-claims it. Chosen over deriving ownership from the event
+stream (the first `turn.created` after the run's creation time), which folded
+the next head's turn into a run that was still waiting on a human.
+
+When GitHub's current head differs from a run's head, that run is
+`superseded`: it stops following its turn, no decision can be made on it, and
+a turn still running on the harness is cancelled so it cannot post a review
+for a commit nobody is looking at. The webhook confirms the head with GitHub
+rather than trusting delivery order, because a delayed delivery for an older
+commit can arrive after the newer one. Chosen over keeping both runs live,
+which would let a human approve a blocking review on a stale SHA.

@@ -65,24 +65,23 @@ describe("Harness.bootstrap", () => {
   });
 });
 
-describe("Harness.startTurn", () => {
-  it("creates the turn first so its id is known, then subscribes to it", async () => {
+describe("Harness turns", () => {
+  it("creates a turn without subscribing, and subscribes on request", async () => {
     const { h } = harness({});
-    const order: string[] = [];
     const sessions = {
-      createTurn: vi.fn(async () => {
-        order.push("create");
-        return { data: { id: "t1" } };
-      }),
-      subscribeToTurn: vi.fn(async () => {
-        order.push("subscribe");
-        return (async function* () {})();
-      }),
+      createTurn: vi.fn(async () => ({ data: { id: "t1" } })),
+      subscribeToTurn: vi.fn(async () => (async function* () {})()),
+      cancel: vi.fn(async () => ({})),
     };
     override(h, "sessions", sessions);
-    const started = await h.startTurn("s", "hi");
-    expect(started.turnId).toBe("t1");
-    expect(order).toEqual(["create", "subscribe"]);
+    expect(await h.startTurn("s", "hi")).toBe("t1");
+    expect(sessions.createTurn).toHaveBeenCalledWith("s", {
+      input: [{ type: "user.message", content: "hi" }],
+    });
+    expect(sessions.subscribeToTurn).not.toHaveBeenCalled();
+    await h.subscribe("s", "t1");
     expect(sessions.subscribeToTurn).toHaveBeenCalledWith("s", "t1", {});
+    await h.cancelTurn("s");
+    expect(sessions.cancel).toHaveBeenCalledWith("s", {});
   });
 });

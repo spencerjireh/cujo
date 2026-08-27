@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { fold } from "./folder";
 import type { Store } from "./store";
-import type { Harness, SessionEvent, StartedTurn, StreamEvent } from "./trueforge";
+import type { Harness, SessionEvent, StreamEvent } from "./trueforge";
 import type { Projection, RunRecord } from "./types";
 
 type AnyEvent = SessionEvent | StreamEvent;
@@ -218,6 +218,18 @@ export class Runner {
     else if (this.isTerminal(projection.status)) this.stopPolling(runId);
   }
 
+  /**
+   * Subscribe to a recorded turn and consume it. The subscribe happens inside
+   * the stream so a failure takes the same resubscribe path as a drop.
+   */
+  private follow(runId: string, sessionId: string, turnId: string): Promise<void> {
+    const harness = this.harness;
+    async function* lazy(): AsyncIterable<StreamEvent> {
+      yield* await harness.subscribe(sessionId, turnId);
+    }
+    return this.consume(runId, lazy());
+  }
+
   /** End a run that never got a turn: the webhook could not prepare it. */
   fail(runId: string, message: string): void {
     this.push(runId, errorTurnDone(`cujo-start-error-${Date.now()}`, message));
@@ -225,30 +237,51 @@ export class Runner {
   }
 
   /**
-   * A newer head on the same PR replaced this run. Its turn, if still running,
-   * is left to finish on the harness; the run stops following it and no
-   * decision can be made on it (the decision claim requires blocked_pending).
+   * A newer head on the same PR replaced this run. The run stops following
+   * its turn, no decision can be made on it (the decision claim requires
+   * blocked_pending), and a turn still running on the harness is cancelled
+   * so it cannot post a review for a stale head. Resolves once the cancel
+   * has been sent, so the caller can start the newer head's turn after it.
    */
-  supersede(runId: string): void {
+  async supersede(runId: string): Promise<void> {
     const s = this.state(runId);
     if (s.superseded) return;
     s.superseded = true;
     this.stopPolling(runId);
+    const run = this.store.getRun(runId);
+    const live = run && run.turnIds.length > 0 && !this.isTerminal(run.status);
     this.refold(runId);
+    if (!live) return;
+    try {
+      await this.harness.cancelTurn(run.sessionId);
+    } catch (error) {
+      // Already finished, or the harness is unreachable: nothing to cancel.
+      console.warn(`run ${runId}: cancel after supersede failed`, error);
+    }
   }
 
-  /** Start a run's first turn and fold it to the end. */
+  /**
+   * Start a run's first turn and fold it to the end. The turn is recorded as
+   * the run's own before the subscribe, so a failed subscribe or a restart
+   * in between can recover it instead of treating the run as turnless.
+   */
   async start(run: RunRecord, message: string): Promise<void> {
-    let started: StartedTurn;
+    if (this.store.getRun(run.id)?.status !== "running" || this.state(run.id).superseded) return;
+    let turnId: string;
     try {
-      started = await this.harness.startTurn(run.sessionId, message);
+      turnId = await this.harness.startTurn(run.sessionId, message);
     } catch (error) {
       console.error(`run ${run.id}: could not start turn`, error);
       this.fail(run.id, `could not start turn: ${String(error)}`);
       return;
     }
-    this.adoptTurn(run.id, started.turnId);
-    await this.consume(run.id, started.stream);
+    this.adoptTurn(run.id, turnId);
+    if (this.state(run.id).superseded) {
+      // Replaced while the turn was being created; do not let it run on.
+      await this.harness.cancelTurn(run.sessionId).catch(() => {});
+      return;
+    }
+    await this.follow(run.id, run.sessionId, turnId);
   }
 
   /**
@@ -270,20 +303,21 @@ export class Runner {
       return { ok: false, reason: "already decided" };
     }
     this.stopPolling(runId);
-    let started: StartedTurn;
+    let turnId: string;
     try {
-      started = await this.harness.resume(view.run.sessionId, view.projection.approval, decision);
+      turnId = await this.harness.resume(view.run.sessionId, view.projection.approval, decision);
     } catch (error) {
       this.store.clearDecision(runId);
       this.startPolling(runId);
       return { ok: false, reason: `resume failed: ${String(error)}` };
     }
-    // Cujo's own resume, recorded before its turn.created so the fold never
-    // mistakes it for an external one, on this process or after a restart.
-    this.state(runId).cujoResumeTurnIds.add(started.turnId);
-    this.store.addCujoTurn(runId, started.turnId);
-    this.adoptTurn(runId, started.turnId);
-    void this.consume(runId, started.stream).then(() => this.refold(runId));
+    // Cujo's own resume, recorded before the subscribe and before its
+    // turn.created, so the fold never mistakes it for an external one, on
+    // this process or after a restart.
+    this.state(runId).cujoResumeTurnIds.add(turnId);
+    this.store.addCujoTurn(runId, turnId);
+    this.adoptTurn(runId, turnId);
+    void this.follow(runId, view.run.sessionId, turnId).then(() => this.refold(runId));
     return { ok: true };
   }
 
@@ -327,16 +361,7 @@ export class Runner {
     const last = s.events.at(-1);
     if (projection.status === "running" && (!last || last.type !== TERMINAL_EVENT)) {
       const turnId = projection.turnIds.at(-1);
-      if (turnId) {
-        void this.harness
-          .subscribe(run.sessionId, turnId)
-          .then((stream) => this.consume(run.id, stream))
-          .catch((error) => {
-            console.error(`run ${run.id}: resubscribe after restart failed`, error);
-            this.push(run.id, errorTurnDone(`cujo-rehydrate-${Date.now()}`, "turn stream lost"));
-            this.refold(run.id);
-          });
-      }
+      if (turnId) void this.follow(run.id, run.sessionId, turnId);
     } else if (projection.status === "blocked_pending") {
       this.startPolling(run.id);
     }
@@ -374,8 +399,7 @@ export class Runner {
       if (!next) return;
       this.adoptTurn(runId, next.id);
       this.stopPolling(runId);
-      const stream = await this.harness.subscribe(run.sessionId, next.id);
-      await this.consume(runId, stream);
+      await this.follow(runId, run.sessionId, next.id);
     } catch (error) {
       console.error(`run ${runId}: poll failed`, error);
     }
