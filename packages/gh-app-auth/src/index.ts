@@ -1,7 +1,7 @@
 /**
  * Shared GitHub App authentication for Cujo's services.
  *
- * Both `ingress` (reads requirements.txt at the base and head SHAs) and
+ * Both `ingress` (reads the PR metadata and changed-file list) and
  * `github-mcp` (posts reviews) act as the Cujo GitHub App and need a
  * short-lived installation access token. The real flow — sign an App JWT and
  * exchange it for an installation token via @octokit/auth-app — lands in the
