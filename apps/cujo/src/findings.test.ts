@@ -98,10 +98,12 @@ describe("hardRuleFindings", () => {
 });
 
 describe("missingCheckFindings", () => {
-  it("warns once per required check with no thread, ignoring non-check threads", () => {
+  it("warns once per required check without a report, ignoring non-check threads", () => {
     const found = missingCheckFindings([
       check("tests", { base_pass_head_fail: [] }),
       check("probes", {}, false),
+      // A thread that never produced a report counts as missing too.
+      check("smoke", null),
     ]);
     expect(found.map((f) => [f.severity, f.check, f.source])).toEqual([
       ["warn", "probes", "hard_rule"],
