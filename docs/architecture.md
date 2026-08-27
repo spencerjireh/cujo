@@ -56,8 +56,9 @@ whole design protects, so keep it in mind when reading the flow below.
    PR's Cujo session with that context: repo, PR number, base SHA, head SHA,
    changed files.
 3. **Into the sandbox.** The agent provisions a Daytona sandbox, clones head,
-   adds a worktree at base, seeds the decoy secret, starts the logging proxy,
-   and reads `.cujo.yml` if the repo has one.
+   adds a worktree at base, seeds the decoy secret, starts the logging proxy
+   and the decoy watcher, and reads `.cujo.yml` from base if the repo has one
+   (policy comes from the target branch, never from the PR).
 4. **Run the checks.** The agent spawns one subagent per check. `tests` runs
    the suite on base and head. `probes` writes and runs scripts against the
    changed functions. `smoke` boots the app and hits it. `detonation` runs

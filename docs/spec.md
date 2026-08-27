@@ -43,6 +43,10 @@ The split between deterministic code and agent reasoning is fixed:
 - Private repos and self-hosted Daytona.
 - TLS interception of sandbox egress (metadata only for now; see the
   egress-depth decision).
+- Forcing all sandbox traffic through the proxy. The proxy sees processes that
+  honour `HTTP(S)_PROXY`; a non-Python process that opens a direct socket is
+  not observed. A network-namespace or iptables redirect inside the sandbox
+  closes that gap later.
 - Remediation (a fix PR on `critical`) is a stretch, not a requirement.
 
 ## Contract 1 — the trigger
@@ -72,9 +76,13 @@ cross back out of the sandbox.
    in the same sandbox so the comparison is like-for-like.
 2. Seed the decoy secret: a fake credential file (`~/.aws/credentials` with a
    bogus key) placed before anything runs.
-3. Start the in-sandbox logging proxy and export `HTTP(S)_PROXY` so every
-   process the checks spawn routes through it.
-4. Read `.cujo.yml` if present. Schema:
+3. Start the in-sandbox logging proxy and export `HTTP(S)_PROXY` for every
+   process the checks spawn. Start the inotify watcher on the decoy file.
+4. Read `.cujo.yml` from the **base** SHA, if present. Policy comes from the
+   branch the PR targets, never from the PR itself, so a PR cannot allowlist
+   its own exfiltration host. If the PR changes `.cujo.yml`, the parent emits
+   a `warn` finding ("`.cujo.yml` changed in this PR; the base version was
+   used") and ignores the head copy for that run. Schema:
 
    ```yaml
    install: uv sync            # how to install the repo
@@ -167,15 +175,21 @@ so the hard rules read one shape regardless of which check ran:
 The sensors, layered from language-agnostic to language-specific:
 
 - **In-sandbox logging proxy.** Records each host, port, and byte count for
-  every process that honours `HTTP(S)_PROXY`. Gives the `egress` list. Payload
-  contents stay encrypted until TLS interception is added.
+  every process that honours `HTTP(S)_PROXY`, which covers pip, npm, cargo,
+  go, curl, and the common HTTP client libraries. Gives the `egress` list.
+  Payload contents stay encrypted until TLS interception is added. A process
+  that ignores the proxy variables and opens a direct socket is not seen by
+  this sensor; for Python the audit hook below still records it, and for other
+  languages that is a known gap (see non-goals).
 - **Filesystem diff.** A snapshot before and after each check flags anything
   created or modified outside the workspace and its install environment
   (`in_workspace: false`), and anything under a sensitive path (`~/.ssh`, a
   shell rc, cron, a credentials path) as `wrote_sensitive`.
-- **Decoy access time.** The decoy file's access and modification times are
-  read before and after each check; a changed access time sets `decoy_read`.
-  This works for any language.
+- **Decoy inotify watcher.** A watcher started at setup subscribes to
+  `IN_OPEN` and `IN_ACCESS` on the decoy file; any event during a check sets
+  `decoy_read`. This works for any language and does not depend on mount
+  options (access-time comparison was rejected because `relatime`, the Linux
+  default, only updates `atime` once per day, and `noatime` never does).
 - **Python audit hook.** When a check runs Python, a `sitecustomize.py` on
   `PYTHONPATH` calls `sys.addaudithook` and records `open`, `socket.connect`,
   and `subprocess`/`os.exec` events. It rides into every Python subprocess
@@ -198,12 +212,15 @@ The parent turns the check reports into a list of findings. Each finding:
   "title": "test_order_total_rounding passes on base, fails on head",
   "evidence": "AssertionError: 10.05 != 10.04 (tests/test_orders.py::test_order_total_rounding)",
   "path": "app/orders.py",
-  "line": 42
+  "line": 42,
+  "side": "RIGHT"
 }
 ```
 
-`severity` is one of `info`, `warn`, `critical`. `path` and `line` are
-optional and anchor the finding as an inline comment.
+`severity` is one of `info`, `warn`, `critical`. `path`, `line`, and `side`
+are optional and anchor the finding as an inline comment. `line` is a line in
+the PR diff; `side` is `RIGHT` (the head version, the default) or `LEFT` (a
+line that exists only on base, for a finding about removed code).
 
 Two layers decide severity, in order.
 
@@ -247,9 +264,11 @@ pulled in only for the consequential action. Two tool paths on `github-mcp`:
 
 Both tools take the same input: a summary body and a `comments[]` array. The
 summary body lists what ran (checks, commands, durations), the results, and the
-egress observed. Each entry in `comments[]` is one finding with a `path` and
-`line`, posted as an inline review comment on that line. Findings with no
-anchor appear in the body only.
+egress observed. Each entry in `comments[]` is one finding with a `path`,
+`line`, and `side`, posted as an inline review comment on that diff line.
+`github-mcp` validates each anchor against the PR diff before posting; a
+finding with no anchor, or with an anchor outside the diff, moves into the
+body so a bad anchor never blocks the review.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.

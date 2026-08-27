@@ -26,7 +26,10 @@ Egress is observed by a proxy started *inside* the sandbox, with
 `HTTP(S)_PROXY` exported for every process the checks spawn. Stock TrueForge's
 Daytona create call passes no network options, so the sandbox's outbound proxy
 cannot be set from outside without forking. Given decision 1, the in-sandbox
-proxy is the way to see egress without patching the harness.
+proxy is the way to see egress without patching the harness. It observes
+processes that honour the proxy variables; a direct socket from non-Python
+code is a known gap, closed later by a network-namespace or iptables redirect
+inside the sandbox.
 
 ## 4. Bot identity is a GitHub App — `cujo-guard[bot]`
 
@@ -88,7 +91,9 @@ agent (model decides everything, unreliable on the security call).
 
 Three sensors work for any language: the in-sandbox proxy (egress hosts and
 byte counts), a filesystem diff (writes outside the workspace and to sensitive
-paths), and the decoy file's access time (reads). When a check runs Python, a
+paths), and an inotify watcher on the decoy file (reads; chosen over
+access-time comparison because `relatime` and `noatime` make `atime`
+unreliable). When a check runs Python, a
 `sys.addaudithook` hook injected via `sitecustomize.py` on `PYTHONPATH` is
 layered on and gives richer file, socket, and subprocess detail; it rides into
 every Python subprocess, including pip running `setup.py`. No `strace`, no
@@ -122,9 +127,13 @@ never satisfy branch protection and wave a bad merge through.
 No setup burden on the target repo: the agent reads `pyproject.toml`,
 `package.json`, `Makefile`, and CI workflows to pick install, test, boot, and
 smoke commands. A `.cujo.yml` (`install`, `test`, `boot`, `smoke`,
-`allow_hosts`) pins any of them when a repo owner wants determinism. Chosen
-over a required config file (a repo without it would get no execution-backed
-review) and over parsing CI workflows alone (tight coupling to CI shape).
+`allow_hosts`) pins any of them when a repo owner wants determinism. The file
+is read from the base SHA, never from the PR: policy comes from the branch the
+PR targets, so a PR cannot allowlist its own exfiltration host, and a PR that
+edits `.cujo.yml` gets a `warn` finding instead of having the edit applied.
+Chosen over a required config file (a repo without it would get no
+execution-backed review) and over parsing CI workflows alone (tight coupling
+to CI shape).
 
 ## 14. One subagent per check
 
