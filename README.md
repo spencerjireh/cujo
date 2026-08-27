@@ -78,9 +78,15 @@ publishes no ports, because in the deploy a reverse proxy terminates TLS and
 routes to the services on the internal network):
 
 ```bash
-cp .env.example .env   # set POSTGRES_*; PUBLIC_BASE_URL is overridden locally
+cp .env.example .env   # fill in the required values below
 make up-local          # docker compose up with the local overlay
 ```
+
+Required before the stack comes up: `POSTGRES_*`, `GITHUB_APP_ID`,
+`GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, and `CUJO_MODEL`. Without
+them `cujo` and `github-mcp` exit at start and restart until they are set.
+`CF_ACCESS_*` is also required unless `CUJO_DEV_NO_ACCESS=1`, which the local
+overlay sets. `PUBLIC_BASE_URL` is overridden locally.
 
 `make up-local` is shorthand for:
 

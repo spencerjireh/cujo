@@ -10,7 +10,7 @@ export type SessionEvent = TrueForgeApi.SessionEvent;
  */
 export class Harness {
   readonly client: TrueForge;
-  /** True once bootstrap has registered github-mcp; webhooks wait for it. */
+  /** True once every bootstrap registration succeeded; webhooks wait for it. */
   ready = false;
 
   constructor(private readonly config: Config) {
@@ -25,68 +25,80 @@ export class Harness {
    */
   async bootstrap(): Promise<string[]> {
     const applied: string[] = [];
-    await this.client.settings.mcpServers.createOrUpdate({
-      manifest: {
-        name: "github-mcp",
-        type: "remote",
-        url: this.config.githubMcpUrl,
-        description: "Posts PR reviews as the Cujo GitHub App. post_blocking_review is gated.",
-      },
-    });
-    applied.push("mcp-server github-mcp");
-    this.ready = true;
+    const step = async (name: string, apply: () => Promise<unknown>) => {
+      try {
+        await apply();
+      } catch (error) {
+        throw new Error(`bootstrap step ${name} failed: ${String(error)}`, { cause: error });
+      }
+      applied.push(name);
+    };
+
+    await step("mcp-server github-mcp", () =>
+      this.client.settings.mcpServers.createOrUpdate({
+        manifest: {
+          name: "github-mcp",
+          type: "remote",
+          url: this.config.githubMcpUrl,
+          description: "Posts PR reviews as the Cujo GitHub App. post_blocking_review is gated.",
+        },
+      }),
+    );
 
     const provider = this.config.bootstrap.modelProvider;
     if (provider) {
-      await this.client.settings.modelProviders.createOrUpdate({
-        manifest: {
-          type: "custom",
-          name: provider.name,
-          baseUrl: provider.baseUrl,
-          auth: { apiKey: provider.apiKey },
-          models: provider.models.map((m) => ({
-            name: m.name,
-            modelId: m.modelId,
-            properties: {},
-          })),
-        },
-      });
-      applied.push(`model-provider ${provider.name}`);
+      await step(`model-provider ${provider.name}`, () =>
+        this.client.settings.modelProviders.createOrUpdate({
+          manifest: {
+            type: "custom",
+            name: provider.name,
+            baseUrl: provider.baseUrl,
+            auth: { apiKey: provider.apiKey },
+            models: provider.models.map((m) => ({
+              name: m.name,
+              modelId: m.modelId,
+              properties: {},
+            })),
+          },
+        }),
+      );
     }
 
     const daytonaApiKey = this.config.bootstrap.daytonaApiKey;
     if (daytonaApiKey) {
-      await this.client.settings.sandboxProviders.createOrUpdate({
-        manifest: {
-          type: "daytona",
-          auth: { apiKey: daytonaApiKey },
-          autoStopIntervalInMinutes: 15,
-          autoArchiveIntervalInMinutes: 60,
-          autoDeleteIntervalInMinutes: 24 * 60,
-          execTimeoutMs: 20 * 60 * 1000,
-        },
-      });
-      applied.push("sandbox-provider daytona");
+      await step("sandbox-provider daytona", () =>
+        this.client.settings.sandboxProviders.createOrUpdate({
+          manifest: {
+            type: "daytona",
+            auth: { apiKey: daytonaApiKey },
+            autoStopIntervalInMinutes: 15,
+            autoArchiveIntervalInMinutes: 60,
+            autoDeleteIntervalInMinutes: 24 * 60,
+            execTimeoutMs: 20 * 60 * 1000,
+          },
+        }),
+      );
     }
+    // Only a complete bootstrap counts: a turn on an unregistered model or
+    // sandbox provider fails just as surely as one without github-mcp.
+    this.ready = true;
     return applied;
   }
 
   /**
-   * Retry bootstrap until github-mcp is registered; without it no turn can
-   * post a review. Backoff starts at 5s and doubles to a 60s ceiling.
+   * Retry bootstrap until every registration succeeds; a turn cannot run
+   * without them. Backoff starts at 5s and doubles to a 60s ceiling.
    */
   async bootstrapUntilReady(
     sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
   ): Promise<void> {
     let delay = 5_000;
-    for (;;) {
+    while (!this.ready) {
       try {
         const applied = await this.bootstrap();
         console.log(`trueforge bootstrap: ${applied.join(", ")}`);
-        return;
       } catch (error) {
         console.error(`trueforge bootstrap failed; retrying in ${delay / 1000}s`, error);
-        if (this.ready) return;
         await sleep(delay);
         delay = Math.min(delay * 2, 60_000);
       }
@@ -99,10 +111,23 @@ export class Harness {
     return data.id;
   }
 
-  startTurn(sessionId: string, message: string): Promise<AsyncIterable<StreamEvent>> {
-    return this.client.sessions.createTurnStream(sessionId, {
-      input: [{ type: "user.message", content: message }],
-    });
+  /**
+   * Create the turn and return its id; the caller subscribes separately. Two
+   * calls instead of one streaming call so the run can record the turn as its
+   * own before the fallible subscribe, and never has to guess which turn on
+   * the shared session is its own.
+   */
+  private async createTurn(
+    sessionId: string,
+    input: TrueForgeApi.TurnInputItem[],
+  ): Promise<string> {
+    const { data } = await this.client.sessions.createTurn(sessionId, { input });
+    return data.id;
+  }
+
+  /** Start the run's first turn; resolves to the turn id. */
+  startTurn(sessionId: string, message: string): Promise<string> {
+    return this.createTurn(sessionId, [{ type: "user.message", content: message }]);
   }
 
   /** Contract 4: one send answers the pending approval and starts a new turn. */
@@ -110,24 +135,27 @@ export class Harness {
     sessionId: string,
     approval: { threadId: string; toolCallId: string },
     decision: "allow" | "deny",
-  ): Promise<AsyncIterable<StreamEvent>> {
-    return this.client.sessions.createTurnStream(sessionId, {
-      input: [
-        {
-          type: "user.tool_approval",
-          threadId: approval.threadId,
-          toolCallId: approval.toolCallId,
-          approval:
-            decision === "allow"
-              ? { status: "allow" }
-              : { status: "deny", reason: "Rejected by a Cujo operator. Post nothing and stop." },
-        },
-      ],
-    });
+  ): Promise<string> {
+    return this.createTurn(sessionId, [
+      {
+        type: "user.tool_approval",
+        threadId: approval.threadId,
+        toolCallId: approval.toolCallId,
+        approval:
+          decision === "allow"
+            ? { status: "allow" }
+            : { status: "deny", reason: "Rejected by a Cujo operator. Post nothing and stop." },
+      },
+    ]);
   }
 
   subscribe(sessionId: string, turnId: string): Promise<AsyncIterable<StreamEvent>> {
     return this.client.sessions.subscribeToTurn(sessionId, turnId, {});
+  }
+
+  /** Cancel the session's running last turn, if any. */
+  async cancelTurn(sessionId: string): Promise<void> {
+    await this.client.sessions.cancel(sessionId, {});
   }
 
   /** Every persisted event on the session's active branch, oldest first. */

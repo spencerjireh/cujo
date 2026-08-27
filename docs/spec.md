@@ -303,9 +303,10 @@ event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
 from the `model.message` event that `source_event_id` names, marks the run
 `blocked_pending`, and shows the review with the findings and the evidence in
 the Cujo UI. A human approves or rejects there. `apps/cujo` resumes the turn
-with `sessions.createTurnStream(sessionId, {input: [{type:
+with `sessions.createTurn(sessionId, {input: [{type:
 'user.tool_approval', threadId: 'main', toolCallId, approval: {status:
-'allow' | 'deny'}}]})`. On `allow` the blocking review posts as
+'allow' | 'deny'}}]})` and then `subscribeToTurn` on the returned id, which it
+records as its own before any event arrives. On `allow` the blocking review posts as
 `cujo-guard[bot]`. On `deny` the agent posts nothing and ends the turn; the
 rubric says so explicitly, so a denied block never degrades into an advisory
 review nobody asked for.
@@ -357,17 +358,26 @@ list in order.
 | `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). |
 | `created_at`, `updated_at` | Timestamps. |
 
-Status moves on events from the session's turn streams; nothing else changes
-it:
+Status moves on events from the session's turn streams, with one exception
+(`superseded`, set by the webhook):
 
 | Status | Set when |
 |--------|----------|
-| `running` | The first turn started. |
+| `running` | The run was claimed; the first turn is being started. |
 | `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted. |
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
-| `error` | `turn.done` with an error state, or the stream was lost and the replayed turns show no terminal event after the turn timeout. |
+| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, or the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn. |
+| `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. |
+
+One run, one turn chain. Every run on a PR shares the PR's session, so a run
+records the id of each turn it creates (`createTurn`, then `subscribeToTurn`)
+before the first event arrives, and never adopts a turn another run on the
+session recorded. A run that has no recorded turn after a restart was lost
+between the claim and the turn; it ends in `error`, and because an errored run
+with no turn does not hold its head, a redelivery of the webhook claims the
+head again and reviews it.
 
 A resume `apps/cujo` did not send is still tracked. After `blocked_pending`,
 `apps/cujo` keeps a subscription on the session (`subscribeToTurn` for a turn
