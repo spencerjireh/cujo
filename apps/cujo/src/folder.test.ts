@@ -251,6 +251,8 @@ describe("hard rules in the fold", () => {
     // The agent's `warn` for the same title is dropped, its other finding kept.
     expect(p.findings.map((f) => [f.source, f.severity, f.check])).toEqual([
       ["hard_rule", "critical", "tests"],
+      ["hard_rule", "warn", "probes"],
+      ["hard_rule", "warn", "smoke"],
       ["agent", "info", "smoke"],
     ]);
   });
@@ -298,7 +300,29 @@ describe("hard rules in the fold", () => {
     ]);
     expect(p.status).toBe("clean");
     expect(p.hardRuleHits).toEqual([]);
-    expect(p.findings.map((f) => f.severity)).toEqual(["warn", "info"]);
+    // probes and smoke never arrived as threads, so each gets a warn.
+    expect(p.findings.map((f) => [f.source, f.severity, f.check])).toEqual([
+      ["hard_rule", "warn", "probes"],
+      ["hard_rule", "warn", "smoke"],
+      ["agent", "warn", "tests"],
+      ["agent", "info", "smoke"],
+    ]);
+  });
+
+  it("warns for every required check the parent did not delegate", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-smoke", "smoke"),
+      threadDone("th-smoke", fenced({ check: "smoke", endpoints: [] })),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("clean");
+    expect(p.findings.map((f) => [f.severity, f.check])).toEqual([
+      ["warn", "tests"],
+      ["warn", "probes"],
+    ]);
   });
 });
 
