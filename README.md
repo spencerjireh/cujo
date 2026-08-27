@@ -1,12 +1,12 @@
-# Cujo
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/readme/banner-dark.svg">
+  <img alt="cujo" src="brand/readme/banner-light.svg" width="480">
+</picture>
 
 Cujo reviews pull requests by running them. It clones a PR into a throwaway
 sandbox, runs the tests on base and head, probes the changed code, boots the
 app, installs any new dependency in isolation, and posts a review that cites
 what happened — blocking a merge only after a human approves.
-
-> "Cujo" is a working name and may change. It appears throughout as a
-> find-replaceable string.
 
 ## Why
 
