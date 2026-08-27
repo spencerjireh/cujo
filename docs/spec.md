@@ -268,7 +268,12 @@ The rules run twice. The rubric tells the agent to apply them, and
 `thread.done` arrives it reads the report (`base_pass_head_fail`, and the
 `secret_probe` and `derived` blocks at the top level and inside `runs[]`) and
 derives one `critical` finding per rule per check, with `source: "hard_rule"`.
-These findings head the run's `findings` list; the agent's own findings,
+A required check (`tests`, `probes`, `smoke`) whose sub-agent thread has not
+returned a report by `turn.done` adds a `warn` finding of its own ("the tests
+check returned no report"): the parent ran it inline, skipped it, or the
+thread failed, and either way the rules had no report to read (seen on the first real
+review, where the model delegated only `smoke`). These findings head the run's
+`findings` list; the agent's own findings,
 passed as `findings[]` on the review tool call with `source: "agent"`, follow,
 minus any that repeats a hard-rule finding's check and title. If the agent
 calls `post_advisory_review` while a hard-rule finding exists, the review has
