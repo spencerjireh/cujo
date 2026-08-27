@@ -52,7 +52,7 @@ The split between deterministic code and agent reasoning is fixed:
 ## Contract 1 — the trigger
 
 The Cujo GitHub App subscribes to `pull_request` events (`opened`,
-`synchronize`). For each event the ingress service:
+`synchronize`). For each event the `apps/cujo` webhook module:
 
 1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
    anything unsigned or mismatched.
@@ -61,8 +61,10 @@ The Cujo GitHub App subscribes to `pull_request` events (`opened`,
 3. Finds or creates the TrueForge session for this PR (see Contract 5) and
    starts one turn with a single user message: repo full name, PR number, base
    SHA, head SHA, and the changed-file list.
+4. Records a run (see Contract 6) and stays subscribed to the turn's event
+   stream, folding events into that run until `turn.done`.
 
-Ingress does not decide what to check. That is the agent's job.
+The webhook module does not decide what to check. That is the agent's job.
 
 ## Contract 2 — the sandbox run
 
@@ -283,10 +285,18 @@ we want the nicer UX.)
 
 The gate is the harness's `require_approval_for_tools` on `post_blocking_review`
 (and the tool is annotated `@destructive`). When any finding is `critical` the
-agent calls that tool; the turn pauses with a `tool.approval_required` event;
-the paused session appears in the TrueForge UI; a human reviews the findings
-and the evidence and clicks Allow; only then does the blocking review post as
-`cujo-guard[bot]`.
+agent calls that tool and the turn pauses with a `tool.approval_required`
+event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
+`apps/cujo` reads the drafted review (the tool call's `body` and `comments[]`)
+from the `model.message` event that `source_event_id` names, marks the run
+`blocked_pending`, and shows the review with the findings and the evidence in
+the Cujo UI. A human approves or rejects there. `apps/cujo` resumes the turn
+with `sessions.createTurnStream(sessionId, {input: [{type:
+'user.tool_approval', threadId: 'main', toolCallId, approval: {status:
+'allow' | 'deny'}}]})`. On `allow` the blocking review posts as
+`cujo-guard[bot]`. On `deny` the agent posts nothing and ends the turn; the
+rubric says so explicitly, so a denied block never degrades into an advisory
+review nobody asked for.
 
 The review body carries the findings, the signals behind them, and the
 execution summary, so the human confirms a judgment rather than reconstructing
@@ -304,12 +314,63 @@ that repo, done later).
 - On `synchronize` (new commits), the session runs a fresh turn against the new
   head SHA rather than opening a new session. The earlier turns stay in the
   session, so the agent can see what it said before.
-- The idempotency check lives in **ingress**, not the agent or `github-mcp`.
-  Before starting a turn, ingress lists the PR's existing reviews with the
+- The idempotency check lives in **`apps/cujo`**, not the agent or `github-mcp`.
+  Before starting a turn, it lists the PR's existing reviews with the
   installation token and skips the turn if `cujo-guard[bot]` has already
   reviewed the current head SHA. So a retried webhook or a re-run never
   produces a duplicate review, and `github-mcp` stays write-only (it posts; it
   does not read PR state).
+
+## Contract 6 — the run record and the operator API
+
+`apps/cujo` keeps one record per turn it started, called a run. It is a
+projection of the TrueForge session (decision 18): the fields below are all
+`apps/cujo` stores, and everything else the UI shows is rebuilt from
+`listTurnEvents` on demand.
+
+| Field | Meaning |
+|-------|---------|
+| `id` | Run id, `apps/cujo`'s own. |
+| `repo`, `pr_number`, `head_sha` | The PR event that started it. |
+| `session_id`, `turn_id` | The TrueForge session and turn. |
+| `status` | One of the six states below. |
+| `approver`, `decided_at` | Email from the Access JWT and the time, set on approve or reject. |
+| `created_at`, `updated_at` | Timestamps. |
+
+Status moves on events from the turn stream; nothing else changes it:
+
+| Status | Set when |
+|--------|----------|
+| `running` | The turn started. |
+| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted. |
+| `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
+| `blocked_posted` | After `allow`, the `tool.response` for the gated call arrived and `turn.done` followed. |
+| `denied` | After `deny`, `turn.done` arrived. |
+| `error` | `turn.done` with an error state, or the stream was lost and `listTurnEvents` shows no terminal event after the turn timeout. |
+
+The four checks are matched to subagent threads by title. The parent titles
+each spawned thread exactly `tests`, `probes`, `smoke`, or `detonation`; a
+thread with any other title is shown but not treated as a check. A check's
+report is the JSON in `thread.done.state.output` — the first fenced JSON block
+in the message, parsed leniently, because the output is a model message and not
+a structured field. A `thread.done` with `status: error` marks the check
+failed and the parent decides what that means for the findings.
+
+The API `apps/cujo` serves, all under Cloudflare Access:
+
+| Route | Returns or does |
+|-------|-----------------|
+| `GET /runs` | Runs, newest first, with status. |
+| `GET /runs/:id` | The run, its checks (thread, status, report), findings, and the drafted review when `blocked_pending`. |
+| `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
+| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Requires a valid `Cf-Access-Jwt-Assertion`; records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
+
+The webhook route (Contract 1) is served by the same process on the non-Access
+hostname; it is the only route outside Access.
+
+Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
+subagent was given the review tool, which the design forbids. `apps/cujo` logs
+it, marks the run `error`, and does not offer an approve button for it.
 
 ## Stretch — remediation
 
