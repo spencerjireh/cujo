@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentFindings, hardRuleFindings, mergeFindings } from "./findings";
+import { agentFindings, hardRuleFindings, mergeFindings, missingCheckFindings } from "./findings";
 import type { CheckState, DraftedReview, Finding } from "./types";
 
 const check = (title: string, report: unknown, isCheck = true): CheckState => ({
@@ -94,6 +94,22 @@ describe("hardRuleFindings", () => {
     ]);
     expect(found).toHaveLength(5);
     expect(found.every((f) => f.severity === "critical")).toBe(true);
+  });
+});
+
+describe("missingCheckFindings", () => {
+  it("warns once per required check with no thread, ignoring non-check threads", () => {
+    const found = missingCheckFindings([
+      check("tests", { base_pass_head_fail: [] }),
+      check("probes", {}, false),
+    ]);
+    expect(found.map((f) => [f.severity, f.check, f.source])).toEqual([
+      ["warn", "probes", "hard_rule"],
+      ["warn", "smoke", "hard_rule"],
+    ]);
+    expect(
+      missingCheckFindings([check("tests", {}), check("probes", {}), check("smoke", {})]),
+    ).toEqual([]);
   });
 });
 
