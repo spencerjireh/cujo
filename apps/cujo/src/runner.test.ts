@@ -282,6 +282,54 @@ describe("Runner.rehydrate", () => {
   });
 });
 
+describe("Runner.hydrate", () => {
+  it("reads the persisted model.message when the stream only carried a stub", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    store.updateRun(r.id, { turnIds: ["t1"] });
+    const stub: StreamEvent = {
+      type: "model.message",
+      id: "mm-c1",
+      createdAt: "2026-08-27T10:00:02Z",
+      threadId: "main",
+    };
+    const full = reviewCall("c1");
+    const listEvents = vi.fn(async () => [
+      { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
+      { turnId: "t1", event: full },
+      // Another run's turn on the same session must not leak in.
+      { turnId: "t9", event: { ...full, id: "mm-c1", threadId: "main" } },
+      { turnId: "t1", event: turnDone("t1") },
+    ]);
+    const runner = new Runner(store, { listEvents } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    await runner.consume(
+      r.id,
+      streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), stub, turnDone("t1")]),
+    );
+    expect(listEvents).toHaveBeenCalledTimes(1);
+    expect(store.getRun(r.id)?.status).toBe("clean");
+    expect(store.getProjection(r.id)?.review?.tool).toBe("post_advisory_review");
+  });
+
+  it("keeps the stream's events when the read fails", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const listEvents = vi.fn(async () => {
+      throw new Error("server down");
+    });
+    const runner = new Runner(store, { listEvents } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    await runner.consume(
+      r.id,
+      streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), reviewCall("c1"), turnDone("t1")]),
+    );
+    expect(store.getRun(r.id)?.status).toBe("clean");
+  });
+});
+
 describe("Runner.consume", () => {
   it("resubscribes after a dropped stream and finishes the turn", async () => {
     const store = new Store(":memory:");

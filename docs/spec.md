@@ -379,6 +379,15 @@ between the claim and the turn; it ends in `error`, and because an errored run
 with no turn does not hold its head, a redelivery of the webhook claims the
 head again and reviews it.
 
+The fold reads persisted events. The turn stream's `model.message` is a stub
+(id only; the server streams text as deltas and never streams tool calls), so
+at each decision point (`tool.approval_required`, `turn.done`) `apps/cujo`
+re-reads the session's events with `listEvents` and replaces the stream's
+copies by id before folding. The review tool call is recognised whether the
+model called the MCP tool by name or through the harness's `call_tool`
+meta-tool (`{mcp_server: 'github-mcp', tool_name, input}`), which is what the
+server exposes by default.
+
 A resume `apps/cujo` did not send is still tracked. After `blocked_pending`,
 `apps/cujo` keeps a subscription on the session (`subscribeToTurn` for a turn
 still running; `listEvents` on the session after a restart), so a new turn
