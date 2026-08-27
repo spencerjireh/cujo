@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   const app = createApp({
     uiHost: config.uiHost,
     webhookHost: config.webhookHost,
-    api: { store, runner, verify, ...(discord ? { discord } : {}) },
+    api: { store, runner, verify, github, ...(discord ? { discord } : {}) },
     webhook: {
       secret: config.githubWebhookSecret,
       github,

@@ -9,6 +9,7 @@ import {
   hasPermissions,
 } from "./discord";
 import type { DiscordClient } from "./discord";
+import type { GitHubReader } from "./github";
 import type { RunView, Runner } from "./runner";
 import type { Store } from "./store";
 import type { DiscordChannelRecord } from "./types";
@@ -19,6 +20,8 @@ export interface ApiDeps {
   verify: AccessVerifier;
   /** Absent when DISCORD_BOT_TOKEN is unset; the Discord routes then 503. */
   discord?: DiscordClient;
+  /** Used to check a repo is one the Cujo App can actually review. */
+  github?: GitHubReader;
 }
 
 type Env = { Variables: { email: string } };
@@ -261,6 +264,14 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
     if (!guilds) return c.json({ ok: false, error: "could not read the bot's servers" }, 400);
     const guild = guilds.find((g) => g.id === guildId);
     if (!guild) return c.json({ ok: false, error: "the bot is not in that server" }, 400);
+
+    // A repo the App is not installed on can never produce a review, so
+    // authorizing one is a typo, not a decision.
+    const repo = `${owner}/${name}`.toLowerCase();
+    const installed = await deps.github?.installedRepos().catch(() => null);
+    if (installed && !installed.some((full) => full.toLowerCase() === repo)) {
+      return c.json({ ok: false, error: "the Cujo App is not installed on that repo" }, 400);
+    }
 
     const stored = deps.store.authorizeGuildRepo({
       guildId,

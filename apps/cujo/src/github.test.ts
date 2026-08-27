@@ -131,6 +131,43 @@ describe("GitHubReader.installedRepos", () => {
     expect(calls.mock.calls.length).toBe(after);
   });
 
+  it("scans once for a burst of concurrent callers", async () => {
+    // Autocomplete arrives per keystroke; without single flight each one would
+    // start its own installation-and-repository scan.
+    const { impl, calls } = fakeAppFetch(["o/a"]);
+    const reader = new GitHubReader("1", "pem", impl);
+    const [first, second, third] = await Promise.all([
+      reader.installedRepos(),
+      reader.installedRepos(),
+      reader.installedRepos(),
+    ]);
+    expect(first).toEqual(["o/a"]);
+    expect(second).toEqual(first);
+    expect(third).toEqual(first);
+    // One installations page plus one repositories page.
+    expect(calls.mock.calls.length).toBe(2);
+  });
+
+  it("pages through the installations rather than stopping at the first hundred", async () => {
+    const pages: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      pages.push(`${url.pathname}${url.search}`);
+      if (url.pathname.endsWith("/app/installations")) {
+        const page = Number(url.searchParams.get("page"));
+        // A full page means there may be more.
+        const body = page === 1 ? Array.from({ length: 100 }, (_, i) => ({ id: i })) : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }
+      return new Response(JSON.stringify({ repositories: [{ full_name: "o/a" }] }), {
+        status: 200,
+      });
+    });
+    const reader = new GitHubReader("1", "pem", impl as unknown as typeof fetch);
+    expect(await reader.installedRepos()).toEqual(["o/a"]);
+    expect(pages).toContain("/app/installations?per_page=100&page=2");
+  });
+
   it("throws rather than return a short list when GitHub refuses", async () => {
     const impl = vi.fn(async () => new Response("{}", { status: 500 }));
     const reader = new GitHubReader("1", "pem", impl as unknown as typeof fetch);

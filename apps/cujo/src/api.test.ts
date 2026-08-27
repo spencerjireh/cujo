@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "./api";
 import type { DiscordClient } from "./discord";
 import { emptyProjection } from "./folder";
+import type { GitHubReader } from "./github";
 import type { RunView, Runner } from "./runner";
 import { Store } from "./store";
 
 const AUTH = { "cf-access-jwt-assertion": "good" };
 
-function build(view: RunView | null, discord?: DiscordClient) {
+function build(view: RunView | null, discord?: DiscordClient, github?: GitHubReader) {
   const store = new Store(":memory:");
   const changes = new EventEmitter();
   const runner = {
@@ -21,6 +22,7 @@ function build(view: RunView | null, discord?: DiscordClient) {
     runner,
     verify: async (t) => (t === "good" ? "op@example.com" : null),
     ...(discord ? { discord } : {}),
+    ...(github ? { github } : {}),
   });
   return { app, store, runner, changes };
 }
@@ -378,6 +380,24 @@ describe("api discord routes", () => {
       authorized_by: "op@example.com",
     });
     expect(store.isGuildAuthorized("222222222222222222", "o/r")).toBe(true);
+  });
+
+  it("refuses to authorize a repo the Cujo App is not installed on", async () => {
+    const { app, store } = build(
+      null,
+      fakeDiscord() as unknown as DiscordClient,
+      { installedRepos: vi.fn(async () => ["spencerjireh/other"]) } as unknown as GitHubReader,
+    );
+    const res = await app.request("/discord/authorizations/222222222222222222/o/r", {
+      method: "PUT",
+      headers: AUTH,
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "the Cujo App is not installed on that repo",
+    });
+    expect(store.listGuildRepos()).toHaveLength(0);
   });
 
   it("refuses to authorize a server the bot is not in", async () => {

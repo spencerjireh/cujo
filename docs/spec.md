@@ -656,13 +656,32 @@ reply says which one failed:
    the bar — but a server admin can change that default, so the handler checks
    the interaction's own `member.permissions` as well. A permission check that
    lives only on the client is not a permission check.
-3. The server is authorized for the repo (tier one above).
+3. The server is authorized for the repo (tier one above). `watch` checks this
+   again immediately before it writes: the Discord round trips in between are
+   awaits, and an operator revoking the server during them must not end with a
+   binding written for a server that may no longer see the repo.
 4. For `watch`: the channel is in **this** server, is a text or announcement
    channel, and the bot has View Channel, Send Messages and Embed Links there,
    resolved through the overwrites exactly as Contract 7's bind route does. The
    channel option comes from this server's own picker, but a request is a
    request; nothing stops a crafted one naming a channel somewhere else.
 5. For `watch` with a role: the role is in this server.
+6. The repo is one the Cujo App is installed on. A repo it is not can be bound
+   and then never notified, which is the silent failure the rest of these
+   checks exist to prevent. Only a list Cujo managed to read can refuse a bind:
+   GitHub being unreachable is not a reason to block one. The authorization
+   route applies the same check when the pair is first allowed.
+7. For `watch` and `unwatch`: no **other** authorized server already holds this
+   repo. One repo notifies one channel (Contract 7), so two servers authorized
+   for the same repo would otherwise be able to redirect or silence each
+   other's reviews. Moving a repo between servers is an operator's job, over
+   `PUT /discord/channels/:owner/:name`.
+
+**Discord's limits are enforced, not hoped for.** A `status` reply is cut with
+a count rather than sent over the 2000-character message cap, since a deferred
+reply that fails leaves the invoker staring at "thinking" forever. A repo name
+longer than Discord's 100-character choice limit is not offered by autocomplete
+— it can still be typed, and the bind accepts it.
 
 **Transport.** `POST /discord/interactions` on `cujo-ingress.spencerjireh.com`,
 the same host as the GitHub webhook and for the same reason (decision 7):
@@ -682,7 +701,9 @@ Discord allows three seconds to respond and a bind needs several Discord round
 trips, so a command is answered immediately with a deferred ephemeral reply and
 filled in when the work is done. Autocomplete cannot be deferred, so the repo
 list is cached and a slow or failing GitHub read falls back to the repos Cujo
-already knows about rather than showing an empty picker.
+already knows about rather than showing an empty picker. The cache holds the
+in-flight scan, not only its result, so a burst of keystrokes against a cold
+cache makes one pass over GitHub rather than one per keystroke.
 
 Commands are registered per server at startup, with a full replace, so a
 definition cannot drift from the code across deploys and a change is visible at
