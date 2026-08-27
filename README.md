@@ -1,54 +1,64 @@
 # Cujo
 
-Cujo reviews the dependencies a pull request adds. It installs each new PyPI
-package in a throwaway sandbox, records what the install does, and posts a
-verdict on the PR — blocking a merge only after a human approves.
+Cujo reviews pull requests by running them. It clones a PR into a throwaway
+sandbox, runs the tests on base and head, probes the changed code, boots the
+app, installs any new dependency in isolation, and posts a review that cites
+what happened — blocking a merge only after a human approves.
 
 > "Cujo" is a working name and may change. It appears throughout as a
 > find-replaceable string.
 
 ## Why
 
-`pip install` runs a package's `setup.py` before any of your own code executes.
-A pull request that adds a dependency is asking you to run a stranger's code,
-and the diff shows none of what that code does. Cujo runs it first, somewhere it
-can do no harm, and tells you what happened.
+A diff shows what changed. It does not show what happens. A reviewer that only
+reads the diff cannot see the test that now fails, the endpoint that now
+errors, or the install-time payload in a new dependency. Cujo runs the PR
+first, somewhere it can do no harm, and tells you what it saw.
 
 ## How it works
 
-1. A PR adds or bumps a dependency in `requirements.txt`. The Cujo GitHub App
-   receives the `pull_request` webhook.
-2. Ingress verifies the webhook, diffs out the changed specifiers, and starts one
-   agent session with the PR context.
-3. The agent provisions a Daytona sandbox and runs `sniff.py`, which installs the
-   dependency behind a logging proxy and records the hosts it contacts, the files
-   it touches, and the processes it spawns.
-4. The agent scores that report against a rubric and reaches one verdict:
-   `cleared`, `warn`, or `denied`.
-5. A `cleared` or `warn` review posts automatically as `cujo-guard[bot]`. A
-   `denied` verdict requests changes — and that one action pauses until a human
-   approves it in the TrueForge UI.
+1. A PR is opened or updated. The Cujo GitHub App receives the `pull_request`
+   webhook.
+2. Ingress verifies the webhook and starts one agent turn with the PR context:
+   repo, PR number, base and head SHAs, changed files.
+3. The agent provisions a Daytona sandbox, clones both SHAs, seeds a decoy
+   secret, and starts a logging proxy. Then it spawns one subagent per check:
+   `tests` (suite on base and head), `probes` (agent-written scripts against
+   the changed code), `smoke` (boot the app, hit it), and `detonation` (only
+   when a dependency manifest changed: install each new dependency through
+   `sniff.py` and record the hosts it contacts, the files it touches, and the
+   processes it spawns).
+4. Each subagent returns a JSON report. The agent turns them into findings with
+   a severity: `info`, `warn`, or `critical`. Hard rules force `critical` on a
+   regression, a decoy-secret read, a sensitive write, or unknown egress during
+   an install; the agent cannot downgrade those.
+5. With no `critical` finding, the review posts automatically as
+   `cujo-guard[bot]`: a summary of what ran plus inline comments. With one, the
+   review requests changes — and that one action pauses until a human approves
+   it in the TrueForge UI.
 
-No secret ever enters the sandbox. A dependency name goes in; a JSON report comes
-out. That single narrow crossing is the property the whole design protects.
+No secret ever enters the sandbox. PR code and dependency names go in; JSON
+reports come out. That single narrow crossing is the property the whole design
+protects.
 
 ## Built on TrueForge
 
 Cujo runs on [TrueForge](https://trueforge.dev), an open-source agent harness,
 used as published — no fork. The harness supplies the model runtime, the Daytona
-sandbox, the MCP tool the agent calls to post a review, and the human-approval
-gate that holds the blocking review. Cujo is the agent, the review rubric, the
-sandbox detonation script, and the webhook ingress built on top.
+sandbox, the subagents, the MCP tool the agent calls to post a review, and the
+human-approval gate that holds the blocking review. Cujo is the agent, the
+review rubric, the in-sandbox sensor script, and the webhook ingress built on
+top.
 
 ## Layout
 
 | Path | What |
 |------|------|
 | `docs/` | Canonical spec. The code follows these docs; a design change lands here first. |
-| `apps/ingress/` | Webhook receiver that turns a PR event into an agent session. *(skeleton)* |
+| `apps/ingress/` | Webhook receiver that turns a PR event into an agent turn. *(skeleton)* |
 | `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. *(skeleton)* |
 | `packages/gh-app-auth/` | Shared GitHub App installation-token auth. *(skeleton)* |
-| `sniff.py` | The in-sandbox detonation script. *(skeleton)* |
+| `sniff.py` | The in-sandbox sensor script: dependency detonation plus the egress, filesystem, and decoy-secret sensors every check shares. *(skeleton)* |
 | `docker-compose.yml` | The TrueForge harness stack: `server`, Postgres, Redis. The file the deploy uses. |
 | `docker-compose.local.yml` | Local overlay: publishes service ports and points `PUBLIC_BASE_URL` at `localhost`. Never used by the deploy. |
 | `Makefile` | Local run helpers (`make up-local`, `down`, `logs`, `clean`). |
@@ -105,8 +115,8 @@ uv sync && uv run pytest
 
 Early. The harness is deployed and live, the docs are the design of record, and
 the repo scaffolding — workspace, tooling, CI — is in place. The service code
-under `apps/` and `sniff.py` is still skeleton; the detonation and review logic
-land next.
+under `apps/` and `sniff.py` is still skeleton; the review checks and sensor
+logic land next.
 
 ## License
 
