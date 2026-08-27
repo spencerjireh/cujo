@@ -347,6 +347,26 @@ describe("Runner.consume", () => {
     expect(store.getRun(r.id)?.status).toBe("clean");
   });
 
+  it("resubscribes when the stream ends cleanly before the terminal event", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const events: StreamEvent[] = [
+      turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ];
+    const subscribe = vi.fn(async () => streamOf(events));
+    const runner = new Runner(store, { subscribe } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+      retryDelaysMs: [0],
+    });
+    // The first stream closes without error after one event, as the server
+    // does when its subscribe window ends.
+    await runner.consume(r.id, streamOf(events.slice(0, 1)));
+    expect(subscribe).toHaveBeenCalledWith("s", "t1");
+    expect(store.getRun(r.id)?.status).toBe("clean");
+  });
+
   it("ends the run in error when every resubscribe fails", async () => {
     const store = new Store(":memory:");
     const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });

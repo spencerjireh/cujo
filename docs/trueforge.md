@@ -106,6 +106,7 @@ The harness contract tests (`make test-int`, `apps/cujo/src/trueforge.contract.t
 - **A denied call still gets a `tool.response`** carrying the refusal, so the fold checks the decision before the response.
 - **Creating a turn while one runs cancels the old one** (`cancelled-for-next-turn`), but a subscriber to the old turn is never told; only `sessions.cancel` (`client-cancelled`) closes the stream. `apps/cujo` cancels explicitly before starting a newer head's turn.
 - **`createTurn` then `subscribeToTurn`** gives the turn id before any event; a later subscribe replays the turn from `turn.created`, finished or not.
+- **The server bounds a turn at 10 minutes by default** (`SERVER_EXECUTION_TIMEOUT_SECONDS`, 600; the turn ends `cancelled` with reason `server-execution-timeout`), and a subscription stream at 10 minutes too (`TURN_SUBSCRIBE_TIMEOUT_MS`, 600000; the stream ends cleanly with no terminal event). Seen on the first real review (2026-08-27, `smoke` still running at the cut). The compose file raises both to the 30-minute turn budget, and `apps/cujo` treats a clean stream end without `turn.done` as a drop and resubscribes.
 
 Source files, for the reader who wants to check: `packages/trueforge-core/src/core/events/schema.ts` (event shapes), `packages/trueforge-core/src/core/runtime/AgentThread.ts` (resume validation), `packages/trueforge-core/src/core/capabilities/builtins/DynamicSubAgents.ts` (spawn tool), `packages/trueforge/src/config.ts` (OIDC), `packages/trueforge-sdk/src/api/resources/sessions/client/Client.ts` (SDK methods).
 
