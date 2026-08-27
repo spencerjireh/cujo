@@ -70,6 +70,8 @@ function blockedView(): RunView {
       threadId: "th",
       title: "tests",
       isCheck: true,
+      startedAt: null,
+      endedAt: null,
       status: "done",
       report: { ok: 1 },
       error: null,

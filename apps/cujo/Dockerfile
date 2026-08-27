@@ -7,7 +7,9 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
-RUN pnpm install --frozen-lockfile
+# Filtered so adding apps/web to the workspace does not pull Next, React, and
+# Storybook into this image's install.
+RUN pnpm install --frozen-lockfile --filter @cujo/cujo...
 RUN pnpm --filter @cujo/cujo build
 
 FROM node:24-slim AS runner

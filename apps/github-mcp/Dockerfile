@@ -7,7 +7,8 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
-RUN pnpm install --frozen-lockfile
+# Filtered so the new apps/web dependencies stay out of this image.
+RUN pnpm install --frozen-lockfile --filter @cujo/github-mcp...
 RUN pnpm --filter @cujo/github-mcp build
 
 FROM node:24-slim AS runner

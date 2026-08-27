@@ -11,6 +11,11 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Next.js / Storybook build output
+.next/
+storybook-static/
+next-env.d.ts
+
 # Python
 .venv/
 __pycache__/

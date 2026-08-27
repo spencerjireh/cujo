@@ -48,6 +48,7 @@ async function main(): Promise<void> {
 
   const app = createApp({
     uiHost: config.uiHost,
+    internalHost: config.internalHost,
     webhookHost: config.webhookHost,
     api: { store, runner, verify, ...(discord ? { discord } : {}) },
     webhook: {
