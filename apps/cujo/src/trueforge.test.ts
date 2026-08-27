@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Config } from "./config";
-import { Harness } from "./trueforge";
+import { Harness, sandboxAutoStopMinutes } from "./trueforge";
 
 function harness(steps: {
   mcp?: () => Promise<unknown>;
@@ -10,6 +10,7 @@ function harness(steps: {
   const config = {
     trueforgeBaseUrl: "http://server",
     githubMcpUrl: "http://github-mcp",
+    turnTimeoutMs: 30 * 60 * 1000,
     bootstrap: {
       modelProvider: {
         name: "p",
@@ -62,6 +63,18 @@ describe("Harness.bootstrap", () => {
     expect(sleep).toHaveBeenCalledTimes(1);
     expect(settings.mcpServers.createOrUpdate).toHaveBeenCalledTimes(2);
     expect(settings.sandboxProviders.createOrUpdate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("sandbox lifetime", () => {
+  it("stops an idle sandbox only after a whole turn could have run", async () => {
+    expect(sandboxAutoStopMinutes(30 * 60 * 1000)).toBe(45);
+    expect(sandboxAutoStopMinutes(90_000)).toBe(17);
+    const { h, settings } = harness({});
+    await h.bootstrap();
+    expect(settings.sandboxProviders.createOrUpdate).toHaveBeenCalledWith({
+      manifest: expect.objectContaining({ type: "daytona", autoStopIntervalInMinutes: 45 }),
+    });
   });
 });
 

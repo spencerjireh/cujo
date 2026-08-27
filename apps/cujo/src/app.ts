@@ -31,10 +31,13 @@ function hostOf(header: string | undefined): string {
 export function createApp(options: AppOptions): Hono {
   const ui = new Hono();
   ui.get("/healthz", (c) => c.json({ ok: true, service: "cujo" }));
-  ui.get("/", (c) => c.html(PLACEHOLDER));
   // The webhook is never reachable on the UI host, not even as a 401.
   ui.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
-  ui.route("/", apiRoutes(options.api));
+  // Every other UI-host route, the page included, sits behind the Access
+  // check inside apiRoutes (Contract 6).
+  const api = apiRoutes(options.api);
+  api.get("/", (c) => c.html(PLACEHOLDER));
+  ui.route("/", api);
 
   const webhook = new Hono();
   webhook.get("/healthz", (c) => c.json({ ok: true, service: "cujo" }));

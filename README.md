@@ -142,8 +142,8 @@ the approval gate, resume, and the fold of real events) and run in CI.
 ## Status
 
 The pipeline is in: webhook to session, the four checks, the sensors, the hard
-rules, the gated blocking review, and the run API. The Cujo UI is next, then the
-demo PRs and the video.
+rules (applied by the agent and re-derived in `apps/cujo`), the gated blocking
+review, and the run API with findings. The Cujo UI is next, then the video.
 
 ## License
 

@@ -33,11 +33,27 @@ export interface ReviewComment {
   body: string;
 }
 
+export type Severity = "info" | "warn" | "critical";
+
+/** One finding (Contract 3). `source` says which layer produced it. */
+export interface Finding {
+  source: "hard_rule" | "agent";
+  check: string;
+  severity: Severity;
+  title: string;
+  evidence: string;
+  path?: string;
+  line?: number;
+  side?: "LEFT" | "RIGHT";
+}
+
 export interface DraftedReview {
   tool: "post_advisory_review" | "post_blocking_review";
   toolCallId: string;
   body: string;
   comments: ReviewComment[];
+  /** The agent's own findings, as passed on the review tool call. */
+  findings: unknown[];
 }
 
 export interface PendingApproval {
@@ -51,6 +67,10 @@ export interface Projection {
   turnIds: string[];
   checks: CheckState[];
   review: DraftedReview | null;
+  /** Hard-rule hits re-derived from the check reports (decision 21). */
+  hardRuleHits: Finding[];
+  /** Hard-rule hits merged with the agent's findings, critical first. */
+  findings: Finding[];
   approval: PendingApproval | null;
   /** Decision carried by a resume turn, whoever sent it. */
   decision: "allow" | "deny" | null;

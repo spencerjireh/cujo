@@ -7,6 +7,11 @@ export type TurnCreatedEvent = TrueForgeApi.TurnCreatedEvent;
 export type TurnDoneEvent = TrueForgeApi.TurnDoneEvent;
 export type ToolApprovalRequiredEvent = TrueForgeApi.ToolApprovalRequiredEvent;
 
+/** Minutes of idle before Daytona stops a sandbox: the turn timeout plus slack. */
+export function sandboxAutoStopMinutes(turnTimeoutMs: number): number {
+  return Math.ceil(turnTimeoutMs / 60_000) + 15;
+}
+
 /**
  * The only client of the TrueForge server (decision 17). Thin: it names the
  * calls apps/cujo makes so the rest of the code never touches the SDK shapes.
@@ -74,7 +79,9 @@ export class Harness {
           manifest: {
             type: "daytona",
             auth: { apiKey: daytonaApiKey },
-            autoStopIntervalInMinutes: 15,
+            // Idle stop must outlast a whole turn, or a long review loses its
+            // sandbox mid-run; the sandbox is idle only after the turn ends.
+            autoStopIntervalInMinutes: sandboxAutoStopMinutes(this.config.turnTimeoutMs),
             autoArchiveIntervalInMinutes: 60,
             autoDeleteIntervalInMinutes: 24 * 60,
             execTimeoutMs: 20 * 60 * 1000,

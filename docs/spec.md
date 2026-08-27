@@ -152,8 +152,8 @@ so the hard rules read one shape regardless of which check ran:
 ```json
 {
   "egress": [
-    { "host": "pypi.org", "port": 443, "bytes": 3200 },
-    { "host": "files.pythonhosted.org", "port": 443, "bytes": 1048576 }
+    { "host": "pypi.org", "port": 443, "bytes": 3200, "known": true },
+    { "host": "files.pythonhosted.org", "port": 443, "bytes": 1048576, "known": true }
   ],
   "files_read": [
     { "path": "~/.aws/credentials", "sensitive": true }
@@ -255,6 +255,19 @@ positive evidence a sensor recorded, so a sensor gap (a direct socket the
 proxy did not see) can produce a missed `critical`, never a false one. A
 `false` in the sensor block means "not observed," and Layer 2 treats it that
 way.
+
+The rules run twice. The rubric tells the agent to apply them, and
+`apps/cujo` applies them again on its own side (decision 21): as each check's
+`thread.done` arrives it reads the report (`base_pass_head_fail`, and the
+`secret_probe` and `derived` blocks at the top level and inside `runs[]`) and
+derives one `critical` finding per rule per check, with `source: "hard_rule"`.
+These findings head the run's `findings` list; the agent's own findings,
+passed as `findings[]` on the review tool call with `source: "agent"`, follow,
+minus any that repeats a hard-rule finding's check and title. If the agent
+calls `post_advisory_review` while a hard-rule finding exists, the review has
+already posted (that tool is not gated), so the run ends `error` with a
+message naming the rule instead of `clean`; the operator sees the
+contradiction rather than a green run.
 
 **Layer 2 — the agent judges the rest** against the rubric carried as its
 instructions (the `SKILL.md`):
@@ -368,7 +381,7 @@ Status moves on events from the session's turn streams, with one exception
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
-| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, or the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn. |
+| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). |
 | `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. |
 
 One run, one turn chain. Every run on a PR shares the PR's session, so a run
@@ -413,7 +426,7 @@ The API `apps/cujo` serves on `cujo.spencerjireh.com`:
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /runs` | Runs, newest first, with status. |
-| `GET /runs/:id` | The run, its checks (thread, status, report), findings, and the drafted review when `blocked_pending`. |
+| `GET /runs/:id` | The run, its checks (thread, status, report), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits` (the hard-rule subset), and the drafted review when `blocked_pending`. |
 | `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
 | `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
 

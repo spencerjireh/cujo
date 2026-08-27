@@ -1,8 +1,10 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
+import { agentFindings, hardRuleFindings, mergeFindings } from "./findings";
 import {
   CHECK_NAMES,
   type CheckName,
   type DraftedReview,
+  type Finding,
   type Projection,
   type ReviewComment,
 } from "./types";
@@ -22,6 +24,8 @@ export function emptyProjection(): Projection {
     turnIds: [],
     checks: [],
     review: null,
+    hardRuleHits: [],
+    findings: [],
     approval: null,
     decision: null,
     externalResume: false,
@@ -109,6 +113,7 @@ export function parseReview(
     toolCallId: call.id,
     body: typeof args.body === "string" ? args.body : "",
     comments,
+    findings: Array.isArray(args.findings) ? args.findings : [],
   };
 }
 
@@ -169,6 +174,8 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           check.error = event.state.error;
           check.report = parseReport(messageText(event.state.output));
         }
+        p.hardRuleHits = hardRuleFindings(p.checks);
+        p.findings = mergeFindings(p.hardRuleHits, agentFindings(p.review));
         break;
       }
       case "tool.approval_required": {
@@ -203,6 +210,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         break;
       }
       case "turn.done": {
+        p.findings = mergeFindings(p.hardRuleHits, agentFindings(p.review));
         if (p.status === "error") break;
         if (event.state.status === "error") {
           p.status = "error";
@@ -223,6 +231,19 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
             p.status = "error";
             p.error = "approval allowed but the review tool never responded";
           } else p.status = "blocked_pending";
+        } else if (p.review && p.findings.some((f) => f.severity === "critical")) {
+          // Any critical finding, from a hard rule or the agent's own list,
+          // belongs on the blocking path. The advisory review has already
+          // posted (it is not gated), so the contradiction is recorded rather
+          // than hidden behind `clean`.
+          const titles = (list: readonly Finding[]) => list.map((f) => f.title).join("; ");
+          p.status = "error";
+          p.error =
+            p.hardRuleHits.length > 0
+              ? `hard rule tripped (${titles(p.hardRuleHits)}) but the agent posted an advisory review`
+              : `critical finding (${titles(
+                  p.findings.filter((f) => f.severity === "critical"),
+                )}) but the agent posted an advisory review`;
         } else if (p.review) {
           p.status = "clean";
         } else {
