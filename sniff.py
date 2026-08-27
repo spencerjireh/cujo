@@ -155,6 +155,32 @@ def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
     return any(str(p).startswith(prefix) for prefix in SENSITIVE_ABS_PREFIXES)
 
 
+NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
+# Directory prefixes end in "/" so /usr/libexec is not taken for /usr/lib.
+NOISE_READ_PREFIXES = ("/usr/lib/", "/usr/local/lib/", "/proc/", "/sys/", "/dev/", "/etc/ld.so")
+NOISE_READ_SUFFIXES = (".pyc", ".dist-info/METADATA", ".dist-info/RECORD")
+
+
+def is_noise_read(path: str) -> bool:
+    """A read the interpreter or a package manager does on its own account.
+
+    Imports from the interpreter's own library tree, bytecode, and installed
+    package metadata say nothing about what the code under test did, and
+    there are thousands of them per run; dropping them keeps `files_read` to
+    the reads that carry a signal. Only those roots count: a shared object or
+    a module read from the workspace or anywhere else stays in the list, and
+    a sensitive path is never noise, whatever it looks like.
+    """
+    p = str(path)
+    if p.startswith((f"{sys.prefix}/lib/", f"{sys.base_prefix}/lib/")):
+        return True
+    return (
+        any(part in p for part in NOISE_READ_PARTS)
+        or p.startswith(NOISE_READ_PREFIXES)
+        or p.endswith(NOISE_READ_SUFFIXES)
+    )
+
+
 def display_path(path: Path, home_dir: Path | None = None) -> str:
     """Render a path with `~` for HOME so reports read the same on any box."""
     h = home_dir or home()
@@ -483,8 +509,15 @@ def build_sensor_block(
     allow_hosts: list[str],
     check: str,
     home_dir: Path | None = None,
+    cwd: Path | None = None,
 ) -> dict[str, Any]:
-    """Fold the raw sensor logs into the block every check report carries."""
+    """Fold the raw sensor logs into the block every check report carries.
+
+    `cwd` is the audited command's working directory: the audit hook records
+    paths as the program passed them, so a relative one is resolved here,
+    against that directory, before it is classified.
+    """
+    base = Path(cwd) if cwd is not None else Path.cwd()
     decoy = str((home_dir or home()) / DECOY_REL)
     egress = _merge_egress(proxy_rows)
     files_read: list[dict[str, Any]] = []
@@ -494,7 +527,9 @@ def build_sensor_block(
     for row in audit_rows:
         if row.get("event") == "open":
             mode = row.get("mode", "r")
-            path = row.get("path", "")
+            path = str(row.get("path", ""))
+            if path and not os.path.isabs(path):
+                path = str(base / path)
             if path == decoy:
                 decoy_read = True
             if any(ch in mode for ch in "wax+"):
@@ -503,6 +538,8 @@ def build_sensor_block(
                 continue
             seen_paths.add(path)
             sensitive = is_sensitive(path, home_dir)
+            if not sensitive and is_noise_read(path):
+                continue
             if sensitive or len(files_read) < MAX_FILES_READ:
                 files_read.append(
                     {"path": display_path(Path(path), home_dir), "sensitive": sensitive}
@@ -593,6 +630,7 @@ def run_sensed(
         fs_changes=diff_snapshots(before, after, workspace_roots),
         allow_hosts=config.get("allow_hosts", []),
         check=check,
+        cwd=cwd,
     )
     return {
         "argv": argv,

@@ -49,6 +49,11 @@ services:
       REDIS_URL: redis://redis:6379
       # Public origin for MCP OAuth callbacks and the (later) GitHub webhook.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      # A review turn runs tests, probes, a smoke boot, and installs; the
+      # server's defaults (10 minutes for both) cancel it mid-check. Keep in
+      # step with CUJO_TURN_TIMEOUT_MS on the cujo service (30 minutes).
+      SERVER_EXECUTION_TIMEOUT_SECONDS: ${SERVER_EXECUTION_TIMEOUT_SECONDS:-1800}
+      TURN_SUBSCRIBE_TIMEOUT_MS: ${TURN_SUBSCRIBE_TIMEOUT_MS:-1860000}
     depends_on:
       postgres:
         condition: service_healthy

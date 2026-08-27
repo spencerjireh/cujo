@@ -215,7 +215,11 @@ export class Runner {
       while (current && !timedOut) {
         try {
           await drain(current);
-          break;
+          if (sawTerminal) break;
+          // A stream that ends cleanly before the terminal event (the
+          // server's subscribe window or a proxy idle limit closed it) is
+          // a drop like any other: the turn is still running.
+          throw new Error("stream ended before the terminal event");
         } catch (error) {
           console.error(`run ${runId}: stream error`, error);
           current = null;

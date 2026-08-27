@@ -197,6 +197,13 @@ The sensors, layered from language-agnostic to language-specific:
   and `subprocess`/`os.exec` events. It rides into every Python subprocess
   (including pip running `setup.py`), so it gives the richer `files_read` and
   `subprocesses` lists and a second, independent source for `decoy_read`.
+  `files_read` omits the reads the interpreter and package managers make on
+  their own account (the interpreter's `lib/` tree, `site-packages`,
+  `__pycache__` and `.pyc`, `.dist-info` metadata, `node_modules`, `/proc`,
+  `/sys`, `/dev`); a sensitive path is listed whatever it looks like. This is
+  a filter on what leaves the sandbox in the JSON report, not on what the
+  hook records, and it exists because a single `pytest` run otherwise ships
+  hundreds of bytecode rows into the agent's context.
 
 The block also carries `subprocesses[]` (from the audit hook) and a
 `sensitive` flag on each `fs_changes` entry, so the `derived` booleans can be
