@@ -23,12 +23,12 @@ sandbox is thrown away afterwards.
 
 | Piece | Role |
 |-------|------|
-| **TrueForge** | The agent harness — the runtime that turns a model into a working agent. Deployed and live. The centerpiece the hackathon scores. |
+| **TrueForge** | The agent harness — the runtime that turns a model into a working agent. Deployed and live. The centerpiece the hackathon scores. Reached only by `apps/cujo` over the SDK and by `github-mcp` as a tool; its bundled UI is an operator console, not the product. |
 | **Cujo agent** | The parent reviewer: a language model, the review rubric as its instructions, a sandbox, subagents, and a GitHub tool. It sets up the sandbox, delegates the checks, merges the findings, and posts. |
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
 | **`sniff.py`** | The in-sandbox sensor script. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
-| **Ingress** | Turns a GitHub pull-request webhook into one TrueForge agent turn. |
+| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. *(Currently the `apps/ingress` skeleton; the rename follows.)* |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
@@ -38,23 +38,126 @@ sandbox is thrown away afterwards.
 Two zones, with a narrow bridge between them.
 
 - **Trusted (our server):** the TrueForge harness, the Cujo agent and its API
-  keys, the ingress service, and `github-mcp`. Secrets live here.
+  keys, `apps/cujo`, and `github-mcp`. Secrets live here.
 - **Untrusted and disposable (the Daytona sandbox):** the PR's code, its
   dependencies, the check subagents' scripts, `sniff.py`, and the logging
   proxy.
 
 Only two things cross the bridge: PR code and dependency names go in, and JSON
-reports come out. No secret ever enters the sandbox. This is the property the
+reports come out. (Cujo's own sensor script and the commands the subagents run
+go in too; they are ours, carry no secret, and are the instrument, not the
+specimen.) No secret ever enters the sandbox. This is the property the
 whole design protects, so keep it in mind when reading the flow below.
+
+## System map
+
+Three zones. TrueForge is one box in the middle zone: it runs the agent, but
+nothing outside the server talks to it. `apps/cujo` is the only thing GitHub or
+a person touches. Thick edges are the one path a human is on.
+
+```mermaid
+flowchart LR
+  subgraph outside [Outside]
+    GH[GitHub<br/>orders-api PRs]
+    Human[Human reviewer<br/>browser]
+    LLM[Model provider<br/>LLM API]
+  end
+
+  subgraph server [Our server - compose network - secrets live here]
+    Access{{Cloudflare Access<br/>email OTP}}
+    Cujo[apps/cujo<br/>webhook - run store<br/>event folder - UI + API<br/>approve endpoint]
+    TF[TrueForge server<br/>agent runtime - internal<br/>parent agent + subagents<br/>approval gate - sessions]
+    MCP[github-mcp<br/>holds App private key]
+    DB[(Postgres + Redis<br/>TrueForge state)]
+  end
+
+  subgraph sandbox [Untrusted - disposable - Daytona]
+    SB[Daytona sandbox<br/>PR code at base + head<br/>tests - probes - smoke<br/>detonation - sniff.py<br/>logging proxy - decoy secret]
+    Canary[Unknown host<br/>where evil-package phones]
+  end
+
+  GH -- "pull_request webhook - HMAC" --> Cujo
+  MCP -- "POST review as cujo-guard[bot]<br/>installation token" --> GH
+  Human -- https --> Access
+  Access --> Cujo
+  Cujo -- "create session / turn" --> TF
+  TF -- "events by thread_id" --> Cujo
+  Cujo -- "user.tool_approval" --> TF
+  TF -- "post_blocking_review - paused" --> MCP
+  TF -- "model API - key stays on server" --> LLM
+  TF --> DB
+  TF -- "commands" --> SB
+  SB -- "JSON reports" --> TF
+  SB -. "egress via proxy - logged" .-> Canary
+
+  linkStyle 2,3,6,7 stroke:#b85c0b,stroke-width:2.5px
+  style sandbox stroke-dasharray: 6 4
+```
+
+Every crossing, with what it carries and what protects it:
+
+| From → To | Transport | What crosses | Auth |
+|-----------|-----------|--------------|------|
+| GitHub → `apps/cujo` | HTTPS webhook on `cujo-ingress.spencerjireh.com` | PR opened or synchronized: repo, PR number, base and head SHA | HMAC signature |
+| `apps/cujo` → TrueForge | HTTP on the compose network | `sessions.create` with the inline agent spec; `createTurnStream` with the PR context; `listTurnEvents` on restart | None needed; TrueForge has no public API route |
+| TrueForge → `apps/cujo` | The same stream, reverse direction | Events tagged by `thread_id`: `thread.created`, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
+| TrueForge → sandbox | Daytona API, then commands inside the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The dependency names from the manifest diff. Cujo's own `sniff.py` and the commands the subagents run. | Daytona key on the server; nothing in the box. Private repos are a non-goal, so no clone credential exists to leak |
+| Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block | None; treated as untrusted data |
+| Sandbox → internet | Through the in-sandbox proxy | Whatever the PR or a dependency tries to reach; logged, becomes evidence | None; the decoy secret is the only "secret" it can find |
+| TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
+| TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` (free) or `post_blocking_review` (paused until a human allows) | Internal |
+| `github-mcp` → GitHub | REST API | The review: summary body plus inline comments, as `cujo-guard[bot]` | Installation token minted from the App private key |
+| Human → `apps/cujo` | HTTPS through Cloudflare Access on `cujo.spencerjireh.com` | Reads runs, check cards, findings, the drafted review. Writes one thing: approve or reject | Email OTP; the approve route checks the Access JWT and records the approver |
+| `apps/cujo` → TrueForge | HTTP on the compose network | `createTurnStream` with `user.tool_approval {allow \| deny}`; the turn resumes | Internal |
+
+## The approval path
+
+The mechanism the design hinges on: the pause happens inside TrueForge, the
+button lives in Cujo, and the resume goes over the SDK.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant GH as GitHub
+  participant C as apps/cujo
+  participant TF as TrueForge
+  participant Sub as Check subagents
+  participant H as Human
+  participant M as github-mcp
+
+  GH->>C: pull_request webhook (HMAC)
+  C->>TF: sessions.create / createTurnStream(PR context)
+  TF->>Sub: spawn tests, probes, smoke, detonation
+  TF-->>C: thread.created (title = check name)
+  Sub-->>TF: JSON report
+  TF-->>C: thread.done (state.output = report)
+  Note over TF: hard rules force critical
+  TF->>M: post_blocking_review(body, comments)
+  Note over TF,M: tool is gated - turn pauses
+  TF-->>C: tool.approval_required (thread main, tool_call id)
+  C->>C: run status = blocked_pending
+  H->>C: opens run, reads drafted review
+  H->>C: Approve
+  C->>TF: createTurnStream(user.tool_approval allow)
+  TF->>M: post_blocking_review proceeds
+  M->>GH: REQUEST_CHANGES review as cujo-guard[bot]
+  TF-->>C: tool.response, turn.done
+  C->>C: run status = blocked_posted
+```
+
+On Reject, step 14 sends `deny`; the agent posts nothing and the run ends
+`denied`. With no `critical` finding the agent calls `post_advisory_review`
+instead, which is not gated, and steps 8 to 14 do not happen.
 
 ## End-to-end flow
 
 1. **A PR arrives.** Someone opens or updates a pull request on the protected
    repo. The Cujo GitHub App fires a `pull_request` webhook.
-2. **Ingress wakes the agent.** The ingress service verifies the webhook,
-   reads the PR metadata and changed-file list, and starts one turn in the
-   PR's Cujo session with that context: repo, PR number, base SHA, head SHA,
-   changed files.
+2. **Cujo wakes the agent.** `apps/cujo` verifies the webhook, reads the PR
+   metadata and changed-file list, and starts one turn in the PR's Cujo
+   session with that context: repo, PR number, base SHA, head SHA, changed
+   files. It stays subscribed to the turn's event stream and folds what it
+   sees into a run the UI can show while the checks are still going.
 3. **Into the sandbox.** The agent provisions a Daytona sandbox, clones head,
    adds a worktree at base, seeds the decoy secret, starts the logging proxy
    and the decoy watcher, and reads `.cujo.yml` from base if the repo has one
@@ -72,25 +175,35 @@ whole design protects, so keep it in mind when reading the flow below.
    what ran plus an inline comment per anchored finding.
 6. **Post, pausing only to block.** With no `critical` finding the review
    posts automatically as `cujo-guard[bot]`. With one, the review blocks the PR,
-   and the harness pauses that one action until a human approves it. The exact
-   rule is in [spec.md](spec.md).
+   and the harness pauses that one action until a human approves it in the
+   Cujo UI, which shows the drafted review and resumes the turn over the SDK.
+   The exact rule is in [spec.md](spec.md).
 
 ## Deployment topology
 
 Everything runs on one Hetzner server (`hetzner-server-1`, Helsinki), deployed by
 Coolify in a single `docker-compose` project so the services share a network.
 
-- **`server`** — TrueForge (API + UI) on port 8790. Public at
-  `https://cujo.spencerjireh.com` behind Cloudflare Access (email OTP), because
-  TrueForge's own auth is off and anyone reaching it would otherwise be admin.
-  This is where a human sees a paused session and approves a block.
+- **`server`** — TrueForge (API + bundled UI) on port 8790, reached by
+  `apps/cujo` at `http://server:8790` on the compose network. Its UI is also
+  published at `https://cujo-harness.spencerjireh.com` behind Cloudflare Access
+  (email OTP) as an operator console: read transcripts, register the model key
+  and the `github-mcp` connector, debug. Nobody approves a block there
+  (decision 17).
 - **`postgres` + `redis`** — TrueForge hosted-mode state.
-- **`ingress`** — public at `https://ingress.cujo.spencerjireh.com` with no
-  Access policy, since GitHub cannot solve an OTP challenge. It is protected by
-  the webhook HMAC signature and reaches TrueForge over the internal network at
-  `http://server:8790`.
+- **`cujo`** — the `apps/cujo` service on two hostnames.
+  `https://cujo-ingress.spencerjireh.com` carries only the webhook route, with
+  no Access policy, since GitHub cannot solve an OTP challenge; the HMAC
+  signature protects it. `https://cujo.spencerjireh.com` carries the Cujo UI
+  and API behind Access; this is where a human sees a paused run and approves
+  a block. A volume holds its SQLite run store.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
+
+The hostname layout above is the target. The DNS records and the Access app for
+`cujo-harness.spencerjireh.com` exist; today `cujo.spencerjireh.com` still
+routes to TrueForge in Coolify, and pointing it at `apps/cujo` (and
+`cujo-harness` at TrueForge) is a Coolify change that lands with the service.
 
 The Coolify control plane runs on a separate host (netcup) that never executes
 untrusted code.

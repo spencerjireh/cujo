@@ -8,7 +8,9 @@ from a design choice.
   from those pages; verify against the official rules before submission.
 - [trueforge.md](trueforge.md) — distilled from the TrueForge repo and
   trueforge.dev docs on 2026-08-23. It restates public documentation; the live
-  docs win if they diverge.
+  docs win if they diverge. The "Driving it headless" section and decision 17
+  were verified by reading the TrueForge source (SDK 0.1.3) on 2026-08-27; the
+  file paths cited there are in that repo at that date.
 
 Everything else in `docs/` — architecture, spec, decisions, demo — is Cujo's own
 design, not a quoted source.
