@@ -241,6 +241,24 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     await settled(run.id, ["denied"]);
   });
 
+  it("a sub-agent's name is the thread title, and its report trips a hard rule", async () => {
+    const run = runFor("h-sub");
+    const report = { check: "tests", base_pass_head_fail: ["t_x"] };
+    // The parent spawns `tests`; the sub-agent's whole input is a SAY, so it
+    // ends with the fenced report; the parent's reply to the tool result is
+    // plain text, so the turn ends with no review.
+    const input = `SAY \`\`\`json ${JSON.stringify(report)} \`\`\``;
+    const message = `CALL create_sub_agent ${JSON.stringify({ name: "tests", input })}`;
+    await active().start(run, message);
+    const projection = store.getProjection(run.id);
+    const check = projection?.checks.find((c) => c.title === "tests");
+    expect(check).toMatchObject({ isCheck: true, status: "done" });
+    expect(check?.report).toMatchObject({ base_pass_head_fail: ["t_x"] });
+    expect(projection?.hardRuleHits).toHaveLength(1);
+    expect(store.getRun(run.id)?.status).toBe("error");
+    expect(projection?.error).toBe("turn ended without a review");
+  });
+
   it("a resume sent outside Cujo is picked up by the poll and marked external", async () => {
     const run = runFor("h-ext");
     await active().start(run, reviewMessage("post_blocking_review"));
