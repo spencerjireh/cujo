@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import socket
@@ -81,7 +82,8 @@ def test_egress_merges_and_classifies_unknown_hosts(home_dir: Path) -> None:
         {"host": "evil.example", "port": 443, "bytes": 9},
     ]
     block = _block(home_dir, proxy_rows=rows, check="detonation")
-    assert {"host": "pypi.org", "port": 443, "bytes": 150} in block["egress"]
+    assert {"host": "pypi.org", "port": 443, "bytes": 150, "known": True} in block["egress"]
+    assert {"host": "evil.example", "port": 443, "bytes": 9, "known": False} in block["egress"]
     assert block["derived"]["egress_to_unknown_host"] is True
     allowed = _block(home_dir, proxy_rows=rows, allow_hosts=["evil.example"])
     assert allowed["derived"]["egress_to_unknown_host"] is False
@@ -295,8 +297,7 @@ setup(name="cujo-demo-sample", version="0.0.1", py_modules=["cujo_demo_sample"])
 
 
 def _can_detonate() -> bool:
-    has_pip = subprocess.run([sys.executable, "-c", "import ensurepip"], capture_output=True)
-    return has_pip.returncode == 0 or sniff.shutil.which("uv") is not None
+    return importlib.util.find_spec("ensurepip") is not None or sniff.shutil.which("uv") is not None
 
 
 @pytest.mark.skipif(not _can_detonate(), reason="detonate needs venv+pip or uv")

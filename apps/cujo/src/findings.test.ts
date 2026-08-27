@@ -71,6 +71,17 @@ describe("hardRuleFindings", () => {
     expect(hardRuleFindings([check("smoke", report)])).toEqual([]);
     const [f] = hardRuleFindings([check("detonation", report)]);
     expect(f).toMatchObject({ severity: "critical", evidence: "egress: 203.0.113.10" });
+    // With sniff.py's `known` flag, only the hosts that failed the check are cited.
+    const mixed = {
+      derived: { egress_to_unknown_host: true },
+      egress: [
+        { host: "pypi.org", port: 443, known: true },
+        { host: "203.0.113.10", port: 443, known: false },
+      ],
+    };
+    expect(hardRuleFindings([check("detonation", mixed)])[0]?.evidence).toBe(
+      "egress: 203.0.113.10",
+    );
   });
 
   it("emits one finding per rule per check", () => {

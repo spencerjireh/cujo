@@ -4,6 +4,7 @@ import {
   CHECK_NAMES,
   type CheckName,
   type DraftedReview,
+  type Finding,
   type Projection,
   type ReviewComment,
 } from "./types";
@@ -230,13 +231,19 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
             p.status = "error";
             p.error = "approval allowed but the review tool never responded";
           } else p.status = "blocked_pending";
-        } else if (p.review && p.hardRuleHits.length > 0) {
-          // The advisory review has already posted (it is not gated), so the
-          // contradiction is recorded rather than hidden behind `clean`.
+        } else if (p.review && p.findings.some((f) => f.severity === "critical")) {
+          // Any critical finding, from a hard rule or the agent's own list,
+          // belongs on the blocking path. The advisory review has already
+          // posted (it is not gated), so the contradiction is recorded rather
+          // than hidden behind `clean`.
+          const titles = (list: readonly Finding[]) => list.map((f) => f.title).join("; ");
           p.status = "error";
-          p.error = `hard rule tripped (${p.hardRuleHits
-            .map((f) => f.title)
-            .join("; ")}) but the agent posted an advisory review`;
+          p.error =
+            p.hardRuleHits.length > 0
+              ? `hard rule tripped (${titles(p.hardRuleHits)}) but the agent posted an advisory review`
+              : `critical finding (${titles(
+                  p.findings.filter((f) => f.severity === "critical"),
+                )}) but the agent posted an advisory review`;
         } else if (p.review) {
           p.status = "clean";
         } else {

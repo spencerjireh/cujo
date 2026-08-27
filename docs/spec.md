@@ -152,8 +152,8 @@ so the hard rules read one shape regardless of which check ran:
 ```json
 {
   "egress": [
-    { "host": "pypi.org", "port": 443, "bytes": 3200 },
-    { "host": "files.pythonhosted.org", "port": 443, "bytes": 1048576 }
+    { "host": "pypi.org", "port": 443, "bytes": 3200, "known": true },
+    { "host": "files.pythonhosted.org", "port": 443, "bytes": 1048576, "known": true }
   ],
   "files_read": [
     { "path": "~/.aws/credentials", "sensitive": true }

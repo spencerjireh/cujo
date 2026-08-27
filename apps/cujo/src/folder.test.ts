@@ -270,6 +270,23 @@ describe("hard rules in the fold", () => {
     expect(p.findings[0]?.severity).toBe("critical");
   });
 
+  it("marks an advisory review that carries the agent's own critical finding as an error", () => {
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", {
+        ...review,
+        findings: [{ check: "probes", severity: "critical", title: "probe disagrees" }],
+      }),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("error");
+    expect(p.hardRuleHits).toEqual([]);
+    expect(p.error).toBe(
+      "critical finding (probe disagrees) but the agent posted an advisory review",
+    );
+  });
+
   it("carries the agent's findings on a clean run", () => {
     const p = fold([
       turnCreated("t1"),
