@@ -34,6 +34,22 @@ export const reviewInputShape = {
     )
     .default([])
     .describe("Inline findings. One without a valid diff anchor moves into the body."),
+  findings: z
+    .array(
+      z.object({
+        check: z.string().min(1).describe("tests, probes, smoke, detonation, or review."),
+        severity: z.enum(["info", "warn", "critical"]),
+        title: z.string().min(1),
+        evidence: z.string().default(""),
+        path: z.string().optional(),
+        line: z.number().int().positive().optional(),
+        side: z.enum(["LEFT", "RIGHT"]).optional(),
+      }),
+    )
+    .default([])
+    .describe(
+      "Every finding with its severity. Not posted; Cujo reads it from the tool call to show the run.",
+    ),
 };
 
 const reviewInputSchema = z.object(reviewInputShape);

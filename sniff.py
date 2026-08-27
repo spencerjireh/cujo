@@ -514,7 +514,9 @@ def build_sensor_block(
             if host and not host.startswith("127.") and host != "::1":
                 egress.append({"host": host, "port": row.get("port", 0), "bytes": 0})
     allowed = KNOWN_INDEX_HOSTS | {h.lower() for h in allow_hosts}
-    unknown = any(e["host"].lower() not in allowed for e in egress)
+    for e in egress:
+        e["known"] = e["host"].lower() in allowed
+    unknown = any(not e["known"] for e in egress)
     is_install = check == "detonation"
     return {
         "egress": egress,
@@ -558,6 +560,9 @@ def sensor_env(config: dict[str, Any]) -> dict[str, str]:
         "NO_PROXY": "",
         "PYTHONPATH": pythonpath,
         "CUJO_AUDIT_LOG": str(paths["audit_log"]),
+        # Marks a sensed process as running inside Cujo's sandbox. The demo
+        # sample (evil-package) keeps its payload inert unless this is set.
+        "CUJO_SANDBOX": "1",
     }
 
 

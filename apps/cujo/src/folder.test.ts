@@ -221,6 +221,87 @@ describe("fold", () => {
   });
 });
 
+describe("hard rules in the fold", () => {
+  const fenced = (report: unknown) => `\`\`\`json\n${JSON.stringify(report)}\n\`\`\``;
+  const tripped = fenced({ check: "tests", base_pass_head_fail: ["t_x"] });
+  const withFindings = {
+    ...review,
+    findings: [
+      { check: "smoke", severity: "info", title: "boots", evidence: "200" },
+      { check: "tests", severity: "warn", title: "1 test passes on base and fails on head" },
+    ],
+  };
+
+  it("re-derives a hard-rule hit from the report and keeps it critical", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", tripped),
+      reviewCall("call-1", "post_blocking_review", withFindings),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("blocked_pending");
+    expect(p.hardRuleHits).toHaveLength(1);
+    expect(p.hardRuleHits[0]).toMatchObject({
+      severity: "critical",
+      check: "tests",
+      evidence: "t_x",
+    });
+    // The agent's `warn` for the same title is dropped, its other finding kept.
+    expect(p.findings.map((f) => [f.source, f.severity, f.check])).toEqual([
+      ["hard_rule", "critical", "tests"],
+      ["agent", "info", "smoke"],
+    ]);
+  });
+
+  it("marks an advisory review that ignored a hard-rule hit as an error, not clean", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", tripped),
+      reviewCall("call-0", "post_advisory_review", withFindings),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("error");
+    expect(p.error).toContain("hard rule tripped");
+    expect(p.error).toContain("advisory review");
+    expect(p.findings[0]?.severity).toBe("critical");
+  });
+
+  it("marks an advisory review that carries the agent's own critical finding as an error", () => {
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", {
+        ...review,
+        findings: [{ check: "probes", severity: "critical", title: "probe disagrees" }],
+      }),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("error");
+    expect(p.hardRuleHits).toEqual([]);
+    expect(p.error).toBe(
+      "critical finding (probe disagrees) but the agent posted an advisory review",
+    );
+  });
+
+  it("carries the agent's findings on a clean run", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", fenced({ check: "tests", base_pass_head_fail: [] })),
+      reviewCall("call-0", "post_advisory_review", withFindings),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("clean");
+    expect(p.hardRuleHits).toEqual([]);
+    expect(p.findings.map((f) => f.severity)).toEqual(["warn", "info"]);
+  });
+});
+
 describe("parseReview", () => {
   const callTool = (id: string, args: unknown) =>
     ({
@@ -243,6 +324,7 @@ describe("parseReview", () => {
       toolCallId: "c1",
       body: "What ran",
       comments: [{ path: "a.py", line: 3, body: "boom" }],
+      findings: [],
     });
   });
 
