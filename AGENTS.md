@@ -92,6 +92,10 @@ sandbox's `python3`, not `uv`. Report shapes live in `docs/spec.md` Contract 2.
 - Every change is a PR; no direct commits to `main`. Qodo reviews PRs here and
   reads `best_practices.md`, which mirrors the Standards section of
   `CONTRIBUTING.md`; keep the two in sync.
+- Before merging, wait for Qodo's review to finish and check that every Qodo
+  comment is applied, or answered with a one-line reason and resolved
+  (`gh pr view --comments`, `gh pr checks`). Never merge with an open Qodo
+  thread.
 - Pin dependencies; a `git+` or unpinned spec needs a reason in the PR.
 - Commit subjects use Conventional Commits (`type(scope): summary`, imperative,
   no trailing period); explain the why in the body. See `CONTRIBUTING.md`.
