@@ -47,6 +47,18 @@ def test_noise_reads_are_dropped_but_sensitive_reads_never(home_dir: Path) -> No
         ],
     )
     assert [f["path"] for f in block["files_read"]] == ["~/.aws/credentials", "~/work/app.py"]
+    # A shared object outside the interpreter tree is a real read, and
+    # /usr/libexec is not /usr/lib.
+    assert not sniff.is_noise_read(str(home_dir / "work" / "native.so"))
+    assert not sniff.is_noise_read("/usr/libexec/git-core/git")
+    # A relative path is resolved against the audited command's cwd, so a
+    # sensitive read from $HOME keeps its flag and is never dropped.
+    relative = _block(
+        home_dir,
+        cwd=home_dir,
+        audit_rows=[{"event": "open", "path": ".ssh/plugin.so", "mode": "r"}],
+    )
+    assert relative["files_read"] == [{"path": "~/.ssh/plugin.so", "sensitive": True}]
 
 
 def test_diff_snapshots_flags_workspace_and_sensitive(home_dir: Path) -> None:
