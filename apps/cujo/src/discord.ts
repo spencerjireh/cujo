@@ -23,11 +23,20 @@ export const GUILD_ANNOUNCEMENT = 5;
 /** Discord's "Unknown Message": the card was deleted underneath us. */
 export const UNKNOWN_MESSAGE = 10008;
 
+/** A channel-level permission grant. `type` 0 is a role, 1 is a member. */
+export interface PermissionOverwrite {
+  id: string;
+  type: number;
+  allow: string;
+  deny: string;
+}
+
 export interface DiscordChannel {
   id: string;
   type: number;
   name?: string;
   guild_id?: string;
+  permission_overwrites?: PermissionOverwrite[];
 }
 
 export interface DiscordGuild {
@@ -46,6 +55,69 @@ export interface DiscordGuildChannel {
 export interface DiscordRole {
   id: string;
   name: string;
+  /** A bitfield, sent as a decimal string because it exceeds 53 bits. */
+  permissions: string;
+}
+
+export interface DiscordGuildMember {
+  roles: string[];
+}
+
+/** The permission bits Cujo needs, and the one that overrides all of them. */
+const ADMINISTRATOR = 1n << 3n;
+export const VIEW_CHANNEL = 1n << 10n;
+export const SEND_MESSAGES = 1n << 11n;
+export const EMBED_LINKS = 1n << 14n;
+/** A card is an embed in a channel, so all three are needed to post one. */
+export const REQUIRED_PERMISSIONS = VIEW_CHANNEL | SEND_MESSAGES | EMBED_LINKS;
+
+const bits = (value: string | undefined): bigint => (value ? BigInt(value) : 0n);
+
+/**
+ * Discord's documented permission resolution: the roles the member holds,
+ * then the channel's overwrites applied @everyone first, then the union of the
+ * member's role overwrites, then the member's own. Administrator short-circuits
+ * everything, and the @everyone role's id is the guild id.
+ *
+ * Pure, because getting it wrong means binding a channel Cujo cannot post in
+ * and finding out only when a run blocks and nobody is told.
+ */
+export function effectivePermissions(input: {
+  guildId: string;
+  memberId: string;
+  memberRoles: string[];
+  roles: DiscordRole[];
+  overwrites: PermissionOverwrite[];
+}): bigint {
+  const held = new Set([...input.memberRoles, input.guildId]);
+  let permissions = 0n;
+  for (const role of input.roles) {
+    if (held.has(role.id)) permissions |= bits(role.permissions);
+  }
+  if ((permissions & ADMINISTRATOR) === ADMINISTRATOR) return -1n;
+
+  const find = (id: string) => input.overwrites.find((o) => o.id === id);
+  const everyone = find(input.guildId);
+  if (everyone) permissions = (permissions & ~bits(everyone.deny)) | bits(everyone.allow);
+
+  let allow = 0n;
+  let deny = 0n;
+  for (const overwrite of input.overwrites) {
+    if (overwrite.type !== 0 || overwrite.id === input.guildId) continue;
+    if (!held.has(overwrite.id)) continue;
+    allow |= bits(overwrite.allow);
+    deny |= bits(overwrite.deny);
+  }
+  permissions = (permissions & ~deny) | allow;
+
+  const member = input.overwrites.find((o) => o.type === 1 && o.id === input.memberId);
+  if (member) permissions = (permissions & ~bits(member.deny)) | bits(member.allow);
+  return permissions;
+}
+
+export function hasPermissions(permissions: bigint, required: bigint): boolean {
+  // Administrator is returned as -1n, which has every bit set.
+  return (permissions & required) === required;
 }
 
 export interface DiscordMessage {
@@ -141,5 +213,14 @@ export class DiscordClient {
 
   listRoles(guildId: string): Promise<DiscordRole[]> {
     return this.request<DiscordRole[]>("GET", `/guilds/${guildId}/roles`);
+  }
+
+  /** The bot's own user, whose id the member and overwrite lookups need. */
+  currentUser(): Promise<{ id: string }> {
+    return this.request<{ id: string }>("GET", "/users/@me");
+  }
+
+  guildMember(guildId: string, userId: string): Promise<DiscordGuildMember> {
+    return this.request<DiscordGuildMember>("GET", `/guilds/${guildId}/members/${userId}`);
   }
 }

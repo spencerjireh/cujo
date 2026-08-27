@@ -62,8 +62,19 @@ const STRIP = new RegExp(
   "g",
 );
 
-/** Formatting plus the link syntax, so no derived string becomes a live link. */
+/** Formatting and the `[label](url)` syntax. */
 const ESCAPE = /([\\`*_~|[\]()])/g;
+
+/**
+ * Escaping the link syntax is not enough. Discord also linkifies a bare web
+ * address and an `<https://…>` autolink, and a backslash does not stop either.
+ * So the scheme and the bare `www.` form are defanged the way a malware report
+ * defangs them: the address stays readable as evidence and cannot be clicked.
+ * Defanged before the escape pass, so the brackets it inserts are escaped too
+ * and cannot themselves start a link.
+ */
+const DEFANG_SCHEME = /([A-Za-z][A-Za-z0-9+.-]*):\/\//g;
+const DEFANG_HOST = /\bwww\./gi;
 
 export function escapeMarkdown(input: string): string {
   return (
@@ -72,6 +83,8 @@ export function escapeMarkdown(input: string): string {
       .replace(/\r\n?/g, "\n")
       // A model-authored evidence blob must not make one card forty lines tall.
       .replace(/\n{3,}/g, "\n\n")
+      .replace(DEFANG_SCHEME, "$1[:]//")
+      .replace(DEFANG_HOST, "www[.]")
       .replace(ESCAPE, "\\$1")
   );
 }

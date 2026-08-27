@@ -511,9 +511,18 @@ person cannot be an edit. On `blocked_pending` Cujo posts a second, short
 message that mentions `notify_role_id` and links to the run, and edits that
 message to "resolved" once the run leaves `blocked_pending`. With no role
 configured it still posts, without a mention: a new message is what raises the
-channel's unread mark, which is the entire point. The ping is sent at most once
-per run, deduped on its own message id rather than on the run's status, so a
-crash between the card and the ping still sends the ping.
+channel's unread mark, which is the entire point.
+
+Both ping steps are deduped on their own durable marker rather than on the
+run's status, because the card is written first and a matching status would
+otherwise hide outstanding work. The ping is sent at most once per run, keyed
+on its message id, so a crash between the card and the ping still sends it. The
+resolving edit is keyed on its own flag, so a failed edit is retried on the
+next event and after a restart — otherwise a channel could keep showing an
+actionable "needs a human" alert for a run nobody can decide any more. The role
+a ping mentions is only used when the repo is still bound to the channel the
+run's card lives in; a repo re-bound to another server mid-run gets a ping with
+no mention rather than one naming a role that server never had.
 
 **Every string in a payload is attacker-controlled** (decision 25). The PR
 title comes from GitHub, and finding titles, evidence, the summary and the
@@ -525,20 +534,25 @@ request. So, without exception:
    one exception, and it is an explicit `roles: [id]` for the configured role,
    never a parsed one.
 2. Derived text is markdown-escaped (`` \ ` * _ ~ | [ ] ( ) ``), so nothing
-   renders as formatting and nothing becomes a live link.
-3. Control characters and the zero-width and bidi ranges are **removed**, not
+   renders as formatting and no `[label](url)` becomes a live link.
+3. Escaping the link syntax is not enough, because Discord also linkifies a
+   bare web address and an `<https://…>` autolink and a backslash stops
+   neither. So the scheme and the bare `www.` form are defanged —
+   `http[:]//example.com` — before the escape pass, which keeps the address
+   readable as evidence and unclickable. The only real URL on a card is the
+   run's own link.
+4. Control characters and the zero-width and bidi ranges are **removed**, not
    escaped. A bidi override can render "not critical" as "critical"; escaping
    does not stop that, only deletion does.
-4. Every string is truncated by code point, not UTF-16 unit, so a clipped emoji
+5. Every string is truncated by code point, not UTF-16 unit, so a clipped emoji
    cannot leave a lone surrogate. Limits: content 2000, embed title 256,
    description 4096, field value 1024, footer 2048, 25 fields.
-5. The 6000-character total across an embed is a hard clamp, not a hope. Fields
+6. The 6000-character total across an embed is a hard clamp, not a hope. Fields
    are dropped in reverse priority until the payload fits. Exceeding it is a
    400 that loses the card for the whole run, since every later edit then has
    no message id to edit.
-6. No derived string is ever written into an embed URL field. The only URL on
-   a card is the run's own link on `cujo.spencerjireh.com`.
-7. The ping's `content` is structural only — the repo (validated when the
+7. No derived string is ever written into an embed URL field.
+8. The ping's `content` is structural only — the repo (validated when the
    channel was bound), the PR number, and Cujo's own link.
 
 **Delivery is at-least-once, and never blocks a run.** A failed send is logged
@@ -577,9 +591,18 @@ in a server. A channel the bot cannot read and a channel that does not exist
 give the **same** answer on purpose — the difference would let an operator
 probe channels across all of Discord — and the real status is logged instead.
 A `notify_role_id` is checked against the server's roles, so "the ping mentions
-nobody" becomes an error at bind time. The three routes that call Discord
-answer 503 with no token configured; the two that only read and write the store
-still work.
+nobody" becomes an error at bind time.
+
+Reading a channel is not permission to post an embed in it, so the write also
+resolves the bot's effective permissions there — its roles, then the channel's
+overwrites applied `@everyone` first, then the union of the bot's role
+overwrites, then its own, with `Administrator` short-circuiting — and refuses
+the binding unless View Channel, Send Messages and Embed Links all survive. A
+channel-level deny would otherwise bind cleanly and then fail on every run,
+which is exactly the silent failure this route exists to prevent.
+
+The three routes that call Discord answer 503 with no token configured; the two
+that only read and write the store still work.
 
 **The token stays on the server.** `DISCORD_BOT_TOKEN` is held by `apps/cujo`
 alone. It is not in the agent spec, not in the turn message, not in any command

@@ -110,6 +110,13 @@ export interface RunDiscordMessage {
   channelId: string;
   messageId: string | null;
   pingMessageId: string | null;
+  /**
+   * True once the ping has been rewritten to say the run can no longer be
+   * decided. Held separately from the status, because the card is written
+   * first: without it, a failed ping edit would leave an actionable "needs a
+   * human" alert in the channel that nothing ever retries.
+   */
+  pingResolved: boolean;
   /** The status the card was last written for; the dedupe key (Contract 7). */
   lastNotifiedStatus: RunStatus | null;
 }

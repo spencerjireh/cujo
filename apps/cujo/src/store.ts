@@ -140,6 +140,7 @@ export class Store {
         channel_id TEXT NOT NULL,
         message_id TEXT,
         ping_message_id TEXT,
+        ping_resolved INTEGER NOT NULL DEFAULT 0,
         last_notified_status TEXT,
         updated_at TEXT NOT NULL
       );
@@ -385,6 +386,7 @@ export class Store {
           channel_id: string;
           message_id: string | null;
           ping_message_id: string | null;
+          ping_resolved: number;
           last_notified_status: string | null;
         }
       | undefined;
@@ -394,6 +396,7 @@ export class Store {
       channelId: row.channel_id,
       messageId: row.message_id,
       pingMessageId: row.ping_message_id,
+      pingResolved: row.ping_resolved === 1,
       lastNotifiedStatus: (row.last_notified_status as RunStatus | null) ?? null,
     };
   }
@@ -405,11 +408,12 @@ export class Store {
   putRunDiscordMessage(row: RunDiscordMessage): void {
     this.db
       .prepare(
-        "INSERT INTO run_discord_messages " +
-          "(run_id, channel_id, message_id, ping_message_id, last_notified_status, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, ?) " +
+        "INSERT INTO run_discord_messages (run_id, channel_id, message_id, ping_message_id, " +
+          "ping_resolved, last_notified_status, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?) " +
           "ON CONFLICT (run_id) DO UPDATE SET channel_id = excluded.channel_id, " +
           "message_id = excluded.message_id, ping_message_id = excluded.ping_message_id, " +
+          "ping_resolved = excluded.ping_resolved, " +
           "last_notified_status = excluded.last_notified_status, updated_at = excluded.updated_at",
       )
       .run(
@@ -417,6 +421,7 @@ export class Store {
         row.channelId,
         row.messageId,
         row.pingMessageId,
+        row.pingResolved ? 1 : 0,
         row.lastNotifiedStatus,
         new Date().toISOString(),
       );

@@ -121,6 +121,7 @@ describe("DiscordNotifier", () => {
       channelId: "c1",
       messageId: "m1",
       pingMessageId: null,
+      pingResolved: false,
       lastNotifiedStatus: "blocked_pending",
     });
     emit();
@@ -139,6 +140,59 @@ describe("DiscordNotifier", () => {
     expect(client.editMessage).toHaveBeenCalledTimes(2);
     const resolved = client.editMessage.mock.calls[1]?.[2];
     expect(resolved?.content).toContain("Resolved");
+  });
+
+  it("retries resolving the ping until it lands, restart included", async () => {
+    const { store, client, notifier, runId, emit } = build();
+    emit("blocked_pending");
+    await notifier.flush();
+    // The card write persists the new status before the ping is edited, so a
+    // failed ping edit must not look like work already done. The card's own
+    // edit succeeds first, which is what makes the status look settled.
+    client.editMessage
+      .mockImplementationOnce(async () => ({ id: "m1" }))
+      .mockRejectedValueOnce(new Error("discord is down"));
+    emit("blocked_posted");
+    await notifier.flush();
+    expect(store.getRunDiscordMessage(runId)?.pingResolved).toBe(false);
+
+    const fresh = fakeClient();
+    const restarted = new DiscordNotifier({
+      store,
+      client: fresh as unknown as DiscordClient,
+      uiBaseUrl: UI,
+    });
+    const run = store.getRun(runId);
+    restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
+    await restarted.flush();
+    expect(fresh.editMessage).toHaveBeenCalledOnce();
+    expect(fresh.editMessage.mock.calls[0]?.[2]?.content).toContain("Resolved");
+    expect(store.getRunDiscordMessage(runId)?.pingResolved).toBe(true);
+
+    // And once resolved it is left alone.
+    restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
+    await restarted.flush();
+    expect(fresh.editMessage).toHaveBeenCalledOnce();
+  });
+
+  it("does not mention another server's role when a repo is re-bound mid-run", async () => {
+    const { store, client, notifier, emit } = build({ roleId: "111111111111111111" });
+    emit();
+    await notifier.flush();
+    // Re-bound to a different server: that server's role means nothing in the
+    // channel this run's card lives in.
+    store.putDiscordChannel({
+      repo: "o/r",
+      channelId: "c2",
+      guildId: "g2",
+      channelName: "elsewhere",
+      notifyRoleId: "999999999999999999",
+    });
+    emit("blocked_pending");
+    await notifier.flush();
+    const ping = client.createMessage.mock.calls[1];
+    expect(ping?.[0]).toBe("c1");
+    expect(ping?.[1].content).not.toContain("<@&");
   });
 
   it("never lets an edit overtake the create it depends on", async () => {
@@ -182,6 +236,7 @@ describe("DiscordNotifier", () => {
       channelId: "c1",
       messageId: "gone",
       pingMessageId: null,
+      pingResolved: false,
       lastNotifiedStatus: "running",
     });
     client.editMessage.mockRejectedValueOnce(
