@@ -25,14 +25,9 @@ async function main(): Promise<void> {
     ? devVerifier
     : createAccessVerifier({ teamDomain: config.cfAccessTeamDomain, audience: config.cfAccessAud });
 
-  try {
-    const applied = await harness.bootstrap();
-    console.log(`trueforge bootstrap: ${applied.join(", ")}`);
-  } catch (error) {
-    // The server may still be starting; a later webhook fails loudly if this
-    // never succeeds, and a restart retries.
-    console.error("trueforge bootstrap failed", error);
-  }
+  // The server may still be starting. The process listens right away so the
+  // container is healthy, but the webhook answers 503 until this succeeds.
+  void harness.bootstrapUntilReady();
 
   for (const run of store.listUnfinishedRuns()) {
     runner.rehydrate(run).catch((error) => console.error(`rehydrate ${run.id} failed`, error));
@@ -48,6 +43,7 @@ async function main(): Promise<void> {
       store,
       runner,
       createSession: () => harness.createSession(spec),
+      isReady: () => harness.ready,
     },
   });
 

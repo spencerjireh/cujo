@@ -10,6 +10,8 @@ export type SessionEvent = TrueForgeApi.SessionEvent;
  */
 export class Harness {
   readonly client: TrueForge;
+  /** True once bootstrap has registered github-mcp; webhooks wait for it. */
+  ready = false;
 
   constructor(private readonly config: Config) {
     // No token: the server runs without OIDC on the compose network, which
@@ -32,6 +34,7 @@ export class Harness {
       },
     });
     applied.push("mcp-server github-mcp");
+    this.ready = true;
 
     const provider = this.config.bootstrap.modelProvider;
     if (provider) {
@@ -66,6 +69,28 @@ export class Harness {
       applied.push("sandbox-provider daytona");
     }
     return applied;
+  }
+
+  /**
+   * Retry bootstrap until github-mcp is registered; without it no turn can
+   * post a review. Backoff starts at 5s and doubles to a 60s ceiling.
+   */
+  async bootstrapUntilReady(
+    sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  ): Promise<void> {
+    let delay = 5_000;
+    for (;;) {
+      try {
+        const applied = await this.bootstrap();
+        console.log(`trueforge bootstrap: ${applied.join(", ")}`);
+        return;
+      } catch (error) {
+        console.error(`trueforge bootstrap failed; retrying in ${delay / 1000}s`, error);
+        if (this.ready) return;
+        await sleep(delay);
+        delay = Math.min(delay * 2, 60_000);
+      }
+    }
   }
 
   /** One session per PR (Contract 5); the session title is not settable via the API. */

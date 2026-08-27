@@ -111,6 +111,12 @@ describe("fold", () => {
     expect(p.review?.comments).toHaveLength(1);
   });
 
+  it("is error, not clean, when the turn ends without any review call", () => {
+    const p = fold([turnCreated("t1"), turnDone()]);
+    expect(p.status).toBe("error");
+    expect(p.error).toBe("turn ended without a review");
+  });
+
   it("is blocked_pending on an approval on main and reads the drafted review", () => {
     const p = fold([
       turnCreated("t1"),

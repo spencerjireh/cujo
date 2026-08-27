@@ -107,11 +107,50 @@ describe("webhook", () => {
     pull_request: { head: { sha: "h" } },
   });
 
-  it("verifies signatures in constant time", () => {
+  it("verifies signatures in constant time and rejects malformed ones", () => {
     expect(verifySignature("s3", payload, sign(payload))).toBe(true);
     expect(verifySignature("s3", payload, "sha256=00")).toBe(false);
+    expect(verifySignature("s3", payload, `sha256=${"z".repeat(64)}`)).toBe(false);
     expect(verifySignature("s3", payload, undefined)).toBe(false);
     expect(verifySignature("other", payload, sign(payload))).toBe(false);
+  });
+
+  it("answers 503 while the harness is not ready", async () => {
+    const store = new Store(":memory:");
+    const runner = { view: () => null, start: vi.fn() } as unknown as Runner;
+    const app = createApp({
+      uiHost: UI,
+      webhookHost: HOOK,
+      api: { store, runner, verify: async () => null },
+      webhook: {
+        secret: "s3",
+        github: {} as GitHubReader,
+        store,
+        runner,
+        createSession: async () => "sess-1",
+        isReady: () => false,
+      },
+    });
+    const res = await app.fetch(
+      req(HOOK, "/webhook", {
+        method: "POST",
+        headers: { "x-github-event": "pull_request", "x-hub-signature-256": sign(payload) },
+        body: payload,
+      }),
+    );
+    expect(res.status).toBe(503);
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it("claims one run per head, so a duplicate delivery starts nothing", async () => {
+    const { app, runner } = build();
+    const headers = { "x-github-event": "pull_request", "x-hub-signature-256": sign(payload) };
+    const send = () => app.fetch(req(HOOK, "/webhook", { method: "POST", headers, body: payload }));
+    const [a, b] = await Promise.all([send(), send()]);
+    expect([a.status, b.status].sort()).toEqual([200, 202]);
+    const dup = a.status === 200 ? a : b;
+    expect(await dup.json()).toMatchObject({ ignored: "duplicate delivery" });
+    expect(runner.start).toHaveBeenCalledOnce();
   });
 
   it("rejects an unsigned delivery and accepts a signed one with 202", async () => {
@@ -140,7 +179,7 @@ describe("webhook", () => {
       alreadyReviewed: vi.fn(async () => true),
       pullRequest: vi.fn(),
     } as unknown as GitHubReader;
-    const { app, runner } = build({ github });
+    const { app, runner, store } = build({ github });
     const res = await app.fetch(
       req(HOOK, "/webhook", {
         method: "POST",
@@ -151,5 +190,7 @@ describe("webhook", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ignored: "already reviewed" });
     expect(runner.start).not.toHaveBeenCalled();
+    // The claimed row is released so a later real run for this head is possible.
+    expect(store.listRuns()).toHaveLength(0);
   });
 });

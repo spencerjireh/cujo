@@ -72,6 +72,9 @@ export class Store {
         updated_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at DESC);
+      -- One run per PR head (Contract 5): a duplicate webhook delivery cannot
+      -- claim a second run for the same SHA.
+      CREATE UNIQUE INDEX IF NOT EXISTS runs_head ON runs (repo, pr_number, head_sha);
       CREATE TABLE IF NOT EXISTS run_projections (
         run_id TEXT PRIMARY KEY REFERENCES runs (id),
         projection TEXT NOT NULL
@@ -90,32 +93,47 @@ export class Store {
     return row?.session_id ?? null;
   }
 
-  putSession(repo: string, prNumber: number, sessionId: string): void {
+  /**
+   * First writer wins. Returns the session id now stored, which is the
+   * caller's only when no other delivery got there first.
+   */
+  putSession(repo: string, prNumber: number, sessionId: string): string {
     this.db
-      .prepare(
-        "INSERT INTO sessions (repo, pr_number, session_id) VALUES (?, ?, ?) " +
-          "ON CONFLICT (repo, pr_number) DO UPDATE SET session_id = excluded.session_id",
-      )
+      .prepare("INSERT OR IGNORE INTO sessions (repo, pr_number, session_id) VALUES (?, ?, ?)")
       .run(repo, prNumber, sessionId);
+    const stored = this.getSession(repo, prNumber);
+    if (!stored) throw new Error("session vanished after insert");
+    return stored;
   }
 
+  /**
+   * Atomic claim of the run for a PR head. `created` is false when a run for
+   * that head already exists, in which case the existing run is returned.
+   */
   createRun(input: {
     repo: string;
     prNumber: number;
     headSha: string;
     sessionId: string;
-  }): RunRecord {
+  }): { run: RunRecord; created: boolean } {
     const now = new Date().toISOString();
     const id = randomUUID();
-    this.db
+    const result = this.db
       .prepare(
-        "INSERT INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, created_at, updated_at) " +
+        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, created_at, updated_at) " +
           "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?)",
       )
       .run(id, input.repo, input.prNumber, input.headSha, input.sessionId, now, now);
-    const run = this.getRun(id);
-    if (!run) throw new Error("run vanished after insert");
-    return run;
+    const row = this.db
+      .prepare("SELECT * FROM runs WHERE repo = ? AND pr_number = ? AND head_sha = ?")
+      .get(input.repo, input.prNumber, input.headSha) as RunRow | undefined;
+    if (!row) throw new Error("run vanished after insert");
+    return { run: toRecord(row), created: Number(result.changes) === 1 };
+  }
+
+  deleteRun(id: string): void {
+    this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM runs WHERE id = ?").run(id);
   }
 
   getRun(id: string): RunRecord | null {
@@ -158,6 +176,28 @@ export class Store {
         id,
       );
     return this.getRun(id);
+  }
+
+  /**
+   * Compare-and-set the decision: succeeds for exactly one caller while the
+   * run is blocked_pending and undecided, so a second approve request cannot
+   * resume the same call.
+   */
+  claimDecision(id: string, approver: string, decidedAt: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE runs SET approver = ?, decided_at = ?, updated_at = ? " +
+          "WHERE id = ? AND status = 'blocked_pending' AND approver IS NULL",
+      )
+      .run(approver, decidedAt, new Date().toISOString(), id);
+    return Number(result.changes) === 1;
+  }
+
+  /** Undo a claim whose resume never reached the harness, so a retry is possible. */
+  clearDecision(id: string): void {
+    this.db
+      .prepare("UPDATE runs SET approver = NULL, decided_at = NULL, updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
   }
 
   putProjection(runId: string, projection: Projection): void {
