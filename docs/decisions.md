@@ -325,3 +325,98 @@ at 16 px); red-orange as the accent (too close to critical). Five hand-authored
 candidates stay in `brand/logo/candidates/` with prompts for a raster route, so
 the mark can be swapped without redoing the system. The tagline is deliberately
 unset. Wiring the tokens and favicon into `apps/cujo` is a separate change.
+
+## 23. Discord is notified by `apps/cujo`, not by the agent, and it notifies only
+
+The obvious way to tell a team about a review is to hand the agent a Discord
+tool and let it announce its own progress. That makes notification a model
+decision, and the facts worth announcing are not the agent's to know: "review
+started" happens before the agent runs, `error` means the turn died, and
+`superseded` means the turn was cancelled. The agent could also skip the call
+or make it twice. `apps/cujo` already folds every one of those out of the
+TrueForge event stream (Contract 6), so it notifies and the agent is not told
+Discord exists. That also keeps the agent's toolset the two review tools and
+nothing else.
+
+A bot application rather than a channel webhook URL. A card that is edited in
+place needs a message the poster owns; a webhook cannot read a channel, so a
+binding could not be validated when it is written; and a webhook cannot host
+interactions, so the button below would need the bot anyway. REST only, no
+gateway and no `discord.js`: Cujo only writes, a WebSocket would be a second
+always-on connection with its own reconnect state machine and nothing to
+receive, `tsup` bundles with `noExternal` so a heavy dependency lands in the
+image, and the interactions endpoint is HTTP too.
+
+Notify-only, for now. A Discord interaction proves that whoever clicked is in
+the channel. The Access JWT proves an email against a policy and is what
+`approver` records, which is the audit trail decision 17 relies on. Approving
+from Discord would quietly swap the first for the second, so the card links to
+the run in Cujo instead. What is reserved for later: the unique index on
+`run_discord_messages.message_id` gives the message-to-run lookup an
+interaction needs, `custom_id` fits `cujo:approve:{runId}` inside its 100
+characters, `approver` is free text so `discord:{userId}` needs no schema
+change, and the endpoint belongs on the **webhook** host (Discord cannot solve
+an Access challenge) verified with `node:crypto`'s Ed25519 against a separate
+`DISCORD_PUBLIC_KEY`. Building it means deciding which Discord users may
+approve, which is a change to the human gate and gets its own entry.
+
+One card per run rather than one per pull request. A card is then one run, one
+review, one approve link, and the mapping stays one-to-one. The cost is that a
+pull request pushed to five times leaves five cards; that is paid down by
+rewriting a superseded run's card and its ping to say so, rather than by
+re-pointing a single card at whichever run is newest and losing the history of
+the earlier heads.
+
+## 24. The repo-to-channel binding lives in the store, not the environment
+
+An environment variable would need a redeploy to add a repo, could not be
+validated, and has nowhere to put `notify_role_id`. The binding is operator
+data, so it sits next to the runs and is written over the API behind Cloudflare
+Access, which records who bound it. The write calls Discord with the bot token
+first, so a mistyped channel id is a 400 at bind time instead of silence at the
+first blocked run.
+
+The token itself stays in the environment, because a secret is not operator
+data. That split is also why this does not weaken decision 18: what the store
+gains is a channel id and a message id, neither of which is a credential and
+neither of which TrueForge could know.
+
+## 25. New tables, not new columns: the store has no migration path
+
+`apps/cujo`'s whole schema is one `CREATE TABLE IF NOT EXISTS` block in the
+`Store` constructor. There is no `ALTER TABLE` anywhere and no migration
+runner, so adding a column to `runs` would apply to a fresh database and
+silently not to the deployed one, whose `runs` table already exists. Contract 7
+therefore adds `discord_channels`, `run_discord_messages` and `run_pr_meta` as
+separate tables, which `CREATE TABLE IF NOT EXISTS` genuinely does apply to a
+live database. It also keeps `RunRecord` and the `/runs` responses untouched,
+and makes removing the feature a `DROP TABLE` rather than a column rewrite.
+
+This defers the problem, it does not solve it. The next change that genuinely
+needs to alter an existing table should add the mechanism rather than contort
+around it: `PRAGMA user_version` read in the constructor, an ordered list of
+migration statements, each applied inside a transaction that bumps
+`user_version` in the same transaction. That was not done here because a
+migration runner is its own feature with its own failure mode — a half-applied
+migration on a container Coolify restarts — and `best_practices.md` asks for
+one concern per pull request.
+
+## 26. Every Discord payload is treated as attacker-controlled
+
+Nothing on a card is written by us. The pull request title comes from GitHub,
+and the finding titles, the evidence, the summary and the error text were
+written by a model that had just read the code in a stranger's pull request.
+So mention suppression, markdown escaping, bidi and zero-width stripping, and
+hard truncation in Contract 7 are not formatting hygiene: they are the reason a
+hostile pull request cannot make Cujo `@everyone` a company Discord, post an
+attacker-chosen link under Cujo's name, or render "not critical" as "critical".
+Escaping alone does not do it — a bidi override survives escaping, so those
+characters are removed — and the 6000-character embed budget is clamped rather
+than hoped for, because exceeding it is a 400 that loses the card for the whole
+run.
+
+One consequence to revisit, not a bug today: a channel's membership is not the
+Access policy's membership, so a card discloses finding titles and evidence to
+a wider audience than the Cujo UI does. Private repos are a non-goal for this
+milestone, so everything on a card is already public. That stops being true the
+day private repos are in scope, and this is the entry to reopen.

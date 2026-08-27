@@ -78,4 +78,87 @@ describe("store", () => {
     expect(store.getRun(run.id)).toBeNull();
     expect(store.createRun(head).created).toBe(true);
   });
+
+  it("binds a repo to a Discord channel and replaces the binding on a re-bind", () => {
+    const store = new Store(":memory:");
+    const first = store.putDiscordChannel({
+      repo: "o/r",
+      channelId: "c1",
+      guildId: "g1",
+      channelName: "reviews",
+      notifyRoleId: null,
+    });
+    expect(first).toMatchObject({ repo: "o/r", channelId: "c1", notifyRoleId: null });
+    const second = store.putDiscordChannel({
+      repo: "o/r",
+      channelId: "c2",
+      guildId: "g1",
+      channelName: "elsewhere",
+      notifyRoleId: "role1",
+    });
+    expect(second).toMatchObject({ channelId: "c2", notifyRoleId: "role1" });
+    expect(second.createdAt).toBe(first.createdAt);
+    expect(store.listDiscordChannels()).toHaveLength(1);
+  });
+
+  it("matches a binding whatever casing the repo name arrives in", () => {
+    const store = new Store(":memory:");
+    store.putDiscordChannel({
+      repo: "O/R",
+      channelId: "c1",
+      guildId: null,
+      channelName: null,
+      notifyRoleId: null,
+    });
+    expect(store.getDiscordChannel("o/r")?.channelId).toBe("c1");
+    expect(store.getDiscordChannel("O/r")?.channelId).toBe("c1");
+  });
+
+  it("reports whether a binding was there to delete", () => {
+    const store = new Store(":memory:");
+    expect(store.deleteDiscordChannel("o/r")).toBe(false);
+    store.putDiscordChannel({
+      repo: "o/r",
+      channelId: "c1",
+      guildId: null,
+      channelName: null,
+      notifyRoleId: null,
+    });
+    expect(store.deleteDiscordChannel("o/r")).toBe(true);
+    expect(store.getDiscordChannel("o/r")).toBeNull();
+  });
+
+  it("keeps the run's Discord message and PR title, and drops both with the run", () => {
+    const store = new Store(":memory:");
+    const { run } = store.createRun(head);
+    store.putRunPrTitle(run.id, "Add a thing");
+    store.putRunDiscordMessage({
+      runId: run.id,
+      channelId: "c1",
+      messageId: "m1",
+      pingMessageId: null,
+      pingResolved: false,
+      lastNotifiedStatus: "running",
+    });
+    store.putRunDiscordMessage({
+      runId: run.id,
+      channelId: "c1",
+      messageId: "m1",
+      pingMessageId: "p1",
+      pingResolved: true,
+      lastNotifiedStatus: "blocked_posted",
+    });
+    expect(store.getRunDiscordMessage(run.id)).toEqual({
+      runId: run.id,
+      channelId: "c1",
+      messageId: "m1",
+      pingMessageId: "p1",
+      pingResolved: true,
+      lastNotifiedStatus: "blocked_posted",
+    });
+    expect(store.getRunPrTitle(run.id)).toBe("Add a thing");
+    store.deleteRun(run.id);
+    expect(store.getRunDiscordMessage(run.id)).toBeNull();
+    expect(store.getRunPrTitle(run.id)).toBeNull();
+  });
 });

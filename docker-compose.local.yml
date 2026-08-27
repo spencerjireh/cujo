@@ -35,6 +35,9 @@ services:
       CUJO_WEBHOOK_HOST: cujo-ingress.localhost
       # No Cloudflare Access locally; the process logs a warning on start.
       CUJO_DEV_NO_ACCESS: '1'
+      # Run links in a Discord card must resolve to this machine, not the
+      # production hostname derived from CUJO_UI_HOST.
+      CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-http://cujo.localhost:8080}
     ports:
       - '127.0.0.1:8080:8080' # Cujo UI + API, and the webhook receiver
 

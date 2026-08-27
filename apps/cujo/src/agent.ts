@@ -45,7 +45,16 @@ export function loadRubric(): string {
   throw new Error("agent/SKILL.md not found");
 }
 
-export function buildAgentSpec(config: Config, rubric = loadRubric()): TrueForgeApi.AgentSpec {
+/**
+ * The spec defines the session the sandbox runs under, so it is the one place
+ * a server-side secret could cross the trust boundary. It takes only the two
+ * fields it needs rather than the whole `Config`, which turns a future
+ * `...config` spread into a compile error instead of a leak.
+ */
+export function buildAgentSpec(
+  config: Pick<Config, "model" | "sniffUrl">,
+  rubric = loadRubric(),
+): TrueForgeApi.AgentSpec {
   return {
     model: { name: config.model },
     instructions: rubric.replaceAll("{{CUJO_SNIFF_URL}}", config.sniffUrl),

@@ -28,6 +28,14 @@ export interface RunnerOptions {
 }
 
 const TERMINAL_EVENT = "turn.done";
+
+/**
+ * Emitted for every run alongside the per-run key, so a process-wide
+ * subscriber (the Discord notifier) needs no per-run wiring. A run id is a
+ * randomUUID, so this key can never collide with one.
+ */
+export const ANY_RUN = "run:changed";
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function errorTurnDone(id: string, message: string): StreamEvent {
@@ -105,7 +113,16 @@ export class Runner {
       patch.decidedAt = new Date().toISOString();
     }
     this.store.updateRun(runId, patch);
-    this.changes.emit(runId, this.view(runId));
+    // emit() is synchronous and rethrows into this call, which sits inside the
+    // fold path: a subscriber that throws would surface as a stream error and
+    // trigger a resubscribe. A subscriber must never be able to fail a run.
+    try {
+      const view = this.view(runId);
+      this.changes.emit(runId, view);
+      this.changes.emit(ANY_RUN, view);
+    } catch (error) {
+      console.error(`run ${runId}: change subscriber threw`, error);
+    }
     return projection;
   }
 

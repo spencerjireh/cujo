@@ -3,8 +3,10 @@ import { createAccessVerifier, devVerifier } from "./access";
 import { buildAgentSpec } from "./agent";
 import { createApp } from "./app";
 import { loadConfig } from "./config";
+import { DiscordClient } from "./discord";
 import { GitHubReader } from "./github";
-import { Runner } from "./runner";
+import { DiscordNotifier } from "./notifier";
+import { ANY_RUN, type RunView, Runner } from "./runner";
 import { Store } from "./store";
 import { Harness } from "./trueforge";
 
@@ -17,6 +19,17 @@ async function main(): Promise<void> {
   const runner = new Runner(store, harness, { turnTimeoutMs: config.turnTimeoutMs });
   const github = new GitHubReader(config.githubAppId, config.githubAppPrivateKey);
   const spec = buildAgentSpec(config);
+
+  // Contract 7. Optional: with no token the service runs and simply does not
+  // notify. Subscribed before the rehydrate loop so a run that changed status
+  // while the process was down is still reported.
+  const discord = config.discordBotToken ? new DiscordClient(config.discordBotToken) : null;
+  const notifier = discord
+    ? new DiscordNotifier({ store, client: discord, uiBaseUrl: config.uiBaseUrl })
+    : null;
+  if (notifier) {
+    runner.changes.on(ANY_RUN, (view: RunView | null) => notifier.onRunChanged(view));
+  }
 
   if (config.devNoAccess) {
     console.warn("CUJO_DEV_NO_ACCESS=1: the Access check is off; every operator route is open");
@@ -36,7 +49,7 @@ async function main(): Promise<void> {
   const app = createApp({
     uiHost: config.uiHost,
     webhookHost: config.webhookHost,
-    api: { store, runner, verify },
+    api: { store, runner, verify, ...(discord ? { discord } : {}) },
     webhook: {
       secret: config.githubWebhookSecret,
       github,
@@ -52,11 +65,19 @@ async function main(): Promise<void> {
       `cujo listening on :${config.port} (ui ${config.uiHost}, webhook ${config.webhookHost})`,
     );
   });
+  // A send still in flight holds the message id that stops the next boot from
+  // posting a duplicate card, so the queue is drained before the database is
+  // closed. The deadline sits under Docker's default 10s stop grace.
+  let stopping = false;
   const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
     runner.stopAll();
     server.close();
-    store.close();
-    process.exit(0);
+    void (notifier?.flush(5_000) ?? Promise.resolve()).finally(() => {
+      store.close();
+      process.exit(0);
+    });
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

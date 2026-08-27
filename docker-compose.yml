@@ -99,6 +99,10 @@ services:
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
       CUJO_MODEL: ${CUJO_MODEL}
       CUJO_SNIFF_URL: ${CUJO_SNIFF_URL:-https://raw.githubusercontent.com/spencerjireh/cujo/main/sniff.py}
+      # Optional Discord notifications (spec Contract 7). Unset means the
+      # service runs without them; the repo-to-channel map lives in the store.
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-}
       # One turn, stream retries included; the Daytona idle stop is derived from it.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}
       # Optional one-time bootstrap of the harness (model + sandbox providers).

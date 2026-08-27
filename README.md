@@ -116,6 +116,21 @@ and open a PR on a repo where the App is installed. The Cujo UI that shows runs
 and holds the approve button is a placeholder in this milestone; the API under
 `/runs` is complete.
 
+Discord notifications are optional (see [docs/spec.md](docs/spec.md) Contract
+7). Set `DISCORD_BOT_TOKEN` to the bot token of a Discord application, invite
+the bot with the `bot` scope and the View Channel, Send Messages and Embed
+Links permissions, then bind a repo to a channel:
+
+```bash
+curl -X PUT http://localhost:8080/discord/channels/OWNER/NAME \
+  -H 'Host: cujo.localhost' -H 'content-type: application/json' \
+  -d '{"channel_id":"<channel id>","notify_role_id":"<role id>"}'
+```
+
+`GET /discord/guilds` and `GET /discord/guilds/:id/channels` list what the bot
+can see, so the ids need not be copied out of Discord by hand. A repo with no
+binding is never notified, and with no token set the service runs as before.
+
 The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
 are for local runs only and never touch how it deploys.
 
