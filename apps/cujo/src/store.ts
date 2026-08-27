@@ -79,6 +79,13 @@ export class Store {
         run_id TEXT PRIMARY KEY REFERENCES runs (id),
         projection TEXT NOT NULL
       );
+      -- Resume turns Cujo itself sent, so a restart still tells them apart
+      -- from a resume an operator sent through the harness console.
+      CREATE TABLE IF NOT EXISTS run_cujo_turns (
+        run_id TEXT NOT NULL REFERENCES runs (id),
+        turn_id TEXT NOT NULL,
+        PRIMARY KEY (run_id, turn_id)
+      );
     `);
   }
 
@@ -109,6 +116,10 @@ export class Store {
   /**
    * Atomic claim of the run for a PR head. `created` is false when a run for
    * that head already exists, in which case the existing run is returned.
+   *
+   * A run that errored before it ever had a turn holds nothing worth keeping,
+   * so its row is re-claimed: a redelivery then reviews the head instead of
+   * being answered "duplicate delivery" forever.
    */
   createRun(input: {
     repo: string;
@@ -118,6 +129,13 @@ export class Store {
   }): { run: RunRecord; created: boolean } {
     const now = new Date().toISOString();
     const id = randomUUID();
+    const stale = this.db
+      .prepare(
+        "SELECT id FROM runs WHERE repo = ? AND pr_number = ? AND head_sha = ? " +
+          "AND status = 'error' AND turn_ids = '[]'",
+      )
+      .get(input.repo, input.prNumber, input.headSha) as { id: string } | undefined;
+    if (stale) this.deleteRun(stale.id);
     const result = this.db
       .prepare(
         "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, created_at, updated_at) " +
@@ -133,7 +151,29 @@ export class Store {
 
   deleteRun(id: string): void {
     this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM run_cujo_turns WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM runs WHERE id = ?").run(id);
+  }
+
+  addCujoTurn(runId: string, turnId: string): void {
+    this.db
+      .prepare("INSERT OR IGNORE INTO run_cujo_turns (run_id, turn_id) VALUES (?, ?)")
+      .run(runId, turnId);
+  }
+
+  listCujoTurns(runId: string): string[] {
+    const rows = this.db
+      .prepare("SELECT turn_id FROM run_cujo_turns WHERE run_id = ?")
+      .all(runId) as { turn_id: string }[];
+    return rows.map((r) => r.turn_id);
+  }
+
+  /** Every run that shares a session, so one run can skip the others' turns. */
+  listRunsForSession(sessionId: string): RunRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM runs WHERE session_id = ? ORDER BY created_at")
+      .all(sessionId) as RunRow[];
+    return rows.map(toRecord);
   }
 
   getRun(id: string): RunRecord | null {
@@ -148,12 +188,17 @@ export class Store {
     return rows.map(toRecord);
   }
 
-  listUnfinishedRuns(): RunRecord[] {
-    const rows = this.db
-      .prepare(
-        "SELECT * FROM runs WHERE status IN ('running', 'blocked_pending') ORDER BY created_at",
-      )
-      .all() as RunRow[];
+  listUnfinishedRuns(scope?: { repo: string; prNumber: number }): RunRecord[] {
+    const where = "status IN ('running', 'blocked_pending')";
+    const rows = (
+      scope
+        ? this.db
+            .prepare(
+              `SELECT * FROM runs WHERE ${where} AND repo = ? AND pr_number = ? ORDER BY created_at`,
+            )
+            .all(scope.repo, scope.prNumber)
+        : this.db.prepare(`SELECT * FROM runs WHERE ${where} ORDER BY created_at`).all()
+    ) as RunRow[];
     return rows.map(toRecord);
   }
 

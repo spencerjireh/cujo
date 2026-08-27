@@ -9,11 +9,23 @@ import { verifySignature } from "./webhook";
 const UI = "cujo.test";
 const HOOK = "cujo-ingress.test";
 
+/** A fake runner that records the store transitions the real one would make. */
+function fakeRunner(store: Store): Runner {
+  return {
+    view: () => null,
+    start: vi.fn(async () => {}),
+    approve: vi.fn(),
+    fail: vi.fn((runId: string) => store.updateRun(runId, { status: "error" })),
+    supersede: vi.fn((runId: string) => store.updateRun(runId, { status: "superseded" })),
+  } as unknown as Runner;
+}
+
 function build(overrides: Partial<{ runner: Runner; github: GitHubReader }> = {}) {
   const store = new Store(":memory:");
-  const runner =
-    overrides.runner ??
-    ({ view: () => null, start: vi.fn(), approve: vi.fn() } as unknown as Runner);
+  const runner = overrides.runner ?? fakeRunner(store);
+  // Resolves once the background preparation of a run has settled.
+  const settled: Array<(runId: string) => void> = [];
+  const nextSettled = () => new Promise<string>((resolve) => settled.push(resolve));
   const github =
     overrides.github ??
     ({
@@ -33,9 +45,16 @@ function build(overrides: Partial<{ runner: Runner; github: GitHubReader }> = {}
     uiHost: UI,
     webhookHost: HOOK,
     api: { store, runner, verify: async (t) => (t === "good" ? "op@example.com" : null) },
-    webhook: { secret: "s3", github, store, runner, createSession: async () => "sess-1" },
+    webhook: {
+      secret: "s3",
+      github,
+      store,
+      runner,
+      createSession: async () => "sess-1",
+      onSettled: (runId) => settled.shift()?.(runId),
+    },
   });
-  return { app, store, runner, github };
+  return { app, store, runner, github, nextSettled };
 }
 
 const req = (host: string, path: string, init?: RequestInit) =>
@@ -142,55 +161,121 @@ describe("webhook", () => {
     expect(runner.start).not.toHaveBeenCalled();
   });
 
+  const deliver = (app: ReturnType<typeof build>["app"], body = payload) =>
+    app.fetch(
+      req(HOOK, "/webhook", {
+        method: "POST",
+        headers: { "x-github-event": "pull_request", "x-hub-signature-256": sign(body) },
+        body,
+      }),
+    );
+
   it("claims one run per head, so a duplicate delivery starts nothing", async () => {
-    const { app, runner } = build();
-    const headers = { "x-github-event": "pull_request", "x-hub-signature-256": sign(payload) };
-    const send = () => app.fetch(req(HOOK, "/webhook", { method: "POST", headers, body: payload }));
-    const [a, b] = await Promise.all([send(), send()]);
+    const { app, runner, nextSettled } = build();
+    const done = nextSettled();
+    const [a, b] = await Promise.all([deliver(app), deliver(app)]);
     expect([a.status, b.status].sort()).toEqual([200, 202]);
     const dup = a.status === 200 ? a : b;
     expect(await dup.json()).toMatchObject({ ignored: "duplicate delivery" });
+    await done;
     expect(runner.start).toHaveBeenCalledOnce();
   });
 
   it("rejects an unsigned delivery and accepts a signed one with 202", async () => {
-    const { app, store, runner } = build();
+    const { app, store, runner, nextSettled } = build();
     const headers = { "x-github-event": "pull_request", "content-type": "application/json" };
     const unsigned = await app.fetch(
       req(HOOK, "/webhook", { method: "POST", headers, body: payload }),
     );
     expect(unsigned.status).toBe(401);
-    const signed = await app.fetch(
-      req(HOOK, "/webhook", {
-        method: "POST",
-        headers: { ...headers, "x-hub-signature-256": sign(payload) },
-        body: payload,
-      }),
-    );
+    const done = nextSettled();
+    const signed = await deliver(app);
     expect(signed.status).toBe(202);
     const body = (await signed.json()) as { run_id: string };
     expect(store.getRun(body.run_id)?.sessionId).toBe("sess-1");
     expect(store.getSession("o/r", 7)).toBe("sess-1");
+    await done;
     expect(runner.start).toHaveBeenCalledOnce();
   });
 
-  it("skips a head SHA the bot already reviewed", async () => {
+  it("answers before the GitHub reads, then releases a head the bot already reviewed", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const github = {
-      alreadyReviewed: vi.fn(async () => true),
+      alreadyReviewed: vi.fn(async () => {
+        await gate;
+        return true;
+      }),
       pullRequest: vi.fn(),
     } as unknown as GitHubReader;
-    const { app, runner, store } = build({ github });
-    const res = await app.fetch(
-      req(HOOK, "/webhook", {
-        method: "POST",
-        headers: { "x-github-event": "pull_request", "x-hub-signature-256": sign(payload) },
-        body: payload,
-      }),
-    );
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ignored: "already reviewed" });
+    const { app, runner, store, nextSettled } = build({ github });
+    const done = nextSettled();
+    const res = await deliver(app);
+    // 202 arrived while alreadyReviewed is still pending.
+    expect(res.status).toBe(202);
+    expect(store.listRuns()).toHaveLength(1);
+    release();
+    await done;
     expect(runner.start).not.toHaveBeenCalled();
     // The claimed row is released so a later real run for this head is possible.
     expect(store.listRuns()).toHaveLength(0);
+  });
+
+  it("ends a run whose preparation fails and lets a redelivery re-claim the head", async () => {
+    const pullRequest = vi.fn().mockRejectedValueOnce(new Error("502 from GitHub"));
+    pullRequest.mockResolvedValue({
+      repo: "o/r",
+      prNumber: 7,
+      title: "t",
+      body: "",
+      baseSha: "b",
+      headSha: "h",
+      cloneUrl: "https://github.com/o/r.git",
+      changedFiles: ["a.py"],
+    });
+    const github = {
+      alreadyReviewed: vi.fn(async () => false),
+      pullRequest,
+    } as unknown as GitHubReader;
+    const { app, runner, store, nextSettled } = build({ github });
+
+    let done = nextSettled();
+    const first = await deliver(app);
+    expect(first.status).toBe(202);
+    const firstId = await done;
+    expect(runner.fail).toHaveBeenCalledWith(firstId, expect.stringContaining("502 from GitHub"));
+    expect(store.getRun(firstId)).toMatchObject({ status: "error", turnIds: [] });
+
+    done = nextSettled();
+    const second = await deliver(app);
+    expect(second.status).toBe(202);
+    const secondId = await done;
+    expect(secondId).not.toBe(firstId);
+    expect(runner.start).toHaveBeenCalledOnce();
+    expect(store.getRun(firstId)).toBeNull();
+  });
+
+  it("supersedes the unfinished run of an older head when a newer one arrives", async () => {
+    const { app, runner, store, nextSettled } = build();
+    let done = nextSettled();
+    const first = (await (await deliver(app)).json()) as { run_id: string };
+    await done;
+    store.updateRun(first.run_id, { status: "blocked_pending" });
+
+    const newer = JSON.stringify({
+      action: "synchronize",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: { head: { sha: "h2" } },
+    });
+    done = nextSettled();
+    const second = (await (await deliver(app, newer)).json()) as { run_id: string };
+    await done;
+    expect(runner.supersede).toHaveBeenCalledWith(first.run_id);
+    expect(runner.supersede).not.toHaveBeenCalledWith(second.run_id);
+    expect(store.getRun(first.run_id)?.status).toBe("superseded");
+    expect(runner.start).toHaveBeenCalledTimes(2);
   });
 });

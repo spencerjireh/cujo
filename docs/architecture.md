@@ -126,7 +126,7 @@ sequenceDiagram
   participant M as github-mcp
 
   GH->>C: pull_request webhook (HMAC)
-  C->>TF: sessions.create / createTurnStream(PR context)
+  C->>TF: sessions.create / createTurn(PR context) + subscribeToTurn
   TF->>Sub: spawn tests, probes, smoke, detonation
   TF-->>C: thread.created (title = check name)
   Sub-->>TF: JSON report
@@ -138,7 +138,7 @@ sequenceDiagram
   C->>C: run status = blocked_pending
   H->>C: opens run, reads drafted review
   H->>C: Approve
-  C->>TF: createTurnStream(user.tool_approval allow)
+  C->>TF: createTurn(user.tool_approval allow) + subscribeToTurn
   TF->>M: post_blocking_review proceeds
   M->>GH: REQUEST_CHANGES review as cujo-guard[bot]
   TF-->>C: tool.response, turn.done
@@ -147,7 +147,9 @@ sequenceDiagram
 
 On Reject, step 14 sends `deny`; the agent posts nothing and the run ends
 `denied`. With no `critical` finding the agent calls `post_advisory_review`
-instead, which is not gated, and steps 8 to 14 do not happen.
+instead, which is not gated, and steps 8 to 14 do not happen. If a new head
+is pushed while a run is still going, that run ends `superseded` and the new
+head gets its own run on the same session; only the newest head is reviewed.
 
 ## End-to-end flow
 

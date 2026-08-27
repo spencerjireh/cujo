@@ -9,7 +9,9 @@ export type RunStatus =
   | "blocked_pending"
   | "blocked_posted"
   | "denied"
-  | "error";
+  | "error"
+  /** A newer head on the same PR replaced this run before it finished. */
+  | "superseded";
 
 export const CHECK_NAMES = ["tests", "probes", "smoke", "detonation"] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
