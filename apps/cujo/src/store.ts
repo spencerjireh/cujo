@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
-import type { Projection, RunRecord, RunStatus } from "./types";
+import type {
+  DiscordChannelRecord,
+  Projection,
+  RunDiscordMessage,
+  RunRecord,
+  RunStatus,
+} from "./types";
 
 // Loaded through the runtime rather than an import so vitest's module
 // transformer, which does not know node:sqlite, leaves it alone.
@@ -21,6 +27,37 @@ interface RunRow {
   decided_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface DiscordChannelRow {
+  repo: string;
+  channel_id: string;
+  guild_id: string | null;
+  channel_name: string | null;
+  notify_role_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function toDiscordChannel(row: DiscordChannelRow): DiscordChannelRecord {
+  return {
+    repo: row.repo,
+    channelId: row.channel_id,
+    guildId: row.guild_id,
+    channelName: row.channel_name,
+    notifyRoleId: row.notify_role_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * GitHub repo names are case-insensitive and `repository.full_name` carries
+ * whatever casing the owner typed, so a mapping typed by hand would otherwise
+ * silently never match. Normalised on both write and lookup.
+ */
+function normalizeRepo(repo: string): string {
+  return repo.toLowerCase();
 }
 
 function toRecord(row: RunRow): RunRecord {
@@ -85,6 +122,37 @@ export class Store {
         run_id TEXT NOT NULL REFERENCES runs (id),
         turn_id TEXT NOT NULL,
         PRIMARY KEY (run_id, turn_id)
+      );
+      -- Contract 7. New tables rather than columns on runs: this schema has no
+      -- ALTER TABLE path, so a column would apply to a fresh database and
+      -- silently not to the deployed one (decision 24).
+      CREATE TABLE IF NOT EXISTS discord_channels (
+        repo TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        guild_id TEXT,
+        channel_name TEXT,
+        notify_role_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS run_discord_messages (
+        run_id TEXT PRIMARY KEY REFERENCES runs (id),
+        channel_id TEXT NOT NULL,
+        message_id TEXT,
+        ping_message_id TEXT,
+        last_notified_status TEXT,
+        updated_at TEXT NOT NULL
+      );
+      -- A Discord message belongs to at most one run: the reverse lookup an
+      -- interactions endpoint will need, enforced now while it is free.
+      CREATE UNIQUE INDEX IF NOT EXISTS run_discord_message_id
+        ON run_discord_messages (message_id) WHERE message_id IS NOT NULL;
+      -- The PR title for the card. RunRecord has no title and the webhook is
+      -- the only place it is ever read.
+      CREATE TABLE IF NOT EXISTS run_pr_meta (
+        run_id TEXT PRIMARY KEY REFERENCES runs (id),
+        title TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
     `);
   }
@@ -152,6 +220,8 @@ export class Store {
   deleteRun(id: string): void {
     this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM run_cujo_turns WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM run_discord_messages WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM run_pr_meta WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM runs WHERE id = ?").run(id);
   }
 
@@ -259,5 +329,113 @@ export class Store {
       .prepare("SELECT projection FROM run_projections WHERE run_id = ?")
       .get(runId) as { projection: string } | undefined;
     return row ? (JSON.parse(row.projection) as Projection) : null;
+  }
+
+  getDiscordChannel(repo: string): DiscordChannelRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM discord_channels WHERE repo = ?")
+      .get(normalizeRepo(repo)) as DiscordChannelRow | undefined;
+    return row ? toDiscordChannel(row) : null;
+  }
+
+  listDiscordChannels(): DiscordChannelRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM discord_channels ORDER BY repo")
+      .all() as DiscordChannelRow[];
+    return rows.map(toDiscordChannel);
+  }
+
+  /** Upsert the binding for a repo. `created_at` survives a re-bind. */
+  putDiscordChannel(input: {
+    repo: string;
+    channelId: string;
+    guildId: string | null;
+    channelName: string | null;
+    notifyRoleId: string | null;
+  }): DiscordChannelRecord {
+    const now = new Date().toISOString();
+    const repo = normalizeRepo(input.repo);
+    this.db
+      .prepare(
+        "INSERT INTO discord_channels " +
+          "(repo, channel_id, guild_id, channel_name, notify_role_id, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT (repo) DO UPDATE SET channel_id = excluded.channel_id, " +
+          "guild_id = excluded.guild_id, channel_name = excluded.channel_name, " +
+          "notify_role_id = excluded.notify_role_id, updated_at = excluded.updated_at",
+      )
+      .run(repo, input.channelId, input.guildId, input.channelName, input.notifyRoleId, now, now);
+    const stored = this.getDiscordChannel(repo);
+    if (!stored) throw new Error("discord channel vanished after insert");
+    return stored;
+  }
+
+  /** False when no binding existed for that repo. */
+  deleteDiscordChannel(repo: string): boolean {
+    const result = this.db
+      .prepare("DELETE FROM discord_channels WHERE repo = ?")
+      .run(normalizeRepo(repo));
+    return Number(result.changes) === 1;
+  }
+
+  getRunDiscordMessage(runId: string): RunDiscordMessage | null {
+    const row = this.db.prepare("SELECT * FROM run_discord_messages WHERE run_id = ?").get(runId) as
+      | {
+          run_id: string;
+          channel_id: string;
+          message_id: string | null;
+          ping_message_id: string | null;
+          last_notified_status: string | null;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      runId: row.run_id,
+      channelId: row.channel_id,
+      messageId: row.message_id,
+      pingMessageId: row.ping_message_id,
+      lastNotifiedStatus: (row.last_notified_status as RunStatus | null) ?? null,
+    };
+  }
+
+  /**
+   * Write the whole row. The notifier sends on one serial queue, so there is
+   * never a concurrent writer for a run.
+   */
+  putRunDiscordMessage(row: RunDiscordMessage): void {
+    this.db
+      .prepare(
+        "INSERT INTO run_discord_messages " +
+          "(run_id, channel_id, message_id, ping_message_id, last_notified_status, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT (run_id) DO UPDATE SET channel_id = excluded.channel_id, " +
+          "message_id = excluded.message_id, ping_message_id = excluded.ping_message_id, " +
+          "last_notified_status = excluded.last_notified_status, updated_at = excluded.updated_at",
+      )
+      .run(
+        row.runId,
+        row.channelId,
+        row.messageId,
+        row.pingMessageId,
+        row.lastNotifiedStatus,
+        new Date().toISOString(),
+      );
+  }
+
+  putRunPrTitle(runId: string, title: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO run_pr_meta (run_id, title, updated_at) VALUES (?, ?, ?) " +
+          "ON CONFLICT (run_id) DO UPDATE SET title = excluded.title, " +
+          "updated_at = excluded.updated_at",
+      )
+      .run(runId, title, new Date().toISOString());
+  }
+
+  getRunPrTitle(runId: string): string | null {
+    const row = this.db.prepare("SELECT title FROM run_pr_meta WHERE run_id = ?").get(runId) as
+      | { title: string }
+      | undefined;
+    return row?.title ?? null;
   }
 }

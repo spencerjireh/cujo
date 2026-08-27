@@ -82,6 +82,38 @@ export interface Projection {
   summary: string | null;
 }
 
+/**
+ * One repo bound to one Discord channel (Contract 7). Operator data rather
+ * than run state, which is why it lives in the store and not the environment
+ * (decision 23).
+ */
+export interface DiscordChannelRecord {
+  /** `owner/name`, lower-cased: GitHub repo names are case-insensitive. */
+  repo: string;
+  channelId: string;
+  guildId: string | null;
+  channelName: string | null;
+  /** Mentioned by the ping a blocked run posts. Null means ping with no mention. */
+  notifyRoleId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The card Cujo posted for one run, plus the one-shot ping beside it. */
+export interface RunDiscordMessage {
+  runId: string;
+  /**
+   * Captured when the card is created. Every later edit uses this rather than
+   * the current mapping, so re-pointing a repo mid-run cannot edit a message
+   * into a channel that does not hold it.
+   */
+  channelId: string;
+  messageId: string | null;
+  pingMessageId: string | null;
+  /** The status the card was last written for; the dedupe key (Contract 7). */
+  lastNotifiedStatus: RunStatus | null;
+}
+
 export interface RunRecord {
   id: string;
   repo: string;
