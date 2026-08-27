@@ -4,6 +4,7 @@ import { buildTurnMessage } from "./agent";
 import type { GitHubReader } from "./github";
 import type { Runner } from "./runner";
 import type { Store } from "./store";
+import type { RunRecord } from "./types";
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
@@ -31,15 +32,37 @@ export interface WebhookDeps {
   store: Store;
   runner: Runner;
   createSession: (repo: string, prNumber: number) => Promise<string>;
-  /** False until the harness bootstrap has registered github-mcp. */
+  /** False until the harness bootstrap has completed every registration. */
   isReady?: () => boolean;
+  /** Test hook: called when the background preparation of a run has settled. */
+  onSettled?: (runId: string) => void;
 }
 
 /**
- * Contract 1. Answers 202 as soon as the turn is started; the fold runs in the
- * background so GitHub's 10-second delivery timeout is never in play.
+ * Contract 1. Answers 202 as soon as the run is claimed; the GitHub reads,
+ * the turn start, and the fold all run in the background so GitHub's
+ * 10-second delivery timeout is never in play.
  */
 export function webhookRoutes(deps: WebhookDeps): Hono {
+  const prepare = async (run: RunRecord): Promise<void> => {
+    try {
+      if (await deps.github.alreadyReviewed(run.repo, run.prNumber, run.headSha)) {
+        // Release the claim so nothing shows a run that never happened.
+        deps.store.deleteRun(run.id);
+        return;
+      }
+      const pr = await deps.github.pullRequest(run.repo, run.prNumber);
+      await deps.runner.start(run, buildTurnMessage(pr));
+    } catch (error) {
+      // The run ends in error with no turn, which lets a redelivery re-claim
+      // the head (Store.createRun) instead of being refused as a duplicate.
+      console.error(`run ${run.id}: could not prepare`, error);
+      deps.runner.fail(run.id, `could not prepare run: ${String(error)}`);
+    } finally {
+      deps.onSettled?.(run.id);
+    }
+  };
+
   const app = new Hono();
   app.post("/webhook", async (c) => {
     const body = await c.req.text();
@@ -54,7 +77,8 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
       return c.json({ ok: true, ignored: "action" }, 200);
     }
     if (deps.isReady && !deps.isReady()) {
-      // GitHub retries a failed delivery, so refusing now loses nothing.
+      // GitHub does not retry on its own, but a 503 shows in the delivery
+      // log and the head is claimed by nothing, so a redelivery works.
       return c.json({ ok: false, error: "harness not ready" }, 503);
     }
     const repo = event.repository.full_name;
@@ -72,13 +96,12 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
     if (!created) {
       return c.json({ ok: true, ignored: "duplicate delivery", run_id: run.id }, 200);
     }
-
-    if (await deps.github.alreadyReviewed(repo, prNumber, headSha)) {
-      deps.store.deleteRun(run.id);
-      return c.json({ ok: true, ignored: "already reviewed" }, 200);
+    // A review of an older head is stale the moment a newer one exists.
+    for (const old of deps.store.listUnfinishedRuns({ repo, prNumber })) {
+      if (old.id !== run.id) deps.runner.supersede(old.id);
     }
-    const pr = await deps.github.pullRequest(repo, prNumber);
-    deps.runner.start(run, buildTurnMessage(pr));
+
+    void prepare(run);
     return c.json({ ok: true, run_id: run.id }, 202);
   });
   return app;

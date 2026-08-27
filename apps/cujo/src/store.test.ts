@@ -34,6 +34,43 @@ describe("store", () => {
     expect(store.claimDecision(run.id, "b@x", "t")).toBe(true);
   });
 
+  it("re-claims a head whose run errored before it had a turn, and only then", () => {
+    const store = new Store(":memory:");
+    const { run } = store.createRun(head);
+    store.updateRun(run.id, { status: "error" });
+    const again = store.createRun(head);
+    expect(again.created).toBe(true);
+    expect(again.run.id).not.toBe(run.id);
+    expect(store.getRun(run.id)).toBeNull();
+
+    store.updateRun(again.run.id, { status: "error", turnIds: ["t1"] });
+    const kept = store.createRun(head);
+    expect(kept.created).toBe(false);
+    expect(kept.run.id).toBe(again.run.id);
+  });
+
+  it("scopes unfinished runs to a PR and lists runs by session", () => {
+    const store = new Store(":memory:");
+    const a = store.createRun(head).run;
+    const b = store.createRun({ ...head, headSha: "h2" }).run;
+    const other = store.createRun({ ...head, prNumber: 8, sessionId: "s2" }).run;
+    store.updateRun(b.id, { status: "clean" });
+    const ids = (runs: { id: string }[]) => runs.map((r) => r.id).sort();
+    expect(ids(store.listUnfinishedRuns({ repo: "o/r", prNumber: 7 }))).toEqual([a.id]);
+    expect(ids(store.listUnfinishedRuns())).toEqual([a.id, other.id].sort());
+    expect(ids(store.listRunsForSession("s1"))).toEqual([a.id, b.id].sort());
+  });
+
+  it("remembers which resume turns Cujo sent", () => {
+    const store = new Store(":memory:");
+    const { run } = store.createRun(head);
+    store.addCujoTurn(run.id, "t2");
+    store.addCujoTurn(run.id, "t2");
+    expect(store.listCujoTurns(run.id)).toEqual(["t2"]);
+    store.deleteRun(run.id);
+    expect(store.listCujoTurns(run.id)).toEqual([]);
+  });
+
   it("deletes a run and its projection", () => {
     const store = new Store(":memory:");
     const { run } = store.createRun(head);
