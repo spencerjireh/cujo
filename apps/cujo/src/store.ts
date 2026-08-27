@@ -1,0 +1,218 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
+import type { Projection, RunRecord, RunStatus } from "./types";
+
+// Loaded through the runtime rather than an import so vitest's module
+// transformer, which does not know node:sqlite, leaves it alone.
+const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
+type DatabaseSync = DatabaseSyncType;
+
+interface RunRow {
+  id: string;
+  repo: string;
+  pr_number: number;
+  head_sha: string;
+  session_id: string;
+  turn_ids: string;
+  status: string;
+  approver: string | null;
+  decided_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function toRecord(row: RunRow): RunRecord {
+  return {
+    id: row.id,
+    repo: row.repo,
+    prNumber: row.pr_number,
+    headSha: row.head_sha,
+    sessionId: row.session_id,
+    turnIds: JSON.parse(row.turn_ids) as string[],
+    status: row.status as RunStatus,
+    approver: row.approver,
+    decidedAt: row.decided_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * The run store: the PR-to-session map, one row per run, and the folded
+ * projection of each run. Backed by node:sqlite so the runtime image needs no
+ * native module.
+ */
+export class Store {
+  private readonly db: DatabaseSync;
+
+  constructor(path: string) {
+    if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+    this.db = new DatabaseSync(path);
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS sessions (
+        repo TEXT NOT NULL,
+        pr_number INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        PRIMARY KEY (repo, pr_number)
+      );
+      CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY,
+        repo TEXT NOT NULL,
+        pr_number INTEGER NOT NULL,
+        head_sha TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        turn_ids TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL,
+        approver TEXT,
+        decided_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at DESC);
+      -- One run per PR head (Contract 5): a duplicate webhook delivery cannot
+      -- claim a second run for the same SHA.
+      CREATE UNIQUE INDEX IF NOT EXISTS runs_head ON runs (repo, pr_number, head_sha);
+      CREATE TABLE IF NOT EXISTS run_projections (
+        run_id TEXT PRIMARY KEY REFERENCES runs (id),
+        projection TEXT NOT NULL
+      );
+    `);
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  getSession(repo: string, prNumber: number): string | null {
+    const row = this.db
+      .prepare("SELECT session_id FROM sessions WHERE repo = ? AND pr_number = ?")
+      .get(repo, prNumber) as { session_id: string } | undefined;
+    return row?.session_id ?? null;
+  }
+
+  /**
+   * First writer wins. Returns the session id now stored, which is the
+   * caller's only when no other delivery got there first.
+   */
+  putSession(repo: string, prNumber: number, sessionId: string): string {
+    this.db
+      .prepare("INSERT OR IGNORE INTO sessions (repo, pr_number, session_id) VALUES (?, ?, ?)")
+      .run(repo, prNumber, sessionId);
+    const stored = this.getSession(repo, prNumber);
+    if (!stored) throw new Error("session vanished after insert");
+    return stored;
+  }
+
+  /**
+   * Atomic claim of the run for a PR head. `created` is false when a run for
+   * that head already exists, in which case the existing run is returned.
+   */
+  createRun(input: {
+    repo: string;
+    prNumber: number;
+    headSha: string;
+    sessionId: string;
+  }): { run: RunRecord; created: boolean } {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const result = this.db
+      .prepare(
+        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?)",
+      )
+      .run(id, input.repo, input.prNumber, input.headSha, input.sessionId, now, now);
+    const row = this.db
+      .prepare("SELECT * FROM runs WHERE repo = ? AND pr_number = ? AND head_sha = ?")
+      .get(input.repo, input.prNumber, input.headSha) as RunRow | undefined;
+    if (!row) throw new Error("run vanished after insert");
+    return { run: toRecord(row), created: Number(result.changes) === 1 };
+  }
+
+  deleteRun(id: string): void {
+    this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM runs WHERE id = ?").run(id);
+  }
+
+  getRun(id: string): RunRecord | null {
+    const row = this.db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as RunRow | undefined;
+    return row ? toRecord(row) : null;
+  }
+
+  listRuns(limit = 100): RunRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM runs ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as RunRow[];
+    return rows.map(toRecord);
+  }
+
+  listUnfinishedRuns(): RunRecord[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM runs WHERE status IN ('running', 'blocked_pending') ORDER BY created_at",
+      )
+      .all() as RunRow[];
+    return rows.map(toRecord);
+  }
+
+  updateRun(
+    id: string,
+    patch: { status?: RunStatus; turnIds?: string[]; approver?: string; decidedAt?: string },
+  ): RunRecord | null {
+    const current = this.getRun(id);
+    if (!current) return null;
+    this.db
+      .prepare(
+        "UPDATE runs SET status = ?, turn_ids = ?, approver = ?, decided_at = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(
+        patch.status ?? current.status,
+        JSON.stringify(patch.turnIds ?? current.turnIds),
+        patch.approver ?? current.approver,
+        patch.decidedAt ?? current.decidedAt,
+        new Date().toISOString(),
+        id,
+      );
+    return this.getRun(id);
+  }
+
+  /**
+   * Compare-and-set the decision: succeeds for exactly one caller while the
+   * run is blocked_pending and undecided, so a second approve request cannot
+   * resume the same call.
+   */
+  claimDecision(id: string, approver: string, decidedAt: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE runs SET approver = ?, decided_at = ?, updated_at = ? " +
+          "WHERE id = ? AND status = 'blocked_pending' AND approver IS NULL",
+      )
+      .run(approver, decidedAt, new Date().toISOString(), id);
+    return Number(result.changes) === 1;
+  }
+
+  /** Undo a claim whose resume never reached the harness, so a retry is possible. */
+  clearDecision(id: string): void {
+    this.db
+      .prepare("UPDATE runs SET approver = NULL, decided_at = NULL, updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
+  }
+
+  putProjection(runId: string, projection: Projection): void {
+    this.db
+      .prepare(
+        "INSERT INTO run_projections (run_id, projection) VALUES (?, ?) " +
+          "ON CONFLICT (run_id) DO UPDATE SET projection = excluded.projection",
+      )
+      .run(runId, JSON.stringify(projection));
+  }
+
+  getProjection(runId: string): Projection | null {
+    const row = this.db
+      .prepare("SELECT projection FROM run_projections WHERE run_id = ?")
+      .get(runId) as { projection: string } | undefined;
+    return row ? (JSON.parse(row.projection) as Projection) : null;
+  }
+}

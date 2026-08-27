@@ -57,11 +57,12 @@ bundled TrueForge UI is used only as an operator console.
 | Path | What |
 |------|------|
 | `docs/` | Canonical spec. The code follows these docs; a design change lands here first. |
-| `apps/cujo/` | The Cujo service: webhook receiver, run store, TrueForge event folder, the Cujo UI and API, and the approve endpoint. *(skeleton, currently named `apps/ingress`)* |
-| `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. *(skeleton)* |
-| `packages/gh-app-auth/` | Shared GitHub App installation-token auth. *(skeleton)* |
-| `sniff.py` | The in-sandbox sensor script: dependency detonation plus the egress, filesystem, and decoy-secret sensors every check shares. *(skeleton)* |
-| `docker-compose.yml` | The TrueForge harness stack: `server`, Postgres, Redis. The file the deploy uses. |
+| `apps/cujo/` | The Cujo service: webhook receiver, run store, TrueForge event folder, the Cujo UI and API, and the approve endpoint. |
+| `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. |
+| `packages/gh-app-auth/` | Shared GitHub App installation-token auth. |
+| `agent/SKILL.md` | The rubric: the parent agent's instructions, sent as the agent spec on every session. |
+| `sniff.py` | The in-sandbox sensor script: dependency detonation plus the egress, filesystem, and decoy-secret sensors every check shares. |
+| `docker-compose.yml` | The whole stack: TrueForge `server`, Postgres, Redis, `cujo`, `github-mcp`. The file the deploy uses. |
 | `docker-compose.local.yml` | Local overlay: publishes service ports and points `PUBLIC_BASE_URL` at `localhost`. Never used by the deploy. |
 | `Makefile` | Local run helpers (`make up-local`, `down`, `logs`, `clean`). |
 
@@ -87,9 +88,11 @@ make up-local          # docker compose up with the local overlay
 docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
-That publishes the TrueForge UI + API on `http://localhost:8790`, plus
-`ingress` (8080), `github-mcp` (8081), Postgres (5432), and Redis (6379) for
-inspection. All ports bind to `127.0.0.1` (loopback) only. Other targets:
+That publishes the TrueForge operator console + API on `http://localhost:8790`,
+plus `cujo` (8080), `github-mcp` (8081), Postgres (5432), and Redis (6379) for
+inspection. `cujo` dispatches on the `Host` header: `http://cujo.localhost:8080`
+is the UI and API, `http://cujo-ingress.localhost:8080/webhook` is the webhook
+receiver, and the Cloudflare Access check is off (`CUJO_DEV_NO_ACCESS=1`). All ports bind to `127.0.0.1` (loopback) only. Other targets:
 `make down`, `make logs`, `make ps`, `make clean` (drops the database volume).
 Run `make help` for the full list.
 
@@ -97,16 +100,20 @@ Run `make help` for the full list.
 > `>= 28.0`; older engines can route `127.0.0.1`-published ports from the LAN.
 > Docker Desktop (macOS/Windows) runs the engine in a VM and is unaffected.
 
-Open the TrueForge UI at http://localhost:8790, then in Settings add a model
-provider key and a Daytona sandbox key. Send a chat turn that runs a command in
-a sandbox to confirm it is wired. This is the operator console; the Cujo UI that
-shows runs and holds the approve button is not built yet.
+On start, `cujo` registers `github-mcp` on the harness and, when the
+`MODEL_PROVIDER_*` and `DAYTONA_API_KEY` variables are set, the model and
+sandbox providers too. Without them, open the operator console at
+http://localhost:8790 and add them under Settings. Then point a GitHub App
+webhook at `/webhook` (a tunnel such as `cloudflared tunnel --url
+http://localhost:8080` works locally; set the `Host` to the webhook hostname)
+and open a PR on a repo where the App is installed. The Cujo UI that shows runs
+and holds the approve button is a placeholder in this milestone; the API under
+`/runs` is complete.
 
 The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
 are for local runs only and never touch how it deploys.
 
-The service skeletons under `apps/` build and test with pnpm; `sniff.py` runs with
-`uv`:
+The services under `apps/` build and test with pnpm; `sniff.py` runs with `uv`:
 
 ```bash
 corepack enable && pnpm install
@@ -116,10 +123,9 @@ uv sync && uv run pytest
 
 ## Status
 
-Early. The harness is deployed and live, the docs are the design of record, and
-the repo scaffolding — workspace, tooling, CI — is in place. The service code
-under `apps/` and `sniff.py` is still skeleton; the review checks and sensor
-logic land next.
+The pipeline is in: webhook to session, the four checks, the sensors, the hard
+rules, the gated blocking review, and the run API. The Cujo UI is next, then the
+demo PRs and the video.
 
 ## License
 
