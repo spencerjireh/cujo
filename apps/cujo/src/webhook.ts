@@ -52,6 +52,9 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
         return;
       }
       const pr = await deps.github.pullRequest(run.repo, run.prNumber);
+      // The only place the title is ever read. A Discord card names the PR
+      // with it (Contract 7) and falls back to `owner/name #7` without it.
+      deps.store.putRunPrTitle(run.id, pr.title);
       // Delivery order is not commit order: a delayed delivery for an older
       // head must not replace the run for the head GitHub reports now.
       if (pr.headSha !== run.headSha) {
