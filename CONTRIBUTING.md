@@ -45,5 +45,27 @@ into Qodo's `best_practices.md` so the file and the bot check the same things.
 
 ## Branches and commits
 
-Branch off `main` with a short descriptive name, then open a PR. A one-line
-imperative subject is enough (`add HMAC check to the cujo webhook`).
+Branch off `main` with a short descriptive name, then open a PR.
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+type(scope): summary
+
+Why the change is needed, not what the diff already shows.
+```
+
+- `type` is one of `feat`, `fix`, `docs`, `ci`, `build`, `chore`, `refactor`,
+  `test`. Mark a breaking change with `!` after the type or a
+  `BREAKING CHANGE:` footer.
+- `scope` is optional and names the part touched: `cujo`, `github-mcp`,
+  `gh-app-auth`, `sniff`, `compose`, `docs`.
+- The summary is imperative, lower-case, has no trailing period, and fits in
+  72 characters. `feat(cujo): add HMAC check to the webhook`, not
+  `Added HMAC checking.`
+- Write a body when the reason is not obvious from the subject: what was wrong,
+  why this fix, what was considered and rejected. Wrap at 72. When a commit
+  closes a Qodo finding, say which one.
+
+A good message lets a reader understand the change from `git log` alone,
+without opening the diff.
