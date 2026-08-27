@@ -323,30 +323,51 @@ that repo, done later).
 
 ## Contract 6 — the run record and the operator API
 
-`apps/cujo` keeps one record per turn it started, called a run. It is a
+`apps/cujo` keeps one record per PR event it acted on, called a run. It is a
 projection of the TrueForge session (decision 18): the fields below are all
 `apps/cujo` stores, and everything else the UI shows is rebuilt from
 `listTurnEvents` on demand.
+
+A run spans more than one TrueForge turn. `tool.approval_required` ends the
+turn it arrives in, and the resume (Contract 4) is a new turn whose
+`turn.created` carries `previous_turn_id`. So a run holds an ordered list of
+turn ids, appended on every `turn.created` `apps/cujo` sees for the session,
+whether it started that turn or not, and rehydration replays every turn in the
+list in order.
 
 | Field | Meaning |
 |-------|---------|
 | `id` | Run id, `apps/cujo`'s own. |
 | `repo`, `pr_number`, `head_sha` | The PR event that started it. |
-| `session_id`, `turn_id` | The TrueForge session and turn. |
+| `session_id` | The TrueForge session (one per PR, Contract 5). |
+| `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
 | `status` | One of the six states below. |
-| `approver`, `decided_at` | Email from the Access JWT and the time, set on approve or reject. |
+| `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). |
 | `created_at`, `updated_at` | Timestamps. |
 
-Status moves on events from the turn stream; nothing else changes it:
+Status moves on events from the session's turn streams; nothing else changes
+it:
 
 | Status | Set when |
 |--------|----------|
-| `running` | The turn started. |
+| `running` | The first turn started. |
 | `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted. |
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
-| `blocked_posted` | After `allow`, the `tool.response` for the gated call arrived and `turn.done` followed. |
-| `denied` | After `deny`, `turn.done` arrived. |
-| `error` | `turn.done` with an error state, or the stream was lost and `listTurnEvents` shows no terminal event after the turn timeout. |
+| `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
+| `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
+| `error` | `turn.done` with an error state, or the stream was lost and the replayed turns show no terminal event after the turn timeout. |
+
+A resume `apps/cujo` did not send is still tracked. After `blocked_pending`,
+`apps/cujo` keeps a subscription on the session (`subscribeToTurn` for a turn
+still running; `listEvents` on the session after a restart), so a new turn
+started from the TrueForge operator console is seen like any other: its id is
+appended to `turn_ids`, the gated call's `tool.response` moves the run to
+`blocked_posted` or its absence to `denied`, and `approver` is set to
+`external`. The UI shows such a run with an "approved outside Cujo" mark
+instead of a name. The run cannot go stale, and the audit trail records that
+the decision bypassed the approve route rather than pretending it did not
+happen. The operator-console rule in decision 17 says not to do this; the
+projection makes it survivable when someone does.
 
 The four checks are matched to subagent threads by title. The parent titles
 each spawned thread exactly `tests`, `probes`, `smoke`, or `detonation`; a
@@ -356,17 +377,32 @@ in the message, parsed leniently, because the output is a model message and not
 a structured field. A `thread.done` with `status: error` marks the check
 failed and the parent decides what that means for the findings.
 
-The API `apps/cujo` serves, all under Cloudflare Access:
+The API `apps/cujo` serves on `cujo.spencerjireh.com`:
 
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /runs` | Runs, newest first, with status. |
 | `GET /runs/:id` | The run, its checks (thread, status, report), findings, and the drafted review when `blocked_pending`. |
 | `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
-| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Requires a valid `Cf-Access-Jwt-Assertion`; records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
+| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
 
-The webhook route (Contract 1) is served by the same process on the non-Access
-hostname; it is the only route outside Access.
+One process serves two hostnames, so the split between them is enforced in the
+process, not only at the edge:
+
+- Every request is dispatched on the `Host` header. On
+  `cujo-ingress.spencerjireh.com` the process serves `POST /webhook` and
+  `GET /healthz` and answers 404 to everything else, including `/runs`. On
+  `cujo.spencerjireh.com` it serves the UI and the routes above and answers 404
+  to `/webhook`. A request with any other `Host` gets 404.
+- Every route on `cujo.spencerjireh.com` — reads as well as the approve route —
+  requires a `Cf-Access-Jwt-Assertion` header that verifies against the
+  Cloudflare Access public keys for the application's audience tag. A missing
+  or invalid token is 401. Cloudflare Access at the edge is the first gate;
+  this check is the second, so a request that reaches the origin by another
+  path (a misrouted hostname, a direct hit on the origin IP) is still refused.
+- The webhook route on `cujo-ingress.spencerjireh.com` is the only route that
+  accepts a request without an Access token, and it accepts only a request
+  whose HMAC verifies (Contract 1).
 
 Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
 subagent was given the review tool, which the design forbids. `apps/cujo` logs

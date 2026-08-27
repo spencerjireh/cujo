@@ -222,9 +222,14 @@ What was verified against the TrueForge source (SDK 0.1.3, read 2026-08-27):
 The operator-console rule: TrueForge's UI stays reachable behind Access for
 reading transcripts, registering the model key and the `github-mcp` connector,
 and debugging. Humans read there; they never click Allow or send a message
-into a Cujo session there. A stray Allow would resume the turn without Cujo
-recording the approver; a stray message would append a user turn the agent
-acts on.
+into a Cujo session there. Stock TrueForge cannot disable those controls
+without a fork (decision 1), so the rule is a convention, and the design does
+not depend on it holding: `apps/cujo` stays subscribed to the session after a
+pause, so a resume started from the console is seen, the run still reaches
+`blocked_posted` or `denied`, and the approver is recorded as `external` and
+shown as such in the UI (Contract 6). A stray message is the worse case — it
+appends a user turn the agent acts on — and is why the console is not the
+product surface.
 
 What does not change: the trust boundary, the sandbox contract, the hard rules,
 the two review tools and their gate, and one session per PR.
