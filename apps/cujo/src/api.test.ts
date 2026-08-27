@@ -25,7 +25,10 @@ function build(view: RunView | null, discord?: DiscordClient) {
   return { app, store, runner, changes };
 }
 
-/** A text channel in a guild, which is the only kind a binding accepts. */
+/** View Channel + Send Messages + Embed Links: what posting a card needs. */
+const CAN_POST = String((1n << 10n) | (1n << 11n) | (1n << 14n));
+
+/** A text channel in a guild the bot can post in, which a binding requires. */
 function fakeDiscord(overrides: Record<string, unknown> = {}) {
   return {
     getChannel: vi.fn(async () => ({
@@ -33,8 +36,14 @@ function fakeDiscord(overrides: Record<string, unknown> = {}) {
       type: 0,
       name: "reviews",
       guild_id: "222222222222222222",
+      permission_overwrites: [],
     })),
-    listRoles: vi.fn(async () => [{ id: "333333333333333333", name: "oncall" }]),
+    currentUser: vi.fn(async () => ({ id: "777777777777777777" })),
+    guildMember: vi.fn(async () => ({ roles: ["333333333333333333"] })),
+    listRoles: vi.fn(async () => [
+      { id: "222222222222222222", name: "@everyone", permissions: CAN_POST },
+      { id: "333333333333333333", name: "oncall", permissions: "0" },
+    ]),
     listGuilds: vi.fn(async () => [{ id: "222222222222222222", name: "My Server" }]),
     listChannels: vi.fn(async () => [
       { id: "444444444444444444", name: "voice", type: 2, position: 0 },
@@ -264,6 +273,32 @@ describe("api discord routes", () => {
     );
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ ok: false, error: "the bot cannot see that channel" });
+    expect(store.getDiscordChannel("o/r")).toBeNull();
+  });
+
+  it("refuses a channel the bot can read but cannot post an embed in", async () => {
+    // Reading a channel says nothing about posting in it: a channel-level deny
+    // would otherwise bind cleanly and then fail on every run.
+    const denySend = String(1n << 11n);
+    const discord = fakeDiscord({
+      getChannel: vi.fn(async () => ({
+        id: "111111111111111111",
+        type: 0,
+        name: "reviews",
+        guild_id: "222222222222222222",
+        permission_overwrites: [{ id: "333333333333333333", type: 0, allow: "0", deny: denySend }],
+      })),
+    });
+    const { app, store } = build(null, discord as unknown as DiscordClient);
+    const res = await app.request(
+      "/discord/channels/o/r",
+      put({ channel_id: "111111111111111111" }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "the bot needs View Channel, Send Messages and Embed Links there",
+    });
     expect(store.getDiscordChannel("o/r")).toBeNull();
   });
 

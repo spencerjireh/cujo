@@ -39,10 +39,16 @@ const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * What this run still owes Discord. A repeated status owes nothing except a
- * ping that has not been sent yet, which is why the ping is deduped on its own
- * id and not on the status: a crash between the card edit and the ping would
- * otherwise leave a blocked run waiting on a human nobody told.
+ * What this run still owes Discord. The status alone cannot answer this: the
+ * card is written before the ping, so a status that matches may still owe a
+ * ping. Both ping steps therefore have their own durable marker, and each is
+ * retried until it lands.
+ *
+ * - blocked and no `pingMessageId`: the ping was never sent, and a blocked run
+ *   nobody was told about is the failure this whole feature exists to prevent.
+ * - no longer blocked, a ping exists, and it has not been resolved: the
+ *   channel is still showing an actionable alert for a run that can no longer
+ *   be decided.
  */
 function owesWork(run: RunRecord, row: RunDiscordMessage | null): boolean {
   // A run that errored before it ever had a turn is re-claimed by the next
@@ -50,7 +56,8 @@ function owesWork(run: RunRecord, row: RunDiscordMessage | null): boolean {
   // beside the real one.
   if (run.status === "error" && run.turnIds.length === 0) return false;
   if (row?.lastNotifiedStatus !== run.status) return true;
-  return run.status === "blocked_pending" && !row.pingMessageId;
+  if (run.status === "blocked_pending") return !row.pingMessageId;
+  return Boolean(row.pingMessageId) && !row.pingResolved;
 }
 
 export class DiscordNotifier {
@@ -129,14 +136,15 @@ export class DiscordNotifier {
 
     let messageId = row?.messageId ?? null;
     let pingMessageId = row?.pingMessageId ?? null;
-    const write = (next: Partial<RunDiscordMessage>): void => {
+    let pingResolved = row?.pingResolved ?? false;
+    const write = (): void => {
       store.putRunDiscordMessage({
         runId,
         channelId,
         messageId,
         pingMessageId,
+        pingResolved,
         lastNotifiedStatus: run.status,
-        ...next,
       });
     };
 
@@ -150,24 +158,32 @@ export class DiscordNotifier {
         uiBaseUrl,
       });
       messageId = await this.upsert(channelId, messageId, card);
-      write({});
+      write();
     }
 
     if (run.status === "blocked_pending") {
       if (pingMessageId) return;
-      const ping = buildPing({ run, uiBaseUrl, roleId: mapping?.notifyRoleId ?? null });
+      // The role belongs to the channel it was configured for. The card's
+      // channel is pinned to the run, so a repo re-bound to another server
+      // mid-run would otherwise send that server's role id into the old
+      // channel, where it mentions nobody.
+      const roleId = mapping?.channelId === channelId ? (mapping.notifyRoleId ?? null) : null;
+      const ping = buildPing({ run, uiBaseUrl, roleId });
       pingMessageId = (await this.retrying(() => this.deps.client.createMessage(channelId, ping)))
         .id;
-      write({});
+      pingResolved = false;
+      write();
       return;
     }
 
     // The run left blocked_pending, so the ping points at a decision nobody
     // can still make. Edit it rather than leave a dead link in the channel.
     const ping = pingMessageId;
-    if (ping) {
+    if (ping && !pingResolved) {
       const resolved = buildPing({ run, uiBaseUrl, roleId: null });
       await this.retrying(() => this.deps.client.editMessage(channelId, ping, resolved));
+      pingResolved = true;
+      write();
     }
   }
 

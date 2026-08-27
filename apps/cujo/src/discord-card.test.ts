@@ -73,9 +73,22 @@ describe("escapeMarkdown", () => {
   it("escapes formatting and link syntax so nothing renders or links", () => {
     const out = escapeMarkdown("**bad** [x](http://evil) `y` _z_ ~w~ |s|");
     expect(out).toContain("\\*\\*bad\\*\\*");
-    expect(out).toContain("\\[x\\]\\(http://evil\\)");
+    expect(out).toContain("\\[x\\]\\(http\\[:\\]//evil\\)");
     expect(out).toContain("\\`y\\`");
     expect(out).not.toContain("**bad**");
+  });
+
+  it("defangs a bare address, which Discord would otherwise linkify", () => {
+    // Discord linkifies a bare web address and an <https://…> autolink, and a
+    // backslash stops neither.
+    const out = escapeMarkdown(
+      "see http://evil.example/x and <https://evil.example> and www.evil.example",
+    );
+    expect(out).not.toContain("http://");
+    expect(out).not.toContain("https://");
+    expect(out).not.toContain("www.evil");
+    expect(out).toContain("http\\[:\\]//evil.example/x");
+    expect(out).toContain("www\\[.\\]evil.example");
   });
 
   it("strips bidi overrides and zero-width characters rather than escaping them", () => {
@@ -158,16 +171,31 @@ describe("buildRunCard", () => {
     expect(payload.content).toBeUndefined();
   });
 
-  it("never puts a derived string in a URL field", () => {
+  it("never puts a derived string in a URL field, or leaves one clickable", () => {
     const payload = buildRunCard({
       run: run({ status: "error" }),
-      projection: projection({ status: "error", error: "see http://evil.example" }),
+      projection: projection({
+        status: "error",
+        error: "see <https://evil.example> and www.evil.example",
+        findings: [
+          finding({
+            severity: "critical",
+            title: "http://evil.example",
+            evidence: "https://evil.example/steal",
+          }),
+        ],
+      }),
       prTitle: "http://evil.example",
       uiBaseUrl: UI,
     });
     const embed = payload.embeds?.[0];
     expect(embed?.url).toBe(`${UI}/runs/${run().id}`);
     expect(embed?.title).not.toContain("](");
+    // Only the run's own link survives as a real address.
+    const rendered = JSON.stringify({ ...embed, url: undefined });
+    expect(rendered).not.toContain("http://evil");
+    expect(rendered).not.toContain("https://evil");
+    expect(rendered).not.toContain("www.evil");
   });
 
   it("escapes the summary and the error", () => {

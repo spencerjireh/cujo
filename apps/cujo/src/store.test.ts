@@ -137,6 +137,7 @@ describe("store", () => {
       channelId: "c1",
       messageId: "m1",
       pingMessageId: null,
+      pingResolved: false,
       lastNotifiedStatus: "running",
     });
     store.putRunDiscordMessage({
@@ -144,14 +145,16 @@ describe("store", () => {
       channelId: "c1",
       messageId: "m1",
       pingMessageId: "p1",
-      lastNotifiedStatus: "blocked_pending",
+      pingResolved: true,
+      lastNotifiedStatus: "blocked_posted",
     });
     expect(store.getRunDiscordMessage(run.id)).toEqual({
       runId: run.id,
       channelId: "c1",
       messageId: "m1",
       pingMessageId: "p1",
-      lastNotifiedStatus: "blocked_pending",
+      pingResolved: true,
+      lastNotifiedStatus: "blocked_posted",
     });
     expect(store.getRunPrTitle(run.id)).toBe("Add a thing");
     store.deleteRun(run.id);

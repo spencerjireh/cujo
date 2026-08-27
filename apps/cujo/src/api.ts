@@ -1,7 +1,13 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { AccessVerifier } from "./access";
-import { GUILD_ANNOUNCEMENT, GUILD_TEXT } from "./discord";
+import {
+  GUILD_ANNOUNCEMENT,
+  GUILD_TEXT,
+  REQUIRED_PERMISSIONS,
+  effectivePermissions,
+  hasPermissions,
+} from "./discord";
 import type { DiscordClient } from "./discord";
 import type { RunView, Runner } from "./runner";
 import type { Store } from "./store";
@@ -170,13 +176,39 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
     }
     const guildId = channel.guild_id;
     if (!guildId) return c.json({ ok: false, error: "not a guild text channel" }, 400);
-    if (notifyRoleId) {
+
+    const roles = await discord.listRoles(guildId).catch(() => null);
+    if (!roles) return c.json({ ok: false, error: "could not read the server's roles" }, 400);
+    if (notifyRoleId && !roles.some((r) => r.id === notifyRoleId)) {
       // Otherwise the ping would mention nobody and say nothing about it.
-      const roles = await discord.listRoles(guildId).catch(() => null);
-      if (!roles) return c.json({ ok: false, error: "could not read the server's roles" }, 400);
-      if (!roles.some((r) => r.id === notifyRoleId)) {
-        return c.json({ ok: false, error: "no such role in that server" }, 400);
-      }
+      return c.json({ ok: false, error: "no such role in that server" }, 400);
+    }
+
+    // Reading a channel does not mean the bot may post an embed in it. A
+    // channel-level deny would otherwise bind cleanly and then fail on every
+    // run, which is the silent failure this whole route exists to prevent.
+    const permissions = await (async () => {
+      const me = await discord.currentUser();
+      const member = await discord.guildMember(guildId, me.id);
+      return effectivePermissions({
+        guildId,
+        memberId: me.id,
+        memberRoles: member.roles,
+        roles,
+        overwrites: channel.permission_overwrites ?? [],
+      });
+    })().catch((error) => {
+      console.error(`discord: could not resolve permissions in ${channelId}`, error);
+      return null;
+    });
+    if (permissions === null) {
+      return c.json({ ok: false, error: "could not check the bot's permissions" }, 400);
+    }
+    if (!hasPermissions(permissions, REQUIRED_PERMISSIONS)) {
+      return c.json(
+        { ok: false, error: "the bot needs View Channel, Send Messages and Embed Links there" },
+        400,
+      );
     }
     const stored = deps.store.putDiscordChannel({
       repo: `${owner}/${name}`,
