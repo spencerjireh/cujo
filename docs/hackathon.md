@@ -70,14 +70,13 @@ track award.
 ## Where Cujo fits
 
 Cujo aims at Double-O. The product is one flow that covers all three hard
-requirements at once: an MCP review tool, gated by a human, downstream of a
-sandbox detonation. Running Qodo on the repo also contests Q Branch, and the
-build can seed a Field Report post.
+requirements at once, plus subagents: check subagents run the PR in a sandbox,
+the parent posts through an MCP review tool, and a human gates the block.
+Running Qodo on the repo also contests Q Branch, and the build can seed a
+Field Report post.
 
 ## Practical notes
 
-- OpenAI's $50 API credit is for in-person SF participants only; online
-  participants bring their own model keys (we use a provider's free tier).
 - Qodo is free for open-source projects and covers VS Code, JetBrains, GitHub
   PRs, and a CLI.
 - Qodo is required only to win Q Branch, not to enter the hackathon overall.
@@ -108,4 +107,3 @@ This project:
 
 - Submission repo — https://github.com/spencerjireh/cujo
 - Live harness — https://cujo.spencerjireh.com
-- Explainer artifact — https://claude.ai/code/artifact/404c353c-1365-4dfb-952a-c31981dca809
