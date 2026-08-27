@@ -67,30 +67,40 @@ export function parseReport(text: string): unknown | null {
 }
 
 const CALL_TOOL = "call_tool";
+const REVIEW_MCP_SERVER = "github-mcp";
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function parseArguments(raw: string): Record<string, unknown> {
+  try {
+    return asObject(JSON.parse(raw));
+  } catch {
+    // A review with unparseable arguments still counts as a drafted review.
+    return {};
+  }
+}
 
 /**
  * The review tool call, whichever way the harness exposed the tool to the
  * model: directly by name, or through TrueForge's `call_tool` meta-tool
  * (`{mcp_server, tool_name, input}`), which is what the server does by
- * default (contract test: "a review goes through call_tool").
+ * default (contract test: "a review goes through call_tool"). Through
+ * `call_tool` the server must be github-mcp: a same-named tool elsewhere
+ * posts nothing, and a run must not fold clean on it.
  */
 export function parseReview(
   call: TrueForgeApi.ChatCompletionMessageToolCall,
 ): DraftedReview | null {
-  let args: Record<string, unknown> = {};
-  try {
-    args = JSON.parse(call.function.arguments) as Record<string, unknown>;
-  } catch {
-    // A review with unparseable arguments still counts as a drafted review.
-  }
+  let args = parseArguments(call.function.arguments);
   let tool = call.function.name;
   if (tool === CALL_TOOL) {
-    if (typeof args.tool_name !== "string") return null;
+    if (args.mcp_server !== REVIEW_MCP_SERVER || typeof args.tool_name !== "string") return null;
     tool = args.tool_name;
-    args = (args.input && typeof args.input === "object" ? args.input : {}) as Record<
-      string,
-      unknown
-    >;
+    args = asObject(args.input);
   }
   if (!REVIEW_TOOLS.has(tool)) return null;
   const comments = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];

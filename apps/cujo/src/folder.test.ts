@@ -246,12 +246,37 @@ describe("parseReview", () => {
     });
   });
 
-  it("ignores call_tool for anything but a review tool, and malformed input", () => {
+  it("ignores call_tool for anything but a review tool on github-mcp, and malformed input", () => {
     expect(parseReview(callTool("c2", { mcp_server: "x", tool_name: "list_tools" }))).toBeNull();
     expect(parseReview(callTool("c3", { mcp_server: "github-mcp" }))).toBeNull();
+    // A same-named tool on another server posts nothing.
     expect(
-      parseReview(callTool("c4", { tool_name: "post_advisory_review", input: "not an object" })),
+      parseReview(callTool("c5", { mcp_server: "other", tool_name: "post_advisory_review" })),
+    ).toBeNull();
+    expect(
+      parseReview(
+        callTool("c4", {
+          mcp_server: "github-mcp",
+          tool_name: "post_advisory_review",
+          input: "not an object",
+        }),
+      ),
     ).toMatchObject({ tool: "post_advisory_review", body: "", comments: [] });
+    // JSON that is not an object must not throw mid-fold.
+    for (const raw of ["null", "[]", "42", '"s"', "{not json"]) {
+      const call = {
+        id: "c6",
+        type: "function",
+        function: { name: "call_tool", arguments: raw },
+      } as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+      expect(parseReview(call)).toBeNull();
+    }
+    const direct = {
+      id: "c7",
+      type: "function",
+      function: { name: "post_advisory_review", arguments: "null" },
+    } as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+    expect(parseReview(direct)).toMatchObject({ tool: "post_advisory_review", comments: [] });
   });
 
   it("folds a call_tool review the same as a direct one", () => {
