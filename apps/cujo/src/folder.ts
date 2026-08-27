@@ -192,8 +192,13 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
             p.status = "error";
             p.error = "approval allowed but the review tool never responded";
           } else p.status = "blocked_pending";
-        } else {
+        } else if (p.review) {
           p.status = "clean";
+        } else {
+          // A turn that never called a review tool posted nothing; calling
+          // that clean would hide a broken github-mcp registration.
+          p.status = "error";
+          p.error = "turn ended without a review";
         }
         break;
       }

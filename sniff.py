@@ -11,9 +11,10 @@ commands, each printing exactly one JSON object on stdout:
     python3 sniff.py detonate --dependency SPEC [--source pypi|npm|auto]
         Install one dependency in a fresh environment and print its report.
 
-`teardown` stops the daemons. The report shapes and the sensor design are in
-docs/spec.md, Contract 2. Standard library only: nothing here may need an
-install, because the sandbox is the thing being measured.
+`teardown` stops the daemons and restores or removes the decoy. The report
+shapes and the sensor design are in docs/spec.md, Contract 2. Standard library
+only: nothing here may need an install, because the sandbox is the thing being
+measured.
 """
 
 from __future__ import annotations
@@ -36,6 +37,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 CUJO_DIR = Path(os.environ.get("CUJO_DIR", "/tmp/cujo"))
+# Detonation environments live beside the state dir, not inside it: the
+# snapshot prunes CUJO_DIR (our own logs churn on every check) but must see
+# what an install writes into its environment.
+ENVS_DIR = Path(os.environ.get("CUJO_ENVS_DIR", f"{CUJO_DIR}-envs"))
 DEFAULT_PROXY_PORT = 8899
 DECOY_KEY = "AKIACUJODECOY0000000"
 DECOY_REL = Path(".aws/credentials")
@@ -96,7 +101,8 @@ def state_paths() -> dict[str, Path]:
         "config": CUJO_DIR / "config.json",
         "proxy_pid": CUJO_DIR / "proxy.pid",
         "watcher_pid": CUJO_DIR / "watcher.pid",
-        "envs": CUJO_DIR / "envs",
+        "decoy_backup": CUJO_DIR / "decoy.backup",
+        "envs": ENVS_DIR,
     }
 
 
@@ -436,15 +442,27 @@ def diff_snapshots(
     workspace_roots: list[Path],
     home_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
+    """Rows for every path that differs between the snapshots, deletions included.
+
+    A deletion is a write too: removing a credential or a shell rc is at least
+    as interesting as creating one, so before-only paths get a `deleted` row
+    with the same workspace and sensitivity classification.
+    """
     changes: list[dict[str, Any]] = []
-    for path, stat in after.items():
-        if path in before and before[path] == stat:
+    for path in sorted(before.keys() | after.keys()):
+        if path in before and path in after and before[path] == after[path]:
             continue
+        if path not in after:
+            kind = "deleted"
+        elif path in before:
+            kind = "modified"
+        else:
+            kind = "created"
         p = Path(path)
         changes.append(
             {
                 "path": display_path(p, home_dir),
-                "type": "modified" if path in before else "created",
+                "type": kind,
                 "in_workspace": in_any(p, workspace_roots),
                 "sensitive": is_sensitive(path, home_dir),
             }
@@ -609,30 +627,100 @@ def _wait_port(port: int, timeout: float = 5.0) -> bool:
     return False
 
 
-def cmd_setup(args: argparse.Namespace) -> dict[str, Any]:
-    paths = state_paths()
-    CUJO_DIR.mkdir(parents=True, exist_ok=True)
-    for key in ("proxy_log", "audit_log", "decoy_log"):
-        paths[key].touch()
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _stop_daemons() -> list[int]:
+    """SIGTERM the daemons named by the pid files; forget the files."""
+    stopped: list[int] = []
+    for key in ("proxy_pid", "watcher_pid"):
+        pid_file = state_paths()[key]
+        if not pid_file.exists():
+            continue
+        try:
+            pid = int(pid_file.read_text())
+            os.kill(pid, signal.SIGTERM)
+            stopped.append(pid)
+        except (ValueError, ProcessLookupError):
+            pass
+        pid_file.unlink(missing_ok=True)
+    for pid in stopped:
+        deadline = time.monotonic() + 2.0
+        while _pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+    return stopped
+
+
+def _port_free(port: int) -> bool:
+    with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def _seed_decoy(paths: dict[str, Path]) -> Path:
+    """Write the decoy, keeping a copy of any real credentials file it replaces."""
     decoy = decoy_path()
     decoy.parent.mkdir(parents=True, exist_ok=True)
+    if decoy.exists() and DECOY_KEY not in decoy.read_text(errors="replace"):
+        # A real file is in the way. Save its bytes and mode so teardown can
+        # put it back exactly; a second setup must not overwrite that backup
+        # with the decoy itself.
+        shutil.copy2(decoy, paths["decoy_backup"])
     decoy.write_text(
         "[default]\n"
         f"aws_access_key_id = {DECOY_KEY}\n"
         "aws_secret_access_key = cujo-decoy-secret-do-not-use\n"
     )
     decoy.chmod(0o600)
+    return decoy
+
+
+def _restore_decoy(paths: dict[str, Path]) -> str:
+    decoy = decoy_path()
+    backup = paths["decoy_backup"]
+    if backup.exists():
+        shutil.copy2(backup, decoy)
+        backup.unlink()
+        return "restored"
+    if decoy.exists() and DECOY_KEY in decoy.read_text(errors="replace"):
+        decoy.unlink()
+        return "removed"
+    return "untouched"
+
+
+def cmd_setup(args: argparse.Namespace) -> dict[str, Any]:
+    paths = state_paths()
+    CUJO_DIR.mkdir(parents=True, exist_ok=True)
+    for key in ("proxy_log", "audit_log", "decoy_log"):
+        paths[key].touch()
+    # Setup is idempotent: an earlier setup's daemons are stopped first so
+    # their pid files never go stale and the port is ours to bind.
+    _stop_daemons()
+    decoy = _seed_decoy(paths)
     write_pyhook(paths["pyhook"])
     port = args.proxy_port
     if port == 0:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
+    elif not _port_free(port):
+        return {"ok": False, "error": f"port {port} is held by another process"}
     config = {"allow_hosts": args.allow_host, "proxy_port": port, "decoy": str(decoy)}
     paths["config"].write_text(json.dumps(config))
-    _spawn_daemon(["_proxy", "--port", str(port)], paths["proxy_pid"], "proxy.log")
+    proxy_pid = _spawn_daemon(["_proxy", "--port", str(port)], paths["proxy_pid"], "proxy.log")
     _spawn_daemon(["_watch"], paths["watcher_pid"], "watcher.log")
-    ready = _wait_port(port)
+    ready = _wait_port(port) and _pid_alive(proxy_pid)
     return {"ok": ready, "proxy_port": port, "decoy": str(decoy), "env": sensor_env(config)}
 
 
@@ -722,19 +810,8 @@ def _merge_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def cmd_teardown(_args: argparse.Namespace) -> dict[str, Any]:
-    stopped = []
-    for key in ("proxy_pid", "watcher_pid"):
-        pid_file = state_paths()[key]
-        if not pid_file.exists():
-            continue
-        try:
-            pid = int(pid_file.read_text())
-            os.kill(pid, signal.SIGTERM)
-            stopped.append(pid)
-        except (ValueError, ProcessLookupError):
-            pass
-        pid_file.unlink(missing_ok=True)
-    return {"ok": True, "stopped": stopped}
+    stopped = _stop_daemons()
+    return {"ok": True, "stopped": stopped, "decoy": _restore_decoy(state_paths())}
 
 
 # ---------------------------------------------------------------------------

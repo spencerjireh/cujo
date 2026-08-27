@@ -22,6 +22,20 @@ describe("parseDiffLines", () => {
     expect([...lines.right].sort((a, b) => a - b)).toEqual([10, 11, 12, 13, 41, 42]);
   });
 
+  it("does not count the trailing newline of a patch as a context line", () => {
+    const lines = parseDiffLines(`${PATCH}\n`);
+    expect(lines.left.has(42)).toBe(false);
+    expect(lines.right.has(43)).toBe(false);
+    expect(lines.left.size).toBe(5);
+    expect(lines.right.size).toBe(6);
+  });
+
+  it("stops counting once a hunk's declared line counts are exhausted", () => {
+    const lines = parseDiffLines("@@ -1,1 +1,1 @@\n a\n\n stray\n");
+    expect([...lines.left]).toEqual([1]);
+    expect([...lines.right]).toEqual([1]);
+  });
+
   it("returns empty sets for a missing patch", () => {
     const lines = parseDiffLines(undefined);
     expect(lines.left.size).toBe(0);

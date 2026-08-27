@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -166,5 +167,111 @@ def test_setup_then_run_sees_decoy_read(tmp_path: Path, home_dir: Path) -> None:
         } in report["fs_changes"]
         assert report["derived"]["wrote_sensitive"] is False
         assert report["derived"]["egress_to_unknown_host"] is False
+    finally:
+        _run(["teardown"], env)
+
+
+def test_diff_snapshots_reports_deletions(home_dir: Path) -> None:
+    ws = home_dir / "work"
+    before = {
+        str(ws / "gone.py"): (1, 1),
+        str(home_dir / ".ssh" / "id_rsa"): (1, 1),
+        str(home_dir / "keep"): (1, 1),
+    }
+    after = {str(home_dir / "keep"): (1, 1)}
+    changes = {c["path"]: c for c in sniff.diff_snapshots(before, after, [ws], home_dir)}
+    assert changes["~/work/gone.py"] == {
+        "path": "~/work/gone.py",
+        "type": "deleted",
+        "in_workspace": True,
+        "sensitive": False,
+    }
+    assert changes["~/.ssh/id_rsa"]["type"] == "deleted"
+    assert changes["~/.ssh/id_rsa"]["sensitive"] is True
+    block = sniff.build_sensor_block(
+        proxy_rows=[],
+        audit_rows=[],
+        decoy_rows=[],
+        fs_changes=list(changes.values()),
+        allow_hosts=[],
+        check="tests",
+        home_dir=home_dir,
+    )
+    assert block["derived"]["wrote_sensitive"] is True
+    assert block["derived"]["wrote_outside_workspace"] is True
+
+
+def test_snapshot_sees_detonation_env_but_not_state_dir(
+    tmp_path: Path, home_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = tmp_path / "cujo"
+    envs = tmp_path / "cujo-envs"
+    monkeypatch.setattr(sniff, "CUJO_DIR", state)
+    monkeypatch.setattr(sniff, "ENVS_DIR", envs)
+    monkeypatch.setenv("HOME", str(home_dir))
+    env_dir = envs / "abc"
+    env_dir.mkdir(parents=True)
+    state.mkdir()
+    before = sniff.snapshot([env_dir])
+    (env_dir / "site-packages.txt").write_text("installed")
+    (state / "proxy.jsonl").write_text("noise")
+    after = sniff.snapshot([env_dir])
+    changes = sniff.diff_snapshots(before, after, [env_dir], home_dir)
+    assert sniff.state_paths()["envs"] == envs
+    assert [c for c in changes if c["path"].endswith("site-packages.txt")][0]["in_workspace"]
+    assert not any("proxy.jsonl" in c["path"] for c in changes)
+
+
+def test_setup_backs_up_real_credentials_and_teardown_restores(
+    tmp_path: Path, home_dir: Path
+) -> None:
+    env = {**os.environ, "HOME": str(home_dir), "CUJO_DIR": str(tmp_path / "cujo")}
+    env.pop("PYTHONPATH", None)
+    real = home_dir / ".aws" / "credentials"
+    real.parent.mkdir()
+    real.write_text("[default]\naws_access_key_id = REAL\n")
+    real.chmod(0o640)
+    setup = _run(["setup", "--proxy-port", "0"], env)
+    try:
+        assert setup["ok"] is True
+        assert sniff.DECOY_KEY in real.read_text()
+        # A second setup must not clobber the backup with the decoy.
+        again = _run(["setup", "--proxy-port", "0"], env)
+        assert again["ok"] is True
+    finally:
+        down = _run(["teardown"], env)
+    assert down["decoy"] == "restored"
+    assert real.read_text() == "[default]\naws_access_key_id = REAL\n"
+    assert oct(real.stat().st_mode & 0o777) == "0o640"
+    assert not (tmp_path / "cujo" / "decoy.backup").exists()
+
+
+def test_teardown_removes_decoy_when_nothing_was_there(tmp_path: Path, home_dir: Path) -> None:
+    env = {**os.environ, "HOME": str(home_dir), "CUJO_DIR": str(tmp_path / "cujo")}
+    _run(["setup", "--proxy-port", "0"], env)
+    down = _run(["teardown"], env)
+    assert down["decoy"] == "removed"
+    assert not (home_dir / ".aws" / "credentials").exists()
+
+
+def test_setup_twice_stops_the_first_daemons(tmp_path: Path, home_dir: Path) -> None:
+    env = {**os.environ, "HOME": str(home_dir), "CUJO_DIR": str(tmp_path / "cujo")}
+    pid_file = tmp_path / "cujo" / "proxy.pid"
+    first = _run(["setup", "--proxy-port", "0"], env)
+    first_pid = int(pid_file.read_text())
+    try:
+        second = _run(["setup", "--proxy-port", "0"], env)
+        second_pid = int(pid_file.read_text())
+        assert first["ok"] and second["ok"]
+        assert second_pid != first_pid
+        assert not sniff._pid_alive(first_pid)
+        assert sniff._pid_alive(second_pid)
+        # A port held by someone else is reported, not silently reused.
+        with socket.socket() as taken:
+            taken.bind(("127.0.0.1", 0))
+            taken.listen()
+            held = _run(["setup", "--proxy-port", str(taken.getsockname()[1])], env)
+        assert held["ok"] is False
+        assert "held" in held["error"]
     finally:
         _run(["teardown"], env)

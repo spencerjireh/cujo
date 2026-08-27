@@ -49,31 +49,45 @@ export function parseDiffLines(patch: string | undefined): DiffLines {
 
   let oldLine = 0;
   let newLine = 0;
-  let inHunk = false;
+  // Lines still owed to the current hunk per its header; once both hit zero
+  // nothing until the next header is a diff line.
+  let oldLeft = 0;
+  let newLeft = 0;
 
-  for (const raw of patch.split("\n")) {
+  const rows = patch.split("\n");
+  if (rows.at(-1) === "") rows.pop(); // a newline-terminated patch, not an empty context line
+
+  for (const raw of rows) {
     const header = HUNK_HEADER.exec(raw);
     if (header) {
       oldLine = Number(header[1]);
       newLine = Number(header[3]);
-      inHunk = true;
+      oldLeft = header[2] === undefined ? 1 : Number(header[2]);
+      newLeft = header[4] === undefined ? 1 : Number(header[4]);
       continue;
     }
-    if (!inHunk) continue;
+    if (oldLeft <= 0 && newLeft <= 0) continue;
     if (raw.startsWith("\\")) continue; // "\ No newline at end of file"
 
     const marker = raw[0];
     if (marker === "+") {
+      if (newLeft <= 0) continue;
       lines.right.add(newLine);
       newLine += 1;
+      newLeft -= 1;
     } else if (marker === "-") {
+      if (oldLeft <= 0) continue;
       lines.left.add(oldLine);
       oldLine += 1;
+      oldLeft -= 1;
     } else {
+      if (oldLeft <= 0 || newLeft <= 0) continue;
       lines.left.add(oldLine);
       lines.right.add(newLine);
       oldLine += 1;
       newLine += 1;
+      oldLeft -= 1;
+      newLeft -= 1;
     }
   }
   return lines;

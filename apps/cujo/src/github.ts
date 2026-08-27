@@ -88,10 +88,14 @@ export class GitHubReader {
 
   /** Contract 5: skip the turn when the bot already reviewed this head SHA. */
   async alreadyReviewed(repo: string, prNumber: number, headSha: string): Promise<boolean> {
-    const reviews = await this.get<{ user: { login: string } | null; commit_id: string }[]>(
-      repo,
-      `/repos/${repo}/pulls/${prNumber}/reviews?per_page=100`,
-    );
-    return reviews.some((r) => r.user?.login === BOT_LOGIN && r.commit_id === headSha);
+    for (let page = 1; page <= 30; page++) {
+      const reviews = await this.get<{ user: { login: string } | null; commit_id: string }[]>(
+        repo,
+        `/repos/${repo}/pulls/${prNumber}/reviews?per_page=100&page=${page}`,
+      );
+      if (reviews.some((r) => r.user?.login === BOT_LOGIN && r.commit_id === headSha)) return true;
+      if (reviews.length < 100) break;
+    }
+    return false;
   }
 }

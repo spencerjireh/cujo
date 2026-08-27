@@ -63,7 +63,8 @@ booleans, true if true in any run>}, ...}` plus the fields below.
   `python3 /tmp/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|auto>`
   and put its JSON in `runs[]`.
 
-When every check is done, the parent runs `python3 /tmp/cujo/sniff.py teardown`.
+When every check is done, the parent runs `python3 /tmp/cujo/sniff.py teardown`, which
+stops the sensors and removes the decoy.
 
 ## Hard rules (you cannot override these)
 

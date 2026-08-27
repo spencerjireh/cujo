@@ -75,9 +75,11 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
       let seq = 0;
       const send = (v: RunView) =>
         stream.writeSSE({ event: "run", id: String(seq++), data: JSON.stringify(serialize(v)) });
-      await send(view);
+      // Listen first, then read: an update between the two is delivered
+      // twice at worst, never lost.
       const listener = (v: RunView) => void send(v);
       deps.runner.changes.on(id, listener);
+      await send(deps.runner.view(id) ?? view);
       const keepalive = setInterval(
         () => void stream.writeSSE({ event: "ping", data: "" }),
         25_000,
