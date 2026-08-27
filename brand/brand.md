@@ -12,8 +12,9 @@ watchful, never rabid. No snarling, no teeth, no blood, no horror typography.
 
 ## Mark
 
-A geometric dog head in profile facing right, ears up, one flat fill, one amber
-eye. Ten straight cuts, no curves except the eye.
+A geometric dog head in profile facing right, ear folded back, one flat fill,
+one amber eye. Eight straight cuts, no curves except the eye (candidate
+`c5-minimal`; the others stay in `logo/candidates/`).
 
 - Fill is `currentColor`, so the mark takes the text color of its context:
   bone on dark, near-black on light. The eye is always amber
