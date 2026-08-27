@@ -306,7 +306,27 @@ second author of reviews and break "one review per turn"). The rubric still
 carries the rules so the common case takes the blocking path on its own; the
 trusted-side check is the tripwire behind the tripwire.
 
-## 22. Discord is notified by `apps/cujo`, not by the agent, and it notifies only
+## 22. A brand system in `brand/`: guard dog, amber, dark and light
+
+Cujo had no logo, palette, or type, and the Savile Row track judges the UI on
+the video and the running product (see 17). One source of truth in `brand/`
+now feeds the UI, the README, and the video, so they cannot drift apart. The
+choices: keep the name and read it as a guard dog on a chain (loyal, watchful,
+contained), which is what `cujo-guard[bot]` and the approval gate already say;
+a flat geometric dog head with one amber eye as the mark; lowercase `cujo` in
+Bricolage Grotesque with JetBrains Mono for evidence; warm near-black and warm
+bone grounds with both themes built at once; amber as the brand accent and
+`high`, red reserved for `critical` so the two never blur.
+
+Rejected: renaming (the name is short, memorable, and already in every
+handle); the rabid reading (it undercuts the restraint story); a cage-only or
+detonation mark (abstract, loses the name); pixel and single-line styles (fail
+at 16 px); red-orange as the accent (too close to critical). Five hand-authored
+candidates stay in `brand/logo/candidates/` with prompts for a raster route, so
+the mark can be swapped without redoing the system. The tagline is deliberately
+unset. Wiring the tokens and favicon into `apps/cujo` is a separate change.
+
+## 23. Discord is notified by `apps/cujo`, not by the agent, and it notifies only
 
 The obvious way to tell a team about a review is to hand the agent a Discord
 tool and let it announce its own progress. That makes notification a model
@@ -347,7 +367,7 @@ rewriting a superseded run's card and its ping to say so, rather than by
 re-pointing a single card at whichever run is newest and losing the history of
 the earlier heads.
 
-## 23. The repo-to-channel binding lives in the store, not the environment
+## 24. The repo-to-channel binding lives in the store, not the environment
 
 An environment variable would need a redeploy to add a repo, could not be
 validated, and has nowhere to put `notify_role_id`. The binding is operator
@@ -361,7 +381,7 @@ data. That split is also why this does not weaken decision 18: what the store
 gains is a channel id and a message id, neither of which is a credential and
 neither of which TrueForge could know.
 
-## 24. New tables, not new columns: the store has no migration path
+## 25. New tables, not new columns: the store has no migration path
 
 `apps/cujo`'s whole schema is one `CREATE TABLE IF NOT EXISTS` block in the
 `Store` constructor. There is no `ALTER TABLE` anywhere and no migration
@@ -381,7 +401,7 @@ migration runner is its own feature with its own failure mode — a half-applied
 migration on a container Coolify restarts — and `best_practices.md` asks for
 one concern per pull request.
 
-## 25. Every Discord payload is treated as attacker-controlled
+## 26. Every Discord payload is treated as attacker-controlled
 
 Nothing on a card is written by us. The pull request title comes from GitHub,
 and the finding titles, the evidence, the summary and the error text were

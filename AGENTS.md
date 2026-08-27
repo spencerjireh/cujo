@@ -72,7 +72,7 @@ thing GitHub or a human touches:
 - `store.ts` loads `node:sqlite` at runtime, not by import, so vitest leaves it
   alone. Its whole schema is one `CREATE TABLE IF NOT EXISTS` block with no
   migration path, so additive change means a new table, never a new column
-  (decision 24).
+  (decision 25).
 - `notifier.ts` keeps one Discord card per run and pings when a run blocks
   (spec Contract 7). `discord.ts` is the REST client and `discord-card.ts` the
   pure payload builder, where every derived string is escaped, stripped and

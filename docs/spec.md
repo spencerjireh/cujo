@@ -51,7 +51,7 @@ The split between deterministic code and agent reasoning is fixed:
 - Approving a blocking review from Discord. Contract 7 notifies; it does not
   decide. The design leaves room for an interactions endpoint on the webhook
   host, but the button is not built and approval stays behind Cloudflare
-  Access (decision 22).
+  Access (decision 23).
 
 ## Contract 1 — the trigger
 
@@ -482,7 +482,7 @@ service runs exactly as before and posts nothing.
 **What is configuration and what is data.** The bot token is a secret and lives
 in the environment. The repo-to-channel binding is operator data and lives in
 the run store behind the API, so adding a repo needs no redeploy and the write
-can be validated against Discord (decision 23). One repo binds to at most one
+can be validated against Discord (decision 24). One repo binds to at most one
 channel, with an optional `notify_role_id` the ping mentions. A repo with no
 binding is never notified.
 
@@ -524,7 +524,7 @@ a ping mentions is only used when the repo is still bound to the channel the
 run's card lives in; a repo re-bound to another server mid-run gets a ping with
 no mention rather than one naming a role that server never had.
 
-**Every string in a payload is attacker-controlled** (decision 25). The PR
+**Every string in a payload is attacker-controlled** (decision 26). The PR
 title comes from GitHub, and finding titles, evidence, the summary and the
 error were written by a model that had just read the code in a stranger's pull
 request. So, without exception:

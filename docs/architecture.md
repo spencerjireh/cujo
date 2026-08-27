@@ -31,7 +31,7 @@ sandbox is thrown away afterwards.
 | **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
-| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 22). Optional: with no bot token the service runs and says nothing. |
+| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). Optional: with no bot token the service runs and says nothing. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
 
 ## The trust boundary
