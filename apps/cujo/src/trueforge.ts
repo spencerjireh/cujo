@@ -3,6 +3,9 @@ import type { Config } from "./config";
 
 export type StreamEvent = TrueForgeApi.TurnStreamingEvent;
 export type SessionEvent = TrueForgeApi.SessionEvent;
+export type TurnCreatedEvent = TrueForgeApi.TurnCreatedEvent;
+export type TurnDoneEvent = TrueForgeApi.TurnDoneEvent;
+export type ToolApprovalRequiredEvent = TrueForgeApi.ToolApprovalRequiredEvent;
 
 /**
  * The only client of the TrueForge server (decision 17). Thin: it names the
