@@ -125,7 +125,7 @@ export class Store {
       );
       -- Contract 7. New tables rather than columns on runs: this schema has no
       -- ALTER TABLE path, so a column would apply to a fresh database and
-      -- silently not to the deployed one (decision 24).
+      -- silently not to the deployed one (decision 25).
       CREATE TABLE IF NOT EXISTS discord_channels (
         repo TEXT PRIMARY KEY,
         channel_id TEXT NOT NULL,

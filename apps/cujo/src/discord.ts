@@ -1,7 +1,7 @@
 /**
  * The Discord REST client (spec Contract 7). Bot token, no gateway: Cujo only
  * writes, so a WebSocket would be a second always-on connection with its own
- * reconnect state machine and nothing to receive (decision 22).
+ * reconnect state machine and nothing to receive (decision 23).
  *
  * Thin, like `github.ts`: it throws and the caller decides what that means.
  * The one thing it does beyond that is surface `retry_after` and Discord's

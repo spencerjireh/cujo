@@ -1,0 +1,14 @@
+{
+  "name": "@cujo/brand",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node tools/render.mjs",
+    "wordmark": "node tools/wordmark.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "opentype.js": "2.0.0"
+  }
+}

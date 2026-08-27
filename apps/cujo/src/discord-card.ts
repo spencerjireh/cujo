@@ -2,7 +2,7 @@
  * The Discord payloads Cujo posts for a run (spec Contract 7). Pure: no I/O,
  * no clock, no store, so every rule below is testable on its own.
  *
- * Every string that reaches a payload is attacker-controlled (decision 25).
+ * Every string that reaches a payload is attacker-controlled (decision 26).
  * The PR title comes from GitHub, and finding titles, evidence, the summary
  * and the error were written by a model that had just read the code in a
  * stranger's pull request. So each one is stripped of invisible characters,

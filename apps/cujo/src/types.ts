@@ -85,7 +85,7 @@ export interface Projection {
 /**
  * One repo bound to one Discord channel (Contract 7). Operator data rather
  * than run state, which is why it lives in the store and not the environment
- * (decision 23).
+ * (decision 24).
  */
 export interface DiscordChannelRecord {
   /** `owner/name`, lower-cased: GitHub repo names are case-insensitive. */
