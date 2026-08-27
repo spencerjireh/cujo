@@ -15,6 +15,11 @@ export interface Config {
   uiBaseUrl: string;
   /** Null turns Discord notifications off; the service runs without them. */
   discordBotToken: string | null;
+  /**
+   * The Discord application's Ed25519 public key, hex. Null turns the slash
+   * commands off; notifications still work without it (Contract 8).
+   */
+  discordPublicKey: string | null;
   cfAccessTeamDomain: string;
   cfAccessAud: string;
   dbPath: string;
@@ -58,6 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // the empty string, and `??` would keep it.
     uiBaseUrl: (env.CUJO_UI_BASE_URL || `https://${uiHost}`).replace(/\/+$/, ""),
     discordBotToken: env.DISCORD_BOT_TOKEN || null,
+    discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
     // The Access check is skipped only in dev, so the values are required otherwise.
     cfAccessTeamDomain: devNoAccess
       ? (env.CF_ACCESS_TEAM_DOMAIN ?? "")

@@ -223,4 +223,59 @@ export class DiscordClient {
   guildMember(guildId: string, userId: string): Promise<DiscordGuildMember> {
     return this.request<DiscordGuildMember>("GET", `/guilds/${guildId}/members/${userId}`);
   }
+
+  /**
+   * The application behind the bot token. Its id is what command registration
+   * is addressed to; read rather than configured, so there is one fewer value
+   * to get wrong in a deploy.
+   */
+  application(): Promise<{ id: string; name: string }> {
+    return this.request<{ id: string; name: string }>("GET", "/oauth2/applications/@me");
+  }
+
+  /**
+   * Replace this server's command set. A full PUT rather than a diff, so a
+   * command definition cannot drift from the code across deploys. Guild
+   * commands appear at once, where a global one takes up to an hour
+   * (decision 28).
+   */
+  putGuildCommands(
+    applicationId: string,
+    guildId: string,
+    commands: unknown[],
+  ): Promise<{ id: string; name: string }[]> {
+    return this.request<{ id: string; name: string }[]>(
+      "PUT",
+      `/applications/${applicationId}/guilds/${guildId}/commands`,
+      commands,
+    );
+  }
+
+  /**
+   * Fill in a deferred interaction reply. The interaction token authenticates
+   * it, so this call carries no bot token and stays valid for 15 minutes.
+   */
+  async editInteractionReply(
+    applicationId: string,
+    interactionToken: string,
+    payload: unknown,
+  ): Promise<void> {
+    const res = await this.fetchImpl(
+      `${API}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "user-agent": "cujo" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) {
+      throw new DiscordError(
+        res.status,
+        null,
+        null,
+        `Discord PATCH /webhooks/.../messages/@original returned ${res.status}`,
+      );
+    }
+  }
 }

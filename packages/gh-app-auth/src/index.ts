@@ -84,6 +84,16 @@ export async function getInstallationToken(options: InstallationTokenOptions): P
 }
 
 /**
+ * A bare App JWT, for the handful of endpoints that are the App's rather than
+ * an installation's — listing installations, above all. Short-lived by design
+ * (GitHub caps it at ten minutes), so it is minted per call rather than cached.
+ */
+export async function getAppJwt(options: AppCredentials): Promise<string> {
+  const { token } = await appAuth(options)({ type: "app" });
+  return token;
+}
+
+/**
  * Find the installation of the App on a repository. Uses the App JWT, so it
  * works before any installation token exists.
  */

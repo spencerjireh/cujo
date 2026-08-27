@@ -364,6 +364,53 @@ describe("api discord routes", () => {
     expect(body.channels.map((c) => c.name)).toEqual(["announce", "reviews"]);
   });
 
+  it("authorizes a server for a repo, recording the operator's email", async () => {
+    const { app, store } = build(null, fakeDiscord() as unknown as DiscordClient);
+    const res = await app.request("/discord/authorizations/222222222222222222/O/R", {
+      method: "PUT",
+      headers: AUTH,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      guild_id: "222222222222222222",
+      guild_name: "My Server",
+      repo: "o/r",
+      authorized_by: "op@example.com",
+    });
+    expect(store.isGuildAuthorized("222222222222222222", "o/r")).toBe(true);
+  });
+
+  it("refuses to authorize a server the bot is not in", async () => {
+    const { app, store } = build(null, fakeDiscord() as unknown as DiscordClient);
+    const res = await app.request("/discord/authorizations/999999999999999999/o/r", {
+      method: "PUT",
+      headers: AUTH,
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ ok: false, error: "the bot is not in that server" });
+    expect(store.listGuildRepos()).toHaveLength(0);
+  });
+
+  it("lists and revokes authorizations", async () => {
+    const { app, store } = build(null, fakeDiscord() as unknown as DiscordClient);
+    store.authorizeGuildRepo({
+      guildId: "222222222222222222",
+      repo: "o/r",
+      guildName: "My Server",
+      authorizedBy: "op@example.com",
+    });
+    const listed = await (await app.request("/discord/authorizations", { headers: AUTH })).json();
+    expect(listed).toMatchObject({ authorizations: [{ repo: "o/r", guild_name: "My Server" }] });
+
+    const del = { method: "DELETE", headers: AUTH };
+    expect((await app.request("/discord/authorizations/222222222222222222/o/r", del)).status).toBe(
+      200,
+    );
+    expect((await app.request("/discord/authorizations/222222222222222222/o/r", del)).status).toBe(
+      404,
+    );
+  });
+
   it("answers 503 on the routes that need Discord when no token is set", async () => {
     const { app } = build(null);
     expect(

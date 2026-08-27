@@ -4,6 +4,7 @@ import { buildAgentSpec } from "./agent";
 import { createApp } from "./app";
 import { loadConfig } from "./config";
 import { DiscordClient } from "./discord";
+import { COMMANDS } from "./discord-commands";
 import { GitHubReader } from "./github";
 import { DiscordNotifier } from "./notifier";
 import { ANY_RUN, type RunView, Runner } from "./runner";
@@ -11,6 +12,30 @@ import { Store } from "./store";
 import { Harness } from "./trueforge";
 
 export { createApp } from "./app";
+
+/**
+ * Put `/cujo` in every server the bot is in. Per-guild rather than global,
+ * because a guild command appears at once where a global one takes up to an
+ * hour (decision 28); a full PUT, so the definition cannot drift from the code
+ * across deploys. A server the bot joins later gets its commands at the next
+ * start. Never fatal: the service notifies fine without commands.
+ */
+async function registerCommands(discord: DiscordClient): Promise<void> {
+  try {
+    const application = await discord.application();
+    const guilds = await discord.listGuilds();
+    for (const guild of guilds) {
+      try {
+        await discord.putGuildCommands(application.id, guild.id, COMMANDS);
+        console.log(`discord: registered /cujo in ${guild.name}`);
+      } catch (error) {
+        console.error(`discord: could not register commands in ${guild.name}`, error);
+      }
+    }
+  } catch (error) {
+    console.error("discord: could not register slash commands", error);
+  }
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -29,6 +54,23 @@ async function main(): Promise<void> {
     : null;
   if (notifier) {
     runner.changes.on(ANY_RUN, (view: RunView | null) => notifier.onRunChanged(view));
+  }
+
+  // Contract 8. The slash commands need the application's public key as well
+  // as the bot token; with either missing, notifications still work and the
+  // interactions route is not mounted at all.
+  const interactions =
+    discord && config.discordPublicKey
+      ? {
+          publicKey: config.discordPublicKey,
+          store,
+          discord,
+          github,
+          uiBaseUrl: config.uiBaseUrl,
+        }
+      : null;
+  if (interactions && discord) {
+    void registerCommands(discord);
   }
 
   if (config.devNoAccess) {
@@ -58,6 +100,7 @@ async function main(): Promise<void> {
       createSession: () => harness.createSession(spec),
       isReady: () => harness.ready,
     },
+    ...(interactions ? { interactions } : {}),
   });
 
   const server = serve({ fetch: app.fetch, port: config.port }, () => {
