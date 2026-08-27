@@ -57,9 +57,9 @@ Fixed everywhere: UI badges, README tables, video lower thirds.
 | Level | Light fg / bg | Dark fg / bg |
 | --- | --- | --- |
 | critical | `#b8321c` / `#f6dcd6` | `#ff5c45` / `#3a1a15` |
-| high | `#8f5d00` / `#f3e3c2` | `#f2a900` / `#3a2c0a` |
+| high | `#8f5d00` / `#f8ecd6` | `#f2a900` / `#3a2c0a` |
 | medium | `#6f5a00` / `#efe8bf` | `#e6cf4a` / `#35300f` |
-| low | `#6a6259` / `#e6e0d6` | `#8f877c` / `#26231f` |
+| low | `#6a6259` / `#e6e0d6` | `#958d82` / `#211e1a` |
 | info | `#1d62a3` / `#d6e4f3` | `#66b0f0` / `#14283a` |
 
 Critical is red so it is never confused with the brand amber; high is amber.
@@ -69,7 +69,8 @@ Critical is red so it is never confused with the brand amber; high is amber.
 Light: fg 15.5, muted 5.3, accent 5.0, critical 5.3, high 5.0, medium 5.9,
 low 5.3, info 5.6. `--accent-fill` on light is 3.4, so it is for shapes and
 large text only. Dark: fg 15.6, muted 7.0, accent 9.6, critical 6.3, high 9.6,
-medium 12.3, low 5.4, info 8.3. All text pairs clear AA (4.5:1); ratios on
+medium 12.3, low 5.9, info 8.3. All text pairs clear AA (4.5:1), and every
+badge fg/bg pair is at or above 4.6:1; ratios on
 `--bg-raised` are within 0.5 of these.
 
 ## Type
