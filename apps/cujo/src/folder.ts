@@ -1,5 +1,5 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
-import { agentFindings, hardRuleFindings, mergeFindings } from "./findings";
+import { agentFindings, hardRuleFindings, mergeFindings, missingCheckFindings } from "./findings";
 import {
   CHECK_NAMES,
   type CheckName,
@@ -210,7 +210,11 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         break;
       }
       case "turn.done": {
-        p.findings = mergeFindings(p.hardRuleHits, agentFindings(p.review));
+        // The turn is over, so a check that never arrived is missing for good.
+        p.findings = mergeFindings(
+          [...p.hardRuleHits, ...missingCheckFindings(p.checks)],
+          agentFindings(p.review),
+        );
         if (p.status === "error") break;
         if (event.state.status === "error") {
           p.status = "error";
