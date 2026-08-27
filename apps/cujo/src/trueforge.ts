@@ -24,7 +24,12 @@ export class Harness {
   constructor(private readonly config: Config) {
     // No token: the server runs without OIDC on the compose network, which
     // gives every caller the fixed local admin identity.
-    this.client = new TrueForge({ baseUrl: config.trueforgeBaseUrl, timeoutInSeconds: 600 });
+    // The SDK timeout also bounds a turn subscription, so it must outlast a
+    // whole turn or the stream ends early on every long review.
+    this.client = new TrueForge({
+      baseUrl: config.trueforgeBaseUrl,
+      timeoutInSeconds: Math.ceil((config.turnTimeoutMs ?? 30 * 60 * 1000) / 1000) + 60,
+    });
   }
 
   /**

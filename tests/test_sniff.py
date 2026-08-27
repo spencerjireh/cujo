@@ -30,6 +30,25 @@ def test_sensitive_paths(home_dir: Path) -> None:
     assert not sniff.is_sensitive(str(home_dir / ".cache" / "pip" / "x"), home_dir)
 
 
+def test_noise_reads_are_dropped_but_sensitive_reads_never(home_dir: Path) -> None:
+    assert sniff.is_noise_read("/usr/local/lib/python3.13/site-packages/pytest/__init__.py")
+    assert sniff.is_noise_read("/usr/local/lib/python3.13/__pycache__/ast.cpython-313.pyc")
+    assert sniff.is_noise_read(f"{sys.prefix}/lib/python3.12/os.py")
+    assert sniff.is_noise_read("/work/head/node_modules/left-pad/index.js")
+    assert not sniff.is_noise_read(str(home_dir / "work" / "app" / "orders.py"))
+    assert not sniff.is_noise_read("/etc/passwd")
+    decoy = str(home_dir / ".aws" / "credentials")
+    block = _block(
+        home_dir,
+        audit_rows=[
+            {"event": "open", "path": "/usr/lib/python3/os.py", "mode": "r"},
+            {"event": "open", "path": decoy, "mode": "r"},
+            {"event": "open", "path": str(home_dir / "work" / "app.py"), "mode": "r"},
+        ],
+    )
+    assert [f["path"] for f in block["files_read"]] == ["~/.aws/credentials", "~/work/app.py"]
+
+
 def test_diff_snapshots_flags_workspace_and_sensitive(home_dir: Path) -> None:
     ws = home_dir / "work"
     before = {str(ws / "a.py"): (1, 1), str(home_dir / "keep"): (1, 1)}

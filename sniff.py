@@ -155,6 +155,29 @@ def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
     return any(str(p).startswith(prefix) for prefix in SENSITIVE_ABS_PREFIXES)
 
 
+NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
+NOISE_READ_PREFIXES = ("/usr/lib", "/usr/local/lib", "/proc/", "/sys/", "/dev/", "/etc/ld.so")
+NOISE_READ_SUFFIXES = (".pyc", ".so", ".dist-info/METADATA", ".dist-info/RECORD")
+
+
+def is_noise_read(path: str) -> bool:
+    """A read the interpreter or a package manager does on its own account.
+
+    Imports, bytecode, shared objects, and package metadata say nothing about
+    what the code under test did, and there are thousands of them per run;
+    dropping them keeps `files_read` to the reads that carry a signal. A
+    sensitive path is never noise, whatever it looks like.
+    """
+    p = str(path)
+    if p.startswith((f"{sys.prefix}/lib", f"{sys.base_prefix}/lib")):
+        return True
+    return (
+        any(part in p for part in NOISE_READ_PARTS)
+        or p.startswith(NOISE_READ_PREFIXES)
+        or p.endswith(NOISE_READ_SUFFIXES)
+    )
+
+
 def display_path(path: Path, home_dir: Path | None = None) -> str:
     """Render a path with `~` for HOME so reports read the same on any box."""
     h = home_dir or home()
@@ -503,6 +526,8 @@ def build_sensor_block(
                 continue
             seen_paths.add(path)
             sensitive = is_sensitive(path, home_dir)
+            if not sensitive and is_noise_read(path):
+                continue
             if sensitive or len(files_read) < MAX_FILES_READ:
                 files_read.append(
                     {"path": display_path(Path(path), home_dir), "sensitive": sensitive}
