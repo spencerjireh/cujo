@@ -44,4 +44,4 @@ into Qodo's `best_practices.md` so the file and the bot check the same things.
 ## Branches and commits
 
 Branch off `main` with a short descriptive name, then open a PR. A one-line
-imperative subject is enough (`add HMAC check to ingress webhook`).
+imperative subject is enough (`add HMAC check to the cujo webhook`).
