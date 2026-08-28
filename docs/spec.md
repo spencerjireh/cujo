@@ -78,6 +78,12 @@ For a `pull_request` event the `apps/cujo` webhook module:
    stranger's pull request, so it names no host.
 4. Records a run (see Contract 6) and stays subscribed to the turn's event
    stream, folding events into that run until `turn.done`.
+5. Reacts on the pull request with an eye, once this run is known to be the
+   one worth starting and before the turn exists (Contract 9). A head the bot
+   already reviewed, and a delayed delivery for a head that is no longer
+   current, are both released before this point and get no reaction — one pull
+   request has one reaction, and neither of those runs will produce a status
+   that could clear it.
 
 The webhook module does not decide what to check. That is the agent's job.
 
@@ -329,7 +335,18 @@ egress observed. Each entry in `comments[]` is one finding with a `path`,
 `line`, and `side`, posted as an inline review comment on that diff line.
 `github-mcp` validates each anchor against the PR diff before posting; a
 finding with no anchor, or with an anchor outside the diff, moves into the
-body so a bad anchor never blocks the review.
+body so a bad anchor never blocks the review. Which of the three it was —
+`file_not_in_diff`, `line_not_in_hunk` or `bad_line` — is recorded per comment
+and logged, because an agent citing a file the PR does not touch and one citing
+a real file outside the hunk are different mistakes (decision 37). The review
+body is unchanged either way.
+
+A GitHub call that does not return 2xx raises a `GitHubError` carrying `status`,
+`path` and `method` as fields rather than interpolated into a message, so a
+caller can tell an expected `404` from an outage without parsing prose. The
+response body is not forwarded into the message: only GitHub's own `message`
+field is read from its error envelope, and capped — an upstream body can echo
+a request header back, and that is how one reaches a log line.
 
 Both also take an optional `run_id`, which the agent copies verbatim from the
 turn payload and never writes into the body itself. `github-mcp` validates it
@@ -418,9 +435,10 @@ list in order.
 | `repo`, `pr_number`, `head_sha` | The PR event that started it. |
 | `session_id` | The TrueForge session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
-| `status` | One of the six states below. |
+| `status` | One of the seven states below. |
 | `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
+| `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `created_at`, `updated_at` | Timestamps. |
 
 Status moves on events from the session's turn streams, with one exception
@@ -480,7 +498,7 @@ The operator API `apps/cujo` serves on `cujo-admin.spencerjireh.com`:
 | `GET /runs` | Runs, newest first, with status. |
 | `GET /runs/:id` | The run, its checks (thread, status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits` (the hard-rule subset), and the drafted review when `blocked_pending`. |
 | `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
-| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
+| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. A refusal answers `409` with `{ok: false, error, reason}`: `error` is the sentence the UI shows and `reason` is one of `no_such_run`, `not_blocked_pending`, `already_decided` or `resume_failed` — four conditions that used to arrive as one prose string a caller could only match on (decision 37). |
 
 The `/discord/*` routes on the same host are Contract 7.
 
@@ -490,7 +508,7 @@ And the public plane, under `/public`, which no gate stands in front of
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /public/runs` | Public runs only, newest first. Filtered on `is_public = 1` in SQL, not by the route. |
-| `GET /public/runs/:id` | The same run the operator route returns, minus `approver`, `decided_at`, `session_id`, `turn_ids`, `approval` and `external_resume`, and with the drafted review shaped down to its tool, body and comments. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id` | The same run the operator route returns, minus `approver`, `decided_at`, `session_id`, `turn_ids`, `delivery_id`, `approval` and `external_resume`, and with the drafted review shaped down to its tool, body and comments. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` public streams; operator streams are not counted. Closes if the repo goes private while it is open. |
 
 The response is built by an allowlist, field by field, and never by removing
@@ -498,12 +516,28 @@ fields from the operator shape: the difference is what happens when a field is
 added to the projection later, and only the allowlist keeps that field private
 until somebody says otherwise.
 
+Two probes answer on each host this process already serves — the webhook host,
+the UI host, and the internal name in `CUJO_INTERNAL_HOST` — plus `/healthz` on
+`127.0.0.1` and `localhost` for the container healthcheck. They widen no host
+boundary: an unrecognised `Host` still gets 404, exactly as below. No gate
+stands in front of either:
+
+| Route | Returns or does |
+|-------|-----------------|
+| `GET /healthz` | Liveness. `{ok: true, service: 'cujo'}` for as long as the process is up. This is the container healthcheck, so it reads nothing and can fail for one reason only. |
+| `GET /readyz` | Readiness. `200` when the process can accept work, carrying the harness flag the webhook itself gates on, a store ping, the public stream count, the process uptime, and a count of log lines the process could not write. `503` when **either** the harness has not finished bootstrapping **or** the store ping fails, with the same body and the failing check named — a webhook delivery calls `getSession`, `putSession` and `createRun` synchronously, so an unreachable store means no run can be claimed and readiness is false whatever the harness says. Deliberately *not* the healthcheck: a readiness failure there would restart the container while `bootstrapUntilReady` is backing off on purpose, and would take `web` down with it (decision 37). |
+
+Neither is gated because neither says anything an anonymous reader could not
+already infer: the body is booleans and counts, names no repo and no person, and
+the webhook's own `503` already announces that the harness is not ready.
+
 One process serves two hostnames and two planes, so both splits are enforced in
 the process, not only at the edge:
 
 - Every request is dispatched on the `Host` header. On
-  `cujo-ingress.spencerjireh.com` the process serves `POST /webhook` and
-  `GET /healthz` and answers 404 to everything else, including `/runs`. On
+  `cujo-ingress.spencerjireh.com` the process serves `POST /webhook`,
+  `GET /healthz` and `GET /readyz`, and answers 404 to everything else,
+  including `/runs`. On
   `cujo-admin.spencerjireh.com`, and on the internal service name in
   `CUJO_INTERNAL_HOST` (default `cujo`), it serves the routes above and answers
   404 to `/webhook`. A request with any other `Host` gets 404. The internal name
@@ -521,7 +555,12 @@ the process, not only at the edge:
   `/api/cujo/*` and the run stream to this process, forwarding the Access
   assertion on the operator hostname and forwarding none — and refusing any
   path outside `/public` — on the public one, so the API is same-origin with
-  the page and needs no public route of its own (decision 27).
+  the page and needs no public route of its own (decision 27). When this
+  process is unreachable the proxy answers `502` with
+  `{ok: false, error: "cujo is unreachable"}`, rather than letting the failed
+  fetch surface as an unhandled `500` that says nothing (decision 37). It also
+  forwards `Cf-Ray`, so a line from the UI and a line from this process share
+  one correlation id.
 - Every route outside `/public` — reads as well as the approve route —
   requires a `Cf-Access-Jwt-Assertion` header that verifies against the
   Cloudflare Access public keys for the application's audience tag. A missing
@@ -839,6 +878,66 @@ blocking review, and it must not be extended to, because that would swap a
 policy-verified email for Discord channel membership on the one action the
 whole product gates. Contract 4 and decision 23 own that decision; this one
 does not reopen it.
+
+## Contract 9 — the pull request's own reaction
+
+Everything Cujo says about a run it says somewhere else: a review at the end, a
+Discord card, a page on the board. Between the push and the review the pull
+request itself is silent, which costs a reader an acknowledgement and costs an
+operator the one cheap signal that would say *where* a silent run stopped.
+
+`apps/cujo` therefore reacts on the pull request description as
+`cujo-guard[bot]`, and moves that reaction as the run's status moves. The eye
+lands within a second of the delivery, before the agent has done anything, so
+its presence proves the ingress, the signature, the session and the claim; its
+absence localises a failure to the front half of the pipeline without opening a
+log.
+
+| Run state | Reaction | Why |
+|-----------|----------|-----|
+| Claimed, before any turn | 👀 | Cujo has the pull request. |
+| `running` | 👀 | Still reading. |
+| `blocked_pending` | 👀 🚀 | Still reading, and now waiting on a human. |
+| `clean` | 🎉 | No critical finding. |
+| `blocked_posted` | 👎 | The blocking review posted. |
+| `denied` | 👍 | A human cleared the pull request to proceed. |
+| `error` | 😕 | Cujo broke. Shared with no other state. |
+| `superseded` | *nothing* | Not this run's pull request to describe any more. |
+
+The reactions describe **what happened to the pull request**, not what Cujo
+concluded, which is why `denied` is a thumbs up even though the finding stands.
+GitHub's reaction set is closed — `+1 -1 laugh confused heart hooray rocket
+eyes` — so there is no check mark and no cross to spend, and this is the whole
+vocabulary available.
+
+**One pull request has one reaction, and a pull request may have had several
+runs.** Only a run that is current may write, and that rule is enforced at both
+ends. The eye is placed only after `review/start-run.ts` has confirmed with
+GitHub that this run's head is the pull request's head, so a delayed delivery
+for an older SHA never touches it; and `superseded` writes nothing at all,
+because the run that replaced it is about to say what the pull request should
+show. Without both, a stale delivery would overwrite a finished verdict with 👀
+and nothing would restore it.
+
+Four properties, the first three the same ones Contract 7 holds:
+
+- **A run never fails because GitHub did.** The call is queued, never awaited on
+  the fold path, and every failure is caught and logged.
+- **Calls are totally ordered**, so a later status cannot be overtaken by an
+  earlier one and leave the pull request showing a state the run has left.
+- **Nothing is remembered.** `POST .../reactions` is idempotent — the same
+  content twice answers 200 and leaves one reaction — so a restart re-applies
+  the current status and converges. This contract adds no table and no
+  migration. What is held in memory to collapse the per-event storm is bounded
+  and evicts the least recently seen run.
+- **A failed call is retried with backoff.** A terminal status is the last event
+  a run produces, so there is no later change to recover on: one transient
+  failure would otherwise leave the pull request wearing the previous status
+  indefinitely. A retry is abandoned as soon as a newer status is queued behind
+  it, which is the ordering property doing its job.
+
+`CUJO_PR_REACTIONS=0` turns the whole thing off. It is the only thing
+`apps/cujo` writes to a repository, so it gets a switch (decision 38).
 
 ## Stretch — remediation
 

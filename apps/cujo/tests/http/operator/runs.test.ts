@@ -48,6 +48,7 @@ function blockedView(): RunView {
       headSha: "h",
       sessionId: "s",
       isPublic: true,
+      deliveryId: null,
       turnIds: ["t1"],
       status: "blocked_pending",
       approver: null,

@@ -106,6 +106,14 @@ export interface RunRecord {
    * in SQL anyway.
    */
   isPublic: boolean;
+  /**
+   * The `X-GitHub-Delivery` of the webhook that claimed this run, or null for
+   * a run claimed before the column existed. Every log line for the run
+   * carries it as `ray`, which is what survives the request ending while the
+   * run does not (decision 37). A GitHub-side handle, so the public
+   * serializer withholds it.
+   */
+  deliveryId: string | null;
   createdAt: string;
   updatedAt: string;
 }

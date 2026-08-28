@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { type Logger, createLogger, errorFields } from "@cujo/log";
 import {
   type Harness,
   STALE_DENY_REASON,
@@ -7,7 +8,8 @@ import {
 } from "../clients/trueforge";
 import type { RunStore } from "../store";
 import { fold, pendingApproval } from "./fold";
-import type { PendingApproval, Projection, RunRecord } from "./types";
+import { runLogger } from "./start-run";
+import type { CheckState, PendingApproval, Projection, RunRecord } from "./types";
 
 type AnyEvent = SessionEvent | StreamEvent;
 
@@ -18,6 +20,16 @@ interface RunState {
   pollTimer: NodeJS.Timeout | null;
   /** Set once a newer head replaced this run; the fold then reports it. */
   superseded: boolean;
+  /**
+   * What the checks looked like the last time this process reported them, so
+   * `refold` can emit a line per transition rather than one per event
+   * (decision 37). Seeded from the stored projection when the state is first
+   * built, so a run rehydrated after a restart does not re-announce every
+   * check that had already finished before it.
+   */
+  reportedChecks: Map<string, CheckState["status"]>;
+  /** The run's own logger, bound once. */
+  log: Logger;
 }
 
 export interface RunView {
@@ -31,6 +43,43 @@ export interface RunnerOptions {
   /** Backoff before each resubscribe after a dropped stream. */
   retryDelaysMs?: number[];
 }
+
+/**
+ * How long a check took, in the event clock rather than the wall clock.
+ *
+ * Omitted rather than guessed when either endpoint is missing: a check whose
+ * thread events did not carry a timestamp has no honest duration, and a zero
+ * would read as an instantaneous check.
+ */
+function durationOf(check: CheckState): { duration_ms?: number } {
+  if (!check.startedAt || !check.endedAt) return {};
+  const ms = Date.parse(check.endedAt) - Date.parse(check.startedAt);
+  return Number.isFinite(ms) && ms >= 0 ? { duration_ms: ms } : {};
+}
+
+/**
+ * Why an approval was refused, as a closed set rather than a sentence.
+ *
+ * The 409 body used to carry four different conditions as one opaque string —
+ * "no such run", "already decided", a status mismatch, and a failed resume all
+ * arrived as prose a caller could only match on. The `reason` is now countable
+ * and the human wording moves to `detail`, so the UI keeps its message and a
+ * query can still ask how often a resume failed.
+ */
+export type ApproveRefusal =
+  | "no_such_run"
+  | "not_blocked_pending"
+  | "already_decided"
+  | "resume_failed";
+
+export type ApproveResult = { ok: true } | { ok: false; reason: ApproveRefusal; detail: string };
+
+const REFUSAL_TEXT: Record<ApproveRefusal, string> = {
+  no_such_run: "no such run",
+  not_blocked_pending: "run is not blocked_pending",
+  already_decided: "already decided",
+  resume_failed: "resume failed",
+};
 
 const TERMINAL_EVENT = "turn.done";
 
@@ -73,6 +122,7 @@ export class Runner {
     private readonly store: RunStore,
     private readonly harness: Harness,
     private readonly options: RunnerOptions = { turnTimeoutMs: 30 * 60 * 1000 },
+    private readonly log: Logger = createLogger({ service: "cujo" }),
   ) {
     this.retryDelaysMs = options.retryDelaysMs ?? [2_000, 5_000, 15_000];
   }
@@ -80,12 +130,22 @@ export class Runner {
   private state(runId: string): RunState {
     let s = this.states.get(runId);
     if (!s) {
+      const run = this.store.getRun(runId);
+      // One read, once per run per process, at the point `listCujoTurns`
+      // already reads. It is what stops a restart re-announcing checks that
+      // finished before it, and it keeps the hot path — `refold` runs once
+      // per stream event — free of any extra query.
+      const stored = this.store.getProjection(runId);
       s = {
         events: [],
         cujoResumeTurnIds: new Set(this.store.listCujoTurns(runId)),
         subscribedTurnIds: new Set(),
         pollTimer: null,
         superseded: false,
+        reportedChecks: new Map(
+          (stored?.checks ?? []).map((check) => [check.threadId, check.status]),
+        ),
+        log: run ? runLogger(this.log, run) : this.log.child({ run_id: runId }),
       };
       this.states.set(runId, s);
     }
@@ -109,6 +169,27 @@ export class Runner {
     for (const turnId of run?.turnIds ?? []) {
       if (!projection.turnIds.includes(turnId)) projection.turnIds.push(turnId);
     }
+    // Emitted before the projection is persisted, and never from `fold`.
+    //
+    // Not from `fold` because it is pure and replayed in full on every
+    // rehydrate, so a line there would re-announce a run's whole history at
+    // each restart. `refold` is already the single place every status is
+    // written, so "one writer, one emitter" is a property the code had rather
+    // than one the log invents.
+    //
+    // Before the write because `reportedChecks` is seeded from the persisted
+    // projection: persisting first and dying in the gap would leave the next
+    // process treating a transition it never announced as already reported,
+    // and the line would be missing forever. This way the same crash costs a
+    // duplicate on restart, which is recoverable and visible. For an audit
+    // trail, saying something twice beats losing it once.
+    if (projection.status !== previousStatus) {
+      s.log.info("run.status.changed", {
+        from: previousStatus ?? null,
+        to: projection.status,
+      });
+    }
+    this.reportChecks(s, projection);
     this.store.putProjection(runId, projection);
     const patch: Parameters<RunStore["updateRun"]>[1] = {
       status: projection.status,
@@ -119,9 +200,6 @@ export class Runner {
       patch.decidedAt = new Date().toISOString();
     }
     this.store.updateRun(runId, patch);
-    if (projection.status !== previousStatus && this.isTerminal(projection.status)) {
-      console.info(`run ${runId}: status → ${projection.status}`);
-    }
     // emit() is synchronous and rethrows into this call, which sits inside the
     // fold path: a subscriber that throws would surface as a stream error and
     // trigger a resubscribe. A subscriber must never be able to fail a run.
@@ -130,9 +208,36 @@ export class Runner {
       this.changes.emit(runId, view);
       this.changes.emit(ANY_RUN, view);
     } catch (error) {
-      console.error(`run ${runId}: change subscriber threw`, error);
+      s.log.error("run.subscriber.threw", errorFields(error));
     }
     return projection;
+  }
+
+  /**
+   * One line per check that started or finished, rather than one per fold.
+   *
+   * `duration_ms` comes from the check's own `startedAt` and `endedAt`, which
+   * `fold` takes from the thread events' `createdAt` rather than the clock —
+   * so a run rehydrated hours later still reports the time the check actually
+   * took, not the time since the restart.
+   */
+  private reportChecks(s: RunState, projection: Projection): void {
+    for (const check of projection.checks) {
+      if (!check.isCheck) continue;
+      const seen = s.reportedChecks.get(check.threadId);
+      if (seen === check.status) continue;
+      s.reportedChecks.set(check.threadId, check.status);
+      if (check.status === "running") {
+        s.log.info("check.started", { check: check.title, thread_id: check.threadId });
+        continue;
+      }
+      s.log.info("check.finished", {
+        check: check.title,
+        thread_id: check.threadId,
+        status: check.status,
+        ...durationOf(check),
+      });
+    }
   }
 
   private isTerminal(status: Projection["status"]): boolean {
@@ -183,7 +288,7 @@ export class Runner {
     try {
       items = await this.harness.listEvents(run.sessionId);
     } catch (error) {
-      console.error(`run ${runId}: could not read persisted events`, error);
+      s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
       return;
     }
     const persisted = new Map<string, SessionEvent>();
@@ -208,12 +313,13 @@ export class Runner {
    * One watchdog covers the whole sequence.
    */
   async consume(runId: string, stream: AsyncIterable<StreamEvent>): Promise<void> {
+    const s = this.state(runId);
     let projection: Projection | null = null;
     let sawTerminal = false;
     let timedOut = false;
     const deadline = setTimeout(() => {
       timedOut = true;
-      console.info(`run ${runId}: turn timed out`);
+      this.state(runId).log.error("run.turn.timeout", { timeout_ms: this.options.turnTimeoutMs });
       this.push(
         runId,
         errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
@@ -248,7 +354,7 @@ export class Runner {
           // a drop like any other: the turn is still running.
           throw new Error("stream ended before the terminal event");
         } catch (error) {
-          console.error(`run ${runId}: stream error`, error);
+          s.log.warn("run.stream.dropped", errorFields(error));
           current = null;
           const turnId = this.currentTurnId(runId);
           const run = this.store.getRun(runId);
@@ -263,12 +369,24 @@ export class Runner {
               current = await this.harness.subscribe(run.sessionId, turnId);
               break;
             } catch (retryError) {
-              console.error(`run ${runId}: resubscribe ${attempt} failed`, retryError);
+              // `attempt` was incremented above, so it is already the
+              // 1-based number of the attempt that just failed.
+              s.log.warn("run.stream.resubscribe.failed", {
+                turn_id: turnId,
+                attempt,
+                delay_ms: delay,
+                ...errorFields(retryError),
+              });
             }
           }
         }
       }
       if (!sawTerminal && !timedOut) {
+        // Every retry is spent. A synthetic terminal event is injected so the
+        // run ends in error rather than staying running forever — say so,
+        // because downstream this is indistinguishable from a turn that
+        // genuinely failed on its merits.
+        s.log.error("run.stream.lost", { attempts: this.retryDelaysMs.length });
         this.push(runId, errorTurnDone(`cujo-stream-lost-${Date.now()}`, "turn stream lost"));
         projection = this.refold(runId);
       }
@@ -354,7 +472,7 @@ export class Runner {
     const s = this.state(runId);
     if (s.superseded) return;
     s.superseded = true;
-    console.info(`run ${runId}: superseded`);
+    s.log.info("run.superseded", { reason: "newer_head" });
     this.stopPolling(runId);
     const run = this.store.getRun(runId);
     // Read before the refold, which rewrites the status to `superseded`.
@@ -379,7 +497,7 @@ export class Runner {
       await this.harness.cancelTurn(run.sessionId);
     } catch (error) {
       // Already finished, or the harness is unreachable: nothing to cancel.
-      console.warn(`run ${runId}: cancel after supersede failed`, error);
+      s.log.warn("run.cancel.failed", { session_id: run.sessionId, ...errorFields(error) });
     }
   }
 
@@ -463,7 +581,7 @@ export class Runner {
         return;
       }
     }
-    console.info(`run ${run.id}: turn ${turnId} started`);
+    this.state(run.id).log.info("run.turn.started", { turn_id: turnId });
     this.adoptTurn(run.id, turnId);
     if (this.state(run.id).superseded) {
       // Replaced while the turn was being created; do not let it run on.
@@ -482,14 +600,26 @@ export class Runner {
     runId: string,
     decision: "allow" | "deny",
     approver: string,
-  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  ): Promise<ApproveResult> {
+    // Deliberately not `this.state(runId)` before the run is known to exist:
+    // `state()` inserts, and nothing ever removes, so an authenticated POST to
+    // /runs/<anything>/approve would grow the map for the life of the process.
+    // A run that does not exist gets a plain child logger and no state.
+    const refuse = (reason: ApproveRefusal, detail?: string): ApproveResult => {
+      const log = this.states.has(runId)
+        ? this.state(runId).log
+        : this.log.child({ run_id: runId });
+      log.warn("approve.rejected", { decision, actor: approver, reason });
+      return { ok: false, reason, detail: detail ?? REFUSAL_TEXT[reason] };
+    };
     const view = this.view(runId);
-    if (!view) return { ok: false, reason: "no such run" };
+    if (!view) return refuse("no_such_run");
+    const log = this.state(runId).log;
     if (view.run.status !== "blocked_pending" || !view.projection.approval) {
-      return { ok: false, reason: `run is ${view.run.status}, not blocked_pending` };
+      return refuse("not_blocked_pending", `run is ${view.run.status}, not blocked_pending`);
     }
     if (!this.store.claimDecision(runId, approver, new Date().toISOString())) {
-      return { ok: false, reason: "already decided" };
+      return refuse("already_decided");
     }
     this.stopPolling(runId);
     let turnId: string;
@@ -498,9 +628,18 @@ export class Runner {
     } catch (error) {
       this.store.clearDecision(runId);
       this.startPolling(runId);
-      return { ok: false, reason: `resume failed: ${String(error)}` };
+      log.warn("approve.rejected", {
+        decision,
+        actor: approver,
+        reason: "resume_failed",
+        ...errorFields(error),
+      });
+      return { ok: false, reason: "resume_failed", detail: `resume failed: ${String(error)}` };
     }
-    console.info(`run ${runId}: resumed as turn ${turnId} (${decision} by ${approver})`);
+    // The audit line for a decision a human made. `actor` is the Access email
+    // the store has just recorded as the approver, so the log and the row
+    // agree by construction.
+    this.state(runId).log.info("approve.applied", { decision, actor: approver, turn_id: turnId });
     // Cujo's own resume, recorded before the subscribe and before its
     // turn.created, so the fold never mistakes it for an external one, on
     // this process or after a restart.
@@ -548,9 +687,10 @@ export class Runner {
     s.events = events;
     s.subscribedTurnIds = new Set(turnIds);
     const projection = this.refold(run.id);
-    console.info(
-      `run ${run.id}: rehydrated, status=${projection.status}, turns=${projection.turnIds.length}`,
-    );
+    s.log.info("run.rehydrated", {
+      status: projection.status,
+      attempts: projection.turnIds.length,
+    });
     const last = s.events.at(-1);
     if (projection.status === "running" && (!last || last.type !== TERMINAL_EVENT)) {
       const turnId = projection.turnIds.at(-1);
@@ -590,11 +730,15 @@ export class Runner {
           t.previousTurnId === lastKnown && !s.subscribedTurnIds.has(t.id) && !foreign.has(t.id),
       );
       if (!next) return;
+      // A turn this process did not start: somebody resumed the run from the
+      // TrueForge console. The projection records that as `external`, and this
+      // is the moment it was noticed.
+      s.log.info("run.poll.adopted", { turn_id: next.id, reason: "external_turn" });
       this.adoptTurn(runId, next.id);
       this.stopPolling(runId);
       await this.follow(runId, run.sessionId, next.id);
     } catch (error) {
-      console.error(`run ${runId}: poll failed`, error);
+      s.log.warn("run.poll.failed", { session_id: run.sessionId, ...errorFields(error) });
     }
   }
 

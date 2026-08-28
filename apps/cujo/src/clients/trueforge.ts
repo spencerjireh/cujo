@@ -1,3 +1,4 @@
+import { type Logger, createLogger, errorFields } from "@cujo/log";
 import { TrueForge, type TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import type { Config } from "../config";
 
@@ -32,7 +33,10 @@ export class Harness {
   /** True once every bootstrap registration succeeded; webhooks wait for it. */
   ready = false;
 
-  constructor(private readonly config: Config) {
+  constructor(
+    private readonly config: Config,
+    private readonly log: Logger = createLogger({ service: "cujo" }),
+  ) {
     // No token: the server runs without OIDC on the compose network, which
     // gives every caller the fixed local admin identity.
     // The SDK timeout also bounds a turn subscription, so it must outlast a
@@ -119,12 +123,23 @@ export class Harness {
     sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
   ): Promise<void> {
     let delay = 5_000;
+    // The webhook answers 503 until this succeeds, and the loop is patient by
+    // design, so `attempt` and `elapsed_ms` are what tell an operator whether
+    // the harness is starting slowly or is never coming back.
+    let attempt = 0;
+    const startedAt = Date.now();
     while (!this.ready) {
+      attempt += 1;
       try {
         const applied = await this.bootstrap();
-        console.info(`trueforge bootstrap: ${applied.join(", ")}`);
+        this.log.info("harness.bootstrap.ok", { steps: applied.length, attempt });
+        this.log.info("harness.ready", { attempt, elapsed_ms: Date.now() - startedAt });
       } catch (error) {
-        console.error(`trueforge bootstrap failed; retrying in ${delay / 1000}s`, error);
+        this.log.error("harness.bootstrap.failed", {
+          attempt,
+          retry_in_ms: delay,
+          ...errorFields(error),
+        });
         await sleep(delay);
         delay = Math.min(delay * 2, 60_000);
       }

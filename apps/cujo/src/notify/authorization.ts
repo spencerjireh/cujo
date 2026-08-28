@@ -17,6 +17,7 @@
  * do not belong to.
  */
 
+import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { NotificationStore } from "../store";
 
@@ -32,6 +33,8 @@ export type Authorization =
   | { allowed: false; reason: "not_declared" | "declared_elsewhere" | "unknown" };
 
 export interface AuthorizationDeps {
+  /** The process logger; every line names the plane it came from (decision 37). */
+  log: Logger;
   store: NotificationStore;
   github: GitHubReader;
 }
@@ -47,7 +50,11 @@ export async function authorizationFor(
   try {
     declared = await deps.github.declaredGuild(repo, options);
   } catch (error) {
-    console.warn(`discord: could not read .cujo.yml for ${repo}`, error);
+    deps.log.warn("discord.channel.unreadable", {
+      repo,
+      reason: "cujo_yml",
+      ...errorFields(error),
+    });
     return { allowed: false, reason: "unknown" };
   }
   if (declared === guildId) return { allowed: true, source: "repo" };

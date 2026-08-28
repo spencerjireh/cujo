@@ -5,6 +5,7 @@
  * but the PR's diff to validate anchors.
  */
 
+import { createLogger, parseLevel } from "@cujo/log";
 import { createGitHubClient } from "./github";
 import { createApp } from "./server";
 
@@ -19,13 +20,17 @@ function requireEnv(name: string): string {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const log = createLogger({
+    service: "github-mcp",
+    level: parseLevel(process.env.CUJO_LOG_LEVEL),
+  });
   const github = createGitHubClient({
     appId: requireEnv("GITHUB_APP_ID"),
     privateKey: requireEnv("GITHUB_APP_PRIVATE_KEY"),
   });
   // Optional: with no board configured, no review carries an evidence footer.
   const publicBaseUrl = (process.env.CUJO_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
-  createApp({ github, publicBaseUrl }).listen(PORT, () => {
-    console.info(`github-mcp listening on :${PORT}`);
+  createApp({ github, publicBaseUrl, log }).listen(PORT, () => {
+    log.info("service.started", { port: PORT });
   });
 }
