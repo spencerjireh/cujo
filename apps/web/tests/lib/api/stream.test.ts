@@ -1,6 +1,6 @@
+import { parseSnapshot, reduceList, reduceRun } from "@/lib/api/stream";
+import type { Run, RunList, RunSummary } from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
-import { parseSnapshot, reduceList, reduceRun } from "./stream";
-import type { Run, RunList, RunSummary } from "./types";
 
 const summary: RunSummary = {
   id: "r1",

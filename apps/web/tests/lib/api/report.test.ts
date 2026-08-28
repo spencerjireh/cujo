@@ -1,5 +1,5 @@
+import { alarms, parseReport } from "@/lib/api/report";
 import { describe, expect, it } from "vitest";
-import { alarms, parseReport } from "./report";
 
 /**
  * The parser's contract is that it never throws, whatever apps/cujo pulled out

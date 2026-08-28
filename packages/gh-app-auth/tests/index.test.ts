@@ -6,7 +6,7 @@ import {
   getInstallationIdForRepo,
   getInstallationToken,
   normalisePrivateKey,
-} from "./index";
+} from "../src/index";
 
 // A throwaway RSA key: the App JWT is signed locally, so the key must be real
 // even though no request leaves the process.
