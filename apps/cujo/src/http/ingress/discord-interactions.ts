@@ -15,16 +15,11 @@
 
 import { createPublicKey, verify as verifySignature } from "node:crypto";
 import { Hono } from "hono";
-import { GUILD_ANNOUNCEMENT, GUILD_TEXT } from "../../clients/discord";
 import type { DiscordClient } from "../../clients/discord";
-import {
-  REQUIRED_PERMISSIONS,
-  effectivePermissions,
-  hasPermissions,
-} from "../../clients/discord-permissions";
 import type { GitHubReader } from "../../clients/github";
 import { authorizationFor, explain } from "../../notify/authorization";
 import { buildRunCard } from "../../notify/card";
+import { type ChannelRefusal, checkChannel } from "../../notify/channel-check";
 import { MANAGE_GUILD } from "../../notify/commands/definitions";
 import { emptyProjection } from "../../review/fold";
 import type { NotificationStore } from "../../store";
@@ -125,6 +120,30 @@ function focusedValue(interaction: Interaction): string {
 }
 
 const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * The shared channel rule's refusals, said to a person rather than to a
+ * machine. Each one names what to fix, since the invoker is the only one who
+ * can fix it and a bare "that did not work" sends them looking for an operator.
+ */
+function refusalMessage(reason: ChannelRefusal, channelId: string): string {
+  switch (reason) {
+    case "unreadable_channel":
+      return "Cujo cannot see that channel.";
+    case "not_a_text_channel":
+      return "That is not a text channel.";
+    case "wrong_guild":
+      return "That channel is not in this server.";
+    case "unreadable_roles":
+      return "Cujo could not read this server's roles.";
+    case "no_such_role":
+      return "That role is not in this server.";
+    case "unreadable_permissions":
+      return "Cujo could not check its permissions in that channel. Try again in a moment.";
+    case "missing_permissions":
+      return `Cujo needs View Channel, Send Messages and Embed Links in <#${channelId}>.`;
+  }
+}
 
 export interface InteractionDeps {
   /** The application's Ed25519 public key, hex. */
@@ -353,32 +372,15 @@ async function watch(
     return `\`${input.repo}\` is already being sent to another server. A Cujo operator can move it.`;
   }
 
-  const channel = await deps.discord.getChannel(channelId).catch(() => null);
-  if (!channel) return "Cujo cannot see that channel.";
-  if (channel.type !== GUILD_TEXT && channel.type !== GUILD_ANNOUNCEMENT) {
-    return "That is not a text channel.";
-  }
-  // The option comes from this server's picker, but a request is a request:
-  // nothing stops a crafted one naming a channel somewhere else.
-  if (channel.guild_id !== input.guildId) return "That channel is not in this server.";
-
-  const roles = await deps.discord.listRoles(input.guildId).catch(() => null);
-  if (!roles) return "Cujo could not read this server's roles.";
-  if (roleId && !roles.some((r) => r.id === roleId)) return "That role is not in this server.";
-
-  // Reading a channel is not permission to post an embed in it.
-  const me = await deps.discord.currentUser();
-  const member = await deps.discord.guildMember(input.guildId, me.id);
-  const permissions = effectivePermissions({
-    guildId: input.guildId,
-    memberId: me.id,
-    memberRoles: member.roles,
-    roles,
-    overwrites: channel.permission_overwrites ?? [],
+  // `expectGuildId`, because the option comes from this server's picker but a
+  // request is a request: nothing stops a crafted one naming a channel
+  // somewhere else.
+  const check = await checkChannel(deps.discord, {
+    channelId,
+    roleId,
+    expectGuildId: input.guildId,
   });
-  if (!hasPermissions(permissions, REQUIRED_PERMISSIONS)) {
-    return `Cujo needs View Channel, Send Messages and Embed Links in <#${channelId}>.`;
-  }
+  if (!check.ok) return refusalMessage(check.reason, channelId);
 
   // Re-checked here, not only at the top: the Discord round trips above are
   // awaits, and a declaration reverted or an operator's allowance withdrawn in
@@ -392,7 +394,7 @@ async function watch(
     repo: input.repo,
     channelId,
     guildId: input.guildId,
-    channelName: channel.name ?? null,
+    channelName: check.channelName,
     notifyRoleId: roleId,
     boundBy: `discord:${input.userId}`,
   });
