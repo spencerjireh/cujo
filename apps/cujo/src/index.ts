@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const log = createLogger({ service: "cujo", level: config.logLevel });
   const store = new Store(config.dbPath);
   const harness = new Harness(config);
-  const runner = new Runner(store.runs, harness, { turnTimeoutMs: config.turnTimeoutMs });
+  const runner = new Runner(store.runs, harness, { turnTimeoutMs: config.turnTimeoutMs }, log);
   const github = new GitHubReader(config.githubAppId, config.githubAppPrivateKey);
   const spec = buildAgentSpec(config);
   // Where a Discord card points. A public run links to the board anyone can
