@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { type InteractionDeps, interactionRoutes } from "./ingress/discord-interactions";
 import { type WebhookDeps, webhookRoutes } from "./ingress/github-webhook";
-import { type ApiDeps, apiRoutes } from "./operator/api";
+import { type OperatorDeps, operatorRoutes } from "./operator";
 
 export interface AppOptions {
   uiHost: string;
@@ -14,7 +14,7 @@ export interface AppOptions {
    * applies to every one of those routes.
    */
   internalHost?: string;
-  api: ApiDeps;
+  api: OperatorDeps;
   webhook: WebhookDeps;
   /** Absent when the Discord slash commands are not configured. */
   interactions?: InteractionDeps;
@@ -40,8 +40,8 @@ export function createApp(options: AppOptions): Hono {
   // ingress, and neither belongs behind Access.
   ui.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
   ui.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
-  // Every UI-host route sits behind the Access check inside apiRoutes.
-  ui.route("/", apiRoutes(options.api));
+  // Every UI-host route sits behind the Access check inside operatorRoutes.
+  ui.route("/", operatorRoutes(options.api));
 
   const webhook = new Hono();
   webhook.get("/healthz", (c) => c.json({ ok: true, service: "cujo" }));
