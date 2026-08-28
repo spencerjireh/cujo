@@ -65,20 +65,20 @@ const toolResponse = (toolCallId: string): Ev => ({
   content: "{}",
 });
 
-const threadCreated = (threadId: string, title: string): Ev => ({
+const threadCreated = (threadId: string, title: string, createdAt: string = at): Ev => ({
   type: "thread.created",
   id: `thc-${threadId}`,
-  createdAt: at,
+  createdAt,
   threadId,
   title,
   parent: { threadId: "main", toolCallId: "spawn" },
   agentInfo: {} as TrueForgeApi.AgentInfo,
 });
 
-const threadDone = (threadId: string, text: string): Ev => ({
+const threadDone = (threadId: string, text: string, createdAt: string = at): Ev => ({
   type: "thread.done",
   id: `thd-${threadId}`,
-  createdAt: at,
+  createdAt,
   threadId,
   title: threadId,
   state: {
@@ -407,6 +407,53 @@ describe("parseReview", () => {
     ]);
     expect(p.status).toBe("blocked_pending");
     expect(p.review?.tool).toBe("post_blocking_review");
+  });
+});
+
+describe("check timing", () => {
+  it("stamps each check from its own thread events, not the clock", () => {
+    // Taken from the events so the fold stays pure: replaying the same stream
+    // after a restart has to produce the same timings.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests", "2026-08-27T00:00:02Z"),
+      threadCreated("th-probes", "probes", "2026-08-27T00:00:04Z"),
+      threadDone("th-tests", "```json\n{}\n```", "2026-08-27T00:01:52Z"),
+    ]);
+    const tests = p.checks.find((c) => c.title === "tests");
+    const probes = p.checks.find((c) => c.title === "probes");
+    expect(tests?.startedAt).toBe("2026-08-27T00:00:02Z");
+    expect(tests?.endedAt).toBe("2026-08-27T00:01:52Z");
+    // Still running, so it has a start and no end.
+    expect(probes?.startedAt).toBe("2026-08-27T00:00:04Z");
+    expect(probes?.endedAt).toBeNull();
+  });
+
+  it("stamps a check that ended in error too", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-smoke", "smoke", "2026-08-27T00:00:06Z"),
+      {
+        type: "thread.done",
+        id: "thd-err",
+        createdAt: "2026-08-27T00:00:30Z",
+        threadId: "th-smoke",
+        title: "smoke",
+        state: { status: "error", error: "sandbox exited" },
+      } as Ev,
+    ]);
+    const smoke = p.checks.find((c) => c.title === "smoke");
+    expect(smoke?.status).toBe("error");
+    expect(smoke?.endedAt).toBe("2026-08-27T00:00:30Z");
+  });
+
+  it("is replayable: the same events fold to the same timings", () => {
+    const events = [
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests", "2026-08-27T00:00:02Z"),
+      threadDone("th-tests", "```json\n{}\n```", "2026-08-27T00:01:52Z"),
+    ];
+    expect(fold(events).checks).toEqual(fold(events).checks);
   });
 });
 

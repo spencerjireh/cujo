@@ -420,3 +420,50 @@ Access policy's membership, so a card discloses finding titles and evidence to
 a wider audience than the Cujo UI does. Private repos are a non-goal for this
 milestone, so everything on a card is already public. That stops being true the
 day private repos are in scope, and this is the entry to reopen.
+
+## 24. The operator UI is `apps/web`; `apps/cujo` becomes API-only
+
+Decision 17 said the human approves in Cujo's own UI. That UI is now a Next.js
+app in `apps/web` with its own container, and it takes
+`cujo.spencerjireh.com`. `apps/cujo` keeps the webhook host, the run store, the
+TrueForge client, and the JSON API, and stops serving HTML; its placeholder
+page is gone. `cujo-harness.spencerjireh.com` is untouched and still the
+TrueForge operator console.
+
+The API is same-origin with the UI, at `/api/*`, proxied server-side by
+`apps/web`. That is not tidiness: Cloudflare Access injects
+`Cf-Access-Jwt-Assertion` at the edge and browser code cannot forge it, and
+native `EventSource` has no header API at all, so a cross-origin API would need
+a second Access application, cross-site cookie handling, and a hand-rolled
+replacement for the run stream. Same origin also means no CORS and no public
+route for the run store or the approve endpoint. `apps/cujo` still verifies the
+assertion itself; the proxy forwards rather than terminates the check.
+
+Chosen over path-routing at the edge, which is also same-origin but puts the
+rule in Coolify where CI cannot test it and a reviewer cannot see it, and would
+still need a rewrite for `pnpm dev`, so dev and production would diverge.
+
+One wrinkle forced a small change to `apps/cujo`. Node's `fetch` silently
+ignores an attempt to set the `Host` header — verified, it always sends the
+target's own authority — so the proxy cannot present the public hostname to a
+service it reaches at `http://cujo:8080`, and Contract 6's host dispatch would
+404 every call. `createApp` therefore accepts an `internalHost`
+(`CUJO_INTERNAL_HOST`, default `cujo`) alongside the UI host, serving the same
+Access-gated routes on it. Rejected: forwarding `Host` verbatim through
+`node:http`, which works but gives up `fetch` and forces a manual Node-stream
+to web-stream bridge for the SSE proxy; and setting `CUJO_UI_HOST` to the
+service name, which costs no code but makes that variable mean the internal
+name and its documentation misleading.
+
+`CheckState` gained `startedAt` and `endedAt`, taken from each thread event's
+own `createdAt` rather than the clock, so the fold stays pure and a rehydrated
+run keeps its timing. The UI puts the four checks on one shared time axis with
+them, because when a check went red relative to the others is the information a
+grid of status cards throws away.
+
+The stack is Next.js with TanStack Query for server state, Table for the run
+list, Virtual for the unbounded sensor lists, Radix for interaction behaviour
+only, and Tailwind reading `brand/tokens.css` through `@theme inline` so no hex
+value is restated outside `brand/`. Storybook covers the states that are hard
+to reach against a live stack and is deliberately not in CI, where its browser
+download would roughly double the install.
