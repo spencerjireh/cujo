@@ -12,8 +12,18 @@ export interface Config {
   uiHost: string;
   internalHost: string;
   webhookHost: string;
-  /** Public origin of the Cujo UI, used for the run link in a Discord card. */
+  /**
+   * Origin of the Access-gated operator UI. Since decision 34 that is
+   * `cujo-admin`, not `cujo`: it is where a Discord card sends someone who has
+   * to decide, and the read-only board has no buttons.
+   */
   uiBaseUrl: string;
+  /**
+   * Origin of the anonymous board. A card for a public run links here instead,
+   * so a repo's channel is not answered with a login page. Empty falls back to
+   * `uiBaseUrl`.
+   */
+  publicBaseUrl: string;
   /** Null turns Discord notifications off; the service runs without them. */
   discordBotToken: string | null;
   /**
@@ -28,6 +38,10 @@ export interface Config {
   githubMcpUrl: string;
   sniffUrl: string;
   turnTimeoutMs: number;
+  /** Concurrent public run streams this process will hold (decision 34). */
+  publicStreamLimit: number;
+  /** How often to re-ask GitHub whether each repo with a run is still public. */
+  visibilityRecheckMs: number;
   devNoAccess: boolean;
   bootstrap: {
     modelProvider: {
@@ -44,6 +58,24 @@ export interface Config {
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
   if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+/**
+ * A whole number from the environment, or the default. Compose passes an unset
+ * optional as the empty string rather than leaving it out, and `Number("")` is
+ * 0, so `??` alone would silently turn "not configured" into a limit of zero.
+ * `zeroOk` is for the settings where 0 is a real choice and means "off".
+ */
+function count(
+  raw: string | undefined,
+  fallback: number,
+  options: { zeroOk?: boolean } = {},
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) return fallback;
+  if (value === 0 && !options.zeroOk) return fallback;
   return value;
 }
 
@@ -64,6 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // `||`, not `??`: compose passes an unset optional as `${X:-}`, which is
     // the empty string, and `??` would keep it.
     uiBaseUrl: (env.CUJO_UI_BASE_URL || `https://${uiHost}`).replace(/\/+$/, ""),
+    publicBaseUrl: (env.CUJO_PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
     discordBotToken: env.DISCORD_BOT_TOKEN || null,
     discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
     // The Access check is skipped only in dev, so the values are required otherwise.
@@ -78,6 +111,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       env.CUJO_SNIFF_URL ??
       "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
     turnTimeoutMs: Number(env.CUJO_TURN_TIMEOUT_MS ?? 30 * 60 * 1000),
+    publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
+    // 0 disables the sweep; the webhook still carries a flip in seconds.
+    visibilityRecheckMs: count(env.CUJO_VISIBILITY_RECHECK_MS, 15 * 60 * 1000, { zeroOk: true }),
     devNoAccess,
     bootstrap: {
       modelProvider:

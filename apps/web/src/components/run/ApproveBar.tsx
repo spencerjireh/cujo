@@ -1,5 +1,6 @@
 "use client";
 
+import { usePlane } from "@/app/providers";
 import { ApiError, approveRun } from "@/lib/api/client";
 import { runKeys } from "@/lib/api/keys";
 import { type Run, canDecide } from "@/lib/api/types";
@@ -16,19 +17,30 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
  * There is no optimistic update. A 409 is a normal outcome here (the run was
  * superseded, someone resumed it from the harness console, a double click), and
  * the stream delivers the real status a moment later anyway.
+ *
+ * On the public plane there is no control at all. Hiding it is not what
+ * protects anything — `apps/cujo` serves no approve route there (decision 34);
+ * what this renders instead is where to go, since an anonymous visitor looking
+ * at a held review otherwise has no way to know a decision is pending.
  */
 export function ApproveBar({ run }: { run: Run }) {
+  const { mode, adminBaseUrl } = usePlane();
   const queryClient = useQueryClient();
   const decidable = canDecide(run);
 
+  // Every hook before any early return. The plane cannot change under a mounted
+  // tree — it is fixed per request by the hostname — but a conditional hook is
+  // wrong whether or not the condition ever moves, and the next person to add a
+  // branch above it would inherit a real bug.
   const mutation = useMutation({
     mutationFn: (decision: "allow" | "deny") => approveRun(run.id, decision),
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: runKeys.detail(run.id) });
-      void queryClient.invalidateQueries({ queryKey: runKeys.list() });
+      void queryClient.invalidateQueries({ queryKey: runKeys.detail("operator", run.id) });
+      void queryClient.invalidateQueries({ queryKey: runKeys.list("operator") });
     },
   });
 
+  if (mode === "public") return <PointAtOperator run={run} adminBaseUrl={adminBaseUrl} />;
   if (!decidable) return <ExplainWhyNot run={run} />;
 
   const blocking = run.review?.tool === "post_blocking_review";
@@ -75,10 +87,40 @@ export function ApproveBar({ run }: { run: Run }) {
   );
 }
 
+/**
+ * The public plane's counterpart. It says the run is waiting on a person and
+ * where that happens. The link is open to anyone; Access decides who gets past
+ * it, and an operator's email is what the decision is recorded against
+ * (decision 28).
+ */
+function PointAtOperator({ run, adminBaseUrl }: { run: Run; adminBaseUrl: string }) {
+  if (run.status !== "blocked_pending") return null;
+  const href = adminBaseUrl ? `${adminBaseUrl}/runs/${encodeURIComponent(run.id)}` : null;
+  return (
+    <div className="sticky bottom-0 -mx-4 border-t border-line bg-bg-raised px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="h-8 w-1 shrink-0 rounded-sm bg-accent-fill" aria-hidden="true" />
+        <p className="min-w-48 flex-1 text-sm">
+          This review is blocked and waiting on a human decision.{" "}
+          <span className="text-fg-muted">Nothing reaches the pull request until then.</span>
+        </p>
+        {href ? (
+          <a
+            href={href}
+            className="rounded-md border border-line px-4 py-1.5 text-sm no-underline transition-colors hover:border-fg-muted"
+          >
+            Decide on cujo-admin
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** Why the decision is unavailable, rather than an absent control. */
 function ExplainWhyNot({ run }: { run: Run }) {
   const reason =
-    run.status === "blocked_pending" && run.approval === null
+    run.status === "blocked_pending" && !run.approval
       ? "This run paused on a thread that is not allowed to post reviews, so it cannot be approved."
       : run.status === "superseded"
         ? "A newer commit replaced this run. Decide on the newest run for this pull request."

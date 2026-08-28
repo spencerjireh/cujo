@@ -90,4 +90,38 @@ describe("reduceList", () => {
   it("does nothing when the list is not cached", () => {
     expect(reduceList(undefined, run())).toBeUndefined();
   });
+
+  /**
+   * The reducers copy `approver` from the snapshot onto the cached row, so the
+   * question worth asking is whether a public snapshot can ever put one there.
+   * It cannot: the field is absent on both sides of the copy. The guarantee
+   * that an *operator* snapshot never reaches a public cache entry is the mode
+   * in the query key, not this (decision 34).
+   */
+  it("never introduces an approver on the public plane", () => {
+    const publicRow: RunSummary = {
+      id: "r1",
+      repo: "o/r",
+      pr_number: 7,
+      head_sha: "a1f9c3e",
+      status: "running",
+      created_at: "2026-08-28T10:00:00.000Z",
+      updated_at: "2026-08-28T10:00:00.000Z",
+    };
+    const publicSnapshot: Run = {
+      ...publicRow,
+      status: "blocked_pending",
+      updated_at: "2026-08-28T10:05:00.000Z",
+      checks: [],
+      findings: [],
+      hard_rule_hits: [],
+      review: null,
+      error: null,
+      summary: null,
+    };
+    const next = reduceList({ runs: [publicRow] }, publicSnapshot);
+    expect(next?.runs[0]?.status).toBe("blocked_pending");
+    expect(next?.runs[0]?.approver ?? null).toBeNull();
+    expect(reduceRun(publicSnapshot, publicSnapshot).approver).toBeUndefined();
+  });
 });

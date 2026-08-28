@@ -56,7 +56,15 @@ The split between deterministic code and agent reasoning is fixed:
 ## Contract 1 — the trigger
 
 The Cujo GitHub App subscribes to `pull_request` events (`opened`,
-`synchronize`). For each event the `apps/cujo` webhook module:
+`synchronize`) and to `repository` events (`privatized`, `publicized`). The
+signature is checked before the event type, so both arrive on the same route
+with the same one gate in front of them.
+
+A `repository` event re-stamps `is_public` on every run of that repo and does
+nothing else; it is the fast path for decision 34's public board, and matching
+is case-insensitive because `runs.repo` holds whatever casing GitHub sent.
+
+For a `pull_request` event the `apps/cujo` webhook module:
 
 1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
    anything unsigned or mismatched.
@@ -385,7 +393,8 @@ list in order.
 | `session_id` | The TrueForge session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
 | `status` | One of the six states below. |
-| `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). |
+| `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
+| `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `created_at`, `updated_at` | Timestamps. |
 
 Status moves on events from the session's turn streams, with one exception
@@ -438,7 +447,7 @@ in the message, parsed leniently, because the output is a model message and not
 a structured field. A `thread.done` with `status: error` marks the check
 failed and the parent decides what that means for the findings.
 
-The API `apps/cujo` serves on `cujo.spencerjireh.com`:
+The operator API `apps/cujo` serves on `cujo-admin.spencerjireh.com`:
 
 | Route | Returns or does |
 |-------|-----------------|
@@ -449,23 +458,45 @@ The API `apps/cujo` serves on `cujo.spencerjireh.com`:
 
 The `/discord/*` routes on the same host are Contract 7.
 
-One process serves two hostnames, so the split between them is enforced in the
-process, not only at the edge:
+And the public plane, under `/public`, which no gate stands in front of
+(decision 34):
+
+| Route | Returns or does |
+|-------|-----------------|
+| `GET /public/runs` | Public runs only, newest first. Filtered on `is_public = 1` in SQL, not by the route. |
+| `GET /public/runs/:id` | The same run the operator route returns, minus `approver`, `decided_at`, `session_id`, `turn_ids`, `approval` and `external_resume`, and with the drafted review shaped down to its tool, body and comments. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` public streams; operator streams are not counted. Closes if the repo goes private while it is open. |
+
+The response is built by an allowlist, field by field, and never by removing
+fields from the operator shape: the difference is what happens when a field is
+added to the projection later, and only the allowlist keeps that field private
+until somebody says otherwise.
+
+One process serves two hostnames and two planes, so both splits are enforced in
+the process, not only at the edge:
 
 - Every request is dispatched on the `Host` header. On
   `cujo-ingress.spencerjireh.com` the process serves `POST /webhook` and
   `GET /healthz` and answers 404 to everything else, including `/runs`. On
-  `cujo.spencerjireh.com`, and on the internal service name in
+  `cujo-admin.spencerjireh.com`, and on the internal service name in
   `CUJO_INTERNAL_HOST` (default `cujo`), it serves the routes above and answers
   404 to `/webhook`. A request with any other `Host` gets 404. The internal name
-  exists because the operator UI reaches this process over the compose network
+  exists because the UI reaches this process over the compose network
   and Node's `fetch` always sends the target's own authority as `Host`; those
   routes are not exempt from the Access check.
-- The UI itself is `apps/web`, a separate service on
-  `cujo.spencerjireh.com`. It proxies `/api/*` to this process, forwarding the
-  Access assertion, so the API is same-origin with the page and needs no public
-  route of its own (decision 27).
-- Every route on `cujo.spencerjireh.com` — reads as well as the approve route —
+- The plane split is by path, not by a third hostname, for that same reason:
+  this process never receives the public name, so a fourth branch in the host
+  dispatch would have to trust a forwarded header, and a header a client can
+  also send is not a boundary. `/public` is mounted on its own router beside
+  the gated one rather than under it, so the Access middleware cannot match it
+  by accident.
+- The UI itself is `apps/web`, a separate service on both
+  `cujo.spencerjireh.com` and `cujo-admin.spencerjireh.com`. It proxies
+  `/api/cujo/*` and the run stream to this process, forwarding the Access
+  assertion on the operator hostname and forwarding none — and refusing any
+  path outside `/public` — on the public one, so the API is same-origin with
+  the page and needs no public route of its own (decision 27).
+- Every route outside `/public` — reads as well as the approve route —
   requires a `Cf-Access-Jwt-Assertion` header that verifies against the
   Cloudflare Access public keys for the application's audience tag. A missing
   or invalid token is 401. Cloudflare Access at the edge is the first gate;

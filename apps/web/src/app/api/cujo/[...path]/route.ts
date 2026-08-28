@@ -1,4 +1,5 @@
 import { CUJO_API_URL } from "@/lib/api/client";
+import { modeForHost, publicHost } from "@/lib/api/mode";
 import { headers } from "next/headers";
 
 /**
@@ -11,6 +12,11 @@ import { headers } from "next/headers";
  *
  * `apps/cujo` still verifies the assertion itself, so this forwards rather than
  * terminates the check.
+ *
+ * On the public hostname it forwards only `/public/*` and forwards no
+ * assertion. `apps/cujo` would refuse a gated path anyway, so this is the
+ * second gate rather than the first — the same defence in depth decision 33
+ * relied on when the origin turned out to be reachable by IP.
  */
 
 export const runtime = "nodejs";
@@ -23,8 +29,12 @@ async function forward(request: Request, path: string[]): Promise<Response> {
   }
 
   const incoming = await headers();
-  const assertion = incoming.get("cf-access-jwt-assertion");
   const host = incoming.get("host");
+  const mode = modeForHost(host, publicHost());
+  if (mode === "public" && path[0] !== "public") {
+    return Response.json({ ok: false, error: "not found" }, { status: 404 });
+  }
+  const assertion = mode === "public" ? null : incoming.get("cf-access-jwt-assertion");
   const contentType = request.headers.get("content-type");
 
   const target = new URL(`${CUJO_API_URL()}/${path.map(encodeURIComponent).join("/")}`);

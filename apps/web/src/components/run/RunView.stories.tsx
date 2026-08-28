@@ -1,4 +1,6 @@
+import { PlaneProvider } from "@/app/providers";
 import { runKeys } from "@/lib/api/keys";
+import type { Mode } from "@/lib/api/mode";
 import type { Run } from "@/lib/api/types";
 import { cleanChecks, findings, review, run, runningChecks } from "@/lib/fixtures";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
@@ -10,13 +12,15 @@ import { RunView } from "./RunView";
  * involved. The stream hook only opens a connection for a live run, so the
  * terminal stories are inert.
  */
-function withRun(seed: Run) {
+function withRun(seed: Run, mode: Mode = "operator") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(runKeys.detail(seed.id), seed);
+  client.setQueryData(runKeys.detail(mode, seed.id), seed);
   return function Decorated(Story: () => React.ReactElement) {
     return (
       <QueryClientProvider client={client}>
-        <Story />
+        <PlaneProvider mode={mode} adminBaseUrl="https://cujo-admin.example.com">
+          <Story />
+        </PlaneProvider>
       </QueryClientProvider>
     );
   };
@@ -93,6 +97,27 @@ export const ContradictoryError: Story = {
         error:
           "advisory review posted while a hard rule had tripped: an install contacted an unknown host",
       }),
+    ),
+  ],
+};
+
+/**
+ * The same blocked run as an anonymous visitor sees it: no approver named, no
+ * buttons, and a link to where the decision is actually made.
+ */
+export const PublicAwaitingApproval: Story = {
+  args: { id: "run-1" },
+  decorators: [
+    withRun(
+      run({
+        approver: undefined,
+        decided_at: undefined,
+        session_id: undefined,
+        turn_ids: undefined,
+        approval: undefined,
+        external_resume: undefined,
+      }),
+      "public",
     ),
   ],
 };

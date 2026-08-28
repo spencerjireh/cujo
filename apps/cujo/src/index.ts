@@ -9,6 +9,7 @@ import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { buildAgentSpec } from "./review/agent-spec";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
+import { VisibilityService } from "./review/visibility.service";
 import { Store } from "./store";
 
 export { createApp } from "./http/router";
@@ -44,14 +45,15 @@ async function main(): Promise<void> {
   const runner = new Runner(store.runs, harness, { turnTimeoutMs: config.turnTimeoutMs });
   const github = new GitHubReader(config.githubAppId, config.githubAppPrivateKey);
   const spec = buildAgentSpec(config);
+  // Where a Discord card points. A public run links to the board anyone can
+  // open; everything else links to the gated UI (decision 34).
+  const links = { uiBaseUrl: config.uiBaseUrl, publicBaseUrl: config.publicBaseUrl };
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status
   // while the process was down is still reported.
   const discord = config.discordBotToken ? new DiscordClient(config.discordBotToken) : null;
-  const notifier = discord
-    ? new DiscordNotifier({ store, client: discord, github, uiBaseUrl: config.uiBaseUrl })
-    : null;
+  const notifier = discord ? new DiscordNotifier({ store, client: discord, github, links }) : null;
   if (notifier) {
     runner.changes.on(ANY_RUN, (view: RunView | null) => notifier.onRunChanged(view));
   }
@@ -66,7 +68,7 @@ async function main(): Promise<void> {
           store: store.notifications,
           discord,
           github,
-          uiBaseUrl: config.uiBaseUrl,
+          links,
         }
       : null;
   if (interactions && discord) {
@@ -88,6 +90,15 @@ async function main(): Promise<void> {
     runner.rehydrate(run).catch((error) => console.error(`rehydrate ${run.id} failed`, error));
   }
 
+  // Reconciles the public board's `is_public` stamps behind the `repository`
+  // webhook, and backfills the rows that predate the column (decision 34).
+  const visibility = new VisibilityService({
+    runs: store.runs,
+    github,
+    intervalMs: config.visibilityRecheckMs,
+  });
+  visibility.start();
+
   const app = createApp({
     uiHost: config.uiHost,
     internalHost: config.internalHost,
@@ -99,6 +110,11 @@ async function main(): Promise<void> {
       verify,
       github,
       ...(discord ? { discord } : {}),
+    },
+    public: {
+      runs: store.runs,
+      runner,
+      streamLimit: config.publicStreamLimit,
     },
     webhook: {
       secret: config.githubWebhookSecret,
@@ -123,6 +139,7 @@ async function main(): Promise<void> {
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
+    visibility.stop();
     runner.stopAll();
     server.close();
     void (notifier?.flush(5_000) ?? Promise.resolve()).finally(() => {
