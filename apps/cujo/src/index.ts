@@ -92,7 +92,14 @@ async function main(): Promise<void> {
     uiHost: config.uiHost,
     internalHost: config.internalHost,
     webhookHost: config.webhookHost,
-    api: { store, runner, verify, github, ...(discord ? { discord } : {}) },
+    api: {
+      runs: store.runs,
+      notifications: store.notifications,
+      runner,
+      verify,
+      github,
+      ...(discord ? { discord } : {}),
+    },
     webhook: {
       secret: config.githubWebhookSecret,
       github,

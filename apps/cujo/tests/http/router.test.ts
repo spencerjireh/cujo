@@ -52,7 +52,12 @@ function build(
     uiHost: UI,
     internalHost: INTERNAL,
     webhookHost: HOOK,
-    api: { store, runner, verify: async (t) => (t === "good" ? "op@example.com" : null) },
+    api: {
+      runs: store.runs,
+      notifications: store.notifications,
+      runner,
+      verify: async (t) => (t === "good" ? "op@example.com" : null),
+    },
     webhook: {
       secret: "s3",
       github,
@@ -201,7 +206,12 @@ describe("webhook", () => {
     const app = createApp({
       uiHost: UI,
       webhookHost: HOOK,
-      api: { store, runner, verify: async () => null },
+      api: {
+        runs: store.runs,
+        notifications: store.notifications,
+        runner,
+        verify: async () => null,
+      },
       webhook: {
         secret: "s3",
         github: {} as GitHubReader,
