@@ -535,7 +535,12 @@ the process, not only at the edge:
   `/api/cujo/*` and the run stream to this process, forwarding the Access
   assertion on the operator hostname and forwarding none — and refusing any
   path outside `/public` — on the public one, so the API is same-origin with
-  the page and needs no public route of its own (decision 27).
+  the page and needs no public route of its own (decision 27). When this
+  process is unreachable the proxy answers `502` with
+  `{ok: false, error: "cujo is unreachable"}`, rather than letting the failed
+  fetch surface as an unhandled `500` that says nothing (decision 37). It also
+  forwards `Cf-Ray`, so a line from the UI and a line from this process share
+  one correlation id.
 - Every route outside `/public` — reads as well as the approve route —
   requires a `Cf-Access-Jwt-Assertion` header that verifies against the
   Cloudflare Access public keys for the application's audience tag. A missing

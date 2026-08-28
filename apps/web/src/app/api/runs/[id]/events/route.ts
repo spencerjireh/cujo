@@ -47,7 +47,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   }
 
   if (!upstream.ok || !upstream.body) {
-    const { event, level } = streamOutcome(upstream.status, upstream.ok);
+    const { event, level } = streamOutcome(upstream.status, upstream.ok, "operator");
     log[level](event, {
       run_id: id,
       mode: "operator",
