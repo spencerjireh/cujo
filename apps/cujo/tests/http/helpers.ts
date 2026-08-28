@@ -50,6 +50,8 @@ export function build(
     isReady: () => boolean;
     /** Overridden by the secret sweep, so the value under test is the real one. */
     webhookSecret: string;
+    /** The one call the webhook makes to another service, so the one that can fail. */
+    createSession: () => Promise<string>;
   }> = {},
 ) {
   const store = new Store(":memory:");
@@ -101,7 +103,7 @@ export function build(
       github,
       store: store.runs,
       runner,
-      createSession: async () => "sess-1",
+      createSession: overrides.createSession ?? (async () => "sess-1"),
       ...(overrides.isReady ? { isReady: overrides.isReady } : {}),
       reviewRunId: (run) => (run.isPublic ? run.id : ""),
       onClaimed: (run) => claimed.push(run.id),
