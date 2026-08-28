@@ -96,6 +96,21 @@ export function runRoutes(deps: RunRoutesDeps): Hono<Env> {
       return c.json({ ok: false, error: "decision must be allow or deny" }, 400);
     }
     const runId = c.req.param("id");
+    // Two facts, and they have to be two fields: which request decided, and
+    // which delivery started the run it decided about. `ray` is the request's,
+    // bound by the middleware — a call-site `ray:` would be silently discarded,
+    // since bound fields beat call-site ones. So the run's side is
+    // `delivery_id`, the same pair the webhook already binds, and the same
+    // field `runLogger` puts on `approve.applied`. That is what lets the two
+    // halves of the audit pair be joined by something other than `run_id`.
+    //
+    // Read the row, not the view. `view()` also loads and JSON-parses the
+    // projection, so a corrupt or unreadable projection would throw here and
+    // lose the audit line for a reason that has nothing to do with the
+    // approval — the record of who asked must not depend on anything but the
+    // row that holds the answer. Omitted when null, matching `runLogger`, for
+    // a run claimed before the column existed.
+    const deliveryId = deps.runs.getRun(runId)?.deliveryId;
     // The request, before its outcome. `approve.applied` is emitted by the
     // runner once the resume lands, so the pair brackets the one action on
     // this service a human takes with their own name on it.
@@ -103,7 +118,7 @@ export function runRoutes(deps: RunRoutesDeps): Hono<Env> {
       run_id: runId,
       decision: body.decision,
       actor: c.get("email"),
-      request_ray: c.get("ray"),
+      ...(deliveryId ? { delivery_id: deliveryId } : {}),
     });
     const result = await deps.runner.approve(runId, body.decision, c.get("email"));
     // `detail` keeps the wording the UI already shows; `reason` is the
