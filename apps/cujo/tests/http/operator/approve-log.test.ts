@@ -54,8 +54,12 @@ describe("approve.requested", () => {
     });
   });
 
-  it("carries the operator's own request ray, distinct from the run's", async () => {
-    // Two facts: which delivery started the run, and which request decided it.
+  it("carries the request that decided and the delivery that started the run", async () => {
+    // Two facts, and the point is that they are two. The previous version of
+    // this test was named for the distinction and never checked it: it read
+    // only `request_ray`, which the handler set from the same request ray the
+    // middleware had already bound, so the two ids on the line were always
+    // equal and nothing said so.
     const { app, logged } = build(view("blocked_pending"));
     await app.fetch(
       new Request("http://cujo.test/runs/r1/approve", {
@@ -64,10 +68,24 @@ describe("approve.requested", () => {
         body: JSON.stringify({ decision: "deny" }),
       }),
     );
-    expect(logged("approve.requested")[0]).toMatchObject({
-      request_ray: "operator-ray",
+    const [line] = logged("approve.requested");
+    expect(line).toMatchObject({
+      ray: "operator-ray",
+      delivery_id: "delivery-1",
       decision: "deny",
     });
+    // The assertion the old test was missing.
+    expect(line?.ray).not.toBe(line?.delivery_id);
+  });
+
+  it("says nothing about a delivery for a run claimed before the column existed", async () => {
+    // `runLogger` binds neither `ray` nor `delivery_id` when `deliveryId` is
+    // null, and this line matches it rather than reporting a null id.
+    const stale = view("blocked_pending");
+    (stale.run as { deliveryId: string | null }).deliveryId = null;
+    const { app, logged } = build(stale);
+    await approve(app);
+    expect(logged("approve.requested")[0]).not.toHaveProperty("delivery_id");
   });
 });
 
