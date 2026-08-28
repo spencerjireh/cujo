@@ -104,6 +104,18 @@ export async function postReview(
   async function post(): Promise<ReviewResult> {
     const files = await github.listPullFiles(input.repo, input.pr_number);
     const { inline, moved } = validateAnchors(files, input.comments);
+    for (const { comment, reason } of moved) {
+      // One line per rejected anchor, because `moved_to_body` is a count with
+      // no explanation: an agent citing a file the PR does not touch and one
+      // citing a real file outside the hunk are different mistakes, and only
+      // the first suggests the rubric is pointing it at the wrong thing.
+      log.info("review.anchor.moved", {
+        repo: input.repo,
+        pr_number: input.pr_number,
+        path: comment.path,
+        reason,
+      });
+    }
     const review = await github.createReview(input.repo, input.pr_number, {
       commitId: input.head_sha,
       event,

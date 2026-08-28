@@ -31,9 +31,25 @@ export interface AnchoredComment extends ReviewComment {
   side: Side;
 }
 
+/**
+ * Why a comment could not be anchored to the diff.
+ *
+ * The three branches were always distinguished internally and then thrown
+ * away, which left `moved_to_body` as a count with no explanation: an agent
+ * citing a file the PR does not touch and an agent citing a real file at a
+ * line outside the hunk are different mistakes, and only the first suggests
+ * the rubric is pointing it at the wrong thing.
+ */
+export type MovedReason = "file_not_in_diff" | "line_not_in_hunk" | "bad_line";
+
+export interface MovedComment {
+  comment: ReviewComment;
+  reason: MovedReason;
+}
+
 export interface AnchorResult {
   inline: AnchoredComment[];
-  moved: ReviewComment[];
+  moved: MovedComment[];
 }
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
@@ -103,26 +119,36 @@ export function validateAnchors(files: PullFile[], comments: ReviewComment[]): A
   for (const file of files) byPath.set(file.filename, parseDiffLines(file.patch));
 
   const inline: AnchoredComment[] = [];
-  const moved: ReviewComment[] = [];
+  const moved: MovedComment[] = [];
 
   for (const comment of comments) {
     const side: Side = comment.side ?? "RIGHT";
     const lines = byPath.get(comment.path);
-    const present = lines ? (side === "LEFT" ? lines.left : lines.right).has(comment.line) : false;
-    if (present && Number.isInteger(comment.line) && comment.line > 0) {
-      inline.push({ ...comment, side });
-    } else {
-      moved.push(comment);
+    if (!Number.isInteger(comment.line) || comment.line <= 0) {
+      moved.push({ comment, reason: "bad_line" });
+      continue;
     }
+    if (!lines) {
+      moved.push({ comment, reason: "file_not_in_diff" });
+      continue;
+    }
+    if (!(side === "LEFT" ? lines.left : lines.right).has(comment.line)) {
+      moved.push({ comment, reason: "line_not_in_hunk" });
+      continue;
+    }
+    inline.push({ ...comment, side });
   }
   return { inline, moved };
 }
 
 /** Append the comments that lost their anchor to the review body. */
-export function appendMovedComments(body: string, moved: ReviewComment[]): string {
+export function appendMovedComments(body: string, moved: MovedComment[]): string {
   if (moved.length === 0) return body;
+  // The reason is for the log, not for the review: a reader of the pull
+  // request wants the finding, and "line_not_in_hunk" is Cujo talking about
+  // itself. The rendered section is unchanged.
   const lines = moved.map(
-    (c) => `- \`${c.path}:${c.line}\` (${c.side ?? "RIGHT"}): ${c.body.trim()}`,
+    ({ comment: c }) => `- \`${c.path}:${c.line}\` (${c.side ?? "RIGHT"}): ${c.body.trim()}`,
   );
   return `${body.trimEnd()}\n\n### Findings without a diff anchor\n\n${lines.join("\n")}\n`;
 }

@@ -28,6 +28,45 @@ export interface CreatedReview {
   html_url: string;
 }
 
+/**
+ * A GitHub call that did not return 2xx.
+ *
+ * Status and path are fields, not text inside the message, so `errorFields`
+ * can classify the failure and a caller can tell an expected 404 from a real
+ * outage without a regular expression.
+ *
+ * The raw response body is deliberately **not** interpolated. It used to be,
+ * and that is how an upstream body — which can echo a header or a token back —
+ * reached a log line. GitHub's own `message` field is extracted instead: a
+ * known short string rather than whatever the server chose to send, and capped
+ * on top of that (decision 37).
+ */
+export class GitHubError extends Error {
+  constructor(
+    readonly status: number,
+    readonly path: string,
+    readonly method: string,
+    detail: string,
+  ) {
+    super(`GitHub ${method} ${path} returned ${status}${detail ? `: ${detail}` : ""}`);
+    this.name = "GitHubError";
+  }
+}
+
+/** GitHub's documented error envelope, and nothing else from the body. */
+function detailFrom(body: string): string {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const message =
+      typeof parsed === "object" && parsed !== null ? Reflect.get(parsed, "message") : null;
+    return typeof message === "string" ? message.slice(0, 200) : "";
+  } catch {
+    // Not JSON, so nothing here is a field this code recognises. Saying
+    // nothing beats forwarding an unknown payload into the log.
+    return "";
+  }
+}
+
 export interface GitHubClient {
   listPullFiles(repo: string, prNumber: number): Promise<PullFile[]>;
   createReview(repo: string, prNumber: number, input: CreateReviewInput): Promise<CreatedReview>;
@@ -85,7 +124,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`GitHub ${init.method ?? "GET"} ${path} failed: ${response.status} ${text}`);
+      throw new GitHubError(response.status, path, init.method ?? "GET", detailFrom(text));
     }
     return (await response.json()) as T;
   }
