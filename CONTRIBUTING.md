@@ -27,6 +27,32 @@ Qodo can review, and the review trail is part of what's judged.
 Qodo runs on this repo only. The demo PRs on `orders-api` are reviewed by
 `cujo-guard[bot]` itself, so a second bot there would muddy that story.
 
+## Pull request descriptions
+
+The description explains *why*, not what the diff already shows. A reviewer reads
+it before the code, so it should answer what the change is for, what was
+considered, and what is not done. The level of detail scales with the type of
+change:
+
+**`feat` / `fix`** — the heaviest. Say what was wrong or missing, why this
+approach (and what was rejected when there is a real choice), what changed per
+concern, how it was verified (test counts, manual steps), and what is known to
+be incomplete or deferred. If the change touches the trust boundary, the deploy,
+or the human gate, name the specific contract or decision it follows.
+
+**`refactor`** — say what moved and why, confirm no behavior changed, and cite
+CI or test results that prove it. A refactor that silently changes behavior is a
+bug, and the description is where a reviewer checks.
+
+**`docs`** — a short paragraph is enough: what was missing, why it matters now.
+The commit body often covers it; the PR body can echo or extend that.
+
+**`ci` / `build` / `chore`** — brief. What changed and why, any verification
+that is not obvious from the diff.
+
+**`test`** — what is now covered that was not, and why it was worth adding. If
+the test exercises a specific contract or decision, name it.
+
 ## Standards
 
 The standards Qodo checks and reviewers hold to. At code time they are mirrored
