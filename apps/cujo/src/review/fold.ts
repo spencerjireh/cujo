@@ -5,11 +5,12 @@ import {
   type CheckName,
   type DraftedReview,
   type Finding,
+  type PendingApproval,
   type Projection,
   type ReviewComment,
 } from "./types";
 
-type Event = TrueForgeApi.SessionEvent | TrueForgeApi.TurnStreamingEvent;
+export type Event = TrueForgeApi.SessionEvent | TrueForgeApi.TurnStreamingEvent;
 
 const REVIEW_TOOLS = new Set(["post_advisory_review", "post_blocking_review"]);
 
@@ -266,4 +267,52 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
     }
   }
   return p;
+}
+
+/**
+ * The approval the session is still waiting on, or null.
+ *
+ * `fold` cannot answer this. It never clears `approval`, and `decision` does
+ * not record which tool call it answered, so a session holding one answered
+ * and one outstanding approval folds to both fields set — indistinguishable
+ * from an approval that was already dealt with.
+ *
+ * The question matters because an approval is outstanding on the session, not
+ * on the turn that requested it: while one is pending, TrueForge refuses every
+ * later user message on the thread (decision 39).
+ */
+export function pendingApproval(events: readonly Event[]): PendingApproval | null {
+  let candidate: PendingApproval | null = null;
+  for (const event of events) {
+    switch (event.type) {
+      case "tool.approval_required": {
+        // Read defensively: the events come off the wire, and the answer here
+        // decides whether Cujo sends a deny. A shape that does not carry an
+        // identifiable tool call is no evidence that anything is pending.
+        const call = event.toolCalls?.[0];
+        // Only `main` may hold a review tool call. A request on any other
+        // thread is the design violation `fold` reports as an error, and
+        // answering it is not this function's business.
+        if (!call?.id || event.threadId !== "main") break;
+        candidate = {
+          threadId: event.threadId,
+          toolCallId: call.id,
+          sourceEventId: call.sourceEventId,
+        };
+        break;
+      }
+      case "turn.created": {
+        const id = candidate?.toolCallId;
+        if (!id) break;
+        const answered = event.input?.some(
+          (item) => item.type === "user.tool_approval" && item.toolCallId === id,
+        );
+        if (answered) candidate = null;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return candidate;
 }

@@ -38,6 +38,9 @@ export const EVENT_NAMES = [
   "webhook.ignored",
   "webhook.deferred",
   "webhook.rejected",
+  // The delivery was good and the run still could not be claimed. Its own name
+  // because it is not a refusal: nothing about the request was wrong.
+  "webhook.failed",
   "repo.visibility.changed",
   // A run's life, from the claim to a terminal status.
   "run.skipped",
@@ -57,6 +60,12 @@ export const EVENT_NAMES = [
   "run.subscriber.threw",
   "run.cancel.failed",
   "run.status.changed",
+  // Answering an approval nobody is going to decide, so the session can take
+  // another turn (decision 39). Cujo denying on its own behalf, never a human
+  // decision — those are `approve.*` and must stay tellable apart.
+  "run.approval.cleared",
+  "run.approval.clear.failed",
+  "run.approval.clear.skipped",
   "check.started",
   "check.finished",
   // The Access gate and the one route where a human decides.

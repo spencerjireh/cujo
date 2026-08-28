@@ -284,6 +284,10 @@ rather than trusting delivery order, because a delayed delivery for an older
 commit can arrive after the newer one. Chosen over keeping both runs live,
 which would let a human approve a blocking review on a stale SHA.
 
+Cancelling the turn turned out not to be enough for a run that was waiting on a
+human: a superseded run answers its pending approval too, or the pull request
+becomes unreviewable for good (decision 39).
+
 ## 21. The hard rules are re-derived in `apps/cujo`, not only in the rubric
 
 Contract 3 calls Layer 1 "deterministic, code", but until this decision the
@@ -1009,7 +1013,6 @@ named `log` or `logger`, and nothing else. A computed name is already a type
 error, since the parameter is a union of string literals, so the scan and the
 compiler cover each other's gap — but neither alone is sufficient, and a third
 way of reaching the logger would escape both.
-||||||| parent of c6ba3e7 (feat(cujo): react on the pull request as the run's status moves)
 
 ## 38. `apps/cujo` may write a reaction; the gate is about reviews, not writes
 
@@ -1116,3 +1119,76 @@ run's verdict. It takes a delayed delivery and a transient GitHub failure at the
 same moment, it self-corrects on the next push, and closing it would mean
 teaching the reactor which run is newest for a pull request — a store query on
 the fold path to buy back an emoji.
+
+## 39. A superseded run answers its pending approval
+
+Decision 20 says a superseded run cancels its turn so it cannot post a review
+for a commit nobody is looking at. That was not enough, and the gap made the
+ordinary workflow fail: Cujo blocks a pull request, the author pushes the fix,
+and the fix is never reviewed. Every head after the block failed to start with
+
+```
+422 thread main: user message cannot be sent while approvals or questions are pending
+```
+
+An approval is outstanding on the **session**, not on the turn that raised it.
+`tool.approval_required` ends the turn it arrives in (Contract 4), so by the
+time a newer head arrives there is nothing left to cancel, and `sessions.cancel`
+was never the call that answers it. Decision 16 keys the session on the pull
+request, so the wedge is permanent: that pull request can never be reviewed
+again. Reproduced on `orders-api` PR 5, which had to be closed and reopened
+before the run could complete.
+
+So `supersede` now denies the approval before cancelling, with a reason of its
+own. The operator's deny says a human rejected the block; here nobody rejected
+anything, and the string reaches the model, which the rubric tells to end its
+turn saying the block was denied. `STALE_DENY_REASON` says the commit was
+replaced instead. The deny starts a turn, which is cancelled straight after:
+that turn holds a review of a head nobody is looking at, and `supersede`'s
+caller starts the newer head's turn as soon as it resolves. The deny turn is
+recorded through `addCujoTurn`, so a replay can never read it as a resume sent
+from outside and stamp the run `approver: external`. The run stays
+`superseded`, never `denied` — `denied` means an operator said no.
+
+The cancel is unconditional, and that is load-bearing. `claimDecision` sets the
+approver without moving the status off `blocked_pending`, so an operator's
+resume can be in flight and invisible to `supersede`. If that decision answered
+the approval first, the deny fails — and the turn it started is reviewing a
+commit nobody is looking at. Decision 20's cancel is what stops it posting, so a
+failed deny falls through to it rather than returning.
+
+That closes the one known cause. It does not heal a session already wedged, so
+`Runner.start` retries once: on any `startTurn` failure it looks for an
+approval left pending on the session (`pendingApproval` in `review/fold.ts`),
+denies it, and tries again. `fold` cannot answer that question — it never
+clears `approval`, and `decision` does not record which tool call it answered,
+so a session holding one answered and one outstanding approval folds to both
+fields set.
+
+The heal refuses while any other run on the session is unfinished — `running`
+included, not only `blocked_pending`. A run whose turn has already raised
+`tool.approval_required` stays `running` until its own stream folds that event,
+so an approval the server reports as pending can belong to a run that has not
+reached the waiting state yet; a `blocked_pending`-only guard would answer for
+that human. The check is repeated after `listEvents`, which is a round trip a
+run can cross the line during. It costs nothing in the case that matters:
+`startRun` supersedes every older run on the pull request before it starts a
+turn, so by the time a heal is possible they are all terminal.
+
+Chosen over / Rejected: **matching the 422 text** to decide whether to retry,
+which pins Cujo to wording that belongs to TrueForge and fails silently when it
+changes — `startTurn` failing at all is rare enough to afford one `listEvents`;
+**a session per head SHA**, which reverses decision 16 and costs the agent its
+memory of what it already said on the pull request, to fix a lifecycle bug;
+**cancelling the approval without answering it**, which is what the code
+already did and is the bug; **leaving the wedge and telling operators to reopen
+the pull request**, which turns a Cujo defect into a manual step on the exact
+path the product exists to serve; **denying whatever is pending with no guard
+on the other runs**, which is simpler and would eventually answer for a human
+mid-decision; and **an atomic store claim over the session** to serialise the
+heal against an operator, which is the general answer but buys nothing the
+unconditional cancel does not already cover.
+
+Known limit: if the deny itself fails, the session stays wedged exactly as it
+was. The next head retries it through `start`, so the wedge is no longer
+permanent, but that head's run still ends in `error` first.
