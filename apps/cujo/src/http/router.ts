@@ -4,7 +4,8 @@ import { type InteractionDeps, interactionRoutes } from "./ingress/discord-inter
 import { type WebhookDeps, webhookRoutes } from "./ingress/github-webhook";
 import { type OperatorDeps, operatorRoutes } from "./operator";
 import { type PublicDeps, publicRoutes } from "./public";
-import { type Plane, type RequestEnv, requestLogger } from "./request-log";
+import type { StreamLimit } from "./public/stream-limit";
+import { type Plane, type RequestEnv, requestLogger, withRay } from "./request-log";
 
 export interface AppOptions {
   uiHost: string;
@@ -52,7 +53,7 @@ const PROBE_PATHS = new Set(["/healthz", "/readyz"]);
  * `putSession` and `createRun` synchronously, so an unreachable store means no
  * run can be claimed however healthy the harness is.
  */
-function readyz(options: AppOptions) {
+function readyz(options: AppOptions, limit: StreamLimit) {
   const harnessReady = options.webhook.isReady?.() ?? true;
   const storeOk = options.api.runs.ping();
   const ready = harnessReady && storeOk;
@@ -65,6 +66,9 @@ function readyz(options: AppOptions) {
         harness: harnessReady ? "ready" : "bootstrapping",
         store: storeOk ? "ok" : "error",
       },
+      // Contract 6. `active()` existed and was reachable from nothing until
+      // now: `publicRoutes` returns it and `router.ts` used only `.app`.
+      public_streams: { active: limit.active(), limit: options.public.streamLimit },
       // Lines the logger could not write. A service quietly dropping its own
       // audit trail should be visible somewhere, and this is that somewhere.
       log_failures: logFailureCount(),
@@ -91,13 +95,21 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
   // its Access check with `app.use("*")`, which would otherwise also match
   // /public/* and leave the split resting on Hono's handler ordering — true
   // today, invisible to a reviewer, and one `await next()` from being false.
-  const gated = new Hono();
+  // Every instance the outer router delegates to re-derives the ray from the
+  // request, because `fetch` on a Hono instance builds a fresh context and
+  // nothing set on the outer one survives the hop. They agree because the ray
+  // travels on the request, not because they each guess the same way.
+  const gated = new Hono<RequestEnv>();
+  gated.use("*", requestLogger(options.log, "delegated"));
   gated.route("/", operatorRoutes(options.api));
 
-  const ui = new Hono();
+  const publicPlane = publicRoutes(options.public);
+
+  const ui = new Hono<RequestEnv>();
+  ui.use("*", requestLogger(options.log, "delegated"));
   ui.get("/healthz", (c) => c.json(HEALTHZ));
   ui.get("/readyz", (c) => {
-    const { body, status } = readyz(options);
+    const { body, status } = readyz(options, publicPlane.limit);
     return c.json(body, status);
   });
   // The webhook is never reachable on the UI host, not even as a 401. The same
@@ -105,14 +117,17 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
   // ingress, and neither belongs behind Access.
   ui.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
   ui.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
-  ui.route("/public", publicRoutes(options.public).app);
-  // Everything else on this host is behind the Access check.
+  ui.route("/public", publicPlane.app);
+  // Everything else on this host is behind the Access check. The raw request
+  // already carries the ray header, so the gated instance re-derives the same
+  // one rather than inventing a second.
   ui.all("*", (c) => gated.fetch(c.req.raw));
 
-  const webhook = new Hono();
+  const webhook = new Hono<RequestEnv>();
+  webhook.use("*", requestLogger(options.log, "delegated"));
   webhook.get("/healthz", (c) => c.json(HEALTHZ));
   webhook.get("/readyz", (c) => {
-    const { body, status } = readyz(options);
+    const { body, status } = readyz(options, publicPlane.limit);
     return c.json(body, status);
   });
   webhook.route("/", webhookRoutes(options.webhook));
@@ -122,27 +137,42 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
   // Above the host split, so every request has a ray — including one for an
   // unknown Host, which is exactly the request somebody will be trying to
   // explain.
-  app.use("*", requestLogger(options.log));
+  app.use("*", requestLogger(options.log, "edge"));
   app.all("*", async (c) => {
     const host = hostOf(c.req.header("host"));
     const path = new URL(c.req.url).pathname;
     const started = Date.now();
+    const ray = c.get("ray");
     let plane: Plane = "unknown";
+    // Only a probe this service actually answered. Suppressing by path alone
+    // would hide an unknown host asking for /healthz, which is a 404 and not a
+    // probe — and is exactly the request the unknown-host rule exists for.
+    let probe = false;
 
     const answer = async (): Promise<Response> => {
+      const forwarded = withRay(c.req.raw, ray);
       if (host === options.uiHost || (options.internalHost && host === options.internalHost)) {
-        plane = path.startsWith("/public") ? "public" : "operator";
-        return ui.fetch(c.req.raw);
+        // Exactly the mount, not every path that starts with those characters:
+        // `/publicity` falls through to the gated router, so calling it public
+        // would put the wrong trust boundary on the line.
+        plane = path === "/public" || path.startsWith("/public/") ? "public" : "operator";
+        probe = PROBE_PATHS.has(path);
+        return ui.fetch(forwarded);
       }
       if (host === options.webhookHost) {
         plane = "ingress";
-        return webhook.fetch(c.req.raw);
+        probe = PROBE_PATHS.has(path);
+        return webhook.fetch(forwarded);
       }
       // The compose healthcheck hits 127.0.0.1 directly.
       if (host === "127.0.0.1" || host === "localhost") {
-        if (path === "/healthz") return c.json(HEALTHZ);
+        if (path === "/healthz") {
+          probe = true;
+          return c.json(HEALTHZ);
+        }
         if (path === "/readyz") {
-          const { body, status } = readyz(options);
+          probe = true;
+          const { body, status } = readyz(options, publicPlane.limit);
           return c.json(body, status);
         }
       }
@@ -150,7 +180,7 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
     };
 
     const response = await answer();
-    if (!PROBE_PATHS.has(path)) {
+    if (!probe) {
       c.get("log").info("http.request", {
         plane,
         method: c.req.method,

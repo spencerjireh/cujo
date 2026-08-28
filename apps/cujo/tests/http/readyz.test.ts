@@ -78,6 +78,16 @@ describe("/readyz", () => {
     });
   });
 
+  it("reports the public stream count Contract 6 promises", async () => {
+    // `active()` existed and was reachable from nothing: publicRoutes returned
+    // it and router.ts used only `.app`.
+    const { app } = build({ streamLimit: 7 });
+    const body = (await (await app.fetch(req(UI, "/readyz"))).json()) as {
+      public_streams: { active: number; limit: number };
+    };
+    expect(body.public_streams).toEqual({ active: 0, limit: 7 });
+  });
+
   it("reports how many log lines were lost", async () => {
     const { app } = build();
     const body = (await (await app.fetch(req(UI, "/readyz"))).json()) as {
