@@ -610,3 +610,36 @@ into a GitHub issue), which proves the same thing but is a stateful dance with
 expiry and replay to get right and leaves no lasting record of the decision.
 Also rejected, again, Manage Server alone — it still lets any server admin bind
 any repo Cujo knows about.
+
+## 32. The origin accepts Cloudflare only; the ACME path is bypassed to match
+
+Cloudflare proxies all three hostnames, so until now the server's own address
+was a path that skipped Access: fetching `https://cujo.spencerjireh.com/`
+against the origin IP returned the operator UI with no login. Nothing leaked,
+because `access.ts` re-checks the assertion on every request (Contract 6), so
+`/api/*` answered `401` and only the empty shell rendered, which is the case
+the second gate was written for. A Hetzner Cloud firewall now accepts ports 80
+and 443, TCP and the UDP used by HTTP/3, only from Cloudflare's published
+ranges. Port 22 stays open: the Coolify control plane deploys over it from
+another host (see 2), its egress address is not fixed, and narrowing it would
+risk every future deploy to close a door that already needs a key.
+
+Locking the origin surfaced a second problem that predates it. Traefik answers
+the Let's Encrypt HTTP-01 challenge and has no DNS challenge configured, but
+Access sat in front of `/.well-known/acme-challenge` on
+`cujo.spencerjireh.com`, so Let's Encrypt was served a login page instead of
+the token and the certificate would have failed to renew on 2026-10-24,
+expiring on 11-23. A
+second Access application scoped to that path, holding one bypass policy, now
+lets the challenge through; the path serves single-use random tokens and is
+public by design. `cujo-ingress` was never affected, having no Access policy
+(see 7), and `cujo-harness` uses a Cloudflare Origin CA certificate that does
+not renew.
+
+Chosen over an on-host `iptables` rule, which Docker's own chains bypass unless
+it is written into `DOCKER-USER`, and which can lock the machine out with no
+undo; the Hetzner firewall sits outside the server and detaches in one call.
+Rejected: an Origin CA certificate for `cujo.spencerjireh.com` like the
+console's, which ends the renewal dependency but puts a fifteen-year
+certificate on the box and loses browser trust the moment the proxy is turned
+off; and restricting port 22 to a guessed control-plane address.

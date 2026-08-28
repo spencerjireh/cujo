@@ -229,3 +229,10 @@ Configuration reaches the services as environment variables set in Coolify;
 
 The Coolify control plane runs on a separate host (netcup) that never executes
 untrusted code.
+
+Cloudflare proxies all three hostnames, and a Hetzner Cloud firewall accepts
+ports 80 and 443 only from Cloudflare's published ranges, so the origin's own
+address is not a way past Access; port 22 stays open for the control plane.
+`cujo.spencerjireh.com` also carries a second Access application scoped to
+`/.well-known/acme-challenge` with a bypass policy, without which Traefik's
+HTTP-01 renewal is answered by the login page (decision 32).
