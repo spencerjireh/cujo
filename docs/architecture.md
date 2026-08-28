@@ -202,24 +202,28 @@ Coolify in a single `docker-compose` project so the services share a network.
   and the `github-mcp` connector, debug. Nobody approves a block there
   (decision 17).
 - **`postgres` + `redis`** — TrueForge hosted-mode state.
-- **`cujo`** — the `apps/cujo` service on two hostnames.
-  `https://cujo-ingress.spencerjireh.com` carries the two signature-gated
-  ingress routes, with no Access policy, since neither GitHub nor Discord can
-  solve an OTP challenge: `/webhook`, protected by the HMAC signature, and
-  `/discord/interactions`, protected by Ed25519 (Contract 8). That URL is what
-  the Discord application's Interactions Endpoint is set to.
-  `https://cujo.spencerjireh.com` carries the Cujo UI
-  and API behind Access; this is where a human sees a paused run and approves
-  a block. A volume holds its SQLite run store. It needs outbound HTTPS to
-  `api.github.com` and, when Discord is configured, to `discord.com`; with no
-  `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody.
+- **`cujo`** — the `apps/cujo` service, API-only since decision 27, on one
+  public hostname. `https://cujo-ingress.spencerjireh.com` carries the two
+  signature-gated ingress routes, with no Access policy, since neither GitHub
+  nor Discord can solve an OTP challenge: `/webhook`, protected by the HMAC
+  signature, and `/discord/interactions`, protected by Ed25519 (Contract 8).
+  That URL is what the Discord application's Interactions Endpoint is set to.
+  Its JSON API is not published; `web` reaches it at `http://cujo:8080` on the
+  compose network. A volume holds its SQLite run store. It needs outbound HTTPS
+  to `api.github.com` and, when Discord is configured, to `discord.com`; with
+  no `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody.
+- **`web`** — the `apps/web` operator UI on `https://cujo.spencerjireh.com`
+  behind Access; this is where a human sees a paused run and approves a block.
+  It proxies `/api/*` to `cujo` server-side, forwarding the Access assertion
+  rather than terminating the check, so the UI and the API stay same-origin
+  (decision 27).
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
 
-The DNS records and the two Access apps exist, and Coolify routes
-`cujo-harness.spencerjireh.com` to `server`. The `cujo` service's two hostnames
-are attached in Coolify once this compose file is on `main`, because Coolify
-only offers domains for services it has parsed from the deployed file.
+The DNS records and the two Access apps exist. Coolify routes
+`cujo-harness.spencerjireh.com` to `server`, `cujo-ingress.spencerjireh.com` to
+`cujo`, and `cujo.spencerjireh.com` to `web`; a hostname is attachable only
+once Coolify has parsed the service from the compose file on `main`.
 Configuration reaches the services as environment variables set in Coolify;
 `.env.example` lists every name.
 
