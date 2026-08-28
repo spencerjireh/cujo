@@ -22,9 +22,12 @@ function fakeGitHub() {
   return { client, posted };
 }
 
+const PUBLIC_BASE = "https://cujo.example.com";
+const RUN_ID = "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e";
+
 describe("github-mcp", () => {
   const github = fakeGitHub();
-  const server = createApp({ github: github.client });
+  const server = createApp({ github: github.client, publicBaseUrl: PUBLIC_BASE });
   let base = "";
 
   beforeAll(async () => {
@@ -100,13 +103,13 @@ describe("github-mcp", () => {
         head_sha: "abcdef1",
         body: "Tests: 212 passed.",
         comments: [{ path: "app.py", line: 50, body: "no such line" }],
-        run_url: "https://cujo.example.com/runs/r1",
+        run_id: RUN_ID,
       },
     });
     await client.close();
 
     const body = github.posted.at(-1)?.input.body ?? "";
-    expect(body.endsWith("Full evidence: https://cujo.example.com/runs/r1\n")).toBe(true);
+    expect(body.endsWith(`Full evidence: ${PUBLIC_BASE}/runs/${RUN_ID}\n`)).toBe(true);
     expect(body.indexOf("Full evidence")).toBeGreaterThan(body.indexOf("without a diff anchor"));
   });
 
@@ -127,21 +130,27 @@ describe("github-mcp", () => {
     expect(github.posted.at(-1)?.input.body).toBe("Tests: 212 passed.");
   });
 
-  it("rejects a run_url that is not a URL", async () => {
+  it("rejects a run_id that is not a UUID, so no URL can be smuggled in", async () => {
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
-    const result = await client.callTool({
-      name: "post_blocking_review",
-      arguments: {
-        repo: "spencerjireh/orders-api",
-        pr_number: 7,
-        head_sha: "abcdef1",
-        body: "x",
-        run_url: "javascript:alert(1)",
-      },
-    });
+    for (const bad of [
+      "https://evil.example.com/runs/x",
+      `${RUN_ID}\n\n## Merged and approved`,
+      "../../evil",
+    ]) {
+      const result = await client.callTool({
+        name: "post_blocking_review",
+        arguments: {
+          repo: "spencerjireh/orders-api",
+          pr_number: 7,
+          head_sha: "abcdef1",
+          body: "x",
+          run_id: bad,
+        },
+      });
+      expect(result.isError).toBe(true);
+    }
     await client.close();
-    expect(result.isError).toBe(true);
   });
 
   it("rejects input that fails the schema", async () => {

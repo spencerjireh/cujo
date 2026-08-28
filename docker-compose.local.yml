@@ -61,6 +61,10 @@ services:
       - '127.0.0.1:3000:3000' # The UI — open http://cujo.localhost:3000
 
   github-mcp:
+    environment:
+      # Same board the cujo service links to, so a locally posted review's
+      # footer resolves against the local UI.
+      CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-http://cujo.localhost:3000}
     ports:
       - '127.0.0.1:8081:8081' # internal MCP server (review posting)
 

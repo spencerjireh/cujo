@@ -34,19 +34,22 @@ export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): 
 }
 
 /**
- * The public page for a run, or `""` when there is none (decision 36).
+ * The run id to put in a pull request review, or `""` when the review should
+ * carry no link at all (decision 36).
  *
- * This is the review footer's rule, and it is deliberately stricter than
- * `runUrl`. A pull request review is read by anyone who can see the pull
- * request, including people who have never heard of Cujo, so the only link
- * worth putting there is one that opens for all of them. The gated host would
- * answer with a login screen and the board root would answer with a page about
- * some other run; both are worse than saying nothing.
+ * An id and not a URL, because the value travels through the agent and the
+ * agent has just read a stranger's pull request. `github-mcp` holds the host
+ * and builds the link, so the worst a redirected agent can do is name a
+ * different run on Cujo's own board rather than send readers somewhere else
+ * entirely.
  *
- * Returning `""` rather than throwing is also the safe direction when
- * `CUJO_PUBLIC_BASE_URL` is unset in a deploy: every review quietly loses its
- * footer instead of every review failing to post.
+ * The rule is stricter than `runUrl`'s. A review is read by anyone who can see
+ * the pull request, including people who have never heard of Cujo, so the only
+ * link worth putting there is one that opens for all of them — and a private
+ * run has no such page. This deliberately does not consult `publicBaseUrl`:
+ * whether a board exists is `github-mcp`'s half of the question, and each side
+ * owns the half it can actually answer.
  */
-export function publicRunUrl(links: UiLinks, run: { id: string; isPublic: boolean }): string {
-  return run.isPublic && links.publicBaseUrl ? `${links.publicBaseUrl}/runs/${run.id}` : "";
+export function publicRunId(run: { id: string; isPublic: boolean }): string {
+  return run.isPublic ? run.id : "";
 }
