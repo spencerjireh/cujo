@@ -6,6 +6,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { appendRunFooter } from "./body";
 import { appendMovedComments, validateAnchors } from "./diff";
 import type { GitHubClient } from "./github";
 
@@ -50,6 +51,17 @@ export const reviewInputShape = {
     .describe(
       "Every finding with its severity. Not posted; Cujo reads it from the tool call to show the run.",
     ),
+  run_url: z
+    .string()
+    .url()
+    // `.url()` alone accepts any scheme, `javascript:` included, and this value
+    // is written into a link in a public review body. http is kept for local
+    // development, where the board is http://cujo.localhost:3000.
+    .regex(/^https?:\/\//, "run_url must be an http(s) URL")
+    .optional()
+    .describe(
+      "The run's public page, copied verbatim from `run_url` in the input payload. Omit it when the input has none. Do not write this link into `body`; the server appends it.",
+    ),
 };
 
 const reviewInputSchema = z.object(reviewInputShape);
@@ -72,7 +84,9 @@ export async function postReview(
   const review = await github.createReview(input.repo, input.pr_number, {
     commitId: input.head_sha,
     event,
-    body: appendMovedComments(input.body, moved),
+    // Outward-in: the footer is last, so it sits below the findings that lost
+    // their diff anchor rather than between them and the body (decision 36).
+    body: appendRunFooter(appendMovedComments(input.body, moved), input.run_url),
     comments: inline,
   });
   return {

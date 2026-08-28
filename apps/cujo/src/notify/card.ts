@@ -11,6 +11,7 @@
  */
 
 import type { DiscordEmbed, DiscordEmbedField, DiscordMessagePayload } from "../clients/discord";
+import { type UiLinks, runUrl } from "../review/links";
 import { CHECK_NAMES } from "../review/types";
 import type { Finding, Projection, RunRecord, RunStatus } from "../review/types";
 
@@ -84,39 +85,28 @@ function clean(input: string, max: number): string {
 }
 
 /**
- * Where the two hostnames live, since a card has to choose between them.
- */
-export interface UiLinks {
-  /** The Access-gated operator UI, where a decision is actually made. */
-  uiBaseUrl: string;
-  /** The anonymous board. Empty falls back to the operator UI. */
-  publicBaseUrl: string;
-}
-
-/**
- * A card links to the public board when the run is public, and to the operator
- * UI when it is not (decision 34).
+ * The brand severity ramp, dark values, from `brand/tokens.css` (decision 36).
+ * A Discord embed carries one colour and is read on a dark client, so the dark
+ * column is the only one that applies.
  *
- * A repo's Discord channel holds its team, not Cujo's operators, and most of
- * them cannot pass Access — pointing every card at the gated hostname would
- * answer them with a login page. The public run page carries its own link on to
- * `cujo-admin` when a decision is pending, so an approver is one click further
- * and nobody else is stopped. A private repo has no public page, so its cards
- * have only the one place to go.
+ * Two rules hold this map together, and both are worth keeping when a status is
+ * added. Amber is on exactly one status — the one that needs a human — because
+ * amber is the brand and `brand.md` spends it on the thing a person must act
+ * on. Red means the pull request is dangerous and never that Cujo fell over,
+ * which is why `error` is `--sev-info` blue: an infrastructure failure is a
+ * status, not a verdict on someone's code.
+ *
+ * The three states nobody can act on form a deliberate ramp of decreasing
+ * lightness: clean, then denied, then superseded.
  */
-export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): string {
-  const base = run.isPublic && links.publicBaseUrl ? links.publicBaseUrl : links.uiBaseUrl;
-  return `${base}/runs/${run.id}`;
-}
-
 const COLOR: Record<RunStatus, number> = {
-  running: 0x5865f2,
-  clean: 0x57f287,
-  blocked_pending: 0xfee75c,
-  blocked_posted: 0xed4245,
-  denied: 0x99aab5,
-  error: 0xe67e22,
-  superseded: 0x4f545c,
+  running: 0xe6cf4a, // --sev-medium
+  clean: 0xa39b90, // --fg-muted
+  blocked_pending: 0xf2a900, // --accent / --sev-high
+  blocked_posted: 0xff5c45, // --sev-critical
+  denied: 0x958d82, // --sev-low
+  error: 0x66b0f0, // --sev-info
+  superseded: 0x2c2924, // --line
 };
 
 const DESCRIPTION: Record<RunStatus, string> = {
