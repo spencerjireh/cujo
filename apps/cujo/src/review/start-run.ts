@@ -27,6 +27,17 @@ export interface StartRunDeps {
   reviewRunId: (run: RunRecord) => string;
   /** The process logger; every run binds a child of it (decision 37). */
   log: Logger;
+  /**
+   * The pull request's own acknowledgement (decision 38), called once this run
+   * is known to be the one worth starting. Both guards below have to have
+   * passed first, and for the same underlying reason — one pull request has
+   * one reaction, so only a run that will go on to produce a status may touch
+   * it. A head the bot already reviewed is deleted and never reaches a status;
+   * a stale delivery is superseded and its `superseded` writes nothing, so an
+   * eye placed before either check would sit on the pull request forever, over
+   * the top of a newer run's finished verdict.
+   */
+  onClaimed?: (run: RunRecord) => void;
   /** Test hook: called when the background preparation of a run has settled. */
   onSettled?: (runId: string) => void;
 }
@@ -74,6 +85,10 @@ export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void
       await deps.runner.supersede(run.id);
       return;
     }
+    // GitHub agrees this is the current head, so this run is the one that
+    // owns the pull request's reaction. Everything from here ends in a status
+    // the reaction can follow, the `catch` below included.
+    deps.onClaimed?.(run);
     // This is the current head, so a review of any older head is stale.
     const scope = { repo: run.repo, prNumber: run.prNumber };
     for (const old of deps.store.listUnfinishedRuns(scope)) {

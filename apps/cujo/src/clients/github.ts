@@ -16,7 +16,8 @@ export interface PullRequestInfo {
   changedFiles: string[];
 }
 
-const BOT_LOGIN = "cujo-guard[bot]";
+/** The bot the App posts as. Shared with `github-reactions.ts`, so "ours" means one thing. */
+export const BOT_LOGIN = "cujo-guard[bot]";
 const API = "https://api.github.com";
 /** Long enough to survive a burst of autocomplete, short enough to notice a new install. */
 const REPO_CACHE_MS = 60_000;
@@ -44,7 +45,9 @@ export function parseDeclaredGuild(yaml: string): string | null {
 
 /**
  * The read side of the GitHub App: PR metadata, changed files, and the
- * idempotency check on existing reviews. Posting stays in github-mcp.
+ * idempotency check on existing reviews. Posting a review stays in github-mcp;
+ * the one write `apps/cujo` makes is the reaction in `github-reactions.ts`,
+ * which carries no content (decision 38).
  */
 export class GitHubReader {
   private readonly privateKey: string;
