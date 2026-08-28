@@ -89,12 +89,12 @@ describe("operator runs API", () => {
   });
 
   it("serializes a run with its checks, findings, and pending approval", async () => {
-    const { app } = build(blockedView());
-    const res = await app.request("/runs/r1", { headers: AUTH });
+    const { app, runId } = build(blockedView());
+    const res = await app.request(`/runs/${runId}`, { headers: AUTH });
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
-      id: "r1",
+      id: runId,
       status: "blocked_pending",
       turn_ids: ["t1"],
       findings: [
@@ -112,8 +112,8 @@ describe("operator runs API", () => {
   it("hides the approval once the run is no longer blocked_pending", async () => {
     const view = blockedView();
     view.run.status = "superseded";
-    const { app } = build(view);
-    const body = (await (await app.request("/runs/r1", { headers: AUTH })).json()) as {
+    const { app, runId } = build(view);
+    const body = (await (await app.request(`/runs/${runId}`, { headers: AUTH })).json()) as {
       approval: unknown;
     };
     expect(body.approval).toBeNull();
@@ -127,8 +127,8 @@ describe("operator runs API", () => {
 
   it("streams the current view first, then every change", async () => {
     const view = blockedView();
-    const { app, changes } = build(view);
-    const res = await app.request("/runs/r1/events", { headers: AUTH });
+    const { app, changes, runId } = build(view);
+    const res = await app.request(`/runs/${runId}/events`, { headers: AUTH });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const reader = res.body?.getReader();
@@ -142,7 +142,7 @@ describe("operator runs API", () => {
     expect(first).toContain('"status":"blocked_pending"');
 
     const next = { ...view, run: { ...view.run, status: "blocked_posted" as const } };
-    changes.emit("r1", next);
+    changes.emit(runId, next);
     const second = await readFrame();
     expect(second).toContain("id: 1");
     expect(second).toContain('"status":"blocked_posted"');
@@ -150,20 +150,20 @@ describe("operator runs API", () => {
   });
 
   it("passes the approver's email into the decision", async () => {
-    const { app, runner } = build(blockedView());
-    const res = await app.request("/runs/r1/approve", {
+    const { app, runner, runId } = build(blockedView());
+    const res = await app.request(`/runs/${runId}/approve`, {
       method: "POST",
       headers: { ...AUTH, "content-type": "application/json" },
       body: JSON.stringify({ decision: "deny" }),
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, decision: "deny", approver: "op@example.com" });
-    expect(runner.approve).toHaveBeenCalledWith("r1", "deny", "op@example.com");
+    expect(runner.approve).toHaveBeenCalledWith(runId, "deny", "op@example.com");
   });
 
   it("treats an unparseable body as a bad decision", async () => {
-    const { app } = build(blockedView());
-    const res = await app.request("/runs/r1/approve", {
+    const { app, runId } = build(blockedView());
+    const res = await app.request(`/runs/${runId}/approve`, {
       method: "POST",
       headers: AUTH,
       body: "not json",

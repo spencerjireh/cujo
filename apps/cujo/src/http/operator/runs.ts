@@ -104,10 +104,13 @@ export function runRoutes(deps: RunRoutesDeps): Hono<Env> {
     // field `runLogger` puts on `approve.applied`. That is what lets the two
     // halves of the audit pair be joined by something other than `run_id`.
     //
-    // Read through `view()` and not the store: `Runner.approve` calls it
-    // anyway, and it is the handle the operator tests mock. Omitted when null,
-    // matching `runLogger`, for a run claimed before the column existed.
-    const deliveryId = deps.runner.view(runId)?.run.deliveryId;
+    // Read the row, not the view. `view()` also loads and JSON-parses the
+    // projection, so a corrupt or unreadable projection would throw here and
+    // lose the audit line for a reason that has nothing to do with the
+    // approval — the record of who asked must not depend on anything but the
+    // row that holds the answer. Omitted when null, matching `runLogger`, for
+    // a run claimed before the column existed.
+    const deliveryId = deps.runs.getRun(runId)?.deliveryId;
     // The request, before its outcome. `approve.applied` is emitted by the
     // runner once the resume lands, so the pair brackets the one action on
     // this service a human takes with their own name on it.
