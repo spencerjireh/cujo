@@ -785,3 +785,43 @@ boolean.
 Known limit: `runs.repo` is a name, not an id, so a rename orphans the stamp
 until the sweep's 404 rule catches up. Storing `repository.id` is the durable
 fix and is not in this change.
+
+## 35. Merging is the deploy, so an env-coupled change is valid on both sides
+
+Coolify rebuilds on every push to `main`, so a merge is a release. Nothing in
+the repo said so. That is not a documentation gap on its own — it is the reason
+the wrong sequencing survived a review, so the mechanism is now in
+[architecture.md](architecture.md) and the rule is in the Standards that Qodo
+reads.
+
+32 moved `sniff.py` to `sandbox/`, which changed `CUJO_SNIFF_URL`'s default
+while the deployed value came from Coolify. The value was PATCHed to the new
+path before the merge, on the reasoning that a variable applies at the next
+deploy, so the new value and the new path would arrive together. **That
+reasoning was wrong**, and it was written into the review thread as "no window
+in either direction." The merge deletes the old path from `main` at once, but
+the running container keeps the old value until the new one replaces it. The
+health poll across that deploy shows the overlap directly: `200` after the
+merge, then `503` at the container swap, then `200`. A review starting in the
+overlap fetches a path that no longer exists and dies at sandbox setup — which
+reads as a Cujo bug, not as a deploy artifact. None did, by luck.
+
+So the rule is two releases, not two minutes: **add the new location while the
+old one still answers, let the deploy land, delete the old one in a follow-up.**
+PATCH-then-merge is still the right order and is still not enough; it narrows
+the window to the deploy rather than removing it.
+
+This binds only what Coolify holds and what is fetched from `main` at run time.
+A path inside the image moves with the image and has no window at all, which is
+why this is a rule about variables and raw-content URLs and not about
+refactoring.
+
+Rejected: patching the variable after the merge, and restarting before it — both
+widen the same window, the second by pointing the new value at old `main`.
+Also rejected: accepting it because a deploy is short. The length is not
+observable from here (`GET /deployments/...` is 403 for this token), so the
+argument rests on a number nobody can check, and the failure it trades away is
+silent.
+
+Known limit: nothing enforces this mechanically. It is a review rule, which is
+why it lives in `best_practices.md` rather than only here.
