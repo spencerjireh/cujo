@@ -80,13 +80,17 @@ export function buildAgentSpec(
 /**
  * Contract 1 step 3: the single user message that starts a turn.
  *
- * `runUrl` is the public run page, or `""` when the run has none, and the key
- * is left out of the payload entirely in that case (decision 36). Omitting
- * rather than sending `""` keeps one rule at both ends: the key is absent and
- * `run_url` is optional on the review tool, so a private repo's review needs no
- * special case anywhere downstream.
+ * `runId` is this run's id when it has a public page and `""` when it does not,
+ * and the key is left out of the payload entirely in the second case
+ * (decision 36). Omitting rather than sending `""` keeps one rule at both ends:
+ * the key is absent and `run_id` is optional on the review tool, so a private
+ * repo's review needs no special case anywhere downstream.
+ *
+ * It is an id rather than a URL so that nothing the agent reads in the pull
+ * request can choose the host the review's footer points at; `github-mcp` owns
+ * that.
  */
-export function buildTurnMessage(pr: PullRequestInfo, runUrl = ""): string {
+export function buildTurnMessage(pr: PullRequestInfo, runId = ""): string {
   const payload = {
     repo: pr.repo,
     pr_number: pr.prNumber,
@@ -97,7 +101,7 @@ export function buildTurnMessage(pr: PullRequestInfo, runUrl = ""): string {
     clone_url: pr.cloneUrl,
     changed_files: pr.changedFiles,
     manifest_changed: manifestChanged(pr.changedFiles),
-    ...(runUrl ? { run_url: runUrl } : {}),
+    ...(runId ? { run_id: runId } : {}),
   };
   return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }

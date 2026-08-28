@@ -23,7 +23,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     appId: requireEnv("GITHUB_APP_ID"),
     privateKey: requireEnv("GITHUB_APP_PRIVATE_KEY"),
   });
-  createApp({ github }).listen(PORT, () => {
+  // Optional: with no board configured, no review carries an evidence footer.
+  const publicBaseUrl = (process.env.CUJO_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+  createApp({ github, publicBaseUrl }).listen(PORT, () => {
     console.log(`github-mcp listening on :${PORT}`);
   });
 }

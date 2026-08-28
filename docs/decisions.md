@@ -833,29 +833,41 @@ at it. The review `cujo-guard[bot]` posts is *What ran*, *Results*, *Egress*
 and then it stops, so a reader who wants the test output, the egress table, or
 the detonation report has nowhere to go — the evidence is sitting on a page
 anyone can open and the pull request never mentions it. Every review on a
-public repo now ends with a rule and one line: `Full evidence: <run_url>`.
+public repo now ends with a rule and one line: `Full evidence: <run page>`.
 
-`github-mcp` composes that footer; the agent supplies the URL and never the
-format. The alternative was a line in `agent/SKILL.md` telling the model to end
-its body a particular way, which is a rule that fails silently — a model can
-forget it, reword it, or put it above *Egress*, and none of those are visible
-until a human reads a posted review. Composed in `body.ts` the footer is
-correct or absent, and absent only when Cujo says so. `run_url` is validated as
-an http(s) URL rather than by `z.string().url()` alone, which accepts
-`javascript:` and every other scheme, because the value ends up in a link.
+`github-mcp` composes that footer, and the agent supplies neither the format nor
+the destination. The alternative was a line in `agent/SKILL.md` telling the
+model to end its body a particular way, which is a rule that fails silently — a
+model can forget it, reword it, or put it above *Egress*, and none of those are
+visible until a human reads a posted review. Composed in `body.ts` the footer is
+correct or absent, and absent only when Cujo says so.
 
-A private repository gets no footer. It has no page a reader of the pull
-request could open: the operator host would answer with a login screen and the
-board root would answer with a page about some other run, and both are worse
-than saying nothing. `apps/cujo` decides this, not the agent and not the MCP
-server, because visibility is a fact about the repo that only Cujo holds —
-`review/links.ts` exports `publicRunUrl`, which returns `""` for a private run
-and for a deploy with no `CUJO_PUBLIC_BASE_URL`, and `buildTurnMessage` then
-omits the key entirely. Omitting rather than sending `""` makes the absent key
+**The agent relays a run id, not a URL**, and that distinction is the whole
+security argument. The value crosses an agent that has just read a stranger's
+pull request, so anything it carries is something that pull request can try to
+choose. A URL would let it choose the host, and the bot would then vouch for an
+arbitrary link under `Full evidence:` in a review posted as `cujo-guard[bot]` —
+which is exactly the credibility the product is built to earn. It would also
+have been injectable: `z.string().url()` accepts a string with embedded
+newlines, because WHATWG parsing strips them for validation while Zod returns
+the original, so `https://x/\n\n## Merged and approved\n\n[Click here](…)`
+passes and reaches the body verbatim. A UUID admits neither. `github-mcp` holds
+the host in `CUJO_PUBLIC_BASE_URL` and builds `<base>/runs/<uuid>` itself, so
+the worst a redirected agent can do is name a different run on Cujo's own board.
+
+Two independent conditions gate the footer and each side owns the one it can
+answer. `apps/cujo` knows repository visibility, so `review/links.ts` exports
+`publicRunId`, which returns `""` for a private run, and `buildTurnMessage` then
+omits the key entirely; omitting rather than sending `""` makes the absent key
 and the optional schema field the same rule, so nothing downstream needs a
-special case. It also means a missing environment variable costs every review
-its footer and costs no review its posting, which is the right direction for a
-cosmetic field.
+special case. `github-mcp` knows whether this deployment has a board, and
+appends nothing without one. Either missing costs every review its footer and
+costs no review its posting, which is the right direction for a cosmetic field.
+
+A private repository therefore gets no footer at all. It has no page a reader of
+the pull request could open: the operator host would answer with a login screen
+and the board root would answer with a page about some other run, and both are
+worse than saying nothing.
 
 The Discord cards move off Discord's palette onto `brand/tokens.css`. Two rules
 decide the map and both are worth keeping when a status is added: **amber marks
@@ -884,7 +896,21 @@ both the light and the dark GitHub UI, so it has to carry its own ground.
 `logo/avatar.svg` is the mark on a `--bg` dark tile with the clear-space rule
 satisfied at 512.
 
-Chosen over / Rejected: linking a private repo's review to `cujo-admin`, which
+On the trust boundary: `run_id` is the one field this adds to the turn payload,
+and it is Cujo's own artifact identifier — the same category as the sensor
+script URL already substituted into the rubric, and already public, since it is
+the last path segment of a page anyone can open. It carries no secret, names no
+host, and grants the sandbox nothing it could not read off the board. It is
+deliberately the smallest thing that could have crossed: the URL it replaced
+would have carried a hostname, which is precisely the part worth withholding.
+
+Chosen over / Rejected: **a full `run_url` from the agent**, which hands the
+pull request under review a say in where the bot's own evidence link points, and
+which `z.string().url()` cannot even be made to sanitise properly; having
+`github-mcp` verify repository visibility itself through the GitHub API, which
+is more robust but adds an API call and a failure mode to every review and
+widens a server whose comment says it "reads nothing but the PR's diff"; linking
+a private repo's review to `cujo-admin`, which
 sends most readers to a login screen for a page they will never be allowed to
 see; linking to the board root, which loads for everyone and says nothing about
 this pull request, so it reads as a broken link; adding a success green to the

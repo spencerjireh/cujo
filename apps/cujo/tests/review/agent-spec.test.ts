@@ -89,16 +89,23 @@ describe("buildTurnMessage", () => {
   const payloadOf = (message: string) =>
     JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
 
-  it("carries run_url when the run has a public page", () => {
-    const payload = payloadOf(buildTurnMessage(pr, "https://cujo.example.com/runs/r1"));
-    expect(payload.run_url).toBe("https://cujo.example.com/runs/r1");
+  it("carries run_id when the run has a public page", () => {
+    const payload = payloadOf(buildTurnMessage(pr, "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e"));
+    expect(payload.run_id).toBe("8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e");
+  });
+
+  it("sends no hostname into the turn", () => {
+    // An id, not a URL: the turn payload reaches an agent that is about to read
+    // a stranger's pull request, so it names no host it could be redirected to.
+    const payload = payloadOf(buildTurnMessage(pr, "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e"));
+    expect(JSON.stringify(payload)).not.toContain("cujo.");
   });
 
   it("omits the key entirely when the run has no public page", () => {
     // Absent, not "". The key's absence and the tool's optional field are the
     // same rule, so a private repo needs no special case downstream.
     const payload = payloadOf(buildTurnMessage(pr, ""));
-    expect("run_url" in payload).toBe(false);
+    expect("run_id" in payload).toBe(false);
   });
 });
 

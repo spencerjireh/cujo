@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publicRunUrl, runUrl } from "../../src/review/links";
+import { publicRunId, runUrl } from "../../src/review/links";
 
 const LINKS = {
   uiBaseUrl: "https://cujo-admin.example.com",
@@ -22,20 +22,20 @@ describe("runUrl", () => {
   });
 });
 
-describe("publicRunUrl", () => {
-  it("returns the board page for a public run", () => {
-    expect(publicRunUrl(LINKS, PUBLIC_RUN)).toBe("https://cujo.example.com/runs/r1");
+describe("publicRunId", () => {
+  it("returns the id for a public run", () => {
+    expect(publicRunId(PUBLIC_RUN)).toBe("r1");
   });
 
   it("returns nothing for a private run", () => {
-    // Never the operator host: a reader of the pull request would get a login
-    // screen, which is worse than no link (decision 36).
-    expect(publicRunUrl(LINKS, PRIVATE_RUN)).toBe("");
+    // Never the operator host either: a reader of the pull request would get a
+    // login screen, which is worse than no link (decision 36).
+    expect(publicRunId(PRIVATE_RUN)).toBe("");
   });
 
-  it("returns nothing when no public host is configured", () => {
-    // The deploy forgot CUJO_PUBLIC_BASE_URL. Every review loses its footer,
-    // which is the safe direction; no review fails to post.
-    expect(publicRunUrl({ ...LINKS, publicBaseUrl: "" }, PUBLIC_RUN)).toBe("");
+  it("names no host, so the agent cannot redirect the footer", () => {
+    // The whole reason this is an id: github-mcp owns the hostname, so nothing
+    // the agent read in the pull request can choose where the link points.
+    expect(publicRunId(PUBLIC_RUN)).not.toContain("://");
   });
 });
