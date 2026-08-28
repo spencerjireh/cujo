@@ -50,7 +50,8 @@ Two zones, with a narrow bridge between them.
 Only two things cross the bridge: the PR (its code and its public metadata) and
 dependency names go in, and JSON reports come out. (Cujo's own sensor script and the commands the subagents run
 go in too; they are ours, carry no secret, and are the instrument, not the
-specimen.) No secret ever enters the sandbox. This is the property the
+specimen. So does a public run's own id, which is already public and names no
+host — decision 36.) No secret ever enters the sandbox. This is the property the
 whole design protects, so keep it in mind when reading the flow below.
 
 ## System map
@@ -109,7 +110,7 @@ Every crossing, with what it carries and what protects it:
 | GitHub → `apps/cujo` | HTTPS webhook on `cujo-ingress.spencerjireh.com` | PR opened or synchronized: repo, PR number, base and head SHA | HMAC signature |
 | `apps/cujo` → TrueForge | HTTP on the compose network | `sessions.create` with the inline agent spec; `createTurn` with the PR context, then `subscribeToTurn`; `listEvents` on restart | None needed; TrueForge has no public API route |
 | TrueForge → `apps/cujo` | The same stream, reverse direction | Events tagged by `thread_id`: `thread.created`, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
-| TrueForge → sandbox | Daytona API, then commands inside the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The PR's public metadata (number, SHAs, changed files, title, description). The dependency names from the manifest diff. Cujo's own `sniff.py` and the commands the subagents run. | Daytona key on the server; nothing in the box. Private repos are a non-goal, so no clone credential exists to leak |
+| TrueForge → sandbox | Daytona API, then commands inside the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The PR's public metadata (number, SHAs, changed files, title, description). The dependency names from the manifest diff. Cujo's own `sniff.py` and the commands the subagents run. The run's own id, when the repo is public, so the review can name its evidence page — an id and never a URL, so no hostname crosses (decision 36). | Daytona key on the server; nothing in the box. Private repos are a non-goal, so no clone credential exists to leak |
 | Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block | None; treated as untrusted data |
 | Sandbox → internet | Through the in-sandbox proxy | Whatever the PR or a dependency tries to reach; logged, becomes evidence | None; the decoy secret is the only "secret" it can find |
 | TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
