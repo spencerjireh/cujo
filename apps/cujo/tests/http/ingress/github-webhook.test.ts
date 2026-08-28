@@ -43,6 +43,7 @@ describe("webhook", () => {
         store: store.runs,
         runner,
         createSession: async () => "sess-1",
+        reviewRunId: () => "",
         isReady: () => false,
       },
     });

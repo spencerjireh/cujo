@@ -72,7 +72,10 @@ For a `pull_request` event the `apps/cujo` webhook module:
    token (Contents: read, Pull requests: read).
 3. Finds or creates the TrueForge session for this PR (see Contract 5) and
    starts one turn with a single user message: repo full name, PR number, base
-   SHA, head SHA, and the changed-file list.
+   SHA, head SHA, the changed-file list, and — only when the repo is public —
+   `run_id`, which the agent passes back to the review tool (Contract 4). An id
+   and not a URL: the payload reaches an agent that is about to read a
+   stranger's pull request, so it names no host.
 4. Records a run (see Contract 6) and stays subscribed to the turn's event
    stream, folding events into that run until `turn.done`.
 
@@ -327,6 +330,20 @@ egress observed. Each entry in `comments[]` is one finding with a `path`,
 `github-mcp` validates each anchor against the PR diff before posting; a
 finding with no anchor, or with an anchor outside the diff, moves into the
 body so a bad anchor never blocks the review.
+
+Both also take an optional `run_id`, which the agent copies verbatim from the
+turn payload and never writes into the body itself. `github-mcp` validates it
+as a UUID, builds the link from its own `CUJO_PUBLIC_BASE_URL`, and appends the
+footer — a rule, then `Full evidence: <url>` — after the anchorless findings,
+so the link is always last, always the same shape, and always on Cujo's own
+host (decision 36). The agent supplies neither the format nor the destination.
+
+Two independent conditions gate the footer, and each side owns the one it can
+answer: `apps/cujo` omits `run_id` from the turn payload for a private
+repository, which has no page a reader of the pull request could open; and
+`github-mcp` appends nothing when it has no `CUJO_PUBLIC_BASE_URL`. Either
+missing means the review body is exactly what it would have been without this
+feature.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.

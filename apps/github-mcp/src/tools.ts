@@ -6,6 +6,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { appendRunFooter } from "./body";
 import { appendMovedComments, validateAnchors } from "./diff";
 import type { GitHubClient } from "./github";
 
@@ -50,6 +51,18 @@ export const reviewInputShape = {
     .describe(
       "Every finding with its severity. Not posted; Cujo reads it from the tool call to show the run.",
     ),
+  // An id, not a URL. A URL from the agent would let whatever it just read in
+  // the pull request choose where "Full evidence" points, and `z.string().url()`
+  // additionally accepts embedded newlines — WHATWG parsing strips them, Zod
+  // returns the original, and the footer would carry injected Markdown. A UUID
+  // admits neither: this server owns the host and the shape.
+  run_id: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "The run id, copied verbatim from `run_id` in the input payload. Omit it when the input has none. Do not write a link into `body`; the server builds the footer.",
+    ),
 };
 
 const reviewInputSchema = z.object(reviewInputShape);
@@ -66,13 +79,16 @@ export async function postReview(
   github: GitHubClient,
   event: "COMMENT" | "REQUEST_CHANGES",
   input: ReviewInput,
+  publicBaseUrl = "",
 ): Promise<ReviewResult> {
   const files = await github.listPullFiles(input.repo, input.pr_number);
   const { inline, moved } = validateAnchors(files, input.comments);
   const review = await github.createReview(input.repo, input.pr_number, {
     commitId: input.head_sha,
     event,
-    body: appendMovedComments(input.body, moved),
+    // Outward-in: the footer is last, so it sits below the findings that lost
+    // their diff anchor rather than between them and the body (decision 36).
+    body: appendRunFooter(appendMovedComments(input.body, moved), publicBaseUrl, input.run_id),
     comments: inline,
   });
   return {
@@ -90,7 +106,11 @@ function asToolResult(result: ReviewResult) {
   };
 }
 
-export function registerReviewTools(server: McpServer, github: GitHubClient): void {
+export function registerReviewTools(
+  server: McpServer,
+  github: GitHubClient,
+  publicBaseUrl = "",
+): void {
   server.registerTool(
     "post_advisory_review",
     {
@@ -100,7 +120,7 @@ export function registerReviewTools(server: McpServer, github: GitHubClient): vo
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async (args) => asToolResult(await postReview(github, "COMMENT", args)),
+    async (args) => asToolResult(await postReview(github, "COMMENT", args, publicBaseUrl)),
   );
 
   server.registerTool(
@@ -112,6 +132,6 @@ export function registerReviewTools(server: McpServer, github: GitHubClient): vo
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
-    async (args) => asToolResult(await postReview(github, "REQUEST_CHANGES", args)),
+    async (args) => asToolResult(await postReview(github, "REQUEST_CHANGES", args, publicBaseUrl)),
   );
 }

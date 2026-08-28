@@ -8,9 +8,14 @@ this file when reviewing pull requests; keep the two in sync.
 - Respect the trust boundary: nothing that runs on the server hands a secret to
   the sandbox. What goes in is the PR's code (a public, tokenless clone), the
   PR's own public metadata (number, SHAs, changed-file list, title, and
-  description, which state the claims the probes test), dependency names, and
-  Cujo's own sensor script and check commands; only JSON reports come out. No
-  token, key, or clone credential ever enters.
+  description, which state the claims the probes test), dependency names, Cujo's
+  own sensor script and check commands, and the run's own id when the repo is
+  public; only JSON reports come out. No token, key, or clone credential ever
+  enters. The run id is on this list because it is already public — it is the
+  last path segment of a board page anyone can open — and because it names no
+  host: the review footer's URL is built by `github-mcp`, so nothing the agent
+  reads in a pull request can choose where the bot's evidence link points
+  (`docs/decisions.md` 36).
 - Pin dependencies; an unpinned or `git+` spec needs a reason in the PR.
 - Keep pull requests small and focused: one concern each.
 - Run Python with `uv` in this repo (tests, tooling, scripts run on a developer

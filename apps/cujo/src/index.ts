@@ -8,7 +8,9 @@ import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { buildAgentSpec } from "./review/agent-spec";
+import { publicRunId } from "./review/links";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
+import type { RunRecord } from "./review/types";
 import { VisibilityService } from "./review/visibility.service";
 import { Store } from "./store";
 
@@ -121,6 +123,11 @@ async function main(): Promise<void> {
       github,
       store: store.runs,
       runner,
+      // What the review's footer names. A public run gets its id; anything
+      // else gets nothing, since a stranger reading the pull request cannot
+      // open the gated host. `github-mcp` turns the id into a link, so no
+      // hostname passes through the agent (decision 36).
+      reviewRunId: (run: RunRecord) => publicRunId(run),
       createSession: () => harness.createSession(spec),
       isReady: () => harness.ready,
     },

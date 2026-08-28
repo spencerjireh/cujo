@@ -163,6 +163,35 @@ describe("buildRunCard", () => {
     expect(new Set(colors).size).toBe(STATUSES.length);
   });
 
+  it("spends brand amber on the one status that needs a human", () => {
+    // brand.md: amber is the brand, and it marks the thing a person must act
+    // on. If a second status takes it, the signal is gone (decision 36).
+    const amber = STATUSES.filter(
+      (status) =>
+        buildRunCard({
+          run: run({ status }),
+          projection: projection({ status }),
+          prTitle: null,
+          links: LINKS,
+        }).embeds?.[0]?.color === 0xf2a900,
+    );
+    expect(amber).toEqual(["blocked_pending"]);
+  });
+
+  it("colours an errored run blue, not red", () => {
+    // Red means the pull request is dangerous. A run that errors is Cujo
+    // falling over, which is a status and not a verdict on someone's code.
+    const colorOf = (status: RunStatus) =>
+      buildRunCard({
+        run: run({ status }),
+        projection: projection({ status }),
+        prTitle: null,
+        links: LINKS,
+      }).embeds?.[0]?.color;
+    expect(colorOf("error")).toBe(0x66b0f0);
+    expect(colorOf("blocked_posted")).toBe(0xff5c45);
+  });
+
   it("suppresses every mention, so a PR titled @everyone pings nobody", () => {
     const payload = buildRunCard({
       run: run(),

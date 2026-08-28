@@ -64,6 +64,17 @@ Fixed everywhere: UI badges, README tables, video lower thirds.
 
 Critical is red so it is never confused with the brand amber; high is amber.
 
+The product emits three severities: `critical`, `warn`, and `info`. `warn`
+renders on the high ramp; medium and low are reserved for a finer grading and
+appear nowhere today. Those three words are matched literally in `fold.ts` and
+validated by the review tool's schema, so they are not editorial — an edit that
+renames one is a code change, not a copy change.
+
+Run statuses take their colour from the same ramp, and two rules decide which.
+Amber lands on exactly one status, `blocked_pending`, because that is the one
+waiting on a person. Red means the pull request is dangerous and never that Cujo
+fell over, so a run that errors is `info` blue.
+
 ### Contrast (WCAG, text on `--bg`)
 
 Light: fg 15.5, muted 5.3, accent 5.0, critical 5.3, high 5.0, medium 5.9,
@@ -99,7 +110,7 @@ the ramp.
 
 | Surface | Assets |
 | --- | --- |
-| GitHub App avatar | `logo/mark.svg` rendered at 512 on `--bg` dark |
+| GitHub App avatar | `logo/avatar.svg`, rendered to `logo/png/avatar-512.png` |
 | UI | `tokens.css`; `favicon.svg` and `favicon-32.png`; `lockup-h.svg` in the header |
 | README | `readme/banner-dark.svg` and `banner-light.svg` via `<picture>` |
 | Video | `video/title-card.svg`, `video/lower-third.svg`, `video/severity-badges.svg` |
