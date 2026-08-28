@@ -8,20 +8,18 @@
  * and the internet, and it is checked on the raw body before anything is
  * parsed.
  *
- * What this endpoint may do is deliberately bounded. It routes notifications:
- * which channel, which role. It cannot approve a blocking review, and adding
- * that is a change to the human gate, not a feature (decision 28).
+ * This file is the envelope: verify, answer the PING, complete the repo box,
+ * defer the reply, pull the options out, and hand plain values to
+ * `notify/commands`. What the commands may do is bounded there — they route
+ * notifications, and none of them can approve a blocking review (decision 28).
  */
 
 import { createPublicKey, verify as verifySignature } from "node:crypto";
 import { Hono } from "hono";
 import type { DiscordClient } from "../../clients/discord";
 import type { GitHubReader } from "../../clients/github";
-import { authorizationFor, explain } from "../../notify/authorization";
-import { buildRunCard } from "../../notify/card";
-import { type ChannelRefusal, checkChannel } from "../../notify/channel-check";
+import { type CommandDeps, runCommand } from "../../notify/commands";
 import { MANAGE_GUILD } from "../../notify/commands/definitions";
-import { emptyProjection } from "../../review/fold";
 import type { NotificationStore } from "../../store";
 
 /** Interaction types. */
@@ -41,8 +39,6 @@ const EPHEMERAL = 1 << 6;
 /** Discord's own caps: choices per response, and the length of each. */
 const MAX_CHOICES = 25;
 const MAX_CHOICE_LENGTH = 100;
-/** And on the content of a message, which a deferred reply is. */
-const MAX_CONTENT = 2000;
 
 /**
  * Autocomplete cannot be deferred and Discord allows three seconds, so a cold
@@ -119,39 +115,12 @@ function focusedValue(interaction: Interaction): string {
   return "";
 }
 
-const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
-
-/**
- * The shared channel rule's refusals, said to a person rather than to a
- * machine. Each one names what to fix, since the invoker is the only one who
- * can fix it and a bare "that did not work" sends them looking for an operator.
- */
-function refusalMessage(reason: ChannelRefusal, channelId: string): string {
-  switch (reason) {
-    case "unreadable_channel":
-      return "Cujo cannot see that channel.";
-    case "not_a_text_channel":
-      return "That is not a text channel.";
-    case "wrong_guild":
-      return "That channel is not in this server.";
-    case "unreadable_roles":
-      return "Cujo could not read this server's roles.";
-    case "no_such_role":
-      return "That role is not in this server.";
-    case "unreadable_permissions":
-      return "Cujo could not check its permissions in that channel. Try again in a moment.";
-    case "missing_permissions":
-      return `Cujo needs View Channel, Send Messages and Embed Links in <#${channelId}>.`;
-  }
-}
-
-export interface InteractionDeps {
+export interface InteractionDeps extends CommandDeps {
   /** The application's Ed25519 public key, hex. */
   publicKey: string;
   store: NotificationStore;
   discord: DiscordClient;
   github: GitHubReader;
-  uiBaseUrl: string;
   /** Test hook: called once a deferred command has been answered. */
   onSettled?: (name: string) => void;
 }
@@ -171,47 +140,14 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
     if ((permissions & BigInt(MANAGE_GUILD)) === 0n) {
       return "You need Manage Server to change Cujo's notifications here.";
     }
-    if (command?.name === "status") return status(deps, guildId);
-
-    const repo = optionValue(command, "repo");
-    if (!repo || !REPO.test(repo)) return "That does not look like an `owner/name` repository.";
-    const normalized = repo.toLowerCase();
-
-    // Deliberately ahead of every other check: a server must always be able to
-    // stop receiving. Gating this behind authorization or the App's
-    // installation list would mean a repo that revoked its declaration, or was
-    // uninstalled, left the channel unable to clean itself up.
-    if (command?.name === "unwatch") {
-      // A binding is global to the repo, so a server may only take down its
-      // own: otherwise one server could silence another's reviews.
-      const existing = deps.store.getDiscordChannel(normalized);
-      if (!existing) return `\`${normalized}\` was not being sent anywhere.`;
-      if (existing.guildId !== guildId) {
-        return `\`${normalized}\` is being sent to another server. A Cujo operator can move it.`;
-      }
-      deps.store.deleteDiscordChannel(normalized);
-      return `Stopped sending \`${normalized}\` review updates here.`;
-    }
-
-    // Checked before authorization so the refusal names the real problem: a
-    // repo the App cannot see has no readable `.cujo.yml` either, and "it has
-    // not named this server" would send someone editing a file that Cujo could
-    // not read anyway. Only a list Cujo actually read can refuse.
-    const installed = await deps.github.installedRepos().catch(() => null);
-    if (installed && !installed.some((full) => full.toLowerCase() === normalized)) {
-      return `Cujo's GitHub App is not installed on \`${normalized}\`, so it would never have anything to send.`;
-    }
-
-    // The repo says which server may have its reviews; the server says which
-    // channel. Both halves are needed (decision 31).
-    const authorization = await authorizationFor(deps, guildId, normalized);
-    if (!authorization.allowed) return explain(normalized, guildId, authorization);
-
-    if (command?.name === "watch") {
-      return watch(deps, { guildId, userId, repo: normalized, command });
-    }
-    if (command?.name === "test") return test(deps, guildId, normalized);
-    return "Unknown command.";
+    return runCommand(deps, {
+      name: command?.name ?? "",
+      guildId,
+      userId,
+      repo: optionValue(command, "repo"),
+      channelId: optionValue(command, "channel"),
+      roleId: optionValue(command, "role"),
+    });
   };
 
   app.post("/discord/interactions", async (c) => {
@@ -272,9 +208,10 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
 }
 
 /**
- * Complete the `repo:` box from the repos the App is installed on, narrowed to
- * the ones this server is authorized for — the list doubles as the answer to
- * "what can I bind here".
+ * Complete the `repo:` box from the repos the App is installed on. It stays
+ * here rather than in notify/commands because it is not a command: it cannot
+ * be deferred, it answers within three seconds or not at all, and it is part
+ * of what this endpoint owes Discord rather than something a person invoked.
  */
 async function repoChoices(
   deps: InteractionDeps,
@@ -312,130 +249,4 @@ async function repoChoices(
       .slice(0, MAX_CHOICES)
       .map((repo) => ({ name: repo, value: repo }))
   );
-}
-
-/**
- * What this server is sending, plus anything an operator allowed that is not
- * being sent yet. It does not try to enumerate every repo that named this
- * server: that would be one `.cujo.yml` read per installed repo, so the
- * closing line says how to add one instead.
- */
-function status(deps: InteractionDeps, guildId: string): string {
-  const repos = new Set(deps.store.listGuildRepos(guildId).map((a) => a.repo));
-  for (const binding of deps.store.listDiscordChannels()) {
-    if (binding.guildId === guildId) repos.add(binding.repo);
-  }
-  const lines = [...repos].sort().map((repo) => {
-    const binding = deps.store.getDiscordChannel(repo);
-    if (!binding || binding.guildId !== guildId) {
-      return `• \`${repo}\` — allowed, not being sent anywhere`;
-    }
-    const role = binding.notifyRoleId ? `, pinging <@&${binding.notifyRoleId}>` : "";
-    return `• \`${repo}\` → <#${binding.channelId}>${role}`;
-  });
-  const hint = `Any repo whose \`.cujo.yml\` says \`discord_guild: "${guildId}"\` can be watched here.`;
-  if (lines.length === 0) return `Nothing is being sent to this server yet. ${hint}`;
-  return fitLines([...lines, "", hint]);
-}
-
-/**
- * Discord refuses a message over 2000 characters, and a deferred reply that
- * fails leaves the invoker staring at "thinking" forever. So a long list is
- * cut with a count rather than sent whole.
- */
-function fitLines(lines: string[]): string {
-  const kept: string[] = [];
-  let length = 0;
-  for (const line of lines) {
-    const tail = `\n…and ${lines.length - kept.length} more`;
-    if (length + line.length + 1 + tail.length > MAX_CONTENT) {
-      return `${kept.join("\n")}${tail}`;
-    }
-    kept.push(line);
-    length += line.length + 1;
-  }
-  return kept.join("\n");
-}
-
-async function watch(
-  deps: InteractionDeps,
-  input: { guildId: string; userId: string; repo: string; command: CommandOption | null },
-): Promise<string> {
-  const channelId = optionValue(input.command, "channel");
-  if (!channelId) return "Pick a channel.";
-  const roleId = optionValue(input.command, "role");
-
-  // One repo notifies one channel (Contract 7), so a repo another authorized
-  // server already claimed is not this server's to redirect.
-  const existing = deps.store.getDiscordChannel(input.repo);
-  if (existing?.guildId && existing.guildId !== input.guildId) {
-    return `\`${input.repo}\` is already being sent to another server. A Cujo operator can move it.`;
-  }
-
-  // `expectGuildId`, because the option comes from this server's picker but a
-  // request is a request: nothing stops a crafted one naming a channel
-  // somewhere else.
-  const check = await checkChannel(deps.discord, {
-    channelId,
-    roleId,
-    expectGuildId: input.guildId,
-  });
-  if (!check.ok) return refusalMessage(check.reason, channelId);
-
-  // Re-checked here, not only at the top: the Discord round trips above are
-  // awaits, and a declaration reverted or an operator's allowance withdrawn in
-  // the meantime must not end with a binding for a server that may no longer
-  // see the repo.
-  // `fresh`, so a declaration revoked while this command was awaiting Discord
-  // is seen: a cached answer from before the command started would honour it.
-  const still = await authorizationFor(deps, input.guildId, input.repo, { fresh: true });
-  if (!still.allowed) return `This server is no longer allowed to watch \`${input.repo}\`.`;
-  deps.store.putDiscordChannel({
-    repo: input.repo,
-    channelId,
-    guildId: input.guildId,
-    channelName: check.channelName,
-    notifyRoleId: roleId,
-    boundBy: `discord:${input.userId}`,
-  });
-  const role = roleId ? ` and ping <@&${roleId}> when one blocks` : "";
-  return `\`${input.repo}\` review updates will go to <#${channelId}>${role}.`;
-}
-
-/**
- * Post a real card built from a placeholder run. It exercises the token, the
- * channel permissions and the rendering in one go, which nothing else can do
- * without waiting for an actual pull request.
- */
-async function test(deps: InteractionDeps, guildId: string, repo: string): Promise<string> {
-  const binding = deps.store.getDiscordChannel(repo);
-  if (!binding || binding.guildId !== guildId) {
-    return `\`${repo}\` is not being sent anywhere yet. Run \`/cujo watch\` first.`;
-  }
-  const now = new Date().toISOString();
-  const card = buildRunCard({
-    run: {
-      id: "00000000-0000-0000-0000-000000000000",
-      repo,
-      prNumber: 0,
-      headSha: "0000000",
-      sessionId: "sample",
-      turnIds: [],
-      status: "clean",
-      approver: null,
-      decidedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    projection: { ...emptyProjection(), status: "clean", summary: "Sample card from /cujo test." },
-    prTitle: "Sample card",
-    uiBaseUrl: deps.uiBaseUrl,
-  });
-  try {
-    await deps.discord.createMessage(binding.channelId, card);
-  } catch (error) {
-    console.error("discord: test card failed", error);
-    return `Cujo could not post to <#${binding.channelId}>. Check its permissions there.`;
-  }
-  return `Posted a sample card to <#${binding.channelId}>.`;
 }
