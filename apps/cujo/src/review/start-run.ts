@@ -88,7 +88,11 @@ export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void
         await deps.runner.supersede(old.id);
       }
     }
-    log.info("run.turn.started", { session_id: run.sessionId });
+    // No line here: `Runner.start` emits run.turn.started once TrueForge has
+    // returned the turn id, which is both the honest moment and the one that
+    // can carry turn_id. Announcing it here as well produced two events per
+    // start — and, when the start failed, a run.turn.started immediately
+    // followed by run.turn.start.failed, describing a turn that never was.
     await deps.runner.start(run, buildTurnMessage(pr, deps.reviewRunId(run)));
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim

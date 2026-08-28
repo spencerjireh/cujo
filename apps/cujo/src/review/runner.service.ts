@@ -140,6 +140,27 @@ export class Runner {
     for (const turnId of run?.turnIds ?? []) {
       if (!projection.turnIds.includes(turnId)) projection.turnIds.push(turnId);
     }
+    // Emitted before the projection is persisted, and never from `fold`.
+    //
+    // Not from `fold` because it is pure and replayed in full on every
+    // rehydrate, so a line there would re-announce a run's whole history at
+    // each restart. `refold` is already the single place every status is
+    // written, so "one writer, one emitter" is a property the code had rather
+    // than one the log invents.
+    //
+    // Before the write because `reportedChecks` is seeded from the persisted
+    // projection: persisting first and dying in the gap would leave the next
+    // process treating a transition it never announced as already reported,
+    // and the line would be missing forever. This way the same crash costs a
+    // duplicate on restart, which is recoverable and visible. For an audit
+    // trail, saying something twice beats losing it once.
+    if (projection.status !== previousStatus) {
+      s.log.info("run.status.changed", {
+        from: previousStatus ?? null,
+        to: projection.status,
+      });
+    }
+    this.reportChecks(s, projection);
     this.store.putProjection(runId, projection);
     const patch: Parameters<RunStore["updateRun"]>[1] = {
       status: projection.status,
@@ -150,18 +171,6 @@ export class Runner {
       patch.decidedAt = new Date().toISOString();
     }
     this.store.updateRun(runId, patch);
-    // Emitted here and never from `fold`, which is pure and replayed on every
-    // rehydrate: a line there would re-announce a run's whole history at each
-    // restart. `refold` is already the single place every status is written,
-    // so "one writer, one emitter" is a property the code had rather than one
-    // the log invents.
-    if (projection.status !== previousStatus) {
-      s.log.info("run.status.changed", {
-        from: previousStatus ?? null,
-        to: projection.status,
-      });
-    }
-    this.reportChecks(s, projection);
     // emit() is synchronous and rethrows into this call, which sits inside the
     // fold path: a subscriber that throws would surface as a stream error and
     // trigger a resubscribe. A subscriber must never be able to fail a run.

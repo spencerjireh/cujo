@@ -9,13 +9,15 @@
  */
 
 import { type Level, createLogger } from "@cujo/log";
-import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
-import type { Harness, StreamEvent } from "../../src/clients/trueforge";
+import type { Harness, SessionEvent, StreamEvent } from "../../src/clients/trueforge";
 import { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
 
-type Ev = TrueForgeApi.SessionEvent;
+// `SessionEvent` through the client wrapper rather than `TrueForgeApi`
+// direct: `clients/trueforge.ts` is the only module that should track the
+// SDK's shapes, and it already re-exports the ones a test needs.
+type Ev = SessionEvent;
 
 const at = "2026-08-27T10:00:00Z";
 
@@ -26,7 +28,7 @@ const turnCreated = (turnId: string, createdAt: string = at): Ev => ({
   threadId: null,
   turnId,
   previousTurnId: null,
-  input: [],
+  state: { status: "running" },
 });
 
 const turnDone = (turnId: string, createdAt: string = at): Ev => ({
@@ -34,8 +36,7 @@ const turnDone = (turnId: string, createdAt: string = at): Ev => ({
   id: `td-${turnId}`,
   createdAt,
   threadId: null,
-  turnId,
-  state: { status: "done" },
+  state: { status: "done", completedAt: createdAt, output: null, requiredActions: [] },
 });
 
 const reviewCall = (id: string): Ev => ({
@@ -54,7 +55,7 @@ const reviewCall = (id: string): Ev => ({
         mcpServerName: "github-mcp",
         originalToolName: "n",
       },
-    } as unknown as TrueForgeApi.ToolCall,
+    } as never,
   ],
 });
 
@@ -65,7 +66,7 @@ const threadCreated = (threadId: string, title: string, createdAt: string = at):
   threadId,
   title,
   parent: { threadId: "main", toolCallId: "spawn" },
-  agentInfo: {} as TrueForgeApi.AgentInfo,
+  agentInfo: {} as never,
 });
 
 const threadDone = (threadId: string, createdAt: string): Ev => ({
@@ -214,6 +215,69 @@ describe("check.started and check.finished", () => {
     if (!reloaded) throw new Error("run vanished");
     await restarted.rehydrate(reloaded);
     expect(lines.filter((l) => l.event === "check.finished")).toEqual([]);
+  });
+});
+
+describe("a turn start is announced once", () => {
+  it("emits run.turn.started only after TrueForge returns the turn id", async () => {
+    // startRun used to announce it too, before the turn existed and without a
+    // turn_id — two events per start, and on a failure a run.turn.started
+    // immediately followed by run.turn.start.failed, describing a turn that
+    // never was.
+    const { runner, run, logged } = build([turnCreated("t1"), reviewCall("c1"), turnDone("t1")]);
+    await runner.start(run, "review it");
+    expect(logged("run.turn.started")).toHaveLength(1);
+    expect(logged("run.turn.started")[0]).toMatchObject({ turn_id: "t1" });
+  });
+});
+
+describe("a transition is announced before it is persisted", () => {
+  it("re-announces after a crash between the emit and the write, rather than losing it", async () => {
+    // reportedChecks is seeded from the persisted projection, so persisting
+    // first and dying in the gap would leave the next process treating a
+    // transition it never announced as already reported — missing forever.
+    // Emitting first turns that same crash into a duplicate, which is
+    // recoverable and visible.
+    const events = [
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", "2026-08-27T10:00:03Z"),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ];
+    const store = new Store(":memory:");
+    const { run } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h",
+      sessionId: "s",
+      isPublic: true,
+      deliveryId: null,
+    });
+    // A sink that dies the first time a check is reported is what a crash in
+    // the gap looks like from the store's point of view: the projection has
+    // not been written yet, so the next process has nothing to be misled by.
+    const lines: Record<string, unknown>[] = [];
+    const log = createLogger({
+      service: "cujo",
+      sink: (line) => lines.push(JSON.parse(line)),
+    });
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => streamOf(events),
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    await runner.start(run, "review it");
+    const finished = lines.filter((l) => l.event === "check.finished");
+    expect(finished).toHaveLength(1);
+    // And the projection that a restart would seed from agrees with what was
+    // announced, so the two cannot drift.
+    const stored = store.runs.getProjection(run.id);
+    expect(stored?.checks.find((c) => c.threadId === "sub-1")?.status).toBe("done");
   });
 });
 
