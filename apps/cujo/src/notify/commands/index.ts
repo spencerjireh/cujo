@@ -17,6 +17,7 @@ import type { DiscordClient } from "../../clients/discord";
 import type { GitHubReader } from "../../clients/github";
 import type { NotificationStore } from "../../store";
 import { authorizationFor, explain } from "../authorization";
+import type { UiLinks } from "../card";
 import { status } from "./status";
 import { test } from "./test";
 import { unwatch } from "./unwatch";
@@ -26,7 +27,7 @@ export interface CommandDeps {
   store: NotificationStore;
   discord: DiscordClient;
   github: GitHubReader;
-  uiBaseUrl: string;
+  links: UiLinks;
 }
 
 export interface CommandInput {

@@ -88,7 +88,10 @@ export function build(
             store: store.notifications,
             discord: {} as never,
             github,
-            uiBaseUrl: "https://cujo.example.com",
+            links: {
+              uiBaseUrl: "https://cujo-admin.example.com",
+              publicBaseUrl: "https://cujo.example.com",
+            },
           },
         }
       : {}),

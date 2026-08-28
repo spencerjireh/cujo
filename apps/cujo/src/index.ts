@@ -45,14 +45,15 @@ async function main(): Promise<void> {
   const runner = new Runner(store.runs, harness, { turnTimeoutMs: config.turnTimeoutMs });
   const github = new GitHubReader(config.githubAppId, config.githubAppPrivateKey);
   const spec = buildAgentSpec(config);
+  // Where a Discord card points. A public run links to the board anyone can
+  // open; everything else links to the gated UI (decision 34).
+  const links = { uiBaseUrl: config.uiBaseUrl, publicBaseUrl: config.publicBaseUrl };
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status
   // while the process was down is still reported.
   const discord = config.discordBotToken ? new DiscordClient(config.discordBotToken) : null;
-  const notifier = discord
-    ? new DiscordNotifier({ store, client: discord, github, uiBaseUrl: config.uiBaseUrl })
-    : null;
+  const notifier = discord ? new DiscordNotifier({ store, client: discord, github, links }) : null;
   if (notifier) {
     runner.changes.on(ANY_RUN, (view: RunView | null) => notifier.onRunChanged(view));
   }
@@ -67,7 +68,7 @@ async function main(): Promise<void> {
           store: store.notifications,
           discord,
           github,
-          uiBaseUrl: config.uiBaseUrl,
+          links,
         }
       : null;
   if (interactions && discord) {

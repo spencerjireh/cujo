@@ -12,8 +12,18 @@ export interface Config {
   uiHost: string;
   internalHost: string;
   webhookHost: string;
-  /** Public origin of the Cujo UI, used for the run link in a Discord card. */
+  /**
+   * Origin of the Access-gated operator UI. Since decision 34 that is
+   * `cujo-admin`, not `cujo`: it is where a Discord card sends someone who has
+   * to decide, and the read-only board has no buttons.
+   */
   uiBaseUrl: string;
+  /**
+   * Origin of the anonymous board. A card for a public run links here instead,
+   * so a repo's channel is not answered with a login page. Empty falls back to
+   * `uiBaseUrl`.
+   */
+  publicBaseUrl: string;
   /** Null turns Discord notifications off; the service runs without them. */
   discordBotToken: string | null;
   /**
@@ -86,6 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // `||`, not `??`: compose passes an unset optional as `${X:-}`, which is
     // the empty string, and `??` would keep it.
     uiBaseUrl: (env.CUJO_UI_BASE_URL || `https://${uiHost}`).replace(/\/+$/, ""),
+    publicBaseUrl: (env.CUJO_PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
     discordBotToken: env.DISCORD_BOT_TOKEN || null,
     discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
     // The Access check is skipped only in dev, so the values are required otherwise.

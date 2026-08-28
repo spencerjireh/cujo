@@ -22,7 +22,7 @@ import type { RunView } from "../review/runner.service";
 import type { RunRecord, RunStatus } from "../review/types";
 import type { Store } from "../store";
 import { authorizationFor } from "./authorization";
-import { buildPing, buildRunCard } from "./card";
+import { type UiLinks, buildPing, buildRunCard } from "./card";
 import type { RunDiscordMessage } from "./types";
 
 export interface NotifierDeps {
@@ -30,7 +30,7 @@ export interface NotifierDeps {
   client: DiscordClient;
   /** Reads the repo's `.cujo.yml`, so a revoked declaration stops delivery. */
   github: GitHubReader;
-  uiBaseUrl: string;
+  links: UiLinks;
   /** Injected so a 429 test does not really wait. */
   sleepImpl?: (ms: number) => Promise<void>;
   /** Test hook: called once each queued send has settled, failure included. */
@@ -126,7 +126,7 @@ export class DiscordNotifier {
   }
 
   private async step(runId: string): Promise<void> {
-    const { store, uiBaseUrl } = this.deps;
+    const { store, links } = this.deps;
     // Re-read rather than trust the captured view: a burst then collapses to
     // one send at the newest status for free.
     const run = store.runs.getRun(runId);
@@ -181,7 +181,7 @@ export class DiscordNotifier {
         run,
         projection,
         prTitle: store.runs.getRunPrTitle(runId),
-        uiBaseUrl,
+        links,
       });
       messageId = await this.upsert(channelId, messageId, card);
       write();
@@ -194,7 +194,7 @@ export class DiscordNotifier {
       // mid-run would otherwise send that server's role id into the old
       // channel, where it mentions nobody.
       const roleId = mapping?.channelId === channelId ? (mapping.notifyRoleId ?? null) : null;
-      const ping = buildPing({ run, uiBaseUrl, roleId });
+      const ping = buildPing({ run, links, roleId });
       pingMessageId = (await this.retrying(() => this.deps.client.createMessage(channelId, ping)))
         .id;
       pingResolved = false;
@@ -206,7 +206,7 @@ export class DiscordNotifier {
     // can still make. Edit it rather than leave a dead link in the channel.
     const ping = pingMessageId;
     if (ping && !pingResolved) {
-      const resolved = buildPing({ run, uiBaseUrl, roleId: null });
+      const resolved = buildPing({ run, links, roleId: null });
       await this.retrying(() => this.deps.client.editMessage(channelId, ping, resolved));
       pingResolved = true;
       write();

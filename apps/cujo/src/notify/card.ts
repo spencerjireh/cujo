@@ -83,8 +83,30 @@ function clean(input: string, max: number): string {
   return truncate(escapeMarkdown(input), max);
 }
 
-export function runUrl(uiBaseUrl: string, runId: string): string {
-  return `${uiBaseUrl}/runs/${runId}`;
+/**
+ * Where the two hostnames live, since a card has to choose between them.
+ */
+export interface UiLinks {
+  /** The Access-gated operator UI, where a decision is actually made. */
+  uiBaseUrl: string;
+  /** The anonymous board. Empty falls back to the operator UI. */
+  publicBaseUrl: string;
+}
+
+/**
+ * A card links to the public board when the run is public, and to the operator
+ * UI when it is not (decision 34).
+ *
+ * A repo's Discord channel holds its team, not Cujo's operators, and most of
+ * them cannot pass Access — pointing every card at the gated hostname would
+ * answer them with a login page. The public run page carries its own link on to
+ * `cujo-admin` when a decision is pending, so an approver is one click further
+ * and nobody else is stopped. A private repo has no public page, so its cards
+ * have only the one place to go.
+ */
+export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): string {
+  const base = run.isPublic && links.publicBaseUrl ? links.publicBaseUrl : links.uiBaseUrl;
+  return `${base}/runs/${run.id}`;
 }
 
 const COLOR: Record<RunStatus, number> = {
@@ -190,7 +212,7 @@ export interface CardInput {
   projection: Projection;
   /** From GitHub, so untrusted. Null when the PR read never completed. */
   prTitle: string | null;
-  uiBaseUrl: string;
+  links: UiLinks;
 }
 
 /**
@@ -199,7 +221,7 @@ export interface CardInput {
  * change and any progress count would freeze and then lie.
  */
 export function buildRunCard(input: CardInput): DiscordMessagePayload {
-  const { run, projection, prTitle, uiBaseUrl } = input;
+  const { run, projection, prTitle, links } = input;
   const status = run.status;
   const heading = escapeMarkdown(`${run.repo} #${run.prNumber}`);
   const title = prTitle
@@ -237,7 +259,7 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
     title,
     // Ours, never derived. No projection string may reach a URL field, or a
     // hostile PR chooses where the card's title points.
-    url: runUrl(uiBaseUrl, run.id),
+    url: runUrl(links, run),
     description: truncate(description, LIMITS.description),
     color: COLOR[status],
     fields,
@@ -250,7 +272,7 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
 
 export interface PingInput {
   run: RunRecord;
-  uiBaseUrl: string;
+  links: UiLinks;
   /** Null pings the channel without mentioning anyone. */
   roleId: string | null;
 }
@@ -265,9 +287,9 @@ export interface PingInput {
  * so nobody chases a link to a run that can no longer be decided.
  */
 export function buildPing(input: PingInput): DiscordMessagePayload {
-  const { run, uiBaseUrl, roleId } = input;
+  const { run, links, roleId } = input;
   const where = `${run.repo} #${run.prNumber}`;
-  const link = runUrl(uiBaseUrl, run.id);
+  const link = runUrl(links, run);
   if (run.status !== "blocked_pending") {
     return {
       content: truncate(`Resolved (${run.status}) — ${where}. ${link}`, LIMITS.content),
