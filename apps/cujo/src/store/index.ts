@@ -5,11 +5,9 @@ import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import type {
   DiscordChannelRecord,
   GuildRepoAuthorization,
-  Projection,
   RunDiscordMessage,
-  RunRecord,
-  RunStatus,
-} from "../review/types";
+} from "../notify/types";
+import type { Projection, RunRecord, RunStatus } from "../review/types";
 
 // Loaded through the runtime rather than an import so vitest's module
 // transformer, which does not know node:sqlite, leaves it alone.
