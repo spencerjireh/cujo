@@ -34,7 +34,9 @@ const prOf = (headSha: string) => ({
   changedFiles: ["a.py"],
 });
 
-function build(overrides: Partial<{ runner: Runner; github: GitHubReader }> = {}) {
+function build(
+  overrides: Partial<{ runner: Runner; github: GitHubReader; interactions: boolean }> = {},
+) {
   const store = new Store(":memory:");
   const runner = overrides.runner ?? fakeRunner(store);
   // Resolves once the background preparation of a run has settled.
@@ -59,6 +61,17 @@ function build(overrides: Partial<{ runner: Runner; github: GitHubReader }> = {}
       createSession: async () => "sess-1",
       onSettled: (runId) => settled.shift()?.(runId),
     },
+    ...(overrides.interactions
+      ? {
+          interactions: {
+            publicKey: "ab".repeat(32),
+            store,
+            discord: {} as never,
+            github,
+            uiBaseUrl: "https://cujo.example.com",
+          },
+        }
+      : {}),
   });
   return { app, store, runner, github, nextSettled };
 }
@@ -81,6 +94,24 @@ describe("host dispatch", () => {
     expect((await app.fetch(req("other.test", "/healthz"))).status).toBe(404);
     expect((await app.fetch(req(HOOK, "/runs"))).status).toBe(404);
     expect((await app.fetch(req(UI, "/webhook", { method: "POST" }))).status).toBe(404);
+    // Signature-gated ingress belongs on the webhook host, never behind Access.
+    expect((await app.fetch(req(UI, "/discord/interactions", { method: "POST" }))).status).toBe(
+      404,
+    );
+  });
+
+  it("serves the Discord interactions route only when it is configured", async () => {
+    const without = build();
+    expect(
+      (await without.app.fetch(req(HOOK, "/discord/interactions", { method: "POST" }))).status,
+    ).toBe(404);
+
+    const withCommands = build({ interactions: true });
+    const res = await withCommands.app.fetch(
+      req(HOOK, "/discord/interactions", { method: "POST", body: "{}" }),
+    );
+    // Present, and refusing an unsigned request.
+    expect(res.status).toBe(401);
   });
 
   it("requires an Access assertion on every UI route", async () => {

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { type ApiDeps, apiRoutes } from "./api";
+import { type InteractionDeps, interactionRoutes } from "./interactions";
 import { type WebhookDeps, webhookRoutes } from "./webhook";
 
 export interface AppOptions {
@@ -15,6 +16,8 @@ export interface AppOptions {
   internalHost?: string;
   api: ApiDeps;
   webhook: WebhookDeps;
+  /** Absent when the Discord slash commands are not configured. */
+  interactions?: InteractionDeps;
 }
 
 function hostOf(header: string | undefined): string {
@@ -32,14 +35,18 @@ function hostOf(header: string | undefined): string {
 export function createApp(options: AppOptions): Hono {
   const ui = new Hono();
   ui.get("/healthz", (c) => c.json({ ok: true, service: "cujo" }));
-  // The webhook is never reachable on the UI host, not even as a 401.
+  // The webhook is never reachable on the UI host, not even as a 401. The same
+  // goes for the Discord interactions endpoint: both are signature-gated
+  // ingress, and neither belongs behind Access.
   ui.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
+  ui.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
   // Every UI-host route sits behind the Access check inside apiRoutes.
   ui.route("/", apiRoutes(options.api));
 
   const webhook = new Hono();
   webhook.get("/healthz", (c) => c.json({ ok: true, service: "cujo" }));
   webhook.route("/", webhookRoutes(options.webhook));
+  if (options.interactions) webhook.route("/", interactionRoutes(options.interactions));
 
   const app = new Hono();
   app.all("*", (c) => {

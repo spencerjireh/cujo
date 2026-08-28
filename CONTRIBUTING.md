@@ -41,7 +41,13 @@ into Qodo's `best_practices.md` so the file and the bot check the same things.
 - Run Python with `uv` in this repo. `sniff.py` inside the sandbox is the one
   exception: stdlib-only, run with the sandbox's `python3`.
 - Never install `evil-package` outside the Daytona sandbox — it is an intentional
-  malicious sample.
+  malicious sample. Keep the name out of `apps/` and `packages/` entirely, tests
+  included, so the tripwire stays a tripwire.
+- Schema changes in `apps/cujo`: prefer a new table. To alter one that already
+  exists in the deployed database, append to `MIGRATIONS` in `store.ts` — never
+  edit a past entry, and never change a `CREATE TABLE` in place, which applies
+  to a fresh database and silently not to a live one
+  (see [docs/decisions.md](docs/decisions.md) 25 and 30).
 
 ## Branches and commits
 

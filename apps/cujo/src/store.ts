@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import type {
   DiscordChannelRecord,
+  GuildRepoAuthorization,
   Projection,
   RunDiscordMessage,
   RunRecord,
@@ -35,6 +36,7 @@ interface DiscordChannelRow {
   guild_id: string | null;
   channel_name: string | null;
   notify_role_id: string | null;
+  bound_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -46,6 +48,7 @@ function toDiscordChannel(row: DiscordChannelRow): DiscordChannelRecord {
     guildId: row.guild_id,
     channelName: row.channel_name,
     notifyRoleId: row.notify_role_id,
+    boundBy: row.bound_by ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -59,6 +62,23 @@ function toDiscordChannel(row: DiscordChannelRow): DiscordChannelRecord {
 function normalizeRepo(repo: string): string {
   return repo.toLowerCase();
 }
+
+/**
+ * Ordered, append-only. Index `i` takes the database from `user_version` `i`
+ * to `i + 1`, and each runs inside the transaction that bumps the version, so
+ * a container killed mid-migration comes back either before or after it, never
+ * halfway.
+ *
+ * Decision 25 chose new tables over new columns because there was no mechanism
+ * here; decision 30 adds it at the first change that genuinely needed one.
+ * Adding a table is still simpler and still preferred — this is for altering
+ * one that already exists in a deployed database.
+ */
+const MIGRATIONS: readonly string[] = [
+  // 1 — who bound a repo to a channel. An operator's Access email, or
+  //     `discord:<user id>` when it came from a slash command (Contract 8).
+  "ALTER TABLE discord_channels ADD COLUMN bound_by TEXT",
+];
 
 function toRecord(row: RunRow): RunRecord {
   return {
@@ -123,6 +143,8 @@ export class Store {
         turn_id TEXT NOT NULL,
         PRIMARY KEY (run_id, turn_id)
       );
+      -- Fresh databases get the tables below at their original shape and then
+      -- run the same migrations a deployed one does, so both converge.
       -- Contract 7. New tables rather than columns on runs: this schema has no
       -- ALTER TABLE path, so a column would apply to a fresh database and
       -- silently not to the deployed one (decision 25).
@@ -148,6 +170,18 @@ export class Store {
       -- interactions endpoint will need, enforced now while it is free.
       CREATE UNIQUE INDEX IF NOT EXISTS run_discord_message_id
         ON run_discord_messages (message_id) WHERE message_id IS NOT NULL;
+      -- Contract 8. Which Discord server may manage which repo's
+      -- notifications. Written only over the Access-gated API, so the reach of
+      -- a server is always a decision an operator's email is attached to
+      -- (decision 28).
+      CREATE TABLE IF NOT EXISTS discord_guild_repos (
+        guild_id TEXT NOT NULL,
+        repo TEXT NOT NULL,
+        guild_name TEXT,
+        authorized_by TEXT NOT NULL,
+        authorized_at TEXT NOT NULL,
+        PRIMARY KEY (guild_id, repo)
+      );
       -- The PR title for the card. RunRecord has no title and the webhook is
       -- the only place it is ever read.
       CREATE TABLE IF NOT EXISTS run_pr_meta (
@@ -156,6 +190,29 @@ export class Store {
         updated_at TEXT NOT NULL
       );
     `);
+    this.migrate();
+  }
+
+  /**
+   * Apply every migration the database has not seen, each inside the
+   * transaction that records it. `PRAGMA user_version` is SQLite's own
+   * four-byte slot for exactly this, so it needs no table of its own.
+   */
+  private migrate(): void {
+    const row = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
+    for (let version = row.user_version; version < MIGRATIONS.length; version += 1) {
+      const statement = MIGRATIONS[version];
+      if (!statement) continue;
+      this.db.exec("BEGIN");
+      try {
+        this.db.exec(statement);
+        this.db.exec(`PRAGMA user_version = ${version + 1}`);
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw new Error(`migration ${version + 1} failed: ${String(error)}`);
+      }
+    }
   }
 
   close(): void {
@@ -353,19 +410,31 @@ export class Store {
     guildId: string | null;
     channelName: string | null;
     notifyRoleId: string | null;
+    /** An Access email, or `discord:<user id>` from a slash command. */
+    boundBy?: string | null;
   }): DiscordChannelRecord {
     const now = new Date().toISOString();
     const repo = normalizeRepo(input.repo);
     this.db
       .prepare(
-        "INSERT INTO discord_channels " +
-          "(repo, channel_id, guild_id, channel_name, notify_role_id, created_at, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+        "INSERT INTO discord_channels (repo, channel_id, guild_id, channel_name, " +
+          "notify_role_id, bound_by, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
           "ON CONFLICT (repo) DO UPDATE SET channel_id = excluded.channel_id, " +
           "guild_id = excluded.guild_id, channel_name = excluded.channel_name, " +
-          "notify_role_id = excluded.notify_role_id, updated_at = excluded.updated_at",
+          "notify_role_id = excluded.notify_role_id, bound_by = excluded.bound_by, " +
+          "updated_at = excluded.updated_at",
       )
-      .run(repo, input.channelId, input.guildId, input.channelName, input.notifyRoleId, now, now);
+      .run(
+        repo,
+        input.channelId,
+        input.guildId,
+        input.channelName,
+        input.notifyRoleId,
+        input.boundBy ?? null,
+        now,
+        now,
+      );
     const stored = this.getDiscordChannel(repo);
     if (!stored) throw new Error("discord channel vanished after insert");
     return stored;
@@ -377,6 +446,78 @@ export class Store {
       .prepare("DELETE FROM discord_channels WHERE repo = ?")
       .run(normalizeRepo(repo));
     return Number(result.changes) === 1;
+  }
+
+  /** True when this server has been authorized for this repo (Contract 8). */
+  isGuildAuthorized(guildId: string, repo: string): boolean {
+    const row = this.db
+      .prepare("SELECT 1 AS ok FROM discord_guild_repos WHERE guild_id = ? AND repo = ?")
+      .get(guildId, normalizeRepo(repo)) as { ok: number } | undefined;
+    return row !== undefined;
+  }
+
+  /** Every authorization, or just one server's when `guildId` is given. */
+  listGuildRepos(guildId?: string): GuildRepoAuthorization[] {
+    const rows = (
+      guildId
+        ? this.db
+            .prepare("SELECT * FROM discord_guild_repos WHERE guild_id = ? ORDER BY repo")
+            .all(guildId)
+        : this.db.prepare("SELECT * FROM discord_guild_repos ORDER BY guild_id, repo").all()
+    ) as {
+      guild_id: string;
+      repo: string;
+      guild_name: string | null;
+      authorized_by: string;
+      authorized_at: string;
+    }[];
+    return rows.map((row) => ({
+      guildId: row.guild_id,
+      repo: row.repo,
+      guildName: row.guild_name,
+      authorizedBy: row.authorized_by,
+      authorizedAt: row.authorized_at,
+    }));
+  }
+
+  authorizeGuildRepo(input: {
+    guildId: string;
+    repo: string;
+    guildName: string | null;
+    authorizedBy: string;
+  }): GuildRepoAuthorization {
+    const now = new Date().toISOString();
+    const repo = normalizeRepo(input.repo);
+    this.db
+      .prepare(
+        "INSERT INTO discord_guild_repos " +
+          "(guild_id, repo, guild_name, authorized_by, authorized_at) VALUES (?, ?, ?, ?, ?) " +
+          "ON CONFLICT (guild_id, repo) DO UPDATE SET guild_name = excluded.guild_name, " +
+          "authorized_by = excluded.authorized_by, authorized_at = excluded.authorized_at",
+      )
+      .run(input.guildId, repo, input.guildName, input.authorizedBy, now);
+    return {
+      guildId: input.guildId,
+      repo,
+      guildName: input.guildName,
+      authorizedBy: input.authorizedBy,
+      authorizedAt: now,
+    };
+  }
+
+  /**
+   * Revoke, and drop the binding it permitted: leaving the channel bound would
+   * keep a server receiving reviews it is no longer authorized for.
+   */
+  revokeGuildRepo(guildId: string, repo: string): boolean {
+    const normalized = normalizeRepo(repo);
+    const result = this.db
+      .prepare("DELETE FROM discord_guild_repos WHERE guild_id = ? AND repo = ?")
+      .run(guildId, normalized);
+    if (Number(result.changes) !== 1) return false;
+    const binding = this.getDiscordChannel(normalized);
+    if (binding && binding.guildId === guildId) this.deleteDiscordChannel(normalized);
+    return true;
   }
 
   getRunDiscordMessage(runId: string): RunDiscordMessage | null {
