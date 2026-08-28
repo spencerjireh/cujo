@@ -541,3 +541,72 @@ converge rather than drifting into two schemas that happen to match today.
 
 Adding a table is still simpler and still preferred. This is for altering one
 that is already out there.
+
+## 31. The repo declares its Discord server; the operator route becomes an override
+
+Decision 28 made a Cujo operator vouch that a Discord server may see a repo.
+That was wrong in two ways at once. The authority was misplaced — a Cujo
+operator is not necessarily anyone who owns the repo, so the check confirmed
+the wrong fact — and it did not scale, because every repo needed a human with
+an Access login to run a request by hand. In practice that meant a `curl`,
+which is a fair thing to object to.
+
+A repo now names its server itself:
+
+```yaml
+# .cujo.yml on the default branch
+discord_guild: "222222222222222222"
+```
+
+The authority becomes repo write access, which is the thing that actually
+correlates with owning a repo. It is self-serve for any number of repos, it is
+auditable in git history like every other config change, and it is revoked by a
+commit rather than by finding whoever holds a Cujo login. `.cujo.yml` was
+already the repo's policy file, read from a ref the pull request cannot change,
+so the file and the habit both existed.
+
+The handshake stays two-sided, which is what stops abuse in both directions.
+The repo's declaration alone would let anyone route a repo they do not own; the
+server's `/cujo watch` alone would let anyone send a repo's reviews into a
+server they do not belong to. Both are still required.
+
+Cujo reads the file trusted-side, through the App, from the default branch.
+Never the sandbox's copy: the sandbox holds the pull request's code, and code
+that declares its own authorization is not an authorization. Reading the
+default branch rather than the pull request's is also what makes the
+declaration proof of control — it has to be merged.
+
+The key is extracted with one strict pattern rather than parsed as YAML. It has
+one shape, a snowflake at the top level, so anything else does not match and
+the repo counts as undeclared; a YAML dependency for one scalar is not worth
+the bundle or the parser's own surface. A wrong declaration is silent and never
+costs a review: `/cujo watch` prints the exact line to add, and `/cujo status`
+closes with it.
+
+Revocation is checked on the delivery path, not only at bind time. A binding
+written before a declaration was reverted would otherwise keep delivering
+forever, which would make "revoked by a commit" a claim the code did not keep.
+The cost is one cached read per notification; the alternative is a promise in
+the docs that is false in the product. For the same reason `/cujo unwatch` is
+ungated: the commit that revokes is exactly what makes a binding stale, so
+gating cleanup behind the declaration would strand the channel.
+
+An unreadable `.cujo.yml` is not a revocation. `declaredGuild` throws rather
+than returning null on a failed read, so the two facts stay distinguishable,
+and the delivery path keeps sending while a command refuses and asks for a
+retry. Collapsing them would let a GitHub hiccup silence a team's reviews.
+
+Autocomplete deliberately stopped narrowing to what a server may watch, because
+that would be one `.cujo.yml` read per installed repo per keystroke against a
+three-second budget. It offers everything the App is installed on, and the
+refusal carries the fix.
+
+What survives from 28: the operator route, now an override for moving a repo
+between servers or for a repo whose `.cujo.yml` cannot be changed; Manage
+Server, still checked twice; and the rule that nothing here approves a review.
+
+Rejected: a claim-code flow (`/cujo claim` prints a code, someone pastes it
+into a GitHub issue), which proves the same thing but is a stateful dance with
+expiry and replay to get right and leaves no lasting record of the decision.
+Also rejected, again, Manage Server alone — it still lets any server admin bind
+any repo Cujo knows about.

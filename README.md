@@ -132,22 +132,28 @@ curl -X PUT http://localhost:8080/discord/channels/OWNER/NAME \
 can see, so the ids need not be copied out of Discord by hand. A repo with no
 binding is never notified, and with no token set the service runs as before.
 
-Better, let the server configure itself (Contract 8). Set `DISCORD_PUBLIC_KEY`
-to the application's public key, point the application's **Interactions
-Endpoint URL** at `https://$CUJO_WEBHOOK_HOST/discord/interactions`, re-invite
-the bot with the `applications.commands` scope alongside `bot`, then authorize
-the server for a repo:
+Better, let each repo and each server sort it out between themselves
+(Contract 8). Once, for the deploy: set `DISCORD_PUBLIC_KEY` to the
+application's public key, point its **Interactions Endpoint URL** at
+`https://$CUJO_WEBHOOK_HOST/discord/interactions`, and invite the bot with the
+`applications.commands` scope alongside `bot`.
 
-```bash
-curl -X PUT http://localhost:8080/discord/authorizations/GUILD_ID/OWNER/NAME \
-  -H 'Host: cujo.localhost'
+After that there is nothing to run by hand. The repo names the server it trusts:
+
+```yaml
+# .cujo.yml on the default branch
+discord_guild: "222222222222222222"
 ```
 
-Anyone in that server with Manage Server can then run `/cujo watch`, picking
-the channel and ping role from Discord's own dropdowns, `/cujo status` to see
-where each repo goes, and `/cujo test` to post a sample card and prove the path
-works. Which repos a server may reach stays an operator's decision; which
-channel they land in does not.
+and anyone in that server with Manage Server runs `/cujo watch`, picking the
+channel and ping role from Discord's own dropdowns. `/cujo status` shows where
+each repo goes, and `/cujo test` posts a sample card to prove the path works.
+
+Both halves are required: merging the declaration is what proves you control
+the repo, and running the command is what proves the server wants it.
+`PUT /discord/authorizations/:guildId/:owner/:name` remains as an operator
+override, for moving a repo between servers or for one whose `.cujo.yml` cannot
+be changed.
 
 The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
 are for local runs only and never touch how it deploys.

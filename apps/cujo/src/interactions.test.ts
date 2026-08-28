@@ -59,11 +59,19 @@ function fakeDiscord(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function build(options: { discord?: Record<string, unknown>; repos?: string[] } = {}) {
+function build(
+  options: {
+    discord?: Record<string, unknown>;
+    repos?: string[];
+    /** What the repo names in its `.cujo.yml`; null is "no declaration". */
+    declaredGuild?: string | null;
+  } = {},
+) {
   const store = new Store(":memory:");
   const discord = fakeDiscord(options.discord);
   const github = {
     installedRepos: vi.fn(async () => options.repos ?? ["spencerjireh/orders-api"]),
+    declaredGuild: vi.fn(async () => options.declaredGuild ?? null),
   };
   const settled: ((name: string) => void)[] = [];
   const nextSettled = () => new Promise<string>((resolve) => settled.push(resolve));
@@ -194,7 +202,22 @@ describe("interactions endpoint", () => {
     });
   });
 
-  it("refuses a repo this server was never authorized for", async () => {
+  it("watches a repo that named this server, with no operator involved", async () => {
+    const built = build({ declaredGuild: GUILD });
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain(`<#${CHANNEL}>`);
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(GUILD);
+    // Nothing was written to the operator table to make this work.
+    expect(built.store.listGuildRepos()).toHaveLength(0);
+  });
+
+  it("tells a server that has not been named exactly what to add, and where", async () => {
     const built = build();
     const content = await reply(
       built,
@@ -203,9 +226,36 @@ describe("interactions endpoint", () => {
         { name: "channel", type: 7, value: CHANNEL },
       ]),
     );
-    expect(content).toContain("not authorized");
+    expect(content).toContain(".cujo.yml");
+    expect(content).toContain(`discord_guild: "${GUILD}"`);
     expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
     expect(built.discord.getChannel).not.toHaveBeenCalled();
+  });
+
+  it("says so plainly when the repo named a different server", async () => {
+    const built = build({ declaredGuild: "999999999999999999" });
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain("a different Discord server");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("still honours an operator's allowance when the repo declares nothing", async () => {
+    const built = build();
+    authorize(built.store);
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain(`<#${CHANNEL}>`);
   });
 
   it("checks Manage Server itself, not only through Discord's own gate", async () => {
@@ -311,7 +361,23 @@ describe("interactions endpoint", () => {
     const content = await reply(built, command("status"));
     expect(content).toContain(`spencerjireh/orders-api\` → <#${CHANNEL}>`);
     expect(content).toContain(`<@&${ROLE}>`);
-    expect(content).toContain("other-repo` — authorized, not being sent anywhere");
+    expect(content).toContain("other-repo` — allowed, not being sent anywhere");
+    // It cannot list every repo that named this server without reading each
+    // one's .cujo.yml, so it says how to add one instead.
+    expect(content).toContain(`discord_guild: "${GUILD}"`);
+  });
+
+  it("lists a repo watched here even when no operator allowed it", async () => {
+    const built = build({ declaredGuild: GUILD });
+    built.store.putDiscordChannel({
+      repo: "spencerjireh/orders-api",
+      channelId: CHANNEL,
+      guildId: GUILD,
+      channelName: "reviews",
+      notifyRoleId: null,
+    });
+    const content = await reply(built, command("status"));
+    expect(content).toContain(`spencerjireh/orders-api\` → <#${CHANNEL}>`);
   });
 
   it("posts a sample card, and reports a channel it cannot post to", async () => {
@@ -339,9 +405,8 @@ describe("interactions endpoint", () => {
     expect(failed).toContain("could not post");
   });
 
-  it("completes the repo box from the repos this server may watch", async () => {
+  it("completes the repo box from every repo Cujo could review", async () => {
     const built = build({ repos: ["spencerjireh/orders-api", "spencerjireh/other"] });
-    authorize(built.store);
     const res = await post(built.app, {
       type: 4,
       application_id: "app1",
@@ -353,22 +418,35 @@ describe("interactions endpoint", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { type: number; data: { choices: { value: string }[] } };
     expect(body.type).toBe(8);
-    // `other` is installed but not authorized here, so it is not offered.
-    expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
+    // Narrowing by authorization would mean one .cujo.yml read per repo, per
+    // keystroke. `watch` refuses with the fix instead.
+    expect(body.data.choices.map((c) => c.value)).toEqual([
+      "spencerjireh/orders-api",
+      "spencerjireh/other",
+    ]);
+    expect(built.github.declaredGuild).not.toHaveBeenCalled();
   });
 
-  it("offers nothing to a server with no authorization", async () => {
-    const built = build();
+  it("narrows the box as the invoker types", async () => {
+    const built = build({ repos: ["spencerjireh/orders-api", "spencerjireh/other"] });
     const res = await post(built.app, {
       type: 4,
       application_id: "app1",
       token: "tok",
       guild_id: GUILD,
-      data: { name: "cujo", options: [{ type: 1, name: "watch", options: [] }] },
+      data: {
+        name: "cujo",
+        options: [
+          {
+            type: 1,
+            name: "watch",
+            options: [{ name: "repo", type: 3, value: "orders", focused: true }],
+          },
+        ],
+      },
     });
-    const body = (await res.json()) as { data: { choices: unknown[] } };
-    expect(body.data.choices).toEqual([]);
-    expect(built.github.installedRepos).not.toHaveBeenCalled();
+    const body = (await res.json()) as { data: { choices: { value: string }[] } };
+    expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
   });
 
   it("falls back to what it knows when GitHub cannot be reached", async () => {
@@ -439,7 +517,25 @@ describe("interactions endpoint", () => {
         { name: "channel", type: 7, value: CHANNEL },
       ]),
     );
-    expect(content).toContain("no longer authorized");
+    expect(content).toContain("no longer allowed");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("re-checks a repo declaration reverted during the Discord round trips", async () => {
+    const built = build({ declaredGuild: GUILD });
+    built.discord.listRoles.mockImplementationOnce(async () => {
+      // The declaration was reverted on the default branch mid-command.
+      built.github.declaredGuild.mockResolvedValue(null);
+      return [{ id: GUILD, name: "@everyone", permissions: CAN_POST }];
+    });
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain("no longer allowed");
     expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
@@ -494,6 +590,57 @@ describe("interactions endpoint", () => {
     const body = (await res.json()) as { data: { choices: { value: string }[] } };
     expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
     for (const choice of body.data.choices) expect(choice.value.length).toBeLessThanOrEqual(100);
+  });
+
+  it("lets a server stop receiving a repo that revoked its declaration", async () => {
+    // The commit that revokes is the one that makes the binding stale, so
+    // gating cleanup behind the declaration would strand the channel.
+    const built = build({ declaredGuild: null });
+    built.store.putDiscordChannel({
+      repo: "spencerjireh/orders-api",
+      channelId: CHANNEL,
+      guildId: GUILD,
+      channelName: "reviews",
+      notifyRoleId: null,
+    });
+    const content = await reply(
+      built,
+      command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+    );
+    expect(content).toContain("Stopped");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("lets a server stop receiving a repo the App was removed from", async () => {
+    const built = build({ repos: ["spencerjireh/something-else"] });
+    built.store.putDiscordChannel({
+      repo: "spencerjireh/orders-api",
+      channelId: CHANNEL,
+      guildId: GUILD,
+      channelName: "reviews",
+      notifyRoleId: null,
+    });
+    const content = await reply(
+      built,
+      command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+    );
+    expect(content).toContain("Stopped");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("asks for a retry rather than refusing when GitHub cannot be read", async () => {
+    const built = build();
+    built.github.declaredGuild.mockRejectedValueOnce(new Error("github is down"));
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain("could not read");
+    expect(content).toContain("Try again");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("refuses to act outside a server", async () => {
