@@ -286,7 +286,7 @@ which would let a human approve a blocking review on a stale SHA.
 
 Cancelling the turn turned out not to be enough for a run that was waiting on a
 human: a superseded run answers its pending approval too, or the pull request
-becomes unreviewable for good (decision 37).
+becomes unreviewable for good (decision 39).
 
 ## 21. The hard rules are re-derived in `apps/cujo`, not only in the rubric
 

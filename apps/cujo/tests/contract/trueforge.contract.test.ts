@@ -242,7 +242,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   });
 
   /**
-   * The regression behind decision 37, and the only test that exercises the
+   * The regression behind decision 39, and the only test that exercises the
    * refusal itself. An approval is outstanding on the session, not on the turn
    * that raised it, so before the fix `supersede`'s cancel left it pending and
    * every later head on that pull request failed to start a turn with

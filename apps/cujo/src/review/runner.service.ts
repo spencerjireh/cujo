@@ -421,7 +421,7 @@ export class Runner {
    * another turn. An approval is outstanding on the *session*, not on the turn
    * that requested it: the turn that raised it has already ended, so
    * cancelling a turn does not answer it, and TrueForge refuses every later
-   * user message on the thread while one is pending (decision 37).
+   * user message on the thread while one is pending (decision 39).
    *
    * The deny starts a turn of its own, which is cancelled straight after: the
    * agent it belongs to is holding a review of a commit nobody is looking at.
@@ -484,7 +484,7 @@ export class Runner {
    *
    * A run waiting on a human is the case that matters: its approval is
    * answered rather than merely cancelled, or the pull request becomes
-   * unreviewable for good (decision 37).
+   * unreviewable for good (decision 39).
    */
   async supersede(runId: string): Promise<void> {
     const s = this.state(runId);
@@ -600,7 +600,7 @@ export class Runner {
    * One retry, after clearing an approval left pending on the session. That is
    * the failure that would otherwise make a pull request unreviewable for
    * good, and healing it here catches the cases `supersede` does not (decision
-   * 37). The error text is not inspected: the 422 wording is TrueForge's, not
+   * 39). The error text is not inspected: the 422 wording is TrueForge's, not
    * ours, and `startTurn` failing at all is rare enough to afford one lookup.
    */
   async start(run: RunRecord, message: string): Promise<void> {
