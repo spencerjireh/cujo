@@ -38,6 +38,9 @@ export const EVENT_NAMES = [
   "webhook.ignored",
   "webhook.deferred",
   "webhook.rejected",
+  // The delivery was good and the run still could not be claimed. Its own name
+  // because it is not a refusal: nothing about the request was wrong.
+  "webhook.failed",
   "repo.visibility.changed",
   // A run's life, from the claim to a terminal status.
   "run.skipped",
