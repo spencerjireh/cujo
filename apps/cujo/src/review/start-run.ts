@@ -18,6 +18,12 @@ export interface StartRunDeps {
   github: GitHubReader;
   store: RunStore;
   runner: Runner;
+  /**
+   * The run id to name in the review, or `""` when the review should carry no
+   * link (decision 36). Injected rather than read from `Config` here, so
+   * `review/` keeps taking only what it uses and the rule stays in one place.
+   */
+  reviewRunId: (run: RunRecord) => string;
   /** Test hook: called when the background preparation of a run has settled. */
   onSettled?: (runId: string) => void;
 }
@@ -44,7 +50,7 @@ export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void
     for (const old of deps.store.listUnfinishedRuns(scope)) {
       if (old.id !== run.id) await deps.runner.supersede(old.id);
     }
-    await deps.runner.start(run, buildTurnMessage(pr));
+    await deps.runner.start(run, buildTurnMessage(pr, deps.reviewRunId(run)));
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim
     // the head (RunStore.createRun) instead of being refused as a duplicate.

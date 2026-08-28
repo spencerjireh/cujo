@@ -13,6 +13,13 @@ import { registerReviewTools } from "./tools";
 
 export interface AppOptions {
   github: GitHubClient;
+  /**
+   * The public board this deployment links reviews to (decision 36). Held here
+   * rather than taken from the agent, so the review footer can only ever point
+   * at Cujo's own host. Empty means no deployment-wide board, and no review
+   * carries a footer.
+   */
+  publicBaseUrl?: string;
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -27,9 +34,9 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return text.length === 0 ? undefined : JSON.parse(text);
 }
 
-export function createMcpServer(github: GitHubClient): McpServer {
+export function createMcpServer(github: GitHubClient, publicBaseUrl = ""): McpServer {
   const server = new McpServer({ name: "cujo-github-mcp", version: "0.1.0" });
-  registerReviewTools(server, github);
+  registerReviewTools(server, github, publicBaseUrl);
   return server;
 }
 
@@ -47,7 +54,7 @@ export function createApp(options: AppOptions) {
       return;
     }
 
-    const mcp = createMcpServer(options.github);
+    const mcp = createMcpServer(options.github, options.publicBaseUrl ?? "");
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();

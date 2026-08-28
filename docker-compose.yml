@@ -217,6 +217,10 @@ services:
       PORT: 8081
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
+      # The board a review's evidence footer points at. Held here rather than
+      # taken from the agent, so nothing the agent read in a pull request can
+      # choose that host; unset means no review carries a footer (decision 36).
+      CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-}
     read_only: true
     tmpfs:
       - /tmp

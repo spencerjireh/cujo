@@ -57,9 +57,10 @@ the Makefile.
 Two trust zones with one narrow bridge. Trusted: TrueForge, `apps/cujo`,
 `github-mcp`, and every secret. Untrusted and disposable: the Daytona sandbox
 holding the PR code, `sandbox/sniff.py`, and the logging proxy. Only PR code, public PR
-metadata, dependency names, and Cujo's own sensor script go in; only JSON
-reports come out. No token, key, or clone credential may ever reach the
-sandbox. Treat any change that moves data across this line as a design change.
+metadata, dependency names, Cujo's own sensor script, and a public run's own id
+go in; only JSON reports come out. No token, key, clone credential, or hostname
+may ever reach the sandbox. Treat any change that moves data across this line as
+a design change.
 
 `apps/web` (Next.js App Router, TanStack Query, Tailwind on `brand/tokens.css`)
 is the UI and the only thing a human opens. It holds no secrets and no state:

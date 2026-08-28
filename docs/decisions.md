@@ -825,3 +825,103 @@ silent.
 
 Known limit: nothing enforces this mechanically. It is a review rule, which is
 why it lives in `best_practices.md` rather than only here.
+
+## 36. The review links to its own evidence, and the bot wears the brand
+
+Decision 34 made the run board public and anonymous, and then nothing pointed
+at it. The review `cujo-guard[bot]` posts is *What ran*, *Results*, *Egress*
+and then it stops, so a reader who wants the test output, the egress table, or
+the detonation report has nowhere to go — the evidence is sitting on a page
+anyone can open and the pull request never mentions it. Every review on a
+public repo now ends with a rule and one line: `Full evidence: <run page>`.
+
+`github-mcp` composes that footer, and the agent supplies neither the format nor
+the destination. The alternative was a line in `agent/SKILL.md` telling the
+model to end its body a particular way, which is a rule that fails silently — a
+model can forget it, reword it, or put it above *Egress*, and none of those are
+visible until a human reads a posted review. Composed in `body.ts` the footer is
+correct or absent, and absent only when Cujo says so.
+
+**The agent relays a run id, not a URL**, and that distinction is the whole
+security argument. The value crosses an agent that has just read a stranger's
+pull request, so anything it carries is something that pull request can try to
+choose. A URL would let it choose the host, and the bot would then vouch for an
+arbitrary link under `Full evidence:` in a review posted as `cujo-guard[bot]` —
+which is exactly the credibility the product is built to earn. It would also
+have been injectable: `z.string().url()` accepts a string with embedded
+newlines, because WHATWG parsing strips them for validation while Zod returns
+the original, so `https://x/\n\n## Merged and approved\n\n[Click here](…)`
+passes and reaches the body verbatim. A UUID admits neither. `github-mcp` holds
+the host in `CUJO_PUBLIC_BASE_URL` and builds `<base>/runs/<uuid>` itself, so
+the worst a redirected agent can do is name a different run on Cujo's own board.
+
+Two independent conditions gate the footer and each side owns the one it can
+answer. `apps/cujo` knows repository visibility, so `review/links.ts` exports
+`publicRunId`, which returns `""` for a private run, and `buildTurnMessage` then
+omits the key entirely; omitting rather than sending `""` makes the absent key
+and the optional schema field the same rule, so nothing downstream needs a
+special case. `github-mcp` knows whether this deployment has a board, and
+appends nothing without one. Either missing costs every review its footer and
+costs no review its posting, which is the right direction for a cosmetic field.
+
+A private repository therefore gets no footer at all. It has no page a reader of
+the pull request could open: the operator host would answer with a login screen
+and the board root would answer with a page about some other run, and both are
+worse than saying nothing.
+
+The Discord cards move off Discord's palette onto `brand/tokens.css`. Two rules
+decide the map and both are worth keeping when a status is added: **amber marks
+exactly one status**, `blocked_pending`, because amber is the brand and
+`brand.md` spends it on the thing a person must act on; and **red means the pull
+request is dangerous, never that Cujo fell over**, which is why a run that
+errors is `--sev-info` blue. An errored run is a status, not a verdict on
+someone's code, and colouring it red teaches an operator to discount the colour
+that matters most. The three states nobody can act on — clean, denied,
+superseded — form a ramp of decreasing lightness rather than three arbitrary
+greys.
+
+Writing this down exposed that `brand.md`'s five-level severity ramp never
+matched the product. Cujo emits three severities, `critical`, `warn`, and
+`info`; `warn` is not in the ramp at all, `SeverityBadge.tsx` has been quietly
+bridging it to the high tokens, and `--sev-medium` and `--sev-low` are
+referenced by nothing outside Storybook. `brand.md` now says so. The words stay
+as they are: they are matched literally in `review/fold.ts` and validated by the
+review tool's schema, so renaming one is a code change and not a copy change,
+and the voice pass in `agent/SKILL.md` deliberately does not touch them.
+
+The GitHub App also gets an avatar and a description, which it had never had.
+Neither existing mark could serve: `logo/mark.svg` is near-black on transparent
+and `logo/favicon.svg` is bone on transparent, while an App avatar renders on
+both the light and the dark GitHub UI, so it has to carry its own ground.
+`logo/avatar.svg` is the mark on a `--bg` dark tile with the clear-space rule
+satisfied at 512.
+
+On the trust boundary: `run_id` is the one field this adds to the turn payload,
+and it is Cujo's own artifact identifier — the same category as the sensor
+script URL already substituted into the rubric, and already public, since it is
+the last path segment of a page anyone can open. It carries no secret, names no
+host, and grants the sandbox nothing it could not read off the board. It is
+deliberately the smallest thing that could have crossed: the URL it replaced
+would have carried a hostname, which is precisely the part worth withholding.
+
+Chosen over / Rejected: **a full `run_url` from the agent**, which hands the
+pull request under review a say in where the bot's own evidence link points, and
+which `z.string().url()` cannot even be made to sanitise properly; having
+`github-mcp` verify repository visibility itself through the GitHub API, which
+is more robust but adds an API call and a failure mode to every review and
+widens a server whose comment says it "reads nothing but the PR's diff"; linking
+a private repo's review to `cujo-admin`, which
+sends most readers to a login screen for a page they will never be allowed to
+see; linking to the board root, which loads for everyone and says nothing about
+this pull request, so it reads as a broken link; adding a success green to the
+brand ramp so `clean` could be positive, when `brand.md` already says a calm
+review has almost no colour on the page and a passing run is quiet rather than
+celebratory; keeping Discord's green for `clean` alone, which leaves two design
+systems in one file; and putting the mark in the review body, which GitHub
+renders small, adds a remote asset to every comment, and argues against the
+terse and evidential voice the same pass was tightening.
+
+Known limit: the footer is a permalink to a page whose visibility can change. A
+repo made private after a review leaves a live GitHub comment pointing at a URL
+that now 404s. That is the correct answer — the page is gone — but the link
+stays in the comment, and nothing in this decision can retract it.

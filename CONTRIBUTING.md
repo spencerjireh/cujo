@@ -61,8 +61,9 @@ into Qodo's `best_practices.md` so the file and the bot check the same things.
 - Secrets never enter the repo — no token, key, or `.env` in a commit. The App key
   (`*.pem`) and `.env` are gitignored; real values live in Coolify.
 - Respect the trust boundary: nothing on the server hands a secret to the sandbox.
-  What goes in is the PR's code and public metadata, dependency names, and Cujo's
-  own sensor script and commands (see [docs/architecture.md](docs/architecture.md)).
+  What goes in is the PR's code and public metadata, dependency names, Cujo's own
+  sensor script and commands, and a public run's own id — never a hostname
+  (see [docs/architecture.md](docs/architecture.md)).
 - Pin dependencies; an unpinned or `git+` spec needs a reason in the PR.
 - Run Python with `uv` in this repo. `sniff.py` inside the sandbox is the one
   exception: stdlib-only, run with the sandbox's `python3`.
