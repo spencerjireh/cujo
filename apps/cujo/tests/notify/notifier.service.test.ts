@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { DiscordError, UNKNOWN_MESSAGE } from "../../src/clients/discord";
 import type { DiscordClient } from "../../src/clients/discord";
+import type { DiscordMessagePayload } from "../../src/clients/discord";
 import type { GitHubReader } from "../../src/clients/github";
-import type { DiscordMessagePayload } from "../../src/notify/card";
 import { DiscordNotifier } from "../../src/notify/notifier.service";
 import { emptyProjection } from "../../src/review/fold";
 import type { RunView } from "../../src/review/runner.service";

@@ -11,8 +11,6 @@
  * The token never appears in an error message or a log line.
  */
 
-import type { DiscordMessagePayload } from "../notify/card";
-
 const API = "https://discord.com/api/v10";
 const TIMEOUT_MS = 10_000;
 
@@ -22,6 +20,36 @@ export const GUILD_ANNOUNCEMENT = 5;
 
 /** Discord's "Unknown Message": the card was deleted underneath us. */
 export const UNKNOWN_MESSAGE = 10008;
+
+/**
+ * The message wire shapes. They belong to the client rather than to the card
+ * builder that fills them in: the builder is one caller of this API, not the
+ * definition of it. Owning them here is also what keeps `clients/` a leaf —
+ * a client that imported a type from `notify/` would depend on the context it
+ * exists to serve, and could not be tested without it.
+ */
+export interface DiscordEmbedField {
+  name: string;
+  value: string;
+  inline?: boolean;
+}
+
+export interface DiscordEmbed {
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number;
+  fields?: DiscordEmbedField[];
+  footer?: { text: string };
+  timestamp?: string;
+}
+
+export interface DiscordMessagePayload {
+  content?: string;
+  embeds?: DiscordEmbed[];
+  /** Always present. `parse: []` is what stops a PR titled `@everyone`. */
+  allowed_mentions: { parse: string[]; roles?: string[] };
+}
 
 /** A channel-level permission grant. `type` 0 is a role, 1 is a member. */
 export interface PermissionOverwrite {

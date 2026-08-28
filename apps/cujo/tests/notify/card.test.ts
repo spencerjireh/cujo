@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { DiscordMessagePayload } from "../../src/clients/discord";
 import {
-  type DiscordMessagePayload,
   LIMITS,
   buildPing,
   buildRunCard,

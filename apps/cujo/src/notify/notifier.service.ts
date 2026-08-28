@@ -16,13 +16,13 @@
 
 import { DiscordError, UNKNOWN_MESSAGE } from "../clients/discord";
 import type { DiscordClient } from "../clients/discord";
+import type { DiscordMessagePayload } from "../clients/discord";
 import type { GitHubReader } from "../clients/github";
 import type { RunView } from "../review/runner.service";
 import type { RunRecord, RunStatus } from "../review/types";
 import type { Store } from "../store";
 import { authorizationFor } from "./authorization";
 import { buildPing, buildRunCard } from "./card";
-import type { DiscordMessagePayload } from "./card";
 import type { RunDiscordMessage } from "./types";
 
 export interface NotifierDeps {
