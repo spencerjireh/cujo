@@ -10,14 +10,13 @@
  */
 
 import { Hono } from "hono";
+import { GUILD_ANNOUNCEMENT, GUILD_TEXT } from "../../clients/discord";
+import type { DiscordClient } from "../../clients/discord";
 import {
-  GUILD_ANNOUNCEMENT,
-  GUILD_TEXT,
   REQUIRED_PERMISSIONS,
   effectivePermissions,
   hasPermissions,
-} from "../../clients/discord";
-import type { DiscordClient } from "../../clients/discord";
+} from "../../clients/discord-permissions";
 import type { GitHubReader } from "../../clients/github";
 import type { DiscordChannelRecord } from "../../notify/types";
 import type { NotificationStore } from "../../store";
