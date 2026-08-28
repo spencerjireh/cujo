@@ -30,6 +30,20 @@ export type RequestEnv = { Variables: { ray: string; log: Logger } };
 export const GENERATED_RAY_PREFIX = "cujo-";
 
 /**
+ * How the ray reaches a delegated plane.
+ *
+ * `router.ts` answers most requests by calling `ui.fetch(c.req.raw)` or
+ * `webhook.fetch(...)`, and a Hono instance builds a *fresh* context from that
+ * raw request — nothing set with `c.set` on the outer context is visible
+ * inside. So the value travels the only way it can: on the request itself.
+ * Each plane then re-derives the same ray rather than inventing a second one.
+ *
+ * Set by this process and never trusted from outside: `router.ts` overwrites
+ * it on every delegation, so a client sending its own is ignored.
+ */
+export const RAY_HEADER = "x-cujo-ray";
+
+/**
  * Cloudflare's own request id. Decision 33 makes the origin Cloudflare-only, so
  * on the deployed path this is always present; absent means a local run or a
  * request that reached the container another way.
@@ -39,12 +53,48 @@ export function rayFrom(header: string | undefined): string {
   return value === "" ? `${GENERATED_RAY_PREFIX}${randomUUID()}` : value;
 }
 
+/**
+ * The ray for a request.
+ *
+ * `trustForwarded` is the whole of this function. It is false at the edge, so
+ * a client cannot choose what its own request is filed under by sending
+ * `x-cujo-ray`; it is true only on the internal hop, where the header was put
+ * there by `router.ts` one line earlier. Getting this backwards hands an
+ * anonymous caller the ability to collide its requests with somebody else's
+ * run in the log, which is why the parameter is required rather than defaulted
+ * at the call sites that matter.
+ */
+export function rayOf(
+  request: { header(name: string): string | undefined },
+  trustForwarded: boolean,
+): string {
+  const forwarded = trustForwarded ? (request.header(RAY_HEADER) ?? "").trim() : "";
+  return forwarded === "" ? rayFrom(request.header("cf-ray")) : forwarded;
+}
+
+/** Stamps the ray onto a request about to be handed to another Hono instance. */
+export function withRay(request: Request, ray: string): Request {
+  const headers = new Headers(request.headers);
+  headers.set(RAY_HEADER, ray);
+  return new Request(request, { headers });
+}
+
 /** Which plane answered, for a query that asks about a trust boundary. */
 export type Plane = "operator" | "public" | "ingress" | "unknown";
 
-export function requestLogger(root: Logger): MiddlewareHandler<RequestEnv> {
+/**
+ * `source: "edge"` for the outer router, which faces the internet and must
+ * therefore ignore `x-cujo-ray`; `source: "delegated"` for an instance the
+ * outer router hands a request to, where that header is how the ray survives
+ * the hop. Spelled at every call site because the wrong one is a security
+ * difference and not a style difference.
+ */
+export function requestLogger(
+  root: Logger,
+  source: "edge" | "delegated",
+): MiddlewareHandler<RequestEnv> {
   return async (c, next) => {
-    const ray = rayFrom(c.req.header("cf-ray"));
+    const ray = rayOf(c.req, source === "delegated");
     c.set("ray", ray);
     c.set("log", root.child({ ray }));
     await next();

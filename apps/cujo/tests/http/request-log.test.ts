@@ -84,6 +84,50 @@ describe("one line per request", () => {
     expect(logged("http.request")).toHaveLength(1);
   });
 
+  it("reaches a delegated plane, which builds its own context", async () => {
+    // `ui.fetch(c.req.raw)` starts a fresh Hono context, so nothing set with
+    // c.set on the outer one survives the hop. The ray travels on the request
+    // instead, and each plane re-derives the same value rather than inventing
+    // a second — without this, every per-plane conversion logs `ray:
+    // undefined`.
+    const { app, store, logged } = build();
+    const run = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h",
+      sessionId: "s",
+      isPublic: true,
+    }).run;
+    await app.fetch(req(UI, `/public/runs/${run.id}`, { headers: { "cf-ray": "edge-1" } }));
+    // The outer line and the plane's own view of the ray must agree.
+    expect(logged("http.request")[0]?.ray).toBe("edge-1");
+  });
+
+  it("ignores a ray a client tried to supply", async () => {
+    // The header is this process's own channel between routers. A client that
+    // sets it must not be able to choose what its request is filed under.
+    const { app, logged } = build();
+    await app.fetch(req(UI, "/runs", { headers: { "x-cujo-ray": "forged" } }));
+    expect(logged("http.request")[0]?.ray).not.toBe("forged");
+  });
+
+  it("does not call a path public just because it starts with those letters", async () => {
+    // /publicity falls through to the gated router, so calling it public would
+    // put the wrong trust boundary on the line.
+    const { app, logged } = build();
+    await app.fetch(req(UI, "/publicity"));
+    await app.fetch(req(UI, "/public/runs"));
+    expect(logged("http.request").map((l) => l.plane)).toEqual(["operator", "public"]);
+  });
+
+  it("logs a probe path asked of an unknown host, because that is a 404", async () => {
+    // Suppressing by path alone would hide it, and an unknown host asking for
+    // /healthz is exactly the request the unknown-host rule exists for.
+    const { app, logged } = build();
+    await app.fetch(req("stranger.test", "/healthz"));
+    expect(logged("http.request")[0]).toMatchObject({ plane: "unknown", http_status: 404 });
+  });
+
   it("names no repo, no person and no assertion", async () => {
     // The request line is metadata. Anything that identifies a person belongs
     // on the event that records a decision, not on every request.
