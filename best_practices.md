@@ -30,3 +30,9 @@ this file when reviewing pull requests; keep the two in sync.
   edit a past entry, and never change a `CREATE TABLE` in place, which applies
   to a fresh database and silently not to a live one
   (see `docs/decisions.md` 25 and 30).
+- Merging deploys, so a change that couples a Coolify variable to the contents of
+  `main` — a `main`-relative URL, most of all — must be valid both before and
+  after the merge. Move the file in one PR while the old location still answers,
+  then delete the old one in a follow-up. Updating the Coolify value first
+  narrows the window but does not close it, because the running container keeps
+  the old value until the deploy swaps it (see `docs/decisions.md` 35).
