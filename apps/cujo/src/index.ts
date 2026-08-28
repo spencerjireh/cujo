@@ -9,6 +9,7 @@ import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { buildAgentSpec } from "./review/agent-spec";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
+import { VisibilityService } from "./review/visibility.service";
 import { Store } from "./store";
 
 export { createApp } from "./http/router";
@@ -88,6 +89,15 @@ async function main(): Promise<void> {
     runner.rehydrate(run).catch((error) => console.error(`rehydrate ${run.id} failed`, error));
   }
 
+  // Reconciles the public board's `is_public` stamps behind the `repository`
+  // webhook, and backfills the rows that predate the column (decision 34).
+  const visibility = new VisibilityService({
+    runs: store.runs,
+    github,
+    intervalMs: config.visibilityRecheckMs,
+  });
+  visibility.start();
+
   const app = createApp({
     uiHost: config.uiHost,
     internalHost: config.internalHost,
@@ -128,6 +138,7 @@ async function main(): Promise<void> {
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
+    visibility.stop();
     runner.stopAll();
     server.close();
     void (notifier?.flush(5_000) ?? Promise.resolve()).finally(() => {

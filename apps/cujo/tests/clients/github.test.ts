@@ -278,3 +278,43 @@ describe("GitHubReader.installedRepos", () => {
     await expect(reader.installedRepos()).rejects.toThrow("returned 500");
   });
 });
+
+/**
+ * Three answers rather than two (decision 34). `unknown` is the one that
+ * matters: the sweep leaves a stamp alone when GitHub could not be asked, so a
+ * transient failure must never be reported as "private" and take the public
+ * board dark.
+ */
+describe("GitHubReader.repoIsPublic", () => {
+  const reader = (impl: unknown) => new GitHubReader("1", "pem", impl as typeof fetch);
+
+  it.each([
+    ["public when the repo says private is false", 200, { private: false }, "public"],
+    ["private when the repo says private is true", 200, { private: true }, "private"],
+    ["private when the body carries no private field", 200, {}, "private"],
+    ["private when the repo is gone", 404, {}, "private"],
+    ["private when the repo is gone for good", 410, {}, "private"],
+    ["unknown when GitHub errors", 500, {}, "unknown"],
+    ["unknown when GitHub rate limits", 403, {}, "unknown"],
+  ])("reads %s", async (_name, status, body, expected) => {
+    const impl = vi.fn(async () => new Response(JSON.stringify(body), { status }));
+    expect(await reader(impl).repoIsPublic("o/r")).toBe(expected);
+  });
+
+  it("is unknown, not private, when the request itself throws", async () => {
+    const impl = vi.fn(async () => {
+      throw new Error("ECONNRESET");
+    });
+    expect(await reader(impl).repoIsPublic("o/r")).toBe("unknown");
+  });
+
+  it("does not cache, because freshness is the whole job", async () => {
+    const impl = vi.fn(
+      async () => new Response(JSON.stringify({ private: false }), { status: 200 }),
+    );
+    const r = reader(impl);
+    await r.repoIsPublic("o/r");
+    await r.repoIsPublic("o/r");
+    expect(impl).toHaveBeenCalledTimes(2);
+  });
+});

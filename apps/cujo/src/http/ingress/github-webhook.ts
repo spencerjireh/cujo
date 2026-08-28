@@ -10,7 +10,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
 
@@ -47,6 +47,29 @@ export interface WebhookDeps extends StartRunDeps {
   isReady?: () => boolean;
 }
 
+interface RepositoryEvent {
+  action: string;
+  repository: { full_name: string };
+}
+
+/**
+ * A repo changed visibility (decision 34). This is the fast path: the public
+ * board drops a repo within seconds of it going private, where the periodic
+ * sweep in `review/visibility.service.ts` would take up to its interval.
+ *
+ * Both actions matter. `privatized` is the one that protects something;
+ * `publicized` is what lets a repo appear without waiting for the sweep.
+ */
+function handleRepository(deps: WebhookDeps, c: Context, body: string): Response {
+  const event = JSON.parse(body) as RepositoryEvent;
+  if (event.action !== "privatized" && event.action !== "publicized") {
+    return c.json({ ok: true, ignored: "action" }, 200);
+  }
+  const isPublic = event.action === "publicized";
+  const changed = deps.store.setRepoVisibility(event.repository.full_name, isPublic);
+  return c.json({ ok: true, repo: event.repository.full_name, is_public: isPublic, changed }, 200);
+}
+
 /**
  * Contract 1. Answers 202 as soon as the run is claimed; the GitHub reads,
  * the turn start, and the fold all happen after the response.
@@ -55,10 +78,15 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
   const app = new Hono();
   app.post("/webhook", async (c) => {
     const body = await c.req.text();
+    // The signature is checked before the event type, and for every event: it
+    // is the only gate this route has, and it is what makes a `repository`
+    // delivery as trustworthy as a `pull_request` one.
     if (!verifySignature(deps.secret, body, c.req.header("x-hub-signature-256"))) {
       return c.json({ ok: false, error: "bad signature" }, 401);
     }
-    if (c.req.header("x-github-event") !== "pull_request") {
+    const eventType = c.req.header("x-github-event");
+    if (eventType === "repository") return handleRepository(deps, c, body);
+    if (eventType !== "pull_request") {
       return c.json({ ok: true, ignored: "event" }, 200);
     }
     const event = JSON.parse(body) as PullRequestEvent;

@@ -174,6 +174,78 @@ describe("webhook", () => {
     });
   });
 
+  /**
+   * The fast path for a visibility flip (decision 34). It rides the same route
+   * and the same HMAC as the pull_request event, so the restructure into a real
+   * event dispatch must not have moved the signature check behind it.
+   */
+  describe("the repository event", () => {
+    const repoEvent = (action: string, fullName = "o/r") =>
+      JSON.stringify({ action, repository: { full_name: fullName } });
+
+    const send = (app: ReturnType<typeof build>["app"], body: string, signature = sign(body)) =>
+      app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: { "x-github-event": "repository", "x-hub-signature-256": signature },
+          body,
+        }),
+      );
+
+    const publicRun = async (
+      app: ReturnType<typeof build>["app"],
+      nextSettled: () => Promise<string>,
+    ) => {
+      const done = nextSettled();
+      const payloadWithVisibility = JSON.stringify({
+        action: "opened",
+        number: 7,
+        repository: { full_name: "Owner/Repo", private: false },
+        pull_request: { head: { sha: "h" } },
+      });
+      const body = (await (await deliver(app, payloadWithVisibility)).json()) as { run_id: string };
+      await done;
+      return body.run_id;
+    };
+
+    it("hides a repo's runs when it is privatized, whatever the casing", async () => {
+      const { app, store, nextSettled } = build();
+      const runId = await publicRun(app, nextSettled);
+      expect(store.runs.listPublicRuns().map((r) => r.id)).toEqual([runId]);
+
+      // GitHub sends the name in the casing it holds; the runs stored another.
+      const res = await send(app, repoEvent("privatized", "owner/repo"));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true, is_public: false, changed: 1 });
+      expect(store.runs.getRun(runId)?.isPublic).toBe(false);
+      expect(store.runs.listPublicRuns()).toEqual([]);
+    });
+
+    it("brings them back when it is publicized", async () => {
+      const { app, store, nextSettled } = build();
+      const runId = await publicRun(app, nextSettled);
+      await send(app, repoEvent("privatized", "owner/repo"));
+      const res = await send(app, repoEvent("publicized", "owner/repo"));
+      expect(await res.json()).toMatchObject({ is_public: true, changed: 1 });
+      expect(store.runs.getRun(runId)?.isPublic).toBe(true);
+    });
+
+    it("ignores an action that is not a visibility change", async () => {
+      const { app } = build();
+      const res = await send(app, repoEvent("renamed"));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, ignored: "action" });
+    });
+
+    it("still refuses a bad signature, rather than ignoring the event", async () => {
+      const { app, store, nextSettled } = build();
+      const runId = await publicRun(app, nextSettled);
+      const res = await send(app, repoEvent("privatized", "owner/repo"), "sha256=00");
+      expect(res.status).toBe(401);
+      expect(store.runs.getRun(runId)?.isPublic).toBe(true);
+    });
+  });
+
   const headPayload = (sha: string) =>
     JSON.stringify({
       action: "synchronize",

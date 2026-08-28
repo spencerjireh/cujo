@@ -223,6 +223,40 @@ export class GitHubReader {
     return guildId;
   }
 
+  /**
+   * Is the repo public right now (decision 34)?
+   *
+   * Deliberately uncached, unlike its neighbours: `guildCache` exists because
+   * Discord asks on every keystroke, while this has one caller on a timer and
+   * freshness is the entire job. A cache here would only add a staleness window
+   * to the read whose whole purpose is not being stale.
+   *
+   * Three answers, not two. `unknown` is what a network blip or a 5xx gets, and
+   * the caller leaves the stamp alone: taking the board dark because GitHub was
+   * briefly unreachable protects nothing, since the repo did not become
+   * private. A 404 or 410 does mean private — a repo Cujo can no longer read is
+   * one it cannot vouch for.
+   */
+  async repoIsPublic(repo: string): Promise<"public" | "private" | "unknown"> {
+    try {
+      const res = await this.fetchImpl(`${API}/repos/${repo}`, {
+        headers: {
+          authorization: `Bearer ${await this.token(repo)}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "cujo",
+        },
+      });
+      if (res.status === 404 || res.status === 410) return "private";
+      if (!res.ok) return "unknown";
+      const body = (await res.json()) as { private?: boolean };
+      // The same explicit comparison the webhook makes: a response without the
+      // field is not evidence of being public.
+      return body.private === false ? "public" : "private";
+    } catch {
+      return "unknown";
+    }
+  }
+
   /** A file's bytes at a ref, or null when it is not there. */
   private async rawFile(repo: string, path: string, ref: string): Promise<string | null> {
     // A branch name may hold `/`, `#` or `&`. Unencoded, `#` truncates the ref
