@@ -84,7 +84,7 @@ src/
     operator/       Cloudflare Access. Where a human decides.
     public/         INTERNET, no gate. Read-only, public repos, names nobody.
   review/           a PR becomes a run: start, follow, fold, hard rules
-  notify/           Discord cards, pings, and the /cujo commands
+  notify/           Discord cards, pings, /cujo commands, the PR reaction
   clients/          the only outbound IO; imports from nothing else here
   store/            SQLite, split into runs and notifications
 tests/              mirrors src/ exactly
@@ -105,7 +105,10 @@ a turn on a session created with the spec from `review/agent-spec.ts`, which is
 `agent/SKILL.md` with `{{CUJO_SNIFF_URL}}` substituted.
 `review/runner.service.ts` drives the turn and `review/fold.ts` folds its event
 stream (tagged by `thread_id`) into a projection. Unfinished runs rehydrate on
-restart. `clients/trueforge.ts` wraps the SDK so nothing else sees SDK shapes;
+restart. `notify/reactions.service.ts` moves a reaction on the pull request as
+that status changes — the only thing `apps/cujo` writes to GitHub, content-free
+by construction, and the earliest signal that the front half of the pipeline
+worked (decision 38). `clients/trueforge.ts` wraps the SDK so nothing else sees SDK shapes;
 `bootstrapUntilReady()` registers `github-mcp` and the webhook answers 503
 until it succeeds.
 
