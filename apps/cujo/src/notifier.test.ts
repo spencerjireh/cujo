@@ -3,6 +3,7 @@ import { DiscordError, UNKNOWN_MESSAGE } from "./discord";
 import type { DiscordClient } from "./discord";
 import type { DiscordMessagePayload } from "./discord-card";
 import { emptyProjection } from "./folder";
+import type { GitHubReader } from "./github";
 import { DiscordNotifier } from "./notifier";
 import type { RunView } from "./runner";
 import { Store } from "./store";
@@ -24,7 +25,23 @@ function fakeClient() {
   };
 }
 
-function build(options: { roleId?: string | null; bind?: boolean } = {}) {
+/** The repo's `.cujo.yml`, which the notifier consults before every send. */
+function fakeGithub(declared: string | null | "unreadable" = "g1") {
+  return {
+    declaredGuild: vi.fn(async () => {
+      if (declared === "unreadable") throw new Error("github is down");
+      return declared;
+    }),
+  };
+}
+
+function build(
+  options: {
+    roleId?: string | null;
+    bind?: boolean;
+    declaredGuild?: string | null | "unreadable";
+  } = {},
+) {
   const store = new Store(":memory:");
   const { run } = store.createRun({
     repo: "o/r",
@@ -43,9 +60,11 @@ function build(options: { roleId?: string | null; bind?: boolean } = {}) {
     });
   }
   const client = fakeClient();
+  const github = fakeGithub(options.declaredGuild);
   const notifier = new DiscordNotifier({
     store,
     client: client as unknown as DiscordClient,
+    github: github as unknown as GitHubReader,
     uiBaseUrl: UI,
     sleepImpl: async () => {},
   });
@@ -56,7 +75,7 @@ function build(options: { roleId?: string | null; bind?: boolean } = {}) {
       current ? ({ run: current, projection: emptyProjection() } as RunView) : null,
     );
   };
-  return { store, client, notifier, runId: run.id, emit };
+  return { store, client, github, notifier, runId: run.id, emit };
 }
 
 function rateLimited(): DiscordError {
@@ -87,6 +106,7 @@ describe("DiscordNotifier", () => {
     const restarted = new DiscordNotifier({
       store,
       client: fresh as unknown as DiscordClient,
+      github: fakeGithub() as unknown as GitHubReader,
       uiBaseUrl: UI,
     });
     const run = store.getRun(runId);
@@ -160,6 +180,7 @@ describe("DiscordNotifier", () => {
     const restarted = new DiscordNotifier({
       store,
       client: fresh as unknown as DiscordClient,
+      github: fakeGithub() as unknown as GitHubReader,
       uiBaseUrl: UI,
     });
     const run = store.getRun(runId);
@@ -179,8 +200,14 @@ describe("DiscordNotifier", () => {
     const { store, client, notifier, emit } = build({ roleId: "111111111111111111" });
     emit();
     await notifier.flush();
-    // Re-bound to a different server: that server's role means nothing in the
-    // channel this run's card lives in.
+    // Re-bound by an operator to a different server: that server's role means
+    // nothing in the channel this run's card already lives in.
+    store.authorizeGuildRepo({
+      guildId: "g2",
+      repo: "o/r",
+      guildName: null,
+      authorizedBy: "op@example.com",
+    });
     store.putDiscordChannel({
       repo: "o/r",
       channelId: "c2",
@@ -254,6 +281,47 @@ describe("DiscordNotifier", () => {
     emit();
     await notifier.flush();
     expect(client.createMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops and drops the binding once the repo stops naming the server", async () => {
+    // "Revoked by a commit" has to be true of delivery, not only of the bind:
+    // a binding written before the revert would otherwise deliver forever.
+    const built = build({ declaredGuild: null });
+    built.emit();
+    await built.notifier.flush();
+    expect(built.client.createMessage).not.toHaveBeenCalled();
+    expect(built.store.getDiscordChannel("o/r")).toBeNull();
+  });
+
+  it("stops when the repo names a different server", async () => {
+    const built = build({ declaredGuild: "g9" });
+    built.emit();
+    await built.notifier.flush();
+    expect(built.client.createMessage).not.toHaveBeenCalled();
+    expect(built.store.getDiscordChannel("o/r")).toBeNull();
+  });
+
+  it("keeps an operator's binding even when the repo declares nothing", async () => {
+    const built = build({ declaredGuild: null });
+    built.store.authorizeGuildRepo({
+      guildId: "g1",
+      repo: "o/r",
+      guildName: null,
+      authorizedBy: "op@example.com",
+    });
+    built.emit();
+    await built.notifier.flush();
+    expect(built.client.createMessage).toHaveBeenCalledOnce();
+  });
+
+  it("keeps delivering when GitHub cannot be reached", async () => {
+    // Unreadable says nothing about what the repo declares. Treating it as a
+    // revocation would let a GitHub hiccup silence a team's reviews.
+    const built = build({ declaredGuild: "unreadable" });
+    built.emit();
+    await built.notifier.flush();
+    expect(built.client.createMessage).toHaveBeenCalledOnce();
+    expect(built.store.getDiscordChannel("o/r")).not.toBeNull();
   });
 
   it("makes no request at all for a repo with no channel bound", async () => {

@@ -22,6 +22,25 @@ const API = "https://api.github.com";
 const REPO_CACHE_MS = 60_000;
 /** The same bound the PR reads use: enough for any real account, and finite. */
 const MAX_PAGES = 30;
+/** Short: a repo that just declared a server should not wait to be believed. */
+const GUILD_CACHE_MS = 30_000;
+
+/**
+ * Pull `discord_guild` out of a `.cujo.yml` without parsing YAML. One key, one
+ * shape — a Discord snowflake at the top level — so a strict line match reads
+ * it and anything else simply does not match, which is the "ignored, and said
+ * so in `/cujo status`" behaviour Contract 8 asks for. A YAML dependency for
+ * one scalar is not worth the bundle or the parser's own surface.
+ */
+export function parseDeclaredGuild(yaml: string): string | null {
+  // A file written on Windows ends its lines with CRLF, and `\r` is not
+  // whitespace to this pattern; without normalising, such a repo would be
+  // silently undeclared forever.
+  const match = /^discord_guild:[ \t]*["']?(\d{17,20})["']?[ \t]*(?:#.*)?$/m.exec(
+    yaml.replace(/\r\n?/g, "\n"),
+  );
+  return match?.[1] ?? null;
+}
 
 /**
  * The read side of the GitHub App: PR metadata, changed files, and the
@@ -31,6 +50,7 @@ export class GitHubReader {
   private readonly privateKey: string;
   private repoCache: { repos: string[]; expiresAt: number } | null = null;
   private repoScan: Promise<string[]> | null = null;
+  private readonly guildCache = new Map<string, { guildId: string | null; expiresAt: number }>();
 
   constructor(
     private readonly appId: string,
@@ -173,6 +193,51 @@ export class GitHubReader {
         console.warn(`github: stopped listing installation ${installationId} at the page cap`);
       }
     }
+  }
+
+  /**
+   * The Discord server a repo declares in `.cujo.yml` on its default branch
+   * (Contract 8). Null means the repo genuinely declares none — no file, or no
+   * usable key. A read that could not be made **throws**, because "the repo
+   * says no server" and "GitHub did not answer" are different facts and a
+   * caller deciding whether to keep notifying has to tell them apart.
+   *
+   * Read here, through the App, and never from the sandbox's copy: the sandbox
+   * holds the pull request's code, and code that declares its own authorization
+   * is not an authorization at all.
+   *
+   * The default branch, not the pull request's: declaring a server is an act
+   * that has to be merged, which is exactly what makes it proof of control.
+   *
+   * `fresh` skips the cache. The last check before a binding is written uses
+   * it, since a cached answer from before the command started would let a
+   * declaration revoked mid-command still be honoured.
+   */
+  async declaredGuild(repo: string, options: { fresh?: boolean } = {}): Promise<string | null> {
+    const cached = this.guildCache.get(repo);
+    if (!options.fresh && cached && cached.expiresAt > Date.now()) return cached.guildId;
+    const { default_branch } = await this.get<{ default_branch: string }>(repo, `/repos/${repo}`);
+    const yaml = await this.rawFile(repo, ".cujo.yml", default_branch);
+    const guildId = yaml === null ? null : parseDeclaredGuild(yaml);
+    this.guildCache.set(repo, { guildId, expiresAt: Date.now() + GUILD_CACHE_MS });
+    return guildId;
+  }
+
+  /** A file's bytes at a ref, or null when it is not there. */
+  private async rawFile(repo: string, path: string, ref: string): Promise<string | null> {
+    // A branch name may hold `/`, `#` or `&`. Unencoded, `#` truncates the ref
+    // to a URL fragment and the repo reads as undeclared.
+    const url = `${API}/repos/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`;
+    const res = await this.fetchImpl(url, {
+      headers: {
+        authorization: `Bearer ${await this.token(repo)}`,
+        accept: "application/vnd.github.raw",
+        "user-agent": "cujo",
+      },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`GitHub /repos/${repo}/contents/${path} returned ${res.status}`);
+    return res.text();
   }
 
   /** Contract 5: skip the turn when the bot already reviewed this head SHA. */
