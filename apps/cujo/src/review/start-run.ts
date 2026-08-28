@@ -78,10 +78,13 @@ export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void
     const scope = { repo: run.repo, prNumber: run.prNumber };
     for (const old of deps.store.listUnfinishedRuns(scope)) {
       if (old.id !== run.id) {
-        // `child`, not a call-site `run_id`: a bound field beats a call-site
-        // one, so passing it here would file the older run's supersession
-        // under *this* run's id. Rebinding is the only thing that relabels.
-        log.child({ run_id: old.id }).info("run.superseded", { reason: "newer_head", to: run.id });
+        // The older run's own logger, not this one's with the id swapped.
+        // Two mistakes are available here and the second is the subtle one: a
+        // call-site `run_id` is ignored outright, because a bound field beats
+        // it; and rebinding only `run_id` files the event under the old run
+        // while still carrying *this* run's head, ray and delivery — a line
+        // that is worse than silence, because it reads as fact.
+        runLogger(deps.log, old).info("run.superseded", { reason: "newer_head", to: run.id });
         await deps.runner.supersede(old.id);
       }
     }
