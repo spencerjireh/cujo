@@ -14,8 +14,7 @@ export default defineConfig({
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
   test: {
-    // Both roots while the tests move out of src/; narrowed to tests/ after.
-    include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/.next/**"],
   },
 });
