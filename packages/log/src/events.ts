@@ -57,6 +57,12 @@ export const EVENT_NAMES = [
   "run.subscriber.threw",
   "run.cancel.failed",
   "run.status.changed",
+  // Answering an approval nobody is going to decide, so the session can take
+  // another turn (decision 39). Cujo denying on its own behalf, never a human
+  // decision — those are `approve.*` and must stay tellable apart.
+  "run.approval.cleared",
+  "run.approval.clear.failed",
+  "run.approval.clear.skipped",
   "check.started",
   "check.finished",
   // The Access gate and the one route where a human decides.

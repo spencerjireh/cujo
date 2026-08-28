@@ -432,27 +432,45 @@ export class Runner {
    * take a turn now.
    */
   private async denyStaleApproval(
+    log: Logger,
     sessionId: string,
     approval: PendingApproval,
+    reason: "newer_head" | "wedged_session",
     runId?: string,
   ): Promise<boolean> {
+    let turnId: string;
     try {
-      const turnId = await this.harness.resume(sessionId, approval, "deny", STALE_DENY_REASON);
-      console.info(`session ${sessionId}: stale approval denied as turn ${turnId}`);
-      if (runId) {
-        this.state(runId).cujoResumeTurnIds.add(turnId);
-        this.store.addCujoTurn(runId, turnId);
-      }
+      turnId = await this.harness.resume(sessionId, approval, "deny", STALE_DENY_REASON);
     } catch (error) {
       // The session stays wedged, exactly as it was before this call. The
       // next head retries through `start`, so the wedge is not permanent.
-      console.error(`session ${sessionId}: could not deny the stale approval`, error);
+      log.warn("run.approval.clear.failed", {
+        session_id: sessionId,
+        reason,
+        ...errorFields(error),
+      });
       return false;
+    }
+    // Outside the try, and deliberately: a store failure here would be caught
+    // as "could not deny" and reported as one, which is a lie in the audit
+    // trail and sends `supersede` down the fall-through cancel for a deny that
+    // did land. `approve` records its turn unguarded for the same reason.
+    // On the heal path `run_id` is the run doing the healing, not the run that
+    // raised the approval — that one is terminal, which is why it has no id
+    // here. The attribution is right: it says who cleared it.
+    log.info("run.approval.cleared", { session_id: sessionId, turn_id: turnId, reason });
+    if (runId) {
+      this.state(runId).cujoResumeTurnIds.add(turnId);
+      this.store.addCujoTurn(runId, turnId);
     }
     try {
       await this.harness.cancelTurn(sessionId);
     } catch (error) {
-      console.warn(`session ${sessionId}: cancel after the stale deny failed`, error);
+      log.warn("run.cancel.failed", {
+        session_id: sessionId,
+        reason: "stale_deny",
+        ...errorFields(error),
+      });
     }
     return true;
   }
@@ -485,7 +503,10 @@ export class Runner {
     if (wasPending && projection.approval) {
       // Already in memory, so no round trip to find it. A deny that lands has
       // cancelled the turn it started and there is nothing else to stop.
-      if (await this.denyStaleApproval(run.sessionId, projection.approval, runId)) return;
+      if (
+        await this.denyStaleApproval(s.log, run.sessionId, projection.approval, "newer_head", runId)
+      )
+        return;
       // It did not land, and the likeliest reason is that an operator's
       // decision answered the approval first: `claimDecision` leaves the run
       // `blocked_pending`, so a decision can be in flight and invisible here.
@@ -497,7 +518,11 @@ export class Runner {
       await this.harness.cancelTurn(run.sessionId);
     } catch (error) {
       // Already finished, or the harness is unreachable: nothing to cancel.
-      s.log.warn("run.cancel.failed", { session_id: run.sessionId, ...errorFields(error) });
+      s.log.warn("run.cancel.failed", {
+        session_id: run.sessionId,
+        reason: "supersede",
+        ...errorFields(error),
+      });
     }
   }
 
@@ -527,28 +552,44 @@ export class Runner {
    * terminal, which is what `startRun` guarantees before it starts a turn.
    */
   private async healSession(run: RunRecord): Promise<boolean> {
+    const log = this.state(run.id).log;
     const busy = (): boolean => {
       const others = this.othersInFlight(run);
       if (others.length === 0) return false;
-      console.warn(`run ${run.id}: not healing, run ${others[0]?.id} is ${others[0]?.status}`);
+      // The blocking run's id cannot go in `run_id`: bound fields win over
+      // call-site fields, so it would be overwritten with this run's id and
+      // the line would name the wrong run. `session_id` finds them all.
+      log.warn("run.approval.clear.skipped", {
+        session_id: run.sessionId,
+        reason: "run_in_flight",
+        status: others[0]?.status ?? null,
+        active: others.length,
+      });
       return true;
     };
     // Checked before the read as well, to skip the round trip entirely.
     if (busy()) return false;
+    let approval: PendingApproval | null;
     try {
       const items = await this.harness.listEvents(run.sessionId);
-      const approval = pendingApproval(items.map((item) => item.event));
-      if (!approval) return false;
-      if (busy()) return false;
-      console.warn(`run ${run.id}: session held a stale approval, clearing it`);
-      // No run id: the run that raised it is terminal, so it is never
-      // rehydrated (`listUnfinishedRuns` covers running and blocked_pending
-      // only) and no live run adopts a turn it did not chain from.
-      return await this.denyStaleApproval(run.sessionId, approval);
+      approval = pendingApproval(items.map((item) => item.event));
     } catch (error) {
-      console.error(`run ${run.id}: could not inspect the session`, error);
+      // Only the read is guarded. `denyStaleApproval` reports its own failure
+      // with its own reason, and folding it in here would label it
+      // `session_unreadable` the first time it throws.
+      log.warn("run.approval.clear.failed", {
+        session_id: run.sessionId,
+        reason: "session_unreadable",
+        ...errorFields(error),
+      });
       return false;
     }
+    if (!approval) return false;
+    if (busy()) return false;
+    // No run id: the run that raised it is terminal, so it is never
+    // rehydrated (`listUnfinishedRuns` covers running and blocked_pending
+    // only) and no live run adopts a turn it did not chain from.
+    return await this.denyStaleApproval(log, run.sessionId, approval, "wedged_session");
   }
 
   /**
@@ -564,11 +605,23 @@ export class Runner {
    */
   async start(run: RunRecord, message: string): Promise<void> {
     if (this.store.getRun(run.id)?.status !== "running" || this.state(run.id).superseded) return;
+    const log = this.state(run.id).log;
     let turnId: string;
     try {
       turnId = await this.harness.startTurn(run.sessionId, message);
     } catch (error) {
-      console.warn(`run ${run.id}: could not start turn, looking for a stale approval`, error);
+      // Recorded before the heal, never after it. `healSession` is a network
+      // round trip, and a process that died inside it would otherwise leave no
+      // record that the turn failed to start at all — the same reasoning
+      // `refold` uses when it announces a transition before persisting it.
+      // `attempt` is what tells this line apart from the retry's, and both stay
+      // at `error` so a filter that already watches this name sees a wedged
+      // session even when the heal rescues it.
+      log.error("run.turn.start.failed", {
+        session_id: run.sessionId,
+        attempt: 1,
+        ...errorFields(error),
+      });
       if (!(await this.healSession(run))) {
         this.fail(run.id, `could not start turn: ${String(error)}`);
         return;
@@ -576,7 +629,11 @@ export class Runner {
       try {
         turnId = await this.harness.startTurn(run.sessionId, message);
       } catch (retryError) {
-        console.error(`run ${run.id}: could not start turn after healing`, retryError);
+        log.error("run.turn.start.failed", {
+          session_id: run.sessionId,
+          attempt: 2,
+          ...errorFields(retryError),
+        });
         this.fail(run.id, `could not start turn: ${String(retryError)}`);
         return;
       }
