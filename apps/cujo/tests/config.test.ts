@@ -38,7 +38,12 @@ describe("loadConfig", () => {
       devNoAccess: false,
       bootstrap: { modelProvider: null, daytonaApiKey: null },
     });
-    expect(config.sniffUrl).toContain("sniff.py");
+    // The whole path, not just the basename. `toContain("sniff.py")` stayed
+    // true when the file moved into sandbox/, so it would have watched the
+    // default 404 without failing — and nothing in CI fetches this URL.
+    expect(config.sniffUrl).toBe(
+      "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
+    );
   });
 
   it("treats an empty Discord token as no token, which is what compose sends", () => {

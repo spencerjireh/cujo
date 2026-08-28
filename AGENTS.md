@@ -33,7 +33,7 @@ Single tests:
 ```bash
 pnpm --filter @cujo/cujo test -- src/folder.test.ts        # one vitest file
 pnpm --filter @cujo/cujo exec vitest run -t "name pattern"  # one test by name
-uv run pytest tests/test_sniff.py -k name                   # one Python test
+uv run pytest sandbox/tests/test_sniff.py -k name           # one Python test
 ```
 
 Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/web`, `@cujo/gh-app-auth`,
