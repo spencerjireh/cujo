@@ -14,10 +14,12 @@
  *   Discord offers no idempotency key, so this is the safe direction.
  */
 
+import { authorizationFor } from "./authorization";
 import { DiscordError, UNKNOWN_MESSAGE } from "./discord";
 import type { DiscordClient } from "./discord";
 import { buildPing, buildRunCard } from "./discord-card";
 import type { DiscordMessagePayload } from "./discord-card";
+import type { GitHubReader } from "./github";
 import type { RunView } from "./runner";
 import type { Store } from "./store";
 import type { RunDiscordMessage, RunRecord, RunStatus } from "./types";
@@ -25,6 +27,8 @@ import type { RunDiscordMessage, RunRecord, RunStatus } from "./types";
 export interface NotifierDeps {
   store: Store;
   client: DiscordClient;
+  /** Reads the repo's `.cujo.yml`, so a revoked declaration stops delivery. */
+  github: GitHubReader;
   uiBaseUrl: string;
   /** Injected so a 429 test does not really wait. */
   sleepImpl?: (ms: number) => Promise<void>;
@@ -133,6 +137,27 @@ export class DiscordNotifier {
     // mid-run cannot edit a message into a channel that does not hold it.
     const channelId = row?.channelId ?? mapping?.channelId ?? null;
     if (!channelId) return;
+
+    // Contract 8 says a repo revokes a server by editing `.cujo.yml`, and a
+    // binding written before that edit would otherwise keep delivering
+    // forever, because nothing else on this path consults the declaration.
+    // Checked here rather than at bind time alone, which is what makes
+    // "revoked by a commit" true instead of aspirational.
+    if (mapping?.guildId) {
+      const allowed = await authorizationFor(
+        { store, github: this.deps.github },
+        mapping.guildId,
+        run.repo,
+      );
+      if (!allowed.allowed && allowed.reason !== "unknown") {
+        // A definite no, so stop and clear the binding. `unknown` is GitHub
+        // being unreachable, which says nothing about what the repo declares:
+        // a hiccup must not silence a team's reviews.
+        console.warn(`discord: ${run.repo} no longer allows this server; dropping the binding`);
+        store.deleteDiscordChannel(run.repo);
+        return;
+      }
+    }
 
     let messageId = row?.messageId ?? null;
     let pingMessageId = row?.pingMessageId ?? null;

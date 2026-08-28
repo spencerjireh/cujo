@@ -152,9 +152,40 @@ describe("GitHubReader.declaredGuild", () => {
     expect(await new GitHubReader("1", "pem", impl).declaredGuild("o/r")).toBeNull();
   });
 
-  it("is null rather than throwing when GitHub refuses", async () => {
+  it("throws when GitHub refuses, because that is not the same as no declaration", async () => {
+    // A caller deciding whether to keep notifying has to tell "the repo says
+    // no server" from "GitHub did not answer".
     const { impl } = fakeConfigFetch({ status: 500, body: "{}" });
-    expect(await new GitHubReader("1", "pem", impl).declaredGuild("o/r")).toBeNull();
+    await expect(new GitHubReader("1", "pem", impl).declaredGuild("o/r")).rejects.toThrow(
+      "returned 500",
+    );
+  });
+
+  it("encodes the ref, so a branch name with a # is not truncated", async () => {
+    const paths: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      paths.push(`${url.pathname}${url.search}`);
+      if (url.pathname === "/repos/o/r") {
+        return new Response(JSON.stringify({ default_branch: "release/1.0#rc" }), { status: 200 });
+      }
+      return new Response("discord_guild: 222222222222222222", { status: 200 });
+    });
+    const reader = new GitHubReader("1", "pem", impl as unknown as typeof fetch);
+    expect(await reader.declaredGuild("o/r")).toBe("222222222222222222");
+    expect(paths).toContain("/repos/o/r/contents/.cujo.yml?ref=release%2F1.0%23rc");
+  });
+
+  it("re-reads on `fresh`, so a mid-command revocation is seen", async () => {
+    const { impl, calls } = fakeConfigFetch({
+      status: 200,
+      body: "discord_guild: 222222222222222222",
+    });
+    const reader = new GitHubReader("1", "pem", impl);
+    await reader.declaredGuild("o/r");
+    const after = calls.mock.calls.length;
+    await reader.declaredGuild("o/r", { fresh: true });
+    expect(calls.mock.calls.length).toBeGreaterThan(after);
   });
 
   it("caches, so a status command does not re-read for every repo", async () => {

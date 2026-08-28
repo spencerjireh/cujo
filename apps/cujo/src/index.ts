@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   // while the process was down is still reported.
   const discord = config.discordBotToken ? new DiscordClient(config.discordBotToken) : null;
   const notifier = discord
-    ? new DiscordNotifier({ store, client: discord, uiBaseUrl: config.uiBaseUrl })
+    ? new DiscordNotifier({ store, client: discord, github, uiBaseUrl: config.uiBaseUrl })
     : null;
   if (notifier) {
     runner.changes.on(ANY_RUN, (view: RunView | null) => notifier.onRunChanged(view));

@@ -583,6 +583,19 @@ the bundle or the parser's own surface. A wrong declaration is silent and never
 costs a review: `/cujo watch` prints the exact line to add, and `/cujo status`
 closes with it.
 
+Revocation is checked on the delivery path, not only at bind time. A binding
+written before a declaration was reverted would otherwise keep delivering
+forever, which would make "revoked by a commit" a claim the code did not keep.
+The cost is one cached read per notification; the alternative is a promise in
+the docs that is false in the product. For the same reason `/cujo unwatch` is
+ungated: the commit that revokes is exactly what makes a binding stale, so
+gating cleanup behind the declaration would strand the channel.
+
+An unreadable `.cujo.yml` is not a revocation. `declaredGuild` throws rather
+than returning null on a failed read, so the two facts stay distinguishable,
+and the delivery path keeps sending while a command refuses and asks for a
+retry. Collapsing them would let a GitHub hiccup silence a team's reviews.
+
 Autocomplete deliberately stopped narrowing to what a server may watch, because
 that would be one `.cujo.yml` read per installed repo per keystroke against a
 three-second budget. It offers everything the App is installed on, and the

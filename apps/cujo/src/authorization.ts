@@ -20,9 +20,16 @@
 import type { GitHubReader } from "./github";
 import type { Store } from "./store";
 
+/**
+ * `unknown` is not a refusal. GitHub being unreachable says nothing about what
+ * a repo declares, and the two callers want opposite things from that: a
+ * command refuses and asks for a retry, while the notifier keeps delivering to
+ * a binding that was legitimately created. Collapsing it into "not allowed"
+ * would let a GitHub hiccup silence a team's reviews.
+ */
 export type Authorization =
   | { allowed: true; source: "repo" | "operator" }
-  | { allowed: false; reason: "not_declared" | "declared_elsewhere" };
+  | { allowed: false; reason: "not_declared" | "declared_elsewhere" | "unknown" };
 
 export interface AuthorizationDeps {
   store: Store;
@@ -33,9 +40,16 @@ export async function authorizationFor(
   deps: AuthorizationDeps,
   guildId: string,
   repo: string,
+  options: { fresh?: boolean } = {},
 ): Promise<Authorization> {
   if (deps.store.isGuildAuthorized(guildId, repo)) return { allowed: true, source: "operator" };
-  const declared = await deps.github.declaredGuild(repo);
+  let declared: string | null;
+  try {
+    declared = await deps.github.declaredGuild(repo, options);
+  } catch (error) {
+    console.warn(`discord: could not read .cujo.yml for ${repo}`, error);
+    return { allowed: false, reason: "unknown" };
+  }
   if (declared === guildId) return { allowed: true, source: "repo" };
   // A repo that named a different server is a different message from one that
   // named none: the first is someone else's, the second is a missing line.
@@ -52,6 +66,9 @@ export function explain(
   guildId: string,
   authorization: Authorization & { allowed: false },
 ): string {
+  if (authorization.reason === "unknown") {
+    return `Cujo could not read \`${repo}\`'s \`.cujo.yml\` just now. Try again in a moment.`;
+  }
   if (authorization.reason === "declared_elsewhere") {
     return `\`${repo}\` names a different Discord server in its \`.cujo.yml\`. Change it there, or ask a Cujo operator to move it.`;
   }
