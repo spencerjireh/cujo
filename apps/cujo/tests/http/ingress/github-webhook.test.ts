@@ -143,6 +143,36 @@ describe("webhook", () => {
     expect(store.runs.getRun(firstId)).toBeNull();
   });
 
+  /**
+   * The stamp the public plane reads (decision 34). `private` is optional on the
+   * event type so this has to be an explicit `=== false`; the third case is the
+   * one that matters, because `!private` would call a payload with no such field
+   * public.
+   */
+  describe("repo visibility at claim time", () => {
+    const visibilityPayload = (repository: Record<string, unknown>) =>
+      JSON.stringify({
+        action: "opened",
+        number: 7,
+        repository,
+        pull_request: { head: { sha: "h" } },
+      });
+
+    it.each([
+      ["public when the payload says private is false", { full_name: "o/r", private: false }, true],
+      ["private when the payload says private is true", { full_name: "o/r", private: true }, false],
+      ["private when the payload carries no private field", { full_name: "o/r" }, false],
+    ])("is %s", async (_name, repository, expected) => {
+      const { app, store, nextSettled } = build();
+      const done = nextSettled();
+      const body = (await (await deliver(app, visibilityPayload(repository))).json()) as {
+        run_id: string;
+      };
+      await done;
+      expect(store.runs.getRun(body.run_id)?.isPublic).toBe(expected);
+    });
+  });
+
   const headPayload = (sha: string) =>
     JSON.stringify({
       action: "synchronize",

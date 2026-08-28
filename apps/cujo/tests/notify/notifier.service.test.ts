@@ -48,6 +48,7 @@ function build(
     prNumber: 7,
     headSha: "abc1234",
     sessionId: "s1",
+    isPublic: true,
   });
   store.runs.putProjection(run.id, emptyProjection());
   if (options.bind !== false) {

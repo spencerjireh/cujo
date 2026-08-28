@@ -29,10 +29,17 @@ export type Db = DatabaseSyncType;
  * Adding a table is still simpler and still preferred — this is for altering
  * one that already exists in a deployed database.
  */
-const MIGRATIONS: readonly string[] = [
+export const MIGRATIONS: readonly string[] = [
   // 1 — who bound a repo to a channel. An operator's Access email, or
   //     `discord:<user id>` when it came from a slash command (Contract 8).
   "ALTER TABLE discord_channels ADD COLUMN bound_by TEXT",
+  // 2 — was the repo public when the run was claimed (decision 34). Nullable
+  //     with no default on purpose: NULL means nobody ever answered, which is
+  //     not the same fact as "answered: private", and only the nullable form
+  //     lets the visibility sweep say how many rows it still has to backfill.
+  //     Every public read filters `is_public = 1`, so an unanswered row is
+  //     excluded by the query rather than by a caller remembering to check.
+  "ALTER TABLE runs ADD COLUMN is_public INTEGER",
 ];
 
 const SCHEMA = `
