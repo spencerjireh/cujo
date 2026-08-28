@@ -93,4 +93,34 @@ describe("loadConfig", () => {
         .modelProvider,
     ).toBeNull();
   });
+
+  /**
+   * Compose passes an unset optional as the empty string rather than omitting
+   * it, and `Number("")` is 0 — so a cap read with `??` alone would quietly
+   * become "no public streams at all" the moment the variable went unset.
+   */
+  describe("the public plane's numeric settings", () => {
+    it("defaults when the variable is unset, empty, or not a whole number", () => {
+      for (const raw of [undefined, "", "   ", "abc", "-1", "1.5"]) {
+        const env = raw === undefined ? base : { ...base, CUJO_PUBLIC_STREAM_LIMIT: raw };
+        expect(loadConfig(env).publicStreamLimit).toBe(200);
+      }
+    });
+
+    it("takes a configured cap", () => {
+      expect(loadConfig({ ...base, CUJO_PUBLIC_STREAM_LIMIT: "50" }).publicStreamLimit).toBe(50);
+    });
+
+    it("refuses a cap of zero, which would serve nobody", () => {
+      expect(loadConfig({ ...base, CUJO_PUBLIC_STREAM_LIMIT: "0" }).publicStreamLimit).toBe(200);
+    });
+
+    it("lets the visibility sweep be turned off with zero, but not by accident", () => {
+      expect(loadConfig(base).visibilityRecheckMs).toBe(15 * 60 * 1000);
+      expect(loadConfig({ ...base, CUJO_VISIBILITY_RECHECK_MS: "0" }).visibilityRecheckMs).toBe(0);
+      expect(loadConfig({ ...base, CUJO_VISIBILITY_RECHECK_MS: "" }).visibilityRecheckMs).toBe(
+        15 * 60 * 1000,
+      );
+    });
+  });
 });

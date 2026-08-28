@@ -26,6 +26,7 @@ interface RunRow {
   status: string;
   approver: string | null;
   decided_at: string | null;
+  is_public: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -41,6 +42,9 @@ function toRecord(row: RunRow): RunRecord {
     status: row.status as RunStatus,
     approver: row.approver,
     decidedAt: row.decided_at,
+    // The one place NULL collapses to false. A row written before the column
+    // existed, or by a path that never learned the answer, is not public.
+    isPublic: row.is_public === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -85,6 +89,11 @@ export class RunStore {
     prNumber: number;
     headSha: string;
     sessionId: string;
+    /**
+     * Required rather than defaulted: an optional field would compile at every
+     * call site and silently mark real public runs private (decision 34).
+     */
+    isPublic: boolean;
   }): { run: RunRecord; created: boolean } {
     const now = new Date().toISOString();
     const id = randomUUID();
@@ -97,10 +106,19 @@ export class RunStore {
     if (stale) this.deleteRun(stale.id);
     const result = this.db
       .prepare(
-        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, created_at, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?)",
+        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, is_public, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?, ?)",
       )
-      .run(id, input.repo, input.prNumber, input.headSha, input.sessionId, now, now);
+      .run(
+        id,
+        input.repo,
+        input.prNumber,
+        input.headSha,
+        input.sessionId,
+        input.isPublic ? 1 : 0,
+        now,
+        now,
+      );
     const row = this.db
       .prepare("SELECT * FROM runs WHERE repo = ? AND pr_number = ? AND head_sha = ?")
       .get(input.repo, input.prNumber, input.headSha) as RunRow | undefined;
@@ -147,6 +165,41 @@ export class RunStore {
       .prepare("SELECT * FROM runs ORDER BY created_at DESC LIMIT ?")
       .all(limit) as RunRow[];
     return rows.map(toRecord);
+  }
+
+  /**
+   * What the public plane lists (decision 34). The filter is in the query and
+   * not in the caller: filtering `listRuns()` after its own LIMIT would return
+   * fewer than `limit` rows and silently hide the tail, and a route that forgot
+   * to filter would return everything.
+   */
+  listPublicRuns(limit = 100): RunRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM runs WHERE is_public = 1 ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as RunRow[];
+    return rows.map(toRecord);
+  }
+
+  /**
+   * Re-stamp every run of one repo after a visibility flip. Returns the number
+   * of rows changed, so a webhook delivery log says whether it mattered.
+   *
+   * `COLLATE NOCASE` because `runs.repo` stores `repository.full_name`
+   * verbatim — `normalizeRepo` is the notifications store's convention, not
+   * this one — and GitHub treats the name case-insensitively. It costs a table
+   * scan, since `runs_head` is a BINARY index; that is one scan per flip.
+   */
+  setRepoVisibility(repo: string, isPublic: boolean): number {
+    const result = this.db
+      .prepare("UPDATE runs SET is_public = ? WHERE repo = ? COLLATE NOCASE AND is_public IS NOT ?")
+      .run(isPublic ? 1 : 0, repo, isPublic ? 1 : 0);
+    return Number(result.changes);
+  }
+
+  /** Every repo that has a run, for the visibility sweep to re-ask about. */
+  listRunRepos(): string[] {
+    const rows = this.db.prepare("SELECT DISTINCT repo FROM runs").all() as { repo: string }[];
+    return rows.map((r) => r.repo);
   }
 
   listUnfinishedRuns(scope?: { repo: string; prNumber: number }): RunRecord[] {

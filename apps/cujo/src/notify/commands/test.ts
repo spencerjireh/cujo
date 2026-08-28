@@ -24,12 +24,13 @@ export async function test(deps: CommandDeps, guildId: string, repo: string): Pr
       status: "clean",
       approver: null,
       decidedAt: null,
+      isPublic: true,
       createdAt: now,
       updatedAt: now,
     },
     projection: { ...emptyProjection(), status: "clean", summary: "Sample card from /cujo test." },
     prTitle: "Sample card",
-    uiBaseUrl: deps.uiBaseUrl,
+    links: deps.links,
   });
   try {
     await deps.discord.createMessage(binding.channelId, card);

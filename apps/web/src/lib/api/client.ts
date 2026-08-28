@@ -1,4 +1,5 @@
 import { environmentManager } from "@tanstack/react-query";
+import { type Mode, apiPrefix } from "./mode";
 import type { ApproveResult, Run, RunList } from "./types";
 
 /**
@@ -63,15 +64,19 @@ function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return environmentManager.isServer() ? serverGet<T>(path, signal) : browserGet<T>(path, signal);
 }
 
-export function fetchRuns(signal?: AbortSignal): Promise<RunList> {
-  return get<RunList>("/runs", signal);
+export function fetchRuns(mode: Mode, signal?: AbortSignal): Promise<RunList> {
+  return get<RunList>(`${apiPrefix(mode)}/runs`, signal);
 }
 
-export function fetchRun(id: string, signal?: AbortSignal): Promise<Run> {
-  return get<Run>(`/runs/${encodeURIComponent(id)}`, signal);
+export function fetchRun(mode: Mode, id: string, signal?: AbortSignal): Promise<Run> {
+  return get<Run>(`${apiPrefix(mode)}/runs/${encodeURIComponent(id)}`, signal);
 }
 
-/** Browser-only: the decision always originates from a click. */
+/**
+ * Browser-only: the decision always originates from a click. There is no mode
+ * parameter because there is no public equivalent — approving is what the
+ * gated hostname exists for (decision 28).
+ */
 export async function approveRun(id: string, decision: "allow" | "deny"): Promise<ApproveResult> {
   const res = await fetch(`/api/cujo/runs/${encodeURIComponent(id)}/approve`, {
     method: "POST",
@@ -82,6 +87,12 @@ export async function approveRun(id: string, decision: "allow" | "deny"): Promis
   return (await res.json()) as ApproveResult;
 }
 
-export function runStreamUrl(id: string): string {
-  return `/api/runs/${encodeURIComponent(id)}/events`;
+/**
+ * The two streams are separate routes rather than one route with a `?mode=`
+ * parameter: a query string is something the browser controls, and a public
+ * page must not be able to ask for the operator stream.
+ */
+export function runStreamUrl(mode: Mode, id: string): string {
+  const base = mode === "public" ? "/api/public/runs" : "/api/runs";
+  return `${base}/${encodeURIComponent(id)}/events`;
 }

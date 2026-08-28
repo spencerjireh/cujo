@@ -1,5 +1,6 @@
 import { RunView } from "@/components/run/RunView";
 import { ApiError } from "@/lib/api/client";
+import { serverMode } from "@/lib/api/mode";
 import { runOptions } from "@/lib/api/queries";
 import { getQueryClient } from "@/lib/query-client";
 import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
@@ -10,11 +11,14 @@ export const dynamic = "force-dynamic";
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const queryClient = getQueryClient();
+  const mode = await serverMode();
 
   // Awaited, unlike the list: this page is nothing without the run, and a 404
-  // from the API has to become a 404 here rather than an empty shell.
+  // from the API has to become a 404 here rather than an empty shell. On the
+  // public plane that same 404 is also what a private run looks like, so it
+  // needs no handling of its own (decision 34).
   try {
-    await queryClient.fetchQuery(runOptions(id));
+    await queryClient.fetchQuery(runOptions(mode, id));
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     // 401 means the Access assertion never reached the API. Behind Cloudflare

@@ -83,7 +83,10 @@ function build(
     store: store.notifications,
     discord: discord as unknown as DiscordClient,
     github: github as unknown as GitHubReader,
-    uiBaseUrl: "https://cujo.example.com",
+    links: {
+      uiBaseUrl: "https://cujo-admin.example.com",
+      publicBaseUrl: "https://cujo.example.com",
+    },
     onSettled: (name) => settled.shift()?.(name),
   });
   return { app, store, discord, github, nextSettled };

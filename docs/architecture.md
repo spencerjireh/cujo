@@ -28,10 +28,11 @@ sandbox is thrown away afterwards.
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
 | **`sniff.py`** | The in-sandbox sensor script. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
-| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the Cujo UI and API, and resumes a paused turn when a human approves. |
+| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes: the Access-gated operator API, and an anonymous read-only `/public` group (decision 34). |
+| **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. It answers two hostnames from one container — the public read-only board and the Access-gated operator view — and tells them apart by the request's `Host`. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
-| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). Optional: with no bot token the service runs and says nothing. |
+| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). A card links to the public board for a public run and to the operator UI otherwise (decision 34). Optional: with no bot token the service runs and says nothing. |
 | **`/cujo` command** | The other half, also in `apps/cujo`. A server a Cujo operator has authorized for a repo picks its own channel and ping role from inside Discord (Contract 8). Slash commands over an HTTP interactions endpoint, not a gateway. It routes notifications and nothing else — approval stays in the Cujo UI. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
 
@@ -203,7 +204,7 @@ Coolify in a single `docker-compose` project so the services share a network.
   (decision 17).
 - **`postgres` + `redis`** — TrueForge hosted-mode state.
 - **`cujo`** — the `apps/cujo` service, API-only since decision 27, on one
-  public hostname. `https://cujo-ingress.spencerjireh.com` carries the two
+  published hostname. `https://cujo-ingress.spencerjireh.com` carries the two
   signature-gated ingress routes, with no Access policy, since neither GitHub
   nor Discord can solve an OTP challenge: `/webhook`, protected by the HMAC
   signature, and `/discord/interactions`, protected by Ed25519 (Contract 8).
@@ -212,29 +213,41 @@ Coolify in a single `docker-compose` project so the services share a network.
   compose network. A volume holds its SQLite run store. It needs outbound HTTPS
   to `api.github.com` and, when Discord is configured, to `discord.com`; with
   no `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody.
-- **`web`** — the `apps/web` operator UI on `https://cujo.spencerjireh.com`
-  behind Access; this is where a human sees a paused run and approves a block.
-  It proxies the JSON API at `/api/cujo/*` and the run stream at
-  `/api/runs/:id/events` to `cujo` server-side, forwarding the Access assertion
-  rather than terminating the check, so the UI and the API stay same-origin
-  (decision 27). `/api/health` is this container's healthcheck and never calls
-  `cujo`.
+- **`web`** — the `apps/web` UI, on two hostnames from one container
+  (decision 34). `https://cujo-admin.spencerjireh.com` is behind Access and is
+  where a human sees a paused run and approves a block;
+  `https://cujo.spencerjireh.com` is the anonymous read-only board, which lists
+  public repos only and names no approver. Which plane a request is on is
+  decided from its own `Host`, and only an exact match of `CUJO_PUBLIC_HOST` is
+  public — every other hostname falls back to the gated plane, which then
+  refuses a request carrying no assertion. It proxies the JSON API at
+  `/api/cujo/*` and the run stream at `/api/runs/:id/events` to `cujo`
+  server-side, forwarding the Access assertion rather than terminating the
+  check, so the UI and the API stay same-origin (decision 27); on the public
+  hostname it forwards no assertion, refuses any path outside `/public`, and
+  uses `/api/public/runs/:id/events` for the stream. `/api/health` is this
+  container's healthcheck and never calls `cujo`.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
 
-The DNS records and the two Access apps exist. Coolify routes
+The DNS records and the Access apps exist. Coolify routes
 `cujo-harness.spencerjireh.com` to `server`, `cujo-ingress.spencerjireh.com` to
-`cujo`, and `cujo.spencerjireh.com` to `web`; a hostname is attachable only
-once Coolify has parsed the service from the compose file on `main`.
+`cujo`, and both `cujo.spencerjireh.com` and `cujo-admin.spencerjireh.com` to
+`web`; a hostname is attachable only once Coolify has parsed the service from
+the compose file on `main`, which `web` already satisfies.
 Configuration reaches the services as environment variables set in Coolify;
 `.env.example` lists every name.
 
 The Coolify control plane runs on a separate host (netcup) that never executes
 untrusted code.
 
-Cloudflare proxies all three hostnames, and a Hetzner Cloud firewall accepts
+Cloudflare proxies all four hostnames, and a Hetzner Cloud firewall accepts
 ports 80 and 443 only from Cloudflare's published ranges, so the origin's own
 address is not a way past Access; port 22 stays open for the control plane.
-`cujo.spencerjireh.com` also carries a second Access application scoped to
-`/.well-known/acme-challenge` with a bypass policy, without which Traefik's
-HTTP-01 renewal is answered by the login page (decision 33).
+The Access application covers `cujo-harness` and `cujo-admin`, and a second one
+scoped to `/.well-known/acme-challenge` holds a bypass policy for each name it
+fronts, without which Traefik's HTTP-01 renewal is answered by the login page
+(decision 33). A Cloudflare rate-limiting rule bounds requests per address to
+the public board's stream route; the process caps concurrent public streams as
+well, and the two answer 429 and 503 respectively so a log says which bound bit
+(decision 34).

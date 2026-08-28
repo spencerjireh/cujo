@@ -17,7 +17,9 @@ import {
   type RunStatus,
 } from "../../src/review/types";
 
-const UI = "https://cujo.example.com";
+const UI = "https://cujo-admin.example.com";
+const PUBLIC_UI = "https://cujo.example.com";
+const LINKS = { uiBaseUrl: UI, publicBaseUrl: PUBLIC_UI };
 
 function run(patch: Partial<RunRecord> = {}): RunRecord {
   return {
@@ -30,6 +32,7 @@ function run(patch: Partial<RunRecord> = {}): RunRecord {
     status: "running",
     approver: null,
     decidedAt: null,
+    isPublic: true,
     createdAt: "2026-08-27T00:00:00.000Z",
     updatedAt: "2026-08-27T00:01:00.000Z",
     ...patch,
@@ -139,12 +142,12 @@ describe("buildRunCard", () => {
         findings: [finding({ severity: "critical", path: "a.py", line: 3 })],
       }),
       prTitle: "Add a thing",
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     expectWithinDiscordLimits(payload);
     const embed = payload.embeds?.[0];
     expect(embed?.description).toBeTruthy();
-    expect(embed?.url).toBe(`${UI}/runs/${run().id}`);
+    expect(embed?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
   });
 
   it("gives each status its own colour", () => {
@@ -154,7 +157,7 @@ describe("buildRunCard", () => {
           run: run({ status }),
           projection: projection({ status }),
           prTitle: null,
-          uiBaseUrl: UI,
+          links: LINKS,
         }).embeds?.[0]?.color,
     );
     expect(new Set(colors).size).toBe(STATUSES.length);
@@ -165,7 +168,7 @@ describe("buildRunCard", () => {
       run: run(),
       projection: projection(),
       prTitle: "@everyone @here <@&999>",
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     expect(payload.allowed_mentions).toEqual({ parse: [] });
     expect(payload.content).toBeUndefined();
@@ -186,10 +189,10 @@ describe("buildRunCard", () => {
         ],
       }),
       prTitle: "http://evil.example",
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     const embed = payload.embeds?.[0];
-    expect(embed?.url).toBe(`${UI}/runs/${run().id}`);
+    expect(embed?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
     expect(embed?.title).not.toContain("](");
     // Only the run's own link survives as a real address.
     const rendered = JSON.stringify({ ...embed, url: undefined });
@@ -203,7 +206,7 @@ describe("buildRunCard", () => {
       run: run({ status: "clean" }),
       projection: projection({ status: "clean", summary: "**bold** [x](http://evil)" }),
       prTitle: null,
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     const summary = payload.embeds?.[0]?.fields?.find((f) => f.name === "Summary");
     expect(summary?.value).toContain("\\*\\*bold\\*\\*");
@@ -218,7 +221,7 @@ describe("buildRunCard", () => {
       run: run({ status: "blocked_pending" }),
       projection: projection({ status: "blocked_pending", findings, summary: "y".repeat(20_000) }),
       prTitle: "z".repeat(5_000),
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     expectWithinDiscordLimits(payload);
   });
@@ -231,7 +234,7 @@ describe("buildRunCard", () => {
         findings: [finding({ severity: "critical", title: "stale" })],
       }),
       prTitle: null,
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     const names = payload.embeds?.[0]?.fields?.map((f) => f.name) ?? [];
     expect(names).toEqual(["Head"]);
@@ -266,7 +269,7 @@ describe("buildRunCard", () => {
         ],
       }),
       prTitle: null,
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     const checks = payload.embeds?.[0]?.fields?.find((f) => f.name === "Checks");
     expect(checks?.value).toContain("tests");
@@ -279,7 +282,7 @@ describe("buildRunCard", () => {
       run: run({ status: "blocked_posted", approver: "op@example.com" }),
       projection: projection({ status: "blocked_posted" }),
       prTitle: null,
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     expect(payload.embeds?.[0]?.description).toContain("op@example.com");
   });
@@ -289,11 +292,11 @@ describe("buildPing", () => {
   it("mentions the configured role and nothing else", () => {
     const payload = buildPing({
       run: run({ status: "blocked_pending" }),
-      uiBaseUrl: UI,
+      links: LINKS,
       roleId: "123456789012345678",
     });
     expect(payload.content).toContain("<@&123456789012345678>");
-    expect(payload.content).toContain(`${UI}/runs/${run().id}`);
+    expect(payload.content).toContain(`${PUBLIC_UI}/runs/${run().id}`);
     expect(payload.allowed_mentions).toEqual({ parse: [], roles: ["123456789012345678"] });
     expectWithinDiscordLimits(payload);
   });
@@ -301,7 +304,7 @@ describe("buildPing", () => {
   it("still posts without a role, because an edit would notify nobody", () => {
     const payload = buildPing({
       run: run({ status: "blocked_pending" }),
-      uiBaseUrl: UI,
+      links: LINKS,
       roleId: null,
     });
     expect(payload.content).not.toContain("<@&");
@@ -311,10 +314,57 @@ describe("buildPing", () => {
   it("reads as resolved once the run has left blocked_pending", () => {
     const payload = buildPing({
       run: run({ status: "blocked_posted" }),
-      uiBaseUrl: UI,
+      links: LINKS,
       roleId: "123456789012345678",
     });
     expect(payload.content).toContain("Resolved");
     expect(payload.allowed_mentions).toEqual({ parse: [] });
+  });
+});
+
+/**
+ * A repo's Discord channel holds its team, not Cujo's operators, so a card for
+ * a public run points at the board anyone can open (decision 34). A private
+ * repo has no public page, so its cards have only the gated one.
+ */
+describe("where a card links", () => {
+  it("sends a public run to the public board", () => {
+    const payload = buildRunCard({
+      run: run({ isPublic: true }),
+      projection: projection(),
+      prTitle: null,
+      links: LINKS,
+    });
+    expect(payload.embeds?.[0]?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
+  });
+
+  it("sends a private run to the operator UI", () => {
+    const payload = buildRunCard({
+      run: run({ isPublic: false }),
+      projection: projection(),
+      prTitle: null,
+      links: LINKS,
+    });
+    expect(payload.embeds?.[0]?.url).toBe(`${UI}/runs/${run().id}`);
+  });
+
+  it("falls back to the operator UI when no public board is configured", () => {
+    const payload = buildRunCard({
+      run: run({ isPublic: true }),
+      projection: projection(),
+      prTitle: null,
+      links: { uiBaseUrl: UI, publicBaseUrl: "" },
+    });
+    expect(payload.embeds?.[0]?.url).toBe(`${UI}/runs/${run().id}`);
+  });
+
+  it("applies the same rule to the ping", () => {
+    const blocked = { status: "blocked_pending" as const };
+    expect(
+      buildPing({ run: run({ ...blocked, isPublic: true }), links: LINKS, roleId: null }).content,
+    ).toContain(PUBLIC_UI);
+    expect(
+      buildPing({ run: run({ ...blocked, isPublic: false }), links: LINKS, roleId: null }).content,
+    ).toContain(UI);
   });
 });

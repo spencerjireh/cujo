@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Store } from "../../src/store";
 
-const head = { repo: "o/r", prNumber: 7, headSha: "h1", sessionId: "s1" };
+const head = { repo: "o/r", prNumber: 7, headSha: "h1", sessionId: "s1", isPublic: true };
 
 describe("store", () => {
   it("claims one run per PR head", () => {
@@ -111,6 +111,45 @@ describe("store", () => {
     store.runs.deleteRun(run.id);
     expect(store.runs.getRun(run.id)).toBeNull();
     expect(store.runs.createRun(head).created).toBe(true);
+  });
+
+  it("persists repo visibility and lists only the public runs", () => {
+    const store = new Store(":memory:");
+    const open = store.runs.createRun(head).run;
+    const shut = store.runs.createRun({ ...head, repo: "o/secret", isPublic: false }).run;
+    expect(store.runs.getRun(open.id)?.isPublic).toBe(true);
+    expect(store.runs.getRun(shut.id)?.isPublic).toBe(false);
+    expect(store.runs.listPublicRuns().map((r) => r.id)).toEqual([open.id]);
+    expect(
+      store.runs
+        .listRuns()
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual([open.id, shut.id].sort());
+  });
+
+  /**
+   * `runs.repo` holds `repository.full_name` verbatim, so the flip has to match
+   * the casing GitHub happened to send rather than the casing it stored.
+   */
+  it("flips visibility for a repo whatever the casing, and reports the row count", () => {
+    const store = new Store(":memory:");
+    const run = store.runs.createRun({ ...head, repo: "Owner/Repo" }).run;
+    expect(store.runs.setRepoVisibility("owner/repo", false)).toBe(1);
+    expect(store.runs.getRun(run.id)?.isPublic).toBe(false);
+    expect(store.runs.listPublicRuns()).toEqual([]);
+    // Idempotent: a redelivery of the same flip changes nothing.
+    expect(store.runs.setRepoVisibility("OWNER/REPO", false)).toBe(0);
+    expect(store.runs.setRepoVisibility("owner/repo", true)).toBe(1);
+    expect(store.runs.getRun(run.id)?.isPublic).toBe(true);
+  });
+
+  it("lists each repo that has a run exactly once, for the visibility sweep", () => {
+    const store = new Store(":memory:");
+    store.runs.createRun(head);
+    store.runs.createRun({ ...head, headSha: "h2" });
+    store.runs.createRun({ ...head, repo: "o/other" });
+    expect(store.runs.listRunRepos().sort()).toEqual(["o/other", "o/r"]);
   });
 
   it("binds a repo to a Discord channel and replaces the binding on a re-bind", () => {

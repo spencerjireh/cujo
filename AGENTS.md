@@ -40,12 +40,17 @@ Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/web`, `@cujo/gh-app-au
 `@cujo/brand`.
 
 Local stack (`make up-local` = `docker compose -f docker-compose.yml -f
-docker-compose.local.yml up --build`): the operator UI on :3000, TrueForge
-console/API on :8790, `cujo` on :8080 (dispatches on `Host`: `cujo.localhost`
-and the internal name `cujo` = API, `cujo-ingress.localhost` = webhook),
-`github-mcp` on :8081. Open http://localhost:3000. `make clean` drops the
-database volume. The deploy uses `docker-compose.yml` alone; never make the
-base file depend on the overlay or the Makefile.
+docker-compose.local.yml up --build`): the UI on :3000, TrueForge console/API
+on :8790, `cujo` on :8080 (dispatches on `Host`: `cujo-admin.localhost` and the
+internal name `cujo` = API, `cujo-ingress.localhost` = webhook), `github-mcp`
+on :8081. The UI serves two planes off one port, told apart by `Host`: open
+http://cujo.localhost:3000 for the public read-only board and
+http://cujo-admin.localhost:3000 for the operator view (decision 34). Plain
+http://localhost:3000 matches neither, so it falls back to the operator plane,
+which is the safe direction and is open locally anyway because
+`CUJO_DEV_NO_ACCESS=1`. `make clean` drops the database volume. The deploy uses
+`docker-compose.yml` alone; never make the base file depend on the overlay or
+the Makefile.
 
 ## Architecture
 
@@ -57,11 +62,14 @@ reports come out. No token, key, or clone credential may ever reach the
 sandbox. Treat any change that moves data across this line as a design change.
 
 `apps/web` (Next.js App Router, TanStack Query, Tailwind on `brand/tokens.css`)
-is the operator UI and the only thing a human opens. It holds no secrets and no
-state: every call goes through its `/api/*` route handlers to `apps/cujo`,
-same-origin so the Cloudflare Access assertion and the `EventSource` run stream
-both work from a browser (decision 27). Storybook covers the components and is
-not part of CI.
+is the UI and the only thing a human opens. It holds no secrets and no state:
+every call goes through its `/api/*` route handlers to `apps/cujo`, same-origin
+so the Cloudflare Access assertion and the `EventSource` run stream both work
+from a browser (decision 27). One container answers two hostnames — the public
+read-only board and the Access-gated operator view — decided per request from
+its own `Host` in `lib/api/mode.ts`, where public requires an exact match and
+everything else falls back to the gated plane (decision 34). Storybook covers
+the components and is not part of CI.
 
 `apps/cujo` (Hono, `node:sqlite`) is the sole TrueForge client and the only
 thing GitHub touches. Its `src/` is grouped by trust plane:
@@ -73,6 +81,7 @@ src/
     router.ts       the host split, in one place
     ingress/        INTERNET. A signature is the only gate. Cannot approve.
     operator/       Cloudflare Access. Where a human decides.
+    public/         INTERNET, no gate. Read-only, public repos, names nobody.
   review/           a PR becomes a run: start, follow, fold, hard rules
   notify/           Discord cards, pings, and the /cujo commands
   clients/          the only outbound IO; imports from nothing else here
@@ -80,9 +89,14 @@ src/
 tests/              mirrors src/ exactly
 ```
 
-Two hostnames, one process: the webhook host carries the signature-gated
-ingress routes and the UI host carries the Access-gated API, enforced in
-`http/router.ts` and not only at the edge.
+Two hostnames and two planes, one process: the webhook host carries the
+signature-gated ingress routes, and the UI host carries both the Access-gated
+API and the ungated `/public` group. Enforced in `http/router.ts` and not only
+at the edge — the gated plane is a separate Hono instance the UI host delegates
+to, so its `app.use("*")` gate cannot compose with the public handlers. The
+public split is a path and not a third hostname because this process never
+receives the public name (decision 34); `http/public/serialize.ts` is an
+allowlist, and adding a field to `Projection` fails its test until classified.
 
 The flow: `http/ingress/github-webhook.ts` verifies the HMAC and claims the
 run; `review/start-run.ts` reads the PR through `clients/github.ts` and starts
