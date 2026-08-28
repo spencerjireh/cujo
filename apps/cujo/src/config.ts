@@ -10,6 +10,7 @@ export interface Config {
   githubAppId: string;
   githubAppPrivateKey: string;
   uiHost: string;
+  internalHost: string;
   webhookHost: string;
   /** Public origin of the Cujo UI, used for the run link in a Discord card. */
   uiBaseUrl: string;
@@ -58,6 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     githubAppId: required(env, "GITHUB_APP_ID"),
     githubAppPrivateKey: required(env, "GITHUB_APP_PRIVATE_KEY"),
     uiHost,
+    internalHost: env.CUJO_INTERNAL_HOST ?? "cujo",
     webhookHost: env.CUJO_WEBHOOK_HOST ?? "cujo-ingress.spencerjireh.com",
     // `||`, not `??`: compose passes an unset optional as `${X:-}`, which is
     // the empty string, and `??` would keep it.

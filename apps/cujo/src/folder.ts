@@ -160,12 +160,15 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           status: "running",
           report: null,
           error: null,
+          startedAt: event.createdAt ?? null,
+          endedAt: null,
         });
         break;
       }
       case "thread.done": {
         const check = p.checks.find((c) => c.threadId === event.threadId);
         if (!check) break;
+        check.endedAt = event.createdAt ?? null;
         if (event.state.status === "done") {
           check.status = "done";
           check.report = parseReport(messageText(event.state.output));

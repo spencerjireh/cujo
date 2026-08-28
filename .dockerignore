@@ -13,3 +13,7 @@ __pycache__
 .ruff_cache
 *.png
 .playwright-mcp
+
+# Next build output must never reach an image build context
+**/.next
+**/storybook-static

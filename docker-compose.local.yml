@@ -32,14 +32,21 @@ services:
       # Host dispatch (spec Contract 6): both hostnames resolve to loopback, so
       # curl with -H 'Host: cujo.localhost' or open http://cujo.localhost:8080.
       CUJO_UI_HOST: cujo.localhost
+      # How `web` addresses this service on the compose network.
+      CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: cujo-ingress.localhost
       # No Cloudflare Access locally; the process logs a warning on start.
       CUJO_DEV_NO_ACCESS: '1'
-      # Run links in a Discord card must resolve to this machine, not the
-      # production hostname derived from CUJO_UI_HOST.
-      CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-http://cujo.localhost:8080}
+      # Run links in a Discord card point at the operator UI, which is `web`.
+      CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-http://localhost:3000}
     ports:
-      - '127.0.0.1:8080:8080' # Cujo UI + API, and the webhook receiver
+      - '127.0.0.1:8080:8080' # Cujo API, and the webhook receiver
+
+  web:
+    environment:
+      CUJO_API_URL: http://cujo:8080
+    ports:
+      - '127.0.0.1:3000:3000' # The operator UI — open http://localhost:3000
 
   github-mcp:
     ports:

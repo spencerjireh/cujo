@@ -24,4 +24,4 @@ this file when reviewing pull requests; keep the two in sync.
   exists in the deployed database, append to `MIGRATIONS` in `store.ts` — never
   edit a past entry, and never change a `CREATE TABLE` in place, which applies
   to a fresh database and silently not to a live one
-  (see `docs/decisions.md` 25 and 29).
+  (see `docs/decisions.md` 25 and 30).

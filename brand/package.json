@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tokens.json": "./tokens.json",
+    "./logo/*": "./logo/*"
+  },
   "scripts": {
     "render": "node tools/render.mjs",
     "wordmark": "node tools/wordmark.mjs"

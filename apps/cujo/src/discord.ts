@@ -237,7 +237,7 @@ export class DiscordClient {
    * Replace this server's command set. A full PUT rather than a diff, so a
    * command definition cannot drift from the code across deploys. Guild
    * commands appear at once, where a global one takes up to an hour
-   * (decision 28).
+   * (decision 29).
    */
   putGuildCommands(
     applicationId: string,

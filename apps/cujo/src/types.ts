@@ -24,6 +24,13 @@ export interface CheckState {
   status: "running" | "done" | "error";
   report: unknown | null;
   error: string | null;
+  /**
+   * Event timestamps, taken from the thread's own `createdAt` rather than the
+   * clock, so the fold stays pure and a rehydrated run keeps the timing it had.
+   * The UI puts the four checks on one time axis with these.
+   */
+  startedAt: string | null;
+  endedAt: string | null;
 }
 
 export interface ReviewComment {
@@ -107,7 +114,7 @@ export interface DiscordChannelRecord {
 
 /**
  * One Discord server allowed to manage notifications for one repo (Contract 8,
- * decision 27). Written only over the Access-gated API, so the question "which
+ * decision 28). Written only over the Access-gated API, so the question "which
  * repos may this server see" always has a verified email attached to it; the
  * server then chooses its own channel and role.
  */
