@@ -33,7 +33,12 @@ const GUILD_CACHE_MS = 30_000;
  * one scalar is not worth the bundle or the parser's own surface.
  */
 export function parseDeclaredGuild(yaml: string): string | null {
-  const match = /^discord_guild:[ \t]*["']?(\d{17,20})["']?[ \t]*(?:#.*)?$/m.exec(yaml);
+  // A file written on Windows ends its lines with CRLF, and `\r` is not
+  // whitespace to this pattern; without normalising, such a repo would be
+  // silently undeclared forever.
+  const match = /^discord_guild:[ \t]*["']?(\d{17,20})["']?[ \t]*(?:#.*)?$/m.exec(
+    yaml.replace(/\r\n?/g, "\n"),
+  );
   return match?.[1] ?? null;
 }
 
@@ -192,8 +197,10 @@ export class GitHubReader {
 
   /**
    * The Discord server a repo declares in `.cujo.yml` on its default branch
-   * (Contract 8). Null when the file is absent, unreadable, or carries no
-   * usable `discord_guild`.
+   * (Contract 8). Null means the repo genuinely declares none — no file, or no
+   * usable key. A read that could not be made **throws**, because "the repo
+   * says no server" and "GitHub did not answer" are different facts and a
+   * caller deciding whether to keep notifying has to tell them apart.
    *
    * Read here, through the App, and never from the sandbox's copy: the sandbox
    * holds the pull request's code, and code that declares its own authorization
@@ -201,28 +208,27 @@ export class GitHubReader {
    *
    * The default branch, not the pull request's: declaring a server is an act
    * that has to be merged, which is exactly what makes it proof of control.
+   *
+   * `fresh` skips the cache. The last check before a binding is written uses
+   * it, since a cached answer from before the command started would let a
+   * declaration revoked mid-command still be honoured.
    */
-  async declaredGuild(repo: string): Promise<string | null> {
+  async declaredGuild(repo: string, options: { fresh?: boolean } = {}): Promise<string | null> {
     const cached = this.guildCache.get(repo);
-    if (cached && cached.expiresAt > Date.now()) return cached.guildId;
-    let guildId: string | null = null;
-    try {
-      const { default_branch } = await this.get<{ default_branch: string }>(repo, `/repos/${repo}`);
-      const yaml = await this.rawFile(repo, ".cujo.yml", default_branch);
-      guildId = yaml === null ? null : parseDeclaredGuild(yaml);
-    } catch (error) {
-      // A repo with no `.cujo.yml`, or a GitHub hiccup. Both mean "not
-      // declared" for now; the caller says so rather than guessing.
-      console.warn(`github: could not read .cujo.yml for ${repo}`, error);
-      guildId = null;
-    }
+    if (!options.fresh && cached && cached.expiresAt > Date.now()) return cached.guildId;
+    const { default_branch } = await this.get<{ default_branch: string }>(repo, `/repos/${repo}`);
+    const yaml = await this.rawFile(repo, ".cujo.yml", default_branch);
+    const guildId = yaml === null ? null : parseDeclaredGuild(yaml);
     this.guildCache.set(repo, { guildId, expiresAt: Date.now() + GUILD_CACHE_MS });
     return guildId;
   }
 
   /** A file's bytes at a ref, or null when it is not there. */
   private async rawFile(repo: string, path: string, ref: string): Promise<string | null> {
-    const res = await this.fetchImpl(`${API}/repos/${repo}/contents/${path}?ref=${ref}`, {
+    // A branch name may hold `/`, `#` or `&`. Unencoded, `#` truncates the ref
+    // to a URL fragment and the repo reads as undeclared.
+    const url = `${API}/repos/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`;
+    const res = await this.fetchImpl(url, {
       headers: {
         authorization: `Bearer ${await this.token(repo)}`,
         accept: "application/vnd.github.raw",

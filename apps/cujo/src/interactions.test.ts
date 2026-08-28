@@ -592,6 +592,57 @@ describe("interactions endpoint", () => {
     for (const choice of body.data.choices) expect(choice.value.length).toBeLessThanOrEqual(100);
   });
 
+  it("lets a server stop receiving a repo that revoked its declaration", async () => {
+    // The commit that revokes is the one that makes the binding stale, so
+    // gating cleanup behind the declaration would strand the channel.
+    const built = build({ declaredGuild: null });
+    built.store.putDiscordChannel({
+      repo: "spencerjireh/orders-api",
+      channelId: CHANNEL,
+      guildId: GUILD,
+      channelName: "reviews",
+      notifyRoleId: null,
+    });
+    const content = await reply(
+      built,
+      command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+    );
+    expect(content).toContain("Stopped");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("lets a server stop receiving a repo the App was removed from", async () => {
+    const built = build({ repos: ["spencerjireh/something-else"] });
+    built.store.putDiscordChannel({
+      repo: "spencerjireh/orders-api",
+      channelId: CHANNEL,
+      guildId: GUILD,
+      channelName: "reviews",
+      notifyRoleId: null,
+    });
+    const content = await reply(
+      built,
+      command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+    );
+    expect(content).toContain("Stopped");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
+  it("asks for a retry rather than refusing when GitHub cannot be read", async () => {
+    const built = build();
+    built.github.declaredGuild.mockRejectedValueOnce(new Error("github is down"));
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain("could not read");
+    expect(content).toContain("Try again");
+    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+  });
+
   it("refuses to act outside a server", async () => {
     const built = build();
     const content = await reply(built, command("status", [], { guild_id: undefined }));

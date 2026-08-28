@@ -667,6 +667,25 @@ what to add and where, and `/cujo status` closes with the line to paste, since
 listing every repo that named a server would mean reading each installed
 repo's `.cujo.yml` on every command.
 
+**Revoking is a commit, and it stops delivery.** Removing or changing
+`discord_guild` is checked before every card, not only when a channel is bound:
+a binding written before the edit would otherwise keep delivering forever,
+since nothing else on that path consults the declaration. On a definite "no"
+the binding is dropped and the run says nothing.
+
+"Definite" is doing work there. A repo that declares nothing and a repo whose
+`.cujo.yml` could not be read are different facts, and only the first stops
+delivery. Treating an unreachable GitHub as a revocation would let a hiccup
+silence a team's reviews, so an unreadable declaration keeps a binding that was
+legitimately created and logs. A command in the same position refuses and asks
+for a retry, because a command has someone waiting who can try again.
+
+`/cujo unwatch` is checked **before** the declaration and before the
+installed-repo list. A server must always be able to stop receiving: the very
+commit that revokes a declaration is what makes a binding stale, and removing
+the App from a repo is another, so gating cleanup behind either would strand
+the channel with reviews it can neither justify nor stop.
+
 Revoking an authorization also drops the binding it permitted. Leaving the
 channel bound would keep a server receiving reviews it may no longer see.
 
@@ -691,6 +710,9 @@ Every reply is ephemeral, so configuring makes no noise in the channel.
 **The gates, in order.** A command is refused unless all of these hold, and the
 reply says which one failed:
 
+0. `/cujo unwatch` passes everything below except the Manage Server check and
+   the rule that a server may only remove its own binding. Stopping is never
+   gated.
 1. It came from a server, not a direct message.
 2. The invoker has Manage Server. Discord enforces this itself through
    `default_member_permissions`, which hides the command from everyone below

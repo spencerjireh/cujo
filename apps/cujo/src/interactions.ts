@@ -159,6 +159,22 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
     if (!repo || !REPO.test(repo)) return "That does not look like an `owner/name` repository.";
     const normalized = repo.toLowerCase();
 
+    // Deliberately ahead of every other check: a server must always be able to
+    // stop receiving. Gating this behind authorization or the App's
+    // installation list would mean a repo that revoked its declaration, or was
+    // uninstalled, left the channel unable to clean itself up.
+    if (command?.name === "unwatch") {
+      // A binding is global to the repo, so a server may only take down its
+      // own: otherwise one server could silence another's reviews.
+      const existing = deps.store.getDiscordChannel(normalized);
+      if (!existing) return `\`${normalized}\` was not being sent anywhere.`;
+      if (existing.guildId !== guildId) {
+        return `\`${normalized}\` is being sent to another server. A Cujo operator can move it.`;
+      }
+      deps.store.deleteDiscordChannel(normalized);
+      return `Stopped sending \`${normalized}\` review updates here.`;
+    }
+
     // Checked before authorization so the refusal names the real problem: a
     // repo the App cannot see has no readable `.cujo.yml` either, and "it has
     // not named this server" would send someone editing a file that Cujo could
@@ -173,17 +189,6 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
     const authorization = await authorizationFor(deps, guildId, normalized);
     if (!authorization.allowed) return explain(normalized, guildId, authorization);
 
-    if (command?.name === "unwatch") {
-      // A binding is global to the repo, so a server may only take down its
-      // own: otherwise one authorized server could silence another's reviews.
-      const existing = deps.store.getDiscordChannel(normalized);
-      if (!existing) return `\`${normalized}\` was not being sent anywhere.`;
-      if (existing.guildId !== guildId) {
-        return `\`${normalized}\` is being sent to another server. A Cujo operator can move it.`;
-      }
-      deps.store.deleteDiscordChannel(normalized);
-      return `Stopped sending \`${normalized}\` review updates here.`;
-    }
     if (command?.name === "watch") {
       return watch(deps, { guildId, userId, repo: normalized, command });
     }
@@ -380,7 +385,9 @@ async function watch(
   // awaits, and a declaration reverted or an operator's allowance withdrawn in
   // the meantime must not end with a binding for a server that may no longer
   // see the repo.
-  const still = await authorizationFor(deps, input.guildId, input.repo);
+  // `fresh`, so a declaration revoked while this command was awaiting Discord
+  // is seen: a cached answer from before the command started would honour it.
+  const still = await authorizationFor(deps, input.guildId, input.repo, { fresh: true });
   if (!still.allowed) return `This server is no longer allowed to watch \`${input.repo}\`.`;
   deps.store.putDiscordChannel({
     repo: input.repo,
