@@ -478,7 +478,7 @@ The operator API `apps/cujo` serves on `cujo-admin.spencerjireh.com`:
 | `GET /runs` | Runs, newest first, with status. |
 | `GET /runs/:id` | The run, its checks (thread, status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits` (the hard-rule subset), and the drafted review when `blocked_pending`. |
 | `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
-| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
+| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. A refusal answers `409` with `{ok: false, error, reason}`: `error` is the sentence the UI shows and `reason` is one of `no_such_run`, `not_blocked_pending`, `already_decided` or `resume_failed` — four conditions that used to arrive as one prose string a caller could only match on (decision 37). |
 
 The `/discord/*` routes on the same host are Contract 7.
 

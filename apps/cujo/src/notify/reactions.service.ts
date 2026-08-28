@@ -20,11 +20,14 @@
  * a finished verdict gets overwritten by a stale delivery.
  */
 
+import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReactions, Reaction } from "../clients/github-reactions";
 import type { RunView } from "../review/runner.service";
 import type { RunRecord, RunStatus } from "../review/types";
 
 export interface PrReactorDeps {
+  /** The process logger; every line names the plane it came from (decision 37). */
+  log: Logger;
   reactions: GitHubReactions;
   /**
    * Backoff before each retry of a failed call. A terminal status is the last
@@ -97,6 +100,10 @@ export class PrReactor {
   private readonly retryDelaysMs: number[];
   private readonly sleep: (ms: number) => Promise<void>;
 
+  private get log(): Logger {
+    return this.deps.log;
+  }
+
   constructor(private readonly deps: PrReactorDeps) {
     this.retryDelaysMs = deps.retryDelaysMs ?? [1_000, 3_000];
     this.sleep = deps.sleepImpl ?? defaultSleep;
@@ -159,12 +166,18 @@ export class PrReactor {
       } catch (error) {
         // Unreachable: `attempt` swallows. Belt and braces, because a throw
         // here would break the queue for every later run.
-        console.error(`reactions: queue step threw for run ${runId}`, error);
+        this.log.child({ run_id: runId }).error("reaction.failed", {
+          reason: "queue_step",
+          ...errorFields(error),
+        });
       }
       try {
         this.deps.onSettled?.(runId);
       } catch (error) {
-        console.error(`reactions: onSettled threw for run ${runId}`, error);
+        this.log.child({ run_id: runId }).error("reaction.failed", {
+          reason: "on_settled",
+          ...errorFields(error),
+        });
       }
     });
   }
@@ -190,10 +203,15 @@ export class PrReactor {
         if (attempt >= this.retryDelaysMs.length) {
           // Give up, and forget the key so a later status change tries again.
           this.applied.delete(runId);
-          console.error(
-            `reactions: could not react on ${repo} #${prNumber} for run ${runId}`,
-            error,
-          );
+          this.log.child({ run_id: runId }).error("reaction.failed", {
+            repo,
+            pr_number: prNumber,
+            reason: "gave_up",
+            // The loop index is zero-based, so the count of calls actually
+            // made is one more than it.
+            attempts: attempt + 1,
+            ...errorFields(error),
+          });
           return;
         }
         await this.sleep(this.retryDelaysMs[attempt] ?? 0);

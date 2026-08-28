@@ -52,6 +52,30 @@ function durationOf(check: CheckState): { duration_ms?: number } {
   return Number.isFinite(ms) && ms >= 0 ? { duration_ms: ms } : {};
 }
 
+/**
+ * Why an approval was refused, as a closed set rather than a sentence.
+ *
+ * The 409 body used to carry four different conditions as one opaque string —
+ * "no such run", "already decided", a status mismatch, and a failed resume all
+ * arrived as prose a caller could only match on. The `reason` is now countable
+ * and the human wording moves to `detail`, so the UI keeps its message and a
+ * query can still ask how often a resume failed.
+ */
+export type ApproveRefusal =
+  | "no_such_run"
+  | "not_blocked_pending"
+  | "already_decided"
+  | "resume_failed";
+
+export type ApproveResult = { ok: true } | { ok: false; reason: ApproveRefusal; detail: string };
+
+const REFUSAL_TEXT: Record<ApproveRefusal, string> = {
+  no_such_run: "no such run",
+  not_blocked_pending: "run is not blocked_pending",
+  already_decided: "already decided",
+  resume_failed: "resume failed",
+};
+
 const TERMINAL_EVENT = "turn.done";
 
 /**
@@ -449,14 +473,26 @@ export class Runner {
     runId: string,
     decision: "allow" | "deny",
     approver: string,
-  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  ): Promise<ApproveResult> {
+    // Deliberately not `this.state(runId)` before the run is known to exist:
+    // `state()` inserts, and nothing ever removes, so an authenticated POST to
+    // /runs/<anything>/approve would grow the map for the life of the process.
+    // A run that does not exist gets a plain child logger and no state.
+    const refuse = (reason: ApproveRefusal, detail?: string): ApproveResult => {
+      const log = this.states.has(runId)
+        ? this.state(runId).log
+        : this.log.child({ run_id: runId });
+      log.warn("approve.rejected", { decision, actor: approver, reason });
+      return { ok: false, reason, detail: detail ?? REFUSAL_TEXT[reason] };
+    };
     const view = this.view(runId);
-    if (!view) return { ok: false, reason: "no such run" };
+    if (!view) return refuse("no_such_run");
+    const log = this.state(runId).log;
     if (view.run.status !== "blocked_pending" || !view.projection.approval) {
-      return { ok: false, reason: `run is ${view.run.status}, not blocked_pending` };
+      return refuse("not_blocked_pending", `run is ${view.run.status}, not blocked_pending`);
     }
     if (!this.store.claimDecision(runId, approver, new Date().toISOString())) {
-      return { ok: false, reason: "already decided" };
+      return refuse("already_decided");
     }
     this.stopPolling(runId);
     let turnId: string;
@@ -465,7 +501,13 @@ export class Runner {
     } catch (error) {
       this.store.clearDecision(runId);
       this.startPolling(runId);
-      return { ok: false, reason: `resume failed: ${String(error)}` };
+      log.warn("approve.rejected", {
+        decision,
+        actor: approver,
+        reason: "resume_failed",
+        ...errorFields(error),
+      });
+      return { ok: false, reason: "resume_failed", detail: `resume failed: ${String(error)}` };
     }
     // The audit line for a decision a human made. `actor` is the Access email
     // the store has just recorded as the approver, so the log and the row

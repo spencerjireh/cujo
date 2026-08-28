@@ -76,6 +76,11 @@ export const EVENT_NAMES = [
   "discord.binding.dropped",
   "discord.channel.unreadable",
   "discord.command.failed",
+  // The eye and its successors on the pull request itself (decision 36).
+  // Its own name, not a `discord.*` one: it is a GitHub write, and filing it
+  // under Discord both inflates Discord failure counts and hides which
+  // outbound integration actually broke.
+  "reaction.failed",
   // Background reconciliation and outbound reads.
   "visibility.swept",
   "visibility.sweep.failed",

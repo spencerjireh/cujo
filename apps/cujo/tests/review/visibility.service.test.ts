@@ -7,10 +7,14 @@
  * five-minute GitHub blip, protecting nothing — the repo did not go private.
  */
 
+import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
 import type { GitHubReader } from "../../src/clients/github";
 import { VisibilityService } from "../../src/review/visibility.service";
 import { Store } from "../../src/store";
+
+/** Tests assert on behaviour, not on log output; the sink swallows it. */
+const silentLog = createLogger({ service: "cujo", sink: () => {} });
 
 const head = { repo: "o/r", prNumber: 7, headSha: "h1", sessionId: "s1", isPublic: true };
 
@@ -18,7 +22,7 @@ function build(answers: Record<string, "public" | "private" | "unknown">, interv
   const store = new Store(":memory:");
   const repoIsPublic = vi.fn(async (repo: string) => answers[repo] ?? "unknown");
   const github = { repoIsPublic } as unknown as GitHubReader;
-  const service = new VisibilityService({ runs: store.runs, github, intervalMs });
+  const service = new VisibilityService({ log: silentLog, runs: store.runs, github, intervalMs });
   return { store, service, repoIsPublic };
 }
 

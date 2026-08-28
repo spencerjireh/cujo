@@ -14,6 +14,7 @@
  *   Discord offers no idempotency key, so this is the safe direction.
  */
 
+import { type Logger, errorFields } from "@cujo/log";
 import { DiscordError, UNKNOWN_MESSAGE } from "../clients/discord";
 import type { DiscordClient } from "../clients/discord";
 import type { DiscordMessagePayload } from "../clients/discord";
@@ -27,6 +28,8 @@ import { buildPing, buildRunCard } from "./card";
 import type { RunDiscordMessage } from "./types";
 
 export interface NotifierDeps {
+  /** The process logger; every line names the plane it came from (decision 37). */
+  log: Logger;
   store: Store;
   client: DiscordClient;
   /** Reads the repo's `.cujo.yml`, so a revoked declaration stops delivery. */
@@ -77,6 +80,10 @@ export class DiscordNotifier {
   private tail: Promise<void> = Promise.resolve();
   private readonly sleep: (ms: number) => Promise<void>;
 
+  private get log(): Logger {
+    return this.deps.log;
+  }
+
   constructor(private readonly deps: NotifierDeps) {
     this.sleep = deps.sleepImpl ?? defaultSleep;
   }
@@ -116,12 +123,15 @@ export class DiscordNotifier {
         // Log and drop. The run is unaffected, and the next status change
         // retries because the pre-filter is cleared here.
         this.enqueued.delete(runId);
-        console.error(`discord: could not notify for run ${runId}`, error);
+        this.log.child({ run_id: runId }).error("discord.notify.failed", errorFields(error));
       }
       try {
         this.deps.onSettled?.(runId);
       } catch (error) {
-        console.error(`discord: onSettled threw for run ${runId}`, error);
+        this.log.child({ run_id: runId }).error("discord.notify.failed", {
+          reason: "on_settled",
+          ...errorFields(error),
+        });
       }
     });
   }
@@ -147,7 +157,7 @@ export class DiscordNotifier {
     // "revoked by a commit" true instead of aspirational.
     if (mapping?.guildId) {
       const allowed = await authorizationFor(
-        { store: store.notifications, github: this.deps.github },
+        { log: this.log, store: store.notifications, github: this.deps.github },
         mapping.guildId,
         run.repo,
       );
@@ -155,7 +165,7 @@ export class DiscordNotifier {
         // A definite no, so stop and clear the binding. `unknown` is GitHub
         // being unreachable, which says nothing about what the repo declares:
         // a hiccup must not silence a team's reviews.
-        console.warn(`discord: ${run.repo} no longer allows this server; dropping the binding`);
+        this.log.warn("discord.binding.dropped", { repo: run.repo, reason: "no_longer_allowed" });
         store.notifications.deleteDiscordChannel(run.repo);
         return;
       }

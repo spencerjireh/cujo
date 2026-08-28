@@ -13,6 +13,7 @@
  * what keeps that true rather than remembered.
  */
 
+import type { Logger } from "@cujo/log";
 import type { DiscordClient } from "../../clients/discord";
 import type { GitHubReader } from "../../clients/github";
 import type { UiLinks } from "../../review/links";
@@ -24,6 +25,8 @@ import { unwatch } from "./unwatch";
 import { watch } from "./watch";
 
 export interface CommandDeps {
+  /** The process logger; every line names the plane it came from (decision 37). */
+  log: Logger;
   store: NotificationStore;
   discord: DiscordClient;
   github: GitHubReader;

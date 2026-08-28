@@ -1,3 +1,4 @@
+import { errorFields } from "@cujo/log";
 import { emptyProjection } from "../../review/fold";
 import { buildRunCard } from "../card";
 import type { CommandDeps } from "./index";
@@ -36,7 +37,7 @@ export async function test(deps: CommandDeps, guildId: string, repo: string): Pr
   try {
     await deps.discord.createMessage(binding.channelId, card);
   } catch (error) {
-    console.error("discord: test card failed", error);
+    deps.log.error("discord.command.failed", { guild_id: guildId, repo, ...errorFields(error) });
     return `Cujo could not post to <#${binding.channelId}>. Check its permissions there.`;
   }
   return `Posted a sample card to <#${binding.channelId}>.`;
