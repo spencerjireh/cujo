@@ -85,9 +85,11 @@ thing GitHub touches:
   deployed database.
 - `interactions.ts` serves the `/cujo` slash command on the **webhook** host,
   Ed25519-verified (spec Contract 8); `discord-commands.ts` is the command
-  definition. A server picks its own channel and role; which repos it may reach
-  is authorized by an operator over the Access-gated API. Nothing here approves
-  a review, and it must not grow that (decision 28).
+  definition. `authorization.ts` answers whether a server may watch a repo: the
+  repo names it in `.cujo.yml` on the default branch, read trusted-side through
+  the App and never from the sandbox, with the operator API as an override
+  (decision 31). Nothing here approves a review, and it must not grow that
+  (decision 28).
 - `notifier.ts` keeps one Discord card per run and pings when a run blocks
   (spec Contract 7). `discord.ts` is the REST client and `discord-card.ts` the
   pure payload builder, where every derived string is escaped, stripped and
