@@ -335,7 +335,18 @@ egress observed. Each entry in `comments[]` is one finding with a `path`,
 `line`, and `side`, posted as an inline review comment on that diff line.
 `github-mcp` validates each anchor against the PR diff before posting; a
 finding with no anchor, or with an anchor outside the diff, moves into the
-body so a bad anchor never blocks the review.
+body so a bad anchor never blocks the review. Which of the three it was —
+`file_not_in_diff`, `line_not_in_hunk` or `bad_line` — is recorded per comment
+and logged, because an agent citing a file the PR does not touch and one citing
+a real file outside the hunk are different mistakes (decision 37). The review
+body is unchanged either way.
+
+A GitHub call that does not return 2xx raises a `GitHubError` carrying `status`,
+`path` and `method` as fields rather than interpolated into a message, so a
+caller can tell an expected `404` from an outage without parsing prose. The
+response body is not forwarded into the message: only GitHub's own `message`
+field is read from its error envelope, and capped — an upstream body can echo
+a request header back, and that is how one reaches a log line.
 
 Both also take an optional `run_id`, which the agent copies verbatim from the
 turn payload and never writes into the body itself. `github-mcp` validates it

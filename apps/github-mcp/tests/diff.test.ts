@@ -67,7 +67,8 @@ describe("validateAnchors", () => {
     ];
     const { inline, moved } = validateAnchors(files, comments);
     expect(inline).toEqual([]);
-    expect(moved).toEqual(comments);
+    // The rendered section is unchanged; only the shape carrying it grew.
+    expect(moved.map((m) => m.comment)).toEqual(comments);
   });
 });
 
@@ -78,8 +79,11 @@ describe("appendMovedComments", () => {
 
   it("adds a section listing each moved finding", () => {
     const body = appendMovedComments("Summary", [
-      { path: "a.py", line: 3, body: "thing" },
-      { path: "b.py", line: 8, side: "LEFT", body: "other" },
+      { comment: { path: "a.py", line: 3, body: "thing" }, reason: "file_not_in_diff" },
+      {
+        comment: { path: "b.py", line: 8, side: "LEFT", body: "other" },
+        reason: "line_not_in_hunk",
+      },
     ]);
     expect(body).toBe(
       "Summary\n\n### Findings without a diff anchor\n\n- `a.py:3` (RIGHT): thing\n- `b.py:8` (LEFT): other\n",
