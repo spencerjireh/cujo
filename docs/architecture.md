@@ -213,7 +213,10 @@ Coolify in a single `docker-compose` project so the services share a network.
   Its JSON API is not published; `web` reaches it at `http://cujo:8080` on the
   compose network. A volume holds its SQLite run store. It needs outbound HTTPS
   to `api.github.com` and, when Discord is configured, to `discord.com`; with
-  no `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody.
+  no `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody. `GET
+  /healthz` is its container healthcheck and reads nothing; `GET /readyz`
+  reports whether the harness has bootstrapped, which is the flag the webhook
+  gates on. Both answer on every hostname and neither is gated (decision 37).
 - **`web`** — the `apps/web` UI, on two hostnames from one container
   (decision 34). `https://cujo-admin.spencerjireh.com` is behind Access and is
   where a human sees a paused run and approves a block;
@@ -238,6 +241,13 @@ The DNS records and the Access apps exist. Coolify routes
 the compose file on `main`, which `web` already satisfies.
 Configuration reaches the services as environment variables set in Coolify;
 `.env.example` lists every name.
+
+Every service logs structured JSON to stdout through `@cujo/log`, one event per
+line, which is where Coolify reads it. There is no log collector and no tracing
+backend: the per-run detail is already durable in the projection the UI renders,
+so what stdout has to answer is service-level (decision 37). `CUJO_LOG_LEVEL`
+selects the level and defaults to `info` when unset, so no Coolify variable has
+to change for a deploy to be correct.
 
 Merging to `main` is the deploy. Coolify watches the repository over a GitHub
 webhook and rebuilds on every push to `main`, so there is no separate release

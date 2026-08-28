@@ -409,7 +409,7 @@ list in order.
 | `repo`, `pr_number`, `head_sha` | The PR event that started it. |
 | `session_id` | The TrueForge session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
-| `status` | One of the six states below. |
+| `status` | One of the seven states below. |
 | `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `created_at`, `updated_at` | Timestamps. |
@@ -489,12 +489,24 @@ fields from the operator shape: the difference is what happens when a field is
 added to the projection later, and only the allowlist keeps that field private
 until somebody says otherwise.
 
+Two probes answer on every hostname, and no gate stands in front of either:
+
+| Route | Returns or does |
+|-------|-----------------|
+| `GET /healthz` | Liveness. `{ok: true, service: 'cujo'}` for as long as the process is up. This is the container healthcheck, so it reads nothing and can fail for one reason only. |
+| `GET /readyz` | Readiness. `200` with the harness flag the webhook itself gates on, a store ping, and the public stream count; `503` when the harness has not finished bootstrapping. Deliberately *not* the healthcheck: a readiness failure there would restart the container while `bootstrapUntilReady` is backing off on purpose, and would take `web` down with it (decision 37). |
+
+Neither is gated because neither says anything an anonymous reader could not
+already infer: the body is booleans and counts, names no repo and no person, and
+the webhook's own `503` already announces that the harness is not ready.
+
 One process serves two hostnames and two planes, so both splits are enforced in
 the process, not only at the edge:
 
 - Every request is dispatched on the `Host` header. On
-  `cujo-ingress.spencerjireh.com` the process serves `POST /webhook` and
-  `GET /healthz` and answers 404 to everything else, including `/runs`. On
+  `cujo-ingress.spencerjireh.com` the process serves `POST /webhook`,
+  `GET /healthz` and `GET /readyz`, and answers 404 to everything else,
+  including `/runs`. On
   `cujo-admin.spencerjireh.com`, and on the internal service name in
   `CUJO_INTERNAL_HOST` (default `cujo`), it serves the routes above and answers
   404 to `/webhook`. A request with any other `Host` gets 404. The internal name
