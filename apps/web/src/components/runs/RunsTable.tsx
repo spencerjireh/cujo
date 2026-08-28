@@ -111,6 +111,15 @@ export function RunsTable({ runs }: { runs: RunSummary[] }) {
                     <th
                       key={header.id}
                       scope="col"
+                      // The arrow glyph is decoration; this is the state a
+                      // screen reader reads.
+                      aria-sort={
+                        header.column.getIsSorted() === "asc"
+                          ? "ascending"
+                          : header.column.getIsSorted() === "desc"
+                            ? "descending"
+                            : "none"
+                      }
                       className="border-b border-line py-2 pr-4 text-left font-mono text-xs font-medium uppercase tracking-wider text-fg-muted"
                     >
                       {header.isPlaceholder ? null : (

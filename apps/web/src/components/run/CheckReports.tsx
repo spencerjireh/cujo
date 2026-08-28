@@ -1,6 +1,6 @@
 "use client";
 
-import { parseReport } from "@/lib/api/report";
+import { alarms, parseReport } from "@/lib/api/report";
 import type { CheckState } from "@/lib/api/types";
 import { duration } from "@/lib/format";
 import * as Collapsible from "@radix-ui/react-collapsible";
@@ -11,9 +11,11 @@ import { SensorReport } from "./report/SensorReport";
 /** One collapsible section per check that returned something. */
 function CheckReport({ check }: { check: CheckState }) {
   const parsed = parseReport(check.report);
-  // A check that tripped something is worth opening without being asked.
+  // A check that tripped anything is worth opening without being asked. This
+  // asks alarms() rather than testing one flag, so a decoy-secret read or a
+  // sensitive write opens the report too.
   const [open, setOpen] = useState(
-    parsed.kind === "sensor" && parsed.blocks.some((b) => b.derived?.egress_to_unknown_host),
+    parsed.kind === "sensor" && parsed.blocks.some((block) => alarms(block).length > 0),
   );
 
   return (

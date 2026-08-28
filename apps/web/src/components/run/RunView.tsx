@@ -2,6 +2,7 @@
 
 import { useRunStream } from "@/hooks/useRunStream";
 import { runOptions } from "@/lib/api/queries";
+import { reviewPosted } from "@/lib/api/types";
 import { useQuery } from "@tanstack/react-query";
 import { ApproveBar } from "./ApproveBar";
 import { CheckReports } from "./CheckReports";
@@ -31,10 +32,8 @@ export function RunView({ id }: { id: string }) {
     <article className="flex flex-col gap-10 pb-4">
       <RunHeader run={run} />
       <ChecksTimeline checks={run.checks} findings={run.findings} />
-      <FindingsList findings={run.findings} />
-      {run.review ? (
-        <ReviewPanel review={run.review} posted={run.status === "blocked_posted"} />
-      ) : null}
+      <FindingsList findings={run.findings} status={run.status} />
+      {run.review ? <ReviewPanel review={run.review} posted={reviewPosted(run)} /> : null}
       <CheckReports checks={run.checks} />
       <ApproveBar run={run} />
     </article>

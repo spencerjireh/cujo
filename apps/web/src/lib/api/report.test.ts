@@ -41,14 +41,14 @@ describe("parseReport", () => {
     const parsed = parseReport({
       runs: [
         { dependency: "humanize==4.9.0", egress: [{ host: "pypi.org" }] },
-        { dependency: "evil-package==1.0.0", egress: [{ host: "185.220.101.4", known: false }] },
+        { dependency: "tainted-sample==1.0.0", egress: [{ host: "185.220.101.4", known: false }] },
       ],
     });
     expect(parsed.kind).toBe("sensor");
     if (parsed.kind !== "sensor") return;
     expect(parsed.blocks.map((block) => block.label)).toEqual([
       "humanize==4.9.0",
-      "evil-package==1.0.0",
+      "tainted-sample==1.0.0",
     ]);
   });
 

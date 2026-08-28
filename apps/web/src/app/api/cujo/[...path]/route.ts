@@ -54,10 +54,27 @@ async function forward(request: Request, path: string[]): Promise<Response> {
   });
 }
 
-export async function GET(request: Request, context: { params: Promise<{ path: string[] }> }) {
+/**
+ * One export per method `apps/cujo` serves, because anything not exported here
+ * is a 405 from Next and there is no other public route to reach it: the UI
+ * host resolves to this app. Today that is GET and POST for the runs API and
+ * PUT and DELETE for `/discord/channels/:owner/:name` (`apps/cujo/src/api.ts`).
+ * A new verb on the Cujo API needs a matching export here.
+ */
+type Context = { params: Promise<{ path: string[] }> };
+
+export async function GET(request: Request, context: Context) {
   return forward(request, (await context.params).path);
 }
 
-export async function POST(request: Request, context: { params: Promise<{ path: string[] }> }) {
+export async function POST(request: Request, context: Context) {
+  return forward(request, (await context.params).path);
+}
+
+export async function PUT(request: Request, context: Context) {
+  return forward(request, (await context.params).path);
+}
+
+export async function DELETE(request: Request, context: Context) {
   return forward(request, (await context.params).path);
 }
