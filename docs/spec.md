@@ -78,6 +78,12 @@ For a `pull_request` event the `apps/cujo` webhook module:
    stranger's pull request, so it names no host.
 4. Records a run (see Contract 6) and stays subscribed to the turn's event
    stream, folding events into that run until `turn.done`.
+5. Reacts on the pull request with an eye, once this run is known to be the
+   one worth starting and before the turn exists (Contract 9). A head the bot
+   already reviewed, and a delayed delivery for a head that is no longer
+   current, are both released before this point and get no reaction — one pull
+   request has one reaction, and neither of those runs will produce a status
+   that could clear it.
 
 The webhook module does not decide what to check. That is the agent's job.
 
@@ -847,6 +853,66 @@ blocking review, and it must not be extended to, because that would swap a
 policy-verified email for Discord channel membership on the one action the
 whole product gates. Contract 4 and decision 23 own that decision; this one
 does not reopen it.
+
+## Contract 9 — the pull request's own reaction
+
+Everything Cujo says about a run it says somewhere else: a review at the end, a
+Discord card, a page on the board. Between the push and the review the pull
+request itself is silent, which costs a reader an acknowledgement and costs an
+operator the one cheap signal that would say *where* a silent run stopped.
+
+`apps/cujo` therefore reacts on the pull request description as
+`cujo-guard[bot]`, and moves that reaction as the run's status moves. The eye
+lands within a second of the delivery, before the agent has done anything, so
+its presence proves the ingress, the signature, the session and the claim; its
+absence localises a failure to the front half of the pipeline without opening a
+log.
+
+| Run state | Reaction | Why |
+|-----------|----------|-----|
+| Claimed, before any turn | 👀 | Cujo has the pull request. |
+| `running` | 👀 | Still reading. |
+| `blocked_pending` | 👀 🚀 | Still reading, and now waiting on a human. |
+| `clean` | 🎉 | No critical finding. |
+| `blocked_posted` | 👎 | The blocking review posted. |
+| `denied` | 👍 | A human cleared the pull request to proceed. |
+| `error` | 😕 | Cujo broke. Shared with no other state. |
+| `superseded` | *nothing* | Not this run's pull request to describe any more. |
+
+The reactions describe **what happened to the pull request**, not what Cujo
+concluded, which is why `denied` is a thumbs up even though the finding stands.
+GitHub's reaction set is closed — `+1 -1 laugh confused heart hooray rocket
+eyes` — so there is no check mark and no cross to spend, and this is the whole
+vocabulary available.
+
+**One pull request has one reaction, and a pull request may have had several
+runs.** Only a run that is current may write, and that rule is enforced at both
+ends. The eye is placed only after `review/start-run.ts` has confirmed with
+GitHub that this run's head is the pull request's head, so a delayed delivery
+for an older SHA never touches it; and `superseded` writes nothing at all,
+because the run that replaced it is about to say what the pull request should
+show. Without both, a stale delivery would overwrite a finished verdict with 👀
+and nothing would restore it.
+
+Four properties, the first three the same ones Contract 7 holds:
+
+- **A run never fails because GitHub did.** The call is queued, never awaited on
+  the fold path, and every failure is caught and logged.
+- **Calls are totally ordered**, so a later status cannot be overtaken by an
+  earlier one and leave the pull request showing a state the run has left.
+- **Nothing is remembered.** `POST .../reactions` is idempotent — the same
+  content twice answers 200 and leaves one reaction — so a restart re-applies
+  the current status and converges. This contract adds no table and no
+  migration. What is held in memory to collapse the per-event storm is bounded
+  and evicts the least recently seen run.
+- **A failed call is retried with backoff.** A terminal status is the last event
+  a run produces, so there is no later change to recover on: one transient
+  failure would otherwise leave the pull request wearing the previous status
+  indefinitely. A retry is abandoned as soon as a newer status is queued behind
+  it, which is the ordering property doing its job.
+
+`CUJO_PR_REACTIONS=0` turns the whole thing off. It is the only thing
+`apps/cujo` writes to a repository, so it gets a switch (decision 38).
 
 ## Stretch — remediation
 
