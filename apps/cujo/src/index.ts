@@ -1,17 +1,17 @@
 import { serve } from "@hono/node-server";
-import { createAccessVerifier, devVerifier } from "./access";
-import { buildAgentSpec } from "./agent";
-import { createApp } from "./app";
+import { DiscordClient } from "./clients/discord";
+import { GitHubReader } from "./clients/github";
+import { Harness } from "./clients/trueforge";
 import { loadConfig } from "./config";
-import { DiscordClient } from "./discord";
-import { COMMANDS } from "./discord-commands";
-import { GitHubReader } from "./github";
-import { DiscordNotifier } from "./notifier";
-import { ANY_RUN, type RunView, Runner } from "./runner";
+import { createAccessVerifier, devVerifier } from "./http/operator/access";
+import { createApp } from "./http/router";
+import { COMMANDS } from "./notify/commands/definitions";
+import { DiscordNotifier } from "./notify/notifier.service";
+import { buildAgentSpec } from "./review/agent-spec";
+import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
 import { Store } from "./store";
-import { Harness } from "./trueforge";
 
-export { createApp } from "./app";
+export { createApp } from "./http/router";
 
 /**
  * Put `/cujo` in every server the bot is in. Per-guild rather than global,
