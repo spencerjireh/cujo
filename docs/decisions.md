@@ -981,9 +981,10 @@ healthcheck on a roughly sixty-second budget, `bootstrapUntilReady` backs off to
 a minute and retries forever, and `web` starts only once `cujo` is healthy — so
 readiness in `healthz` would kill the container exactly when the retry schedule
 is being patient, and take the UI down with it. `/healthz` stays a liveness probe
-with the body it already has; `/readyz` carries the same harness flag the webhook
-itself gates on, a store ping, and the public stream count, and answers `503`
-when *either* of the first two fails. The store belongs in that disjunction
+with the body it already has; `/readyz` carries the same harness flag the
+webhook itself gates on, a store ping, the public stream count, and a count of
+the log lines the process could not write, and answers `503` when *either* of
+the first two fails. The store belongs in that disjunction
 rather than in the body alone: a delivery calls `getSession`, `putSession` and
 `createRun` synchronously, so an unreachable store means no run can be claimed
 however healthy the harness is. Only `cujo` gets one: `github-mcp` is stateless

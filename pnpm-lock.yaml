@@ -29,6 +29,9 @@ importers:
       '@cujo/gh-app-auth':
         specifier: workspace:*
         version: link:../../packages/gh-app-auth
+      '@cujo/log':
+        specifier: workspace:*
+        version: link:../../packages/log
       '@hono/node-server':
         specifier: 2.1.1
         version: 2.1.1(hono@4.13.5)
