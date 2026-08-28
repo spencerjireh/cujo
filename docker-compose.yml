@@ -1,10 +1,11 @@
 # Cujo — stock TrueForge harness in hosted mode (Postgres + Redis, not SQLite).
 #
 # No ports are published here: the deploy runs behind a reverse proxy that
-# terminates TLS and routes cujo-harness.spencerjireh.com to `server` (8790)
-# and cujo.spencerjireh.com plus cujo-ingress.spencerjireh.com to `cujo`
-# (8080). For a local run with ports on your host, use docker-compose.local.yml
-# (`make up-local`). Secrets come from the deploy environment, never this file.
+# terminates TLS and routes cujo-harness.spencerjireh.com to `server` (8790),
+# cujo.spencerjireh.com to `web` (3000), and cujo-ingress.spencerjireh.com to
+# `cujo` (8080). For a local run with ports on your host, see the local stack
+# section of AGENTS.md. Secrets come from the deploy environment, never this
+# file.
 
 services:
   postgres:
@@ -91,6 +92,11 @@ services:
       GITHUB_MCP_URL: http://github-mcp:8081/mcp
       CUJO_DB_PATH: /data/cujo.db
       CUJO_UI_HOST: ${CUJO_UI_HOST}
+      # The name `web` addresses this service by on the compose network. Node's
+      # fetch always sends the target's own authority as Host, so the operator
+      # UI's proxy cannot present CUJO_UI_HOST; the API routes answer on this
+      # name too, still behind the Access check.
+      CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: ${CUJO_WEBHOOK_HOST}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD}
@@ -139,6 +145,43 @@ services:
       server:
         condition: service_healthy
       github-mcp:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # The operator UI (apps/web). It takes the public UI hostname; `cujo` is now
+  # API-only and is reached from here over the compose network. Every browser
+  # call goes through this service's /api proxy, which forwards the Cloudflare
+  # Access assertion, so no Cujo API route needs a public route of its own.
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      CUJO_API_URL: http://cujo:8080
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    depends_on:
+      cujo:
         condition: service_healthy
     restart: unless-stopped
 

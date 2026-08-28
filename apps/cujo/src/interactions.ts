@@ -10,7 +10,7 @@
  *
  * What this endpoint may do is deliberately bounded. It routes notifications:
  * which channel, which role. It cannot approve a blocking review, and adding
- * that is a change to the human gate, not a feature (decision 27).
+ * that is a change to the human gate, not a feature (decision 28).
  */
 
 import { createPublicKey, verify as verifySignature } from "node:crypto";
@@ -159,7 +159,7 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
     const normalized = repo.toLowerCase();
     if (!deps.store.isGuildAuthorized(guildId, normalized)) {
       // Which repos a server may reach is an operator's decision, made over
-      // the Access-gated API where it carries an email (decision 27).
+      // the Access-gated API where it carries an email (decision 28).
       return `This server is not authorized for \`${normalized}\`. A Cujo operator has to allow it first.`;
     }
 

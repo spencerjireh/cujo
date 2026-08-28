@@ -57,7 +57,8 @@ bundled TrueForge UI is used only as an operator console.
 | Path | What |
 |------|------|
 | `docs/` | Canonical spec. The code follows these docs; a design change lands here first. |
-| `apps/cujo/` | The Cujo service: webhook receiver, run store, TrueForge event folder, the Cujo UI and API, and the approve endpoint. |
+| `apps/web/` | The operator UI: the run list, the run page with its check timeline and forensic reports, and the approve control. Proxies `/api/*` to `apps/cujo`. |
+| `apps/cujo/` | The Cujo service: webhook receiver, run store, TrueForge event folder, the JSON API, and the approve endpoint. |
 | `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. |
 | `packages/gh-app-auth/` | Shared GitHub App installation-token auth. |
 | `agent/SKILL.md` | The rubric: the parent agent's instructions, sent as the agent spec on every session. |

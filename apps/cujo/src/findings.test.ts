@@ -6,6 +6,8 @@ const check = (title: string, report: unknown, isCheck = true): CheckState => ({
   threadId: `th-${title}`,
   title,
   isCheck,
+  startedAt: null,
+  endedAt: null,
   status: "done",
   report,
   error: null,

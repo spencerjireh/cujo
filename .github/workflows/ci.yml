@@ -8,6 +8,10 @@ on:
 jobs:
   node:
     runs-on: ubuntu-latest
+    # `pnpm build` now runs `next build`; without this it stalls on the
+    # first-run telemetry prompt in a fresh runner.
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: corepack enable
@@ -37,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [cujo, github-mcp]
+        service: [cujo, github-mcp, web]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -f apps/${{ matrix.service }}/Dockerfile -t cujo-${{ matrix.service }}:ci .

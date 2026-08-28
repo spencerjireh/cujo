@@ -442,7 +442,7 @@ The API `apps/cujo` serves on `cujo.spencerjireh.com`:
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /runs` | Runs, newest first, with status. |
-| `GET /runs/:id` | The run, its checks (thread, status, report), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits` (the hard-rule subset), and the drafted review when `blocked_pending`. |
+| `GET /runs/:id` | The run, its checks (thread, status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits` (the hard-rule subset), and the drafted review when `blocked_pending`. |
 | `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
 | `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. |
 
@@ -454,8 +454,16 @@ process, not only at the edge:
 - Every request is dispatched on the `Host` header. On
   `cujo-ingress.spencerjireh.com` the process serves `POST /webhook` and
   `GET /healthz` and answers 404 to everything else, including `/runs`. On
-  `cujo.spencerjireh.com` it serves the UI and the routes above and answers 404
-  to `/webhook`. A request with any other `Host` gets 404.
+  `cujo.spencerjireh.com`, and on the internal service name in
+  `CUJO_INTERNAL_HOST` (default `cujo`), it serves the routes above and answers
+  404 to `/webhook`. A request with any other `Host` gets 404. The internal name
+  exists because the operator UI reaches this process over the compose network
+  and Node's `fetch` always sends the target's own authority as `Host`; those
+  routes are not exempt from the Access check.
+- The UI itself is `apps/web`, a separate service on
+  `cujo.spencerjireh.com`. It proxies `/api/*` to this process, forwarding the
+  Access assertion, so the API is same-origin with the page and needs no public
+  route of its own (decision 27).
 - Every route on `cujo.spencerjireh.com` — reads as well as the approve route —
   requires a `Cf-Access-Jwt-Assertion` header that verifies against the
   Cloudflare Access public keys for the application's audience tag. A missing
@@ -617,7 +625,7 @@ role — in the wrong place, behind a login the people who care about the channe
 may not have. This contract moves that choice into Discord without moving the
 decision that matters.
 
-**Two tiers** (decision 27). They answer different questions and carry
+**Two tiers** (decision 28). They answer different questions and carry
 different authority:
 
 | Tier | Question | Who decides | Where |

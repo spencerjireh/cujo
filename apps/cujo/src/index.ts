@@ -16,7 +16,7 @@ export { createApp } from "./app";
 /**
  * Put `/cujo` in every server the bot is in. Per-guild rather than global,
  * because a guild command appears at once where a global one takes up to an
- * hour (decision 28); a full PUT, so the definition cannot drift from the code
+ * hour (decision 29); a full PUT, so the definition cannot drift from the code
  * across deploys. A server the bot joins later gets its commands at the next
  * start. Never fatal: the service notifies fine without commands.
  */
@@ -90,6 +90,7 @@ async function main(): Promise<void> {
 
   const app = createApp({
     uiHost: config.uiHost,
+    internalHost: config.internalHost,
     webhookHost: config.webhookHost,
     api: { store, runner, verify, github, ...(discord ? { discord } : {}) },
     webhook: {

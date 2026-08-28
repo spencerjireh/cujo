@@ -6,21 +6,19 @@ import { type WebhookDeps, webhookRoutes } from "./webhook";
 export interface AppOptions {
   uiHost: string;
   webhookHost: string;
+  /**
+   * The compose service name `apps/web` addresses this process by. Node's fetch
+   * always sends the target's own authority as `Host`, so the operator UI's
+   * proxy cannot present the public hostname; accepting the internal name is
+   * what lets the API routes stay reachable behind it. The Access check still
+   * applies to every one of those routes.
+   */
+  internalHost?: string;
   api: ApiDeps;
   webhook: WebhookDeps;
   /** Absent when the Discord slash commands are not configured. */
   interactions?: InteractionDeps;
 }
-
-const PLACEHOLDER = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Cujo</title>
-<style>body{font:16px/1.5 system-ui;margin:3rem auto;max-width:40rem;padding:0 1rem;color:#1c1917}
-code{background:#f5f5f4;padding:.1em .3em;border-radius:3px}</style></head>
-<body><h1>Cujo</h1>
-<p>Execution-backed pull request review. The operator UI lands in the next release;
-the API is live: <code>GET /runs</code>, <code>GET /runs/:id</code>,
-<code>GET /runs/:id/events</code>, <code>POST /runs/:id/approve</code>.</p>
-</body></html>`;
 
 function hostOf(header: string | undefined): string {
   return (header ?? "").split(":")[0]?.toLowerCase() ?? "";
@@ -30,6 +28,9 @@ function hostOf(header: string | undefined): string {
  * One process, two hostnames (Contract 6). The split is enforced here, not
  * only at the edge: the webhook host never serves /runs and the UI host never
  * serves /webhook. Any other Host gets 404.
+ *
+ * The UI itself is `apps/web`; this process serves only the JSON API, which
+ * that app reaches over the compose network under `internalHost`.
  */
 export function createApp(options: AppOptions): Hono {
   const ui = new Hono();
@@ -39,11 +40,8 @@ export function createApp(options: AppOptions): Hono {
   // ingress, and neither belongs behind Access.
   ui.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
   ui.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
-  // Every other UI-host route, the page included, sits behind the Access
-  // check inside apiRoutes (Contract 6).
-  const api = apiRoutes(options.api);
-  api.get("/", (c) => c.html(PLACEHOLDER));
-  ui.route("/", api);
+  // Every UI-host route sits behind the Access check inside apiRoutes.
+  ui.route("/", apiRoutes(options.api));
 
   const webhook = new Hono();
   webhook.get("/healthz", (c) => c.json({ ok: true, service: "cujo" }));
@@ -54,6 +52,7 @@ export function createApp(options: AppOptions): Hono {
   app.all("*", (c) => {
     const host = hostOf(c.req.header("host"));
     if (host === options.uiHost) return ui.fetch(c.req.raw);
+    if (options.internalHost && host === options.internalHost) return ui.fetch(c.req.raw);
     if (host === options.webhookHost) return webhook.fetch(c.req.raw);
     // The compose healthcheck hits 127.0.0.1 directly.
     if (host === "127.0.0.1" || host === "localhost") {

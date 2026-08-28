@@ -19,7 +19,7 @@ const POSTABLE_CHANNELS = [0, 5];
 /**
  * `Manage Guild`. Discord enforces this itself, hiding the command from
  * everyone below the bar, which is a gate no request of ours has to survive.
- * The handler checks it again anyway (decision 27): a server admin can change
+ * The handler checks it again anyway (decision 28): a server admin can change
  * this default, and a permission check that lives only on the client is not a
  * permission check.
  */

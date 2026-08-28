@@ -23,7 +23,7 @@ pnpm lint          # biome check .
 pnpm format        # biome format --write .
 pnpm typecheck     # tsc --noEmit in every workspace
 pnpm test          # vitest run in every workspace
-pnpm build         # tsup in apps/cujo and apps/github-mcp
+pnpm build         # tsup in apps/cujo and apps/github-mcp, next build in apps/web
 
 uv sync && uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```
@@ -36,12 +36,14 @@ pnpm --filter @cujo/cujo exec vitest run -t "name pattern"  # one test by name
 uv run pytest tests/test_sniff.py -k name                   # one Python test
 ```
 
-Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/gh-app-auth`.
+Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/web`, `@cujo/gh-app-auth`,
+`@cujo/brand`.
 
 Local stack (`make up-local` = `docker compose -f docker-compose.yml -f
-docker-compose.local.yml up --build`): TrueForge console/API on :8790, `cujo`
-on :8080 (dispatches on `Host`: `cujo.localhost` = UI/API,
-`cujo-ingress.localhost` = webhook), `github-mcp` on :8081. `make clean` drops the
+docker-compose.local.yml up --build`): the operator UI on :3000, TrueForge
+console/API on :8790, `cujo` on :8080 (dispatches on `Host`: `cujo.localhost`
+and the internal name `cujo` = API, `cujo-ingress.localhost` = webhook),
+`github-mcp` on :8081. Open http://localhost:3000. `make clean` drops the
 database volume. The deploy uses `docker-compose.yml` alone; never make the
 base file depend on the overlay or the Makefile.
 
@@ -54,8 +56,15 @@ metadata, dependency names, and Cujo's own sensor script go in; only JSON
 reports come out. No token, key, or clone credential may ever reach the
 sandbox. Treat any change that moves data across this line as a design change.
 
+`apps/web` (Next.js App Router, TanStack Query, Tailwind on `brand/tokens.css`)
+is the operator UI and the only thing a human opens. It holds no secrets and no
+state: every call goes through its `/api/*` route handlers to `apps/cujo`,
+same-origin so the Cloudflare Access assertion and the `EventSource` run stream
+both work from a browser (decision 27). Storybook covers the components and is
+not part of CI.
+
 `apps/cujo` (Hono, `node:sqlite`) is the sole TrueForge client and the only
-thing GitHub or a human touches:
+thing GitHub touches:
 
 - `webhook.ts` verifies the HMAC, `github.ts` reads public PR metadata, and a
   new session is created with the inline agent spec from `agent.ts`, which is
@@ -66,19 +75,19 @@ thing GitHub or a human touches:
 - `runner.ts` drives a turn and `folder.ts` folds the event stream (tagged by
   `thread_id`: `thread.created`, `thread.done`, `tool.approval_required`) into
   a run record in `store.ts`. Unfinished runs are rehydrated on restart.
-- `api.ts` serves `/runs` and the approve endpoint; `access.ts` checks the
+- `api.ts` serves `/runs` and the approve endpoint (consumed by `apps/web`); `access.ts` checks the
   Cloudflare Access JWT as the second gate (`CUJO_DEV_NO_ACCESS=1` disables it
   locally). Approve resumes the paused turn with `user.tool_approval`.
 - `store.ts` loads `node:sqlite` at runtime, not by import, so vitest leaves it
   alone. Its schema is one `CREATE TABLE IF NOT EXISTS` block plus an ordered
-  `MIGRATIONS` list applied by `PRAGMA user_version` (decision 29). Prefer a
+  `MIGRATIONS` list applied by `PRAGMA user_version` (decision 30). Prefer a
   new table; use a migration only to alter one that already exists in the
   deployed database.
 - `interactions.ts` serves the `/cujo` slash command on the **webhook** host,
   Ed25519-verified (spec Contract 8); `discord-commands.ts` is the command
   definition. A server picks its own channel and role; which repos it may reach
   is authorized by an operator over the Access-gated API. Nothing here approves
-  a review, and it must not grow that (decision 27).
+  a review, and it must not grow that (decision 28).
 - `notifier.ts` keeps one Discord card per run and pings when a run blocks
   (spec Contract 7). `discord.ts` is the REST client and `discord-card.ts` the
   pure payload builder, where every derived string is escaped, stripped and

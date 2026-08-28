@@ -235,7 +235,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
 
   // Contract 8, tier one. Which Discord server may manage which repo. Only an
   // operator decides this, so it stays on the Access-gated host and the
-  // decision carries their email (decision 27).
+  // decision carries their email (decision 28).
   app.get("/discord/authorizations", (c) =>
     c.json({
       authorizations: deps.store.listGuildRepos().map((a) => ({

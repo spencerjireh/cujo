@@ -70,7 +70,7 @@ function normalizeRepo(repo: string): string {
  * halfway.
  *
  * Decision 25 chose new tables over new columns because there was no mechanism
- * here; decision 29 adds it at the first change that genuinely needed one.
+ * here; decision 30 adds it at the first change that genuinely needed one.
  * Adding a table is still simpler and still preferred — this is for altering
  * one that already exists in a deployed database.
  */
@@ -173,7 +173,7 @@ export class Store {
       -- Contract 8. Which Discord server may manage which repo's
       -- notifications. Written only over the Access-gated API, so the reach of
       -- a server is always a decision an operator's email is attached to
-      -- (decision 27).
+      -- (decision 28).
       CREATE TABLE IF NOT EXISTS discord_guild_repos (
         guild_id TEXT NOT NULL,
         repo TEXT NOT NULL,

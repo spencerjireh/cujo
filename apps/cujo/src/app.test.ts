@@ -8,6 +8,7 @@ import { verifySignature } from "./webhook";
 
 const UI = "cujo.test";
 const HOOK = "cujo-ingress.test";
+const INTERNAL = "cujo-internal.test";
 
 /** A fake runner that records the store transitions the real one would make. */
 function fakeRunner(store: Store): Runner {
@@ -49,6 +50,7 @@ function build(
     } as unknown as GitHubReader);
   const app = createApp({
     uiHost: UI,
+    internalHost: INTERNAL,
     webhookHost: HOOK,
     api: { store, runner, verify: async (t) => (t === "good" ? "op@example.com" : null) },
     webhook: {
@@ -114,16 +116,36 @@ describe("host dispatch", () => {
 
   it("requires an Access assertion on every UI route", async () => {
     const { app } = build();
+    // The UI moved to apps/web, so this process serves no page: `/` is behind
+    // the Access check like everything else, and 404s once past it.
     expect((await app.fetch(req(UI, "/"))).status).toBe(401);
     const page = await app.fetch(req(UI, "/", { headers: { "cf-access-jwt-assertion": "good" } }));
-    expect(page.status).toBe(200);
-    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(page.status).toBe(404);
     expect((await app.fetch(req(UI, "/runs"))).status).toBe(401);
     const ok = await app.fetch(
       req(UI, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
     );
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ runs: [] });
+  });
+
+  it("serves the API on the internal host, still behind Access", async () => {
+    // apps/web reaches this process by its compose service name, because Node's
+    // fetch always sends the target's own authority as Host. The Access check
+    // is not relaxed for it, and the webhook stays unreachable.
+    const { app } = build();
+    expect((await app.fetch(req(INTERNAL, "/runs"))).status).toBe(401);
+    const ok = await app.fetch(
+      req(INTERNAL, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
+    );
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ runs: [] });
+    expect((await app.fetch(req(INTERNAL, "/webhook", { method: "POST" }))).status).toBe(404);
+  });
+
+  it("does not accept an internal host that was never configured", async () => {
+    const { app } = build();
+    expect((await app.fetch(req("cujo", "/runs"))).status).toBe(404);
   });
 });
 
