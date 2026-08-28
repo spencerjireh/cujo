@@ -80,6 +80,23 @@ export function publicRoutes(deps: PublicDeps): { app: Hono<RequestEnv>; limit: 
       log.debug("public.stream.opened", { run_id: id, active: limit.active() });
       let seq = 0;
       let closedBecause: "went_private" | "aborted" = "aborted";
+      // Resolved by whichever end closes first. `stream.close()` is a
+      // server-initiated close and does *not* fire `onAbort`, which fires only
+      // when the client goes away — so parking on `onAbort` alone left the
+      // handler suspended forever on a visibility flip, and the `finally`
+      // below never ran: the listener stayed subscribed, the keepalive kept
+      // ticking, and `limit.release()` was never called. Every repo that went
+      // private while somebody was watching cost the public plane one of its
+      // 200 slots, permanently.
+      let finish: () => void = () => {};
+      const done = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const closeBecausePrivate = () => {
+        closedBecause = "went_private";
+        void stream.close();
+        finish();
+      };
       const send = (v: RunView) =>
         stream.writeSSE({
           event: "run",
@@ -90,10 +107,7 @@ export function publicRoutes(deps: PublicDeps): { app: Hono<RequestEnv>; limit: 
         // A repo can go private mid-stream, and that flip is a store write
         // that emits nothing of its own, so re-check on every frame.
         if (v.run.isPublic) void send(v);
-        else {
-          closedBecause = "went_private";
-          void stream.close();
-        }
+        else closeBecausePrivate();
       };
       let keepalive: ReturnType<typeof setInterval> | undefined;
 
@@ -110,14 +124,10 @@ export function publicRoutes(deps: PublicDeps): { app: Hono<RequestEnv>; limit: 
           // The keepalive doubles as the poll that catches a flip on a run
           // that is emitting nothing, so exposure is bounded by this interval.
           if (deps.runs.getRun(id)?.isPublic) void stream.writeSSE({ event: "ping", data: "" });
-          else {
-            closedBecause = "went_private";
-            void stream.close();
-          }
+          else closeBecausePrivate();
         }, KEEPALIVE_MS);
-        await new Promise<void>((resolve) => {
-          stream.onAbort(() => resolve());
-        });
+        stream.onAbort(() => finish());
+        await done;
       } finally {
         if (keepalive) clearInterval(keepalive);
         deps.runner.changes.off(id, listener);
