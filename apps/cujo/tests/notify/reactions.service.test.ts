@@ -1,8 +1,12 @@
+import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
 import type { GitHubReactions, Reaction } from "../../src/clients/github-reactions";
 import { PrReactor, type PrReactorDeps } from "../../src/notify/reactions.service";
 import type { RunView } from "../../src/review/runner.service";
 import { CHECK_NAMES, type RunRecord, type RunStatus } from "../../src/review/types";
+
+/** Tests assert on behaviour, not on log output; the sink swallows it. */
+const silentLog = createLogger({ service: "cujo", sink: () => {} });
 
 const run = (status: RunStatus, id = "run-1"): RunRecord => ({
   id,
@@ -36,7 +40,7 @@ function fake(set?: (wanted: readonly Reaction[]) => Promise<void>) {
 
 /** No retry and no waiting unless a test asks for them. */
 const build = (reactions: GitHubReactions, extra: Partial<PrReactorDeps> = {}) =>
-  new PrReactor({ reactions, retryDelaysMs: [], ...extra });
+  new PrReactor({ log: silentLog, reactions, retryDelaysMs: [], ...extra });
 
 describe("PrReactor", () => {
   it("puts the eye on the pull request as soon as the run is claimed", async () => {
@@ -155,6 +159,7 @@ describe("PrReactor", () => {
       if (wanted[0] === "eyes") throw new Error("502 from GitHub");
     });
     const reactor: PrReactor = new PrReactor({
+      log: silentLog,
       reactions,
       retryDelaysMs: [1_000, 3_000],
       // The newer status arrives while the failing call is backing off.
@@ -170,21 +175,25 @@ describe("PrReactor", () => {
   });
 
   it("never lets GitHub fail a run, and retries at the next change", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Asserted on the captured log rather than a console spy: the failure is
+    // now a named event, so the test can say which one it expects instead of
+    // only that something was printed.
+    const lines: Record<string, unknown>[] = [];
+    const log = createLogger({ service: "cujo", sink: (line) => lines.push(JSON.parse(line)) });
     let fail = true;
     const { reactions, calls } = fake(async () => {
       if (fail) throw new Error("502 from GitHub");
     });
-    const reactor = build(reactions);
+    const reactor = build(reactions, { log });
     expect(() => reactor.onRunChanged(view("running"))).not.toThrow();
     await reactor.flush();
-    expect(error).toHaveBeenCalled();
+    const failed = lines.filter((l) => l.event === "discord.notify.failed");
+    expect(failed[0]).toMatchObject({ reason: "reaction_gave_up", repo: "o/r", pr_number: 7 });
     // The pre-filter was cleared, so the same status is attempted again.
     fail = false;
     reactor.onRunChanged(view("running"));
     await reactor.flush();
     expect(calls).toEqual([["eyes"], ["eyes"]]);
-    error.mockRestore();
   });
 
   it("ignores a null view", async () => {

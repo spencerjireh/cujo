@@ -27,6 +27,7 @@ import {
   getInstallationToken,
   normalisePrivateKey,
 } from "@cujo/gh-app-auth";
+import { type Logger, createLogger } from "@cujo/log";
 import { BOT_LOGIN } from "./github";
 
 /**
@@ -54,6 +55,7 @@ export class GitHubReactions {
     private readonly appId: string,
     privateKey: string,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly log: Logger = createLogger({ service: "cujo" }),
   ) {
     this.privateKey = normalisePrivateKey(privateKey);
   }
@@ -129,7 +131,8 @@ export class GitHubReactions {
       // same thing on both sides of the client.
       for (const row of body) if (row.user?.login === BOT_LOGIN) rows.push(row);
       if (body.length < 100) break;
-      if (page === MAX_PAGES) console.warn("github: stopped listing reactions at the page cap");
+      if (page === MAX_PAGES)
+        this.log.warn("github.page_cap", { path: "/issues/comments/reactions" });
     }
     return rows;
   }

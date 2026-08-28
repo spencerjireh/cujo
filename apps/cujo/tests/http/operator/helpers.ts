@@ -6,10 +6,14 @@
  */
 
 import { EventEmitter } from "node:events";
+import { createLogger } from "@cujo/log";
+import { Hono } from "hono";
 import { vi } from "vitest";
 import type { DiscordClient } from "../../../src/clients/discord";
 import type { GitHubReader } from "../../../src/clients/github";
 import { operatorRoutes } from "../../../src/http/operator";
+import type { Env } from "../../../src/http/operator/access";
+import { requestLogger } from "../../../src/http/request-log";
 import type { RunView, Runner } from "../../../src/review/runner.service";
 import { Store } from "../../../src/store";
 
@@ -23,13 +27,28 @@ export function build(view: RunView | null, discord?: DiscordClient, github?: Gi
     view: vi.fn(() => view),
     approve: vi.fn(async () => ({ ok: true as const })),
   } as unknown as Runner;
-  const app = operatorRoutes({
+  // The ray middleware, the way router.ts mounts it. Without it every handler
+  // that reaches for c.get("log") throws, and the plane under test is not the
+  // plane that runs in production.
+  const lines: Record<string, unknown>[] = [];
+  const log = createLogger({
+    service: "cujo",
+    sink: (line) => lines.push(JSON.parse(line)),
+  });
+  const routes = operatorRoutes({
     runs: store.runs,
     notifications: store.notifications,
     runner,
-    verify: async (t) => (t === "good" ? "op@example.com" : null),
+    verify: async (t) =>
+      t === "good"
+        ? { email: "op@example.com", reason: null }
+        : { email: null, reason: "no_assertion" as const },
     ...(discord ? { discord } : {}),
     ...(github ? { github } : {}),
   });
-  return { app, store, runner, changes };
+  const app = new Hono<Env>();
+  app.use("*", requestLogger(log, "delegated"));
+  app.route("/", routes);
+  const logged = (event: string) => lines.filter((line) => line.event === event);
+  return { app, store, runner, changes, lines, logged };
 }

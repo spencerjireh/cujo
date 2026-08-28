@@ -12,6 +12,7 @@
  * to fix, and neither should have to phrase things the other's way.
  */
 
+import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { DiscordClient } from "../clients/discord";
 import { GUILD_ANNOUNCEMENT, GUILD_TEXT } from "../clients/discord";
 import {
@@ -49,11 +50,16 @@ export interface ChannelCheckInput {
 export async function checkChannel(
   discord: DiscordClient,
   input: ChannelCheckInput,
+  log: Logger,
 ): Promise<ChannelCheck> {
   // 403 and 404 are deliberately the same answer: telling them apart would let
   // a caller probe channels across all of Discord.
   const channel = await discord.getChannel(input.channelId).catch((error) => {
-    console.error(`discord: could not read channel ${input.channelId}`, error);
+    log.warn("discord.channel.unreadable", {
+      channel_id: input.channelId,
+      reason: "get_channel",
+      ...errorFields(error),
+    });
     return null;
   });
   if (!channel) return { ok: false, reason: "unreadable_channel" };
@@ -87,7 +93,11 @@ export async function checkChannel(
       overwrites: channel.permission_overwrites ?? [],
     });
   })().catch((error) => {
-    console.error(`discord: could not resolve permissions in ${input.channelId}`, error);
+    log.warn("discord.channel.unreadable", {
+      channel_id: input.channelId,
+      reason: "permissions",
+      ...errorFields(error),
+    });
     return null;
   });
   if (permissions === null) return { ok: false, reason: "unreadable_permissions" };

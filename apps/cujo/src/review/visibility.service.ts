@@ -11,10 +11,13 @@
  * `.service.ts` because it holds a timer across requests, per decision 32.
  */
 
+import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { RunStore } from "../store";
 
 export interface VisibilityDeps {
+  /** The process logger; every line names the plane it came from (decision 37). */
+  log: Logger;
   runs: RunStore;
   github: GitHubReader;
   /** Milliseconds between sweeps. 0 turns the sweep off entirely. */
@@ -24,6 +27,10 @@ export interface VisibilityDeps {
 export class VisibilityService {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+
+  private get log(): Logger {
+    return this.deps.log;
+  }
 
   constructor(private readonly deps: VisibilityDeps) {}
 
@@ -45,9 +52,13 @@ export class VisibilityService {
       changed += this.deps.runs.setRepoVisibility(repo, answer === "public");
     }
     if (changed || unknown) {
-      console.info(
-        `visibility sweep: ${repos.length} repos, ${changed} runs re-stamped, ${unknown} unanswered`,
-      );
+      // Guarded, as it was before: a sweep that changed nothing is the normal
+      // outcome and would otherwise be a line every interval, forever.
+      this.log.info("visibility.swept", {
+        active: repos.length,
+        runs_restamped: changed,
+        attempts: unknown,
+      });
     }
     return { checked: repos.length, changed, unknown };
   }
@@ -79,7 +90,7 @@ export class VisibilityService {
       await this.sweep();
     } catch (error) {
       // A reconciler that dies on one bad pass stops reconciling.
-      console.error("visibility sweep failed", error);
+      this.log.error("visibility.sweep.failed", errorFields(error));
     } finally {
       this.running = false;
     }

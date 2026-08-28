@@ -1,6 +1,11 @@
 .env
 *.pem
 .playwright-mcp/
+# Agent working state, including the git worktrees it creates. Untracked, and
+# ignored so Biome skips it: with noConsole on (decision 37) an unignored
+# worktree makes `pnpm lint` red for whoever has one, on code that is a copy
+# of another branch rather than of this one.
+.claude/
 # Local working screenshots from setup, not part of the project
 *.png
 !brand/**/*.png
