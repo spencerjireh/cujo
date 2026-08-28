@@ -1,7 +1,7 @@
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { createLocalJWKSet } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createAccessVerifier, devVerifier } from "./access";
+import { createAccessVerifier, devVerifier } from "../src/access";
 
 const TEAM = "team.cloudflareaccess.com";
 const AUD = "aud-tag";

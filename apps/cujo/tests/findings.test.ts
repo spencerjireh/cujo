@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agentFindings, hardRuleFindings, mergeFindings, missingCheckFindings } from "./findings";
-import type { CheckState, DraftedReview, Finding } from "./types";
+import {
+  agentFindings,
+  hardRuleFindings,
+  mergeFindings,
+  missingCheckFindings,
+} from "../src/findings";
+import type { CheckState, DraftedReview, Finding } from "../src/types";
 
 const check = (title: string, report: unknown, isCheck = true): CheckState => ({
   threadId: `th-${title}`,

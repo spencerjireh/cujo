@@ -1,9 +1,9 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { ANY_RUN, type RunView, Runner } from "./runner";
-import { Store } from "./store";
-import type { Harness, StreamEvent } from "./trueforge";
-import type { RunRecord } from "./types";
+import { ANY_RUN, type RunView, Runner } from "../src/runner";
+import { Store } from "../src/store";
+import type { Harness, StreamEvent } from "../src/trueforge";
+import type { RunRecord } from "../src/types";
 
 type Ev = TrueForgeApi.SessionEvent;
 

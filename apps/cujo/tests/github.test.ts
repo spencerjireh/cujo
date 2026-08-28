@@ -7,7 +7,7 @@ vi.mock("@cujo/gh-app-auth", () => ({
   getAppJwt: vi.fn(async () => "app_jwt"),
 }));
 
-import { GitHubReader, parseDeclaredGuild } from "./github";
+import { GitHubReader, parseDeclaredGuild } from "../src/github";
 
 type Route = (url: URL) => { status?: number; body: unknown };
 

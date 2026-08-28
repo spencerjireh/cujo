@@ -1,6 +1,6 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
-import { fold, parseReport, parseReview } from "./folder";
+import { fold, parseReport, parseReview } from "../src/folder";
 
 type Ev = TrueForgeApi.SessionEvent;
 const at = "2026-08-27T00:00:00Z";

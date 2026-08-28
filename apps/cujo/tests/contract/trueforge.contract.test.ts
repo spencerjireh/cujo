@@ -10,17 +10,17 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Config } from "./config";
-import { type StubModel, startStubModel } from "./contract/stub-model";
-import { Runner } from "./runner";
-import { Store } from "./store";
+import type { Config } from "../../src/config";
+import { Runner } from "../../src/runner";
+import { Store } from "../../src/store";
 import {
   Harness,
   type StreamEvent,
   type ToolApprovalRequiredEvent,
   type TurnCreatedEvent,
   type TurnDoneEvent,
-} from "./trueforge";
+} from "../../src/trueforge";
+import { type StubModel, startStubModel } from "./stub-model";
 
 const BASE_URL = process.env.TRUEFORGE_BASE_URL;
 /** How the server container reaches this process. */

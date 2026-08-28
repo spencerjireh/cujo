@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "./config";
+import { loadConfig } from "../src/config";
 
 const base = {
   GITHUB_WEBHOOK_SECRET: "s",

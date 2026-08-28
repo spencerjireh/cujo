@@ -7,15 +7,15 @@ import {
   embedLength,
   escapeMarkdown,
   truncate,
-} from "./discord-card";
-import { emptyProjection } from "./folder";
+} from "../src/discord-card";
+import { emptyProjection } from "../src/folder";
 import {
   CHECK_NAMES,
   type Finding,
   type Projection,
   type RunRecord,
   type RunStatus,
-} from "./types";
+} from "../src/types";
 
 const UI = "https://cujo.example.com";
 
