@@ -97,7 +97,7 @@ Cujo never shows a person the bundled UI (decision 17). Everything `apps/cujo` n
 
 ### Verified against a running server
 
-The harness contract tests (`make test-int`, `apps/cujo/src/trueforge.contract.test.ts`) run `apps/cujo` against the published server image with a stub model provider. What they established, beyond the source reading above:
+The harness contract tests (`make test-int`, `apps/cujo/tests/contract/trueforge.contract.test.ts`) run `apps/cujo` against the published server image with a stub model provider. What they established, beyond the source reading above:
 
 - **The model sees meta-tools, not the MCP tools.** The tool list a turn sends to the model is `list_tools`, `get_tool_info`, `call_tool`, `create_sub_agent`, and a few built-ins; an MCP tool is invoked as `call_tool({mcp_server, tool_name, input})`. The approval gate keys on the inner `tool_name`, so `requireApprovalForTools: ['post_blocking_review']` still pauses the turn. The folder reads a review out of either shape.
 - **The streamed `model.message` is a stub.** On the turn stream it carries only `id`, `threadId`, `createdAt`; the text arrives as `model.message.delta` and the tool calls do not arrive at all. The persisted event from `listEvents` has both, so `apps/cujo` re-reads the session's events at every decision point (`tool.approval_required`, `turn.done`) before folding.
