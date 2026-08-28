@@ -9,8 +9,8 @@ import {
 } from "../../clients/discord";
 import type { DiscordClient } from "../../clients/discord";
 import type { GitHubReader } from "../../clients/github";
+import type { DiscordChannelRecord } from "../../notify/types";
 import type { RunView, Runner } from "../../review/runner.service";
-import type { DiscordChannelRecord } from "../../review/types";
 import type { Store } from "../../store";
 import type { AccessVerifier } from "./access";
 
