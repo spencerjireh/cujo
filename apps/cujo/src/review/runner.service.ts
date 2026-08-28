@@ -365,9 +365,14 @@ export class Runner {
     const projection = this.refold(runId);
     if (!run) return;
     if (wasPending && projection.approval) {
-      // Already in memory, so no round trip to find it.
-      await this.denyStaleApproval(run.sessionId, projection.approval, runId);
-      return;
+      // Already in memory, so no round trip to find it. A deny that lands has
+      // cancelled the turn it started and there is nothing else to stop.
+      if (await this.denyStaleApproval(run.sessionId, projection.approval, runId)) return;
+      // It did not land, and the likeliest reason is that an operator's
+      // decision answered the approval first: `claimDecision` leaves the run
+      // `blocked_pending`, so a decision can be in flight and invisible here.
+      // Fall through to the cancel — that decision's turn is reviewing a
+      // commit nobody is looking at, and it must not post.
     }
     if (!live) return;
     try {
@@ -379,26 +384,44 @@ export class Runner {
   }
 
   /**
+   * Any run on the session, other than this one, that could still acquire or
+   * own an approval. `blocked_pending` is not enough on its own: a run whose
+   * turn has already raised `tool.approval_required` stays `running` until its
+   * own stream folds that event, so an approval the server would report as
+   * pending can belong to a run that has not yet reached the waiting state.
+   */
+  private othersInFlight(run: RunRecord): RunRecord[] {
+    return this.store
+      .listRunsForSession(run.sessionId)
+      .filter((other) => other.id !== run.id && !this.isTerminal(other.status));
+  }
+
+  /**
    * Clear an approval left pending on the session by something that is over.
    * Reports whether anything was cleared, so the caller knows a retry is worth
    * attempting.
    *
-   * Refuses while any run on the session is `blocked_pending`: that approval
-   * is one a human is being asked about right now, and denying it would answer
-   * for them.
+   * Refuses while any other run on the session is unfinished. That approval
+   * may be one a human is being asked about, and answering it for them is the
+   * one thing this must never do. The check is repeated after the read, since
+   * `listEvents` is a network round trip a run can cross the line during; the
+   * heal only ever runs when every other run on the pull request is already
+   * terminal, which is what `startRun` guarantees before it starts a turn.
    */
   private async healSession(run: RunRecord): Promise<boolean> {
-    const live = this.store
-      .listRunsForSession(run.sessionId)
-      .filter((other) => other.status === "blocked_pending");
-    if (live.length > 0) {
-      console.warn(`run ${run.id}: not healing, run ${live[0]?.id} is still waiting on a human`);
-      return false;
-    }
+    const busy = (): boolean => {
+      const others = this.othersInFlight(run);
+      if (others.length === 0) return false;
+      console.warn(`run ${run.id}: not healing, run ${others[0]?.id} is ${others[0]?.status}`);
+      return true;
+    };
+    // Checked before the read as well, to skip the round trip entirely.
+    if (busy()) return false;
     try {
       const items = await this.harness.listEvents(run.sessionId);
       const approval = pendingApproval(items.map((item) => item.event));
       if (!approval) return false;
+      if (busy()) return false;
       console.warn(`run ${run.id}: session held a stale approval, clearing it`);
       // No run id: the run that raised it is terminal, so it is never
       // rehydrated (`listUnfinishedRuns` covers running and blocked_pending

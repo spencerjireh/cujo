@@ -286,11 +286,14 @@ export function pendingApproval(events: readonly Event[]): PendingApproval | nul
   for (const event of events) {
     switch (event.type) {
       case "tool.approval_required": {
-        const call = event.toolCalls[0];
+        // Read defensively: the events come off the wire, and the answer here
+        // decides whether Cujo sends a deny. A shape that does not carry an
+        // identifiable tool call is no evidence that anything is pending.
+        const call = event.toolCalls?.[0];
         // Only `main` may hold a review tool call. A request on any other
         // thread is the design violation `fold` reports as an error, and
         // answering it is not this function's business.
-        if (!call || event.threadId !== "main") break;
+        if (!call?.id || event.threadId !== "main") break;
         candidate = {
           threadId: event.threadId,
           toolCallId: call.id,

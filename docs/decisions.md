@@ -960,15 +960,30 @@ recorded through `addCujoTurn`, so a replay can never read it as a resume sent
 from outside and stamp the run `approver: external`. The run stays
 `superseded`, never `denied` — `denied` means an operator said no.
 
+The cancel is unconditional, and that is load-bearing. `claimDecision` sets the
+approver without moving the status off `blocked_pending`, so an operator's
+resume can be in flight and invisible to `supersede`. If that decision answered
+the approval first, the deny fails — and the turn it started is reviewing a
+commit nobody is looking at. Decision 20's cancel is what stops it posting, so a
+failed deny falls through to it rather than returning.
+
 That closes the one known cause. It does not heal a session already wedged, so
 `Runner.start` retries once: on any `startTurn` failure it looks for an
 approval left pending on the session (`pendingApproval` in `review/fold.ts`),
 denies it, and tries again. `fold` cannot answer that question — it never
 clears `approval`, and `decision` does not record which tool call it answered,
 so a session holding one answered and one outstanding approval folds to both
-fields set. The heal refuses while any run on the session is `blocked_pending`:
-that approval is one a human is being asked about right now, and answering it
-for them is the one thing this must never do.
+fields set.
+
+The heal refuses while any other run on the session is unfinished — `running`
+included, not only `blocked_pending`. A run whose turn has already raised
+`tool.approval_required` stays `running` until its own stream folds that event,
+so an approval the server reports as pending can belong to a run that has not
+reached the waiting state yet; a `blocked_pending`-only guard would answer for
+that human. The check is repeated after `listEvents`, which is a round trip a
+run can cross the line during. It costs nothing in the case that matters:
+`startRun` supersedes every older run on the pull request before it starts a
+turn, so by the time a heal is possible they are all terminal.
 
 Chosen over / Rejected: **matching the 422 text** to decide whether to retry,
 which pins Cujo to wording that belongs to TrueForge and fails silently when it
@@ -978,9 +993,11 @@ memory of what it already said on the pull request, to fix a lifecycle bug;
 **cancelling the approval without answering it**, which is what the code
 already did and is the bug; **leaving the wedge and telling operators to reopen
 the pull request**, which turns a Cujo defect into a manual step on the exact
-path the product exists to serve; and **denying whatever is pending with no
-`blocked_pending` guard**, which is simpler and would eventually answer for a
-human mid-decision.
+path the product exists to serve; **denying whatever is pending with no guard
+on the other runs**, which is simpler and would eventually answer for a human
+mid-decision; and **an atomic store claim over the session** to serialise the
+heal against an operator, which is the general answer but buys nothing the
+unconditional cancel does not already cover.
 
 Known limit: if the deny itself fails, the session stays wedged exactly as it
 was. The next head retries it through `start`, so the wedge is no longer
