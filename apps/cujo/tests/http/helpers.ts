@@ -5,6 +5,7 @@
  * together — mounting a sub-router on its own would not reproduce any of it.
  */
 
+import { type Level, createLogger } from "@cujo/log";
 import { vi } from "vitest";
 import type { GitHubReader } from "../../src/clients/github";
 import { createApp } from "../../src/http/router";
@@ -45,9 +46,22 @@ export function build(
     github: GitHubReader;
     interactions: boolean;
     streamLimit: number;
+    level: Level;
+    isReady: () => boolean;
   }> = {},
 ) {
   const store = new Store(":memory:");
+  // The captured log. A sink rather than a console spy, because the logger
+  // takes one for exactly this reason and nothing in this repo spies on
+  // console. Parsed eagerly so a test asserts on fields, not on substrings.
+  const lines: Record<string, unknown>[] = [];
+  const log = createLogger({
+    service: "cujo",
+    level: overrides.level ?? "info",
+    sink: (line) => lines.push(JSON.parse(line)),
+  });
+  /** Every line for one event name, in order. */
+  const logged = (event: string) => lines.filter((line) => line.event === event);
   const runner = overrides.runner ?? fakeRunner(store);
   // Resolves once the background preparation of a run has settled.
   const settled: Array<(runId: string) => void> = [];
@@ -59,6 +73,7 @@ export function build(
       pullRequest: vi.fn(async () => prOf("h")),
     } as unknown as GitHubReader);
   const app = createApp({
+    log,
     uiHost: UI,
     internalHost: INTERNAL,
     webhookHost: HOOK,
@@ -79,6 +94,7 @@ export function build(
       store: store.runs,
       runner,
       createSession: async () => "sess-1",
+      ...(overrides.isReady ? { isReady: overrides.isReady } : {}),
       reviewRunId: (run) => (run.isPublic ? run.id : ""),
       onSettled: (runId) => settled.shift()?.(runId),
     },
@@ -97,7 +113,7 @@ export function build(
         }
       : {}),
   });
-  return { app, store, runner, github, nextSettled };
+  return { app, store, runner, github, nextSettled, lines, logged };
 }
 
 export const req = (host: string, path: string, init?: RequestInit) =>
