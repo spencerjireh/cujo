@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Store } from "./store";
+import { Store } from "../src/store";
 
 const head = { repo: "o/r", prNumber: 7, headSha: "h1", sessionId: "s1" };
 

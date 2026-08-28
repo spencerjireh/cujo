@@ -7,8 +7,8 @@ import {
   UNKNOWN_MESSAGE,
   effectivePermissions,
   hasPermissions,
-} from "./discord";
-import type { DiscordMessagePayload } from "./discord-card";
+} from "../src/discord";
+import type { DiscordMessagePayload } from "../src/discord-card";
 
 const TOKEN = "bot-token-do-not-log";
 

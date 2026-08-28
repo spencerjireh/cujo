@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Config } from "./config";
-import { Harness, sandboxAutoStopMinutes } from "./trueforge";
+import type { Config } from "../src/config";
+import { Harness, sandboxAutoStopMinutes } from "../src/trueforge";
 
 function harness(steps: {
   mcp?: () => Promise<unknown>;

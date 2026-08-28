@@ -1,11 +1,11 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { apiRoutes } from "./api";
-import type { DiscordClient } from "./discord";
-import { emptyProjection } from "./folder";
-import type { GitHubReader } from "./github";
-import type { RunView, Runner } from "./runner";
-import { Store } from "./store";
+import { apiRoutes } from "../src/api";
+import type { DiscordClient } from "../src/discord";
+import { emptyProjection } from "../src/folder";
+import type { GitHubReader } from "../src/github";
+import type { RunView, Runner } from "../src/runner";
+import { Store } from "../src/store";
 
 const AUTH = { "cf-access-jwt-assertion": "good" };
 

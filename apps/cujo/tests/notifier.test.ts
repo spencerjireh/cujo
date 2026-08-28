@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { DiscordError, UNKNOWN_MESSAGE } from "./discord";
-import type { DiscordClient } from "./discord";
-import type { DiscordMessagePayload } from "./discord-card";
-import { emptyProjection } from "./folder";
-import type { GitHubReader } from "./github";
-import { DiscordNotifier } from "./notifier";
-import type { RunView } from "./runner";
-import { Store } from "./store";
-import type { RunStatus } from "./types";
+import { DiscordError, UNKNOWN_MESSAGE } from "../src/discord";
+import type { DiscordClient } from "../src/discord";
+import type { DiscordMessagePayload } from "../src/discord-card";
+import { emptyProjection } from "../src/folder";
+import type { GitHubReader } from "../src/github";
+import { DiscordNotifier } from "../src/notifier";
+import type { RunView } from "../src/runner";
+import { Store } from "../src/store";
+import type { RunStatus } from "../src/types";
 
 const UI = "https://cujo.example.com";
 

@@ -1,10 +1,10 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "./app";
-import type { GitHubReader } from "./github";
-import type { Runner } from "./runner";
-import { Store } from "./store";
-import { verifySignature } from "./webhook";
+import { createApp } from "../src/app";
+import type { GitHubReader } from "../src/github";
+import type { Runner } from "../src/runner";
+import { Store } from "../src/store";
+import { verifySignature } from "../src/webhook";
 
 const UI = "cujo.test";
 const HOOK = "cujo-ingress.test";

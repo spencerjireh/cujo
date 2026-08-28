@@ -1,10 +1,10 @@
 import { generateKeyPairSync, sign as signEd25519 } from "node:crypto";
 import type { KeyObject } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { DiscordClient } from "./discord";
-import type { GitHubReader } from "./github";
-import { interactionRoutes, verifyInteraction } from "./interactions";
-import { Store } from "./store";
+import type { DiscordClient } from "../src/discord";
+import type { GitHubReader } from "../src/github";
+import { interactionRoutes, verifyInteraction } from "../src/interactions";
+import { Store } from "../src/store";
 
 const GUILD = "222222222222222222";
 const CHANNEL = "111111111111111111";

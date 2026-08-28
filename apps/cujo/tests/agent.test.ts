@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentSpec, buildTurnMessage, loadRubric, manifestChanged } from "./agent";
-import type { Config } from "./config";
+import { buildAgentSpec, buildTurnMessage, loadRubric, manifestChanged } from "../src/agent";
+import type { Config } from "../src/config";
 
 describe("manifestChanged", () => {
   it("matches dependency manifests and lockfiles at any depth", () => {
