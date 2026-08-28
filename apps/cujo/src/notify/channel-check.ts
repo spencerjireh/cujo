@@ -12,7 +12,7 @@
  * to fix, and neither should have to phrase things the other's way.
  */
 
-import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { type Logger, errorFields } from "@cujo/log";
 import type { DiscordClient } from "../clients/discord";
 import { GUILD_ANNOUNCEMENT, GUILD_TEXT } from "../clients/discord";
 import {

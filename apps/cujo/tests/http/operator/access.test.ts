@@ -81,6 +81,24 @@ describe("createAccessVerifier", () => {
     // Verified, but names nobody: a configuration problem, not an attack.
     expect(await reasonFor(await sign({}))).toBe("no_email");
   });
+
+  it("blames the key service when the key service is what failed", async () => {
+    // An operator reading "malformed" would go looking at the client's token
+    // while Access's own key endpoint is the thing that is down. Every JWKS
+    // code is matched by prefix, and a failed fetch arrives as undici's
+    // TypeError with no jose code at all.
+    const unreachable = createAccessVerifier({
+      teamDomain: TEAM,
+      audience: AUD,
+      jwks: () => {
+        const failure = new TypeError("fetch failed");
+        failure.cause = new Error("ENOTFOUND");
+        throw failure;
+      },
+    });
+    const result = await unreachable(await sign({ email: "op@example.com" }));
+    expect(result).toEqual({ email: null, reason: "jwks_unavailable" });
+  });
 });
 
 describe("devVerifier", () => {
