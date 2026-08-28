@@ -39,14 +39,14 @@ export const detonationChecks: CheckState[] = [
     report: {
       runs: [
         {
-          dependency: "evil-package==1.0.0",
+          dependency: "tainted-sample==1.0.0",
           egress: [
             { host: "185.220.101.4", port: 443, bytes: 3200, known: false },
             { host: "pypi.org", port: 443, bytes: 11_000, known: true },
           ],
           files_read: [{ path: "~/.aws/credentials", sensitive: true }],
           fs_changes: [{ path: "/tmp/.x", type: "created", in_workspace: false }],
-          subprocesses: [{ argv: ["pip", "install", "evil-package==1.0.0"], exit: 0 }],
+          subprocesses: [{ argv: ["pip", "install", "tainted-sample==1.0.0"], exit: 0 }],
           secret_probe: { decoy_read: true, decoy_in_egress: true },
           derived: {
             egress_to_unknown_host: true,
@@ -118,7 +118,7 @@ export function review(over: Partial<DraftedReview> = {}): DraftedReview {
     body: [
       "Ran tests, probes, a smoke boot, and dependency detonation on `a1f9c3e`.",
       "",
-      "- `evil-package@1.0.0` opened a socket to `185.220.101.4:443` during install.",
+      "- `tainted-sample@1.0.0` opened a socket to `185.220.101.4:443` during install.",
       "- 3 tests pass on base and fail on head.",
       "",
       "The install-time egress is the blocking one.",

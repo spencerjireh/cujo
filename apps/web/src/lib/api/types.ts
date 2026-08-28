@@ -119,3 +119,17 @@ export interface ApproveResult {
 export function canDecide(run: Run): boolean {
   return run.status === "blocked_pending" && run.approval !== null;
 }
+
+/**
+ * Whether the review is already on the pull request.
+ *
+ * An advisory review is ungated and posts during the turn (decision 6), so it
+ * is live on GitHub as soon as the run stops running — calling it a draft on a
+ * `clean` run is wrong. A blocking review is held for a human and only reaches
+ * GitHub once the run is `blocked_posted`.
+ */
+export function reviewPosted(run: Run): boolean {
+  if (!run.review) return false;
+  if (run.review.tool === "post_advisory_review") return !isLive(run.status);
+  return run.status === "blocked_posted";
+}

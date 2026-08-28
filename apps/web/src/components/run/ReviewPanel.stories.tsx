@@ -14,6 +14,7 @@ export const Drafted: Story = { args: { review: review(), posted: false } };
 
 export const Posted: Story = { args: { review: review(), posted: true } };
 
+/** Advisory reviews post during the turn, so they are never shown as drafts. */
 export const Advisory: Story = {
   args: { review: review({ tool: "post_advisory_review" }), posted: true },
 };
@@ -41,7 +42,7 @@ export const RichMarkdown: Story = {
         "> The install-time egress is the blocking one.",
         "",
         "```",
-        "pip install evil-package==1.0.0",
+        "pip install tainted-sample==1.0.0",
         "```",
         "",
         "See [the run](https://example.com/runs/run-1).",

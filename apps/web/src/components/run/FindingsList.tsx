@@ -1,17 +1,30 @@
 import { SeverityBadge } from "@/components/SeverityBadge";
-import type { Finding } from "@/lib/api/types";
+import { type Finding, type RunStatus, isLive } from "@/lib/api/types";
 
 /**
  * `findings` arrives presorted critical-first and already merged with the
  * hard-rule hits, so this renders the order it is given rather than re-sorting.
+ *
+ * The empty state depends on the run status. A check that never reported only
+ * becomes a finding at `turn.done`, so an empty list on a live run means "not
+ * yet", not "nothing wrong" — and claiming a clean result while someone is
+ * deciding whether to block a merge would be the worst place to overstate it.
  */
-export function FindingsList({ findings }: { findings: Finding[] }) {
+export function FindingsList({
+  findings,
+  status,
+}: {
+  findings: Finding[];
+  status: RunStatus;
+}) {
   if (findings.length === 0) {
     return (
       <section aria-label="Findings">
         <h2 className="mb-3 text-lg">Findings</h2>
         <p className="text-sm text-fg-muted">
-          Nothing to report. Every check ran and none of the hard rules tripped.
+          {isLive(status)
+            ? "Nothing found so far. Checks that have not reported yet are still counted at the end of the run."
+            : "Nothing to report. Every check ran and none of the hard rules tripped."}
         </p>
       </section>
     );

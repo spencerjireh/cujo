@@ -3,8 +3,9 @@
 # No ports are published here: the deploy runs behind a reverse proxy that
 # terminates TLS and routes cujo-harness.spencerjireh.com to `server` (8790),
 # cujo.spencerjireh.com to `web` (3000), and cujo-ingress.spencerjireh.com to
-# `cujo` (8080). For a local run with ports on your host, use docker-compose.local.yml
-# (`make up-local`). Secrets come from the deploy environment, never this file.
+# `cujo` (8080). For a local run with ports on your host, see the local stack
+# section of AGENTS.md. Secrets come from the deploy environment, never this
+# file.
 
 services:
   postgres:
