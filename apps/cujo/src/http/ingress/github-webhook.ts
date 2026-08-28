@@ -10,6 +10,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { Logger } from "@cujo/log";
 import { type Context, Hono } from "hono";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
@@ -61,9 +62,16 @@ interface RepositoryEvent {
  * Both actions matter. `privatized` is the one that protects something;
  * `publicized` is what lets a repo appear without waiting for the sweep.
  */
-function handleRepository(deps: WebhookDeps, c: Context<RequestEnv>, body: string): Response {
+function handleRepository(
+  deps: WebhookDeps,
+  c: Context<RequestEnv>,
+  body: string,
+  // Passed in rather than read from the context: the delivery-scoped child is
+  // built in the route, and reaching for `c.get("log")` here would silently
+  // drop `delivery_id` and `cf_ray` from every repository event.
+  log: Logger,
+): Response {
   const event = JSON.parse(body) as RepositoryEvent;
-  const log = c.get("log");
   if (event.action !== "privatized" && event.action !== "publicized") {
     log.debug("webhook.ignored", {
       event_type: "repository",
@@ -114,7 +122,7 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
       return c.json({ ok: false, error: "bad signature" }, 401);
     }
     const eventType = c.req.header("x-github-event");
-    if (eventType === "repository") return handleRepository(deps, c, body);
+    if (eventType === "repository") return handleRepository(deps, c, body, log);
     if (eventType !== "pull_request") {
       // `debug`, because the App is subscribed to events it does not act on
       // and this is the branch that would otherwise dominate the log.
