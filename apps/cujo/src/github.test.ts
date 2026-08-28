@@ -7,7 +7,7 @@ vi.mock("@cujo/gh-app-auth", () => ({
   getAppJwt: vi.fn(async () => "app_jwt"),
 }));
 
-import { GitHubReader } from "./github";
+import { GitHubReader, parseDeclaredGuild } from "./github";
 
 type Route = (url: URL) => { status?: number; body: unknown };
 
@@ -94,6 +94,79 @@ describe("GitHubReader.alreadyReviewed", () => {
       body: [review("cujo-guard[bot]", "old"), { user: null, commit_id: "h" }],
     }));
     expect(await new GitHubReader("1", "pem", impl).alreadyReviewed("o/r", 7, "h")).toBe(false);
+  });
+});
+
+describe("parseDeclaredGuild", () => {
+  it("reads the key whether or not it is quoted, and ignores a trailing comment", () => {
+    expect(parseDeclaredGuild('discord_guild: "222222222222222222"')).toBe("222222222222222222");
+    expect(parseDeclaredGuild("discord_guild: 222222222222222222")).toBe("222222222222222222");
+    expect(parseDeclaredGuild("discord_guild: '222222222222222222'  # ours")).toBe(
+      "222222222222222222",
+    );
+    expect(parseDeclaredGuild("test: uv run pytest\ndiscord_guild: 222222222222222222\n")).toBe(
+      "222222222222222222",
+    );
+  });
+
+  it("ignores anything that is not a top-level snowflake", () => {
+    // Not a snowflake, so not a declaration. That is the whole validation.
+    expect(parseDeclaredGuild("discord_guild: not-an-id")).toBeNull();
+    expect(parseDeclaredGuild("discord_guild: 12")).toBeNull();
+    expect(parseDeclaredGuild("")).toBeNull();
+    expect(parseDeclaredGuild("install: uv sync")).toBeNull();
+    // Nested under another key is not the top level.
+    expect(parseDeclaredGuild("smoke:\n  discord_guild: 222222222222222222")).toBeNull();
+    // A near-miss key name must not match.
+    expect(parseDeclaredGuild("my_discord_guild: 222222222222222222")).toBeNull();
+  });
+});
+
+describe("GitHubReader.declaredGuild", () => {
+  function fakeConfigFetch(file: { status: number; body: string }) {
+    const paths: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      paths.push(`${url.pathname}${url.search}`);
+      if (url.pathname === "/repos/o/r") {
+        return new Response(JSON.stringify({ default_branch: "trunk" }), { status: 200 });
+      }
+      return new Response(file.body, { status: file.status });
+    });
+    return { impl: impl as unknown as typeof fetch, paths, calls: impl };
+  }
+
+  it("reads .cujo.yml from the default branch, not from a pull request", async () => {
+    const { impl, paths } = fakeConfigFetch({
+      status: 200,
+      body: 'discord_guild: "222222222222222222"\n',
+    });
+    const reader = new GitHubReader("1", "pem", impl);
+    expect(await reader.declaredGuild("o/r")).toBe("222222222222222222");
+    // The declaration has to be merged, which is what makes it proof.
+    expect(paths).toContain("/repos/o/r/contents/.cujo.yml?ref=trunk");
+  });
+
+  it("is null when the repo has no .cujo.yml", async () => {
+    const { impl } = fakeConfigFetch({ status: 404, body: "{}" });
+    expect(await new GitHubReader("1", "pem", impl).declaredGuild("o/r")).toBeNull();
+  });
+
+  it("is null rather than throwing when GitHub refuses", async () => {
+    const { impl } = fakeConfigFetch({ status: 500, body: "{}" });
+    expect(await new GitHubReader("1", "pem", impl).declaredGuild("o/r")).toBeNull();
+  });
+
+  it("caches, so a status command does not re-read for every repo", async () => {
+    const { impl, calls } = fakeConfigFetch({
+      status: 200,
+      body: "discord_guild: 222222222222222222",
+    });
+    const reader = new GitHubReader("1", "pem", impl);
+    await reader.declaredGuild("o/r");
+    const after = calls.mock.calls.length;
+    await reader.declaredGuild("o/r");
+    expect(calls.mock.calls.length).toBe(after);
   });
 });
 
