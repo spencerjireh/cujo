@@ -29,7 +29,11 @@ export function isLive(status: RunStatus): boolean {
 }
 
 export interface CheckState {
-  threadId: string;
+  /**
+   * The TrueForge thread. Operator plane only: it is a harness handle, and the
+   * public serializer publishes none of those (decision 34).
+   */
+  threadId?: string;
   title: string;
   isCheck: boolean;
   status: "running" | "done" | "error";

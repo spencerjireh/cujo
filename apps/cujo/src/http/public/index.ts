@@ -63,31 +63,31 @@ export function publicRoutes(deps: PublicDeps): { app: Hono; limit: StreamLimit 
       return c.json({ ok: false, error: "too many public streams" }, 503);
     }
     return streamSSE(c, async (stream) => {
-      let released = false;
-      const release = () => {
-        if (released) return;
-        released = true;
-        limit.release();
+      let seq = 0;
+      const send = (v: RunView) =>
+        stream.writeSSE({
+          event: "run",
+          id: String(seq++),
+          data: JSON.stringify(serializePublicRun(v)),
+        });
+      const listener = (v: RunView) => {
+        // A repo can go private mid-stream, and that flip is a store write
+        // that emits nothing of its own, so re-check on every frame.
+        if (v.run.isPublic) void send(v);
+        else void stream.close();
       };
+      let keepalive: ReturnType<typeof setInterval> | undefined;
+
+      // Listen first, then read: an update between the two is delivered twice
+      // at worst, never lost. Subscribed outside the try so the finally below
+      // is guaranteed to be the one place it is torn down — if the first
+      // writeSSE rejects, an unsubscribe that lived at the end of the happy
+      // path would never run, and the listener would go on writing to a dead
+      // stream on every later run update while holding it from collection.
+      deps.runner.changes.on(id, listener);
       try {
-        let seq = 0;
-        const send = (v: RunView) =>
-          stream.writeSSE({
-            event: "run",
-            id: String(seq++),
-            data: JSON.stringify(serializePublicRun(v)),
-          });
-        // Listen first, then read: an update between the two is delivered
-        // twice at worst, never lost.
-        const listener = (v: RunView) => {
-          // A repo can go private mid-stream, and that flip is a store write
-          // that emits nothing of its own, so re-check on every frame.
-          if (v.run.isPublic) void send(v);
-          else void stream.close();
-        };
-        deps.runner.changes.on(id, listener);
         await send(visible(id) ?? view);
-        const keepalive = setInterval(() => {
+        keepalive = setInterval(() => {
           // The keepalive doubles as the poll that catches a flip on a run
           // that is emitting nothing, so exposure is bounded by this interval.
           if (deps.runs.getRun(id)?.isPublic) void stream.writeSSE({ event: "ping", data: "" });
@@ -96,10 +96,10 @@ export function publicRoutes(deps: PublicDeps): { app: Hono; limit: StreamLimit 
         await new Promise<void>((resolve) => {
           stream.onAbort(() => resolve());
         });
-        clearInterval(keepalive);
-        deps.runner.changes.off(id, listener);
       } finally {
-        release();
+        if (keepalive) clearInterval(keepalive);
+        deps.runner.changes.off(id, listener);
+        limit.release();
       }
     });
   });

@@ -170,6 +170,9 @@ describe("serializePublicRun", () => {
       // unvalidated tool-call payload.
       "SENTINEL_toolCallId",
       "SENTINEL_rawAgentFinding",
+      // Nested one level down, inside a check. The top-level key assertions
+      // cannot see this one, which is the reason this sweep exists.
+      "SENTINEL_threadId",
     ]) {
       expect(json).not.toContain(leaked);
     }

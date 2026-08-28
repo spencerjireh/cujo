@@ -13,7 +13,7 @@
  * a red build until it has been classified.
  */
 
-import type { DraftedReview, Projection, RunRecord } from "../../review/types";
+import type { CheckState, DraftedReview, Projection, RunRecord } from "../../review/types";
 
 /** Every key the two source types have between them. */
 export type SourceField = keyof RunRecord | keyof Projection;
@@ -93,6 +93,28 @@ function publicReview(review: DraftedReview | null) {
   return { tool: review.tool, body: review.body, comments: review.comments };
 }
 
+/**
+ * A check, without its `threadId`. The report is the point of the public board
+ * and stays; the thread id is a TrueForge handle, and the rule this module
+ * keeps is that no harness handle is published — the same rule that shapes
+ * `toolCallId` out of the review. Withholding one and publishing the other was
+ * an inconsistency, not a decision.
+ *
+ * It cost the UI its React key, which now comes from the position in a list
+ * whose order is fixed by the fold.
+ */
+function publicCheck(check: CheckState) {
+  return {
+    title: check.title,
+    isCheck: check.isCheck,
+    status: check.status,
+    report: check.report,
+    error: check.error,
+    startedAt: check.startedAt,
+    endedAt: check.endedAt,
+  };
+}
+
 /** One run in full, for the public detail page. */
 export function serializePublicRun(view: { run: RunRecord; projection: Projection }) {
   const { run, projection } = view;
@@ -104,7 +126,7 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     status: run.status,
     created_at: run.createdAt,
     updated_at: run.updatedAt,
-    checks: projection.checks,
+    checks: projection.checks.map(publicCheck),
     findings: projection.findings,
     hard_rule_hits: projection.hardRuleHits,
     review: publicReview(projection.review),

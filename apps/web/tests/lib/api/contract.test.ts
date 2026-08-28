@@ -41,7 +41,15 @@ describe("wire types track apps/cujo", () => {
       startedAt: "2026-08-28T10:00:00Z",
       endedAt: "2026-08-28T10:01:00Z",
     };
-    const asCujo: CujoCheckState = { ...check, startedAt: null, endedAt: null };
+    // `threadId` is restated rather than spread: it is optional on this side
+    // because the public plane withholds it, and required on cujo's, where
+    // every check has one (decision 34).
+    const asCujo: CujoCheckState = {
+      ...check,
+      threadId: check.threadId ?? "t",
+      startedAt: null,
+      endedAt: null,
+    };
     expect(asCujo.title).toBe("tests");
 
     const finding: Finding = {

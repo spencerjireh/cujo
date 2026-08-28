@@ -15,7 +15,7 @@
 export interface StreamLimit {
   /** False when the cap is reached; the caller must then not open a stream. */
   acquire(): boolean;
-  /** Idempotent per acquire, so a double release cannot free a slot twice. */
+  /** Clamped at zero, so a release without a matching acquire cannot invent capacity. */
   release(): void;
   active(): number;
 }

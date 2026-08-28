@@ -28,8 +28,10 @@ export function ApproveBar({ run }: { run: Run }) {
   const queryClient = useQueryClient();
   const decidable = canDecide(run);
 
-  if (mode === "public") return <PointAtOperator run={run} adminBaseUrl={adminBaseUrl} />;
-
+  // Every hook before any early return. The plane cannot change under a mounted
+  // tree — it is fixed per request by the hostname — but a conditional hook is
+  // wrong whether or not the condition ever moves, and the next person to add a
+  // branch above it would inherit a real bug.
   const mutation = useMutation({
     mutationFn: (decision: "allow" | "deny") => approveRun(run.id, decision),
     onSettled: () => {
@@ -38,6 +40,7 @@ export function ApproveBar({ run }: { run: Run }) {
     },
   });
 
+  if (mode === "public") return <PointAtOperator run={run} adminBaseUrl={adminBaseUrl} />;
   if (!decidable) return <ExplainWhyNot run={run} />;
 
   const blocking = run.review?.tool === "post_blocking_review";
