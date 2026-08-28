@@ -1,6 +1,6 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
-import { fold, parseReport, parseReview } from "../../src/review/fold";
+import { fold, parseReport, parseReview, pendingApproval } from "../../src/review/fold";
 
 type Ev = TrueForgeApi.SessionEvent;
 const at = "2026-08-27T00:00:00Z";
@@ -454,6 +454,70 @@ describe("check timing", () => {
       threadDone("th-tests", "```json\n{}\n```", "2026-08-27T00:01:52Z"),
     ];
     expect(fold(events).checks).toEqual(fold(events).checks);
+  });
+});
+
+describe("pendingApproval", () => {
+  const answer = (toolCallId: string): TrueForgeApi.TurnInputItem[] => [
+    { type: "user.tool_approval", threadId: "main", toolCallId, approval: { status: "allow" } },
+  ];
+
+  it("is null for a session that never asked", () => {
+    expect(pendingApproval([])).toBeNull();
+    expect(pendingApproval([turnCreated("t1"), turnDone()])).toBeNull();
+  });
+
+  it("returns the request nothing has answered", () => {
+    const events = [turnCreated("t1"), approvalRequired("main", "call-1", "mm-1"), turnDone()];
+    expect(pendingApproval(events)).toEqual({
+      threadId: "main",
+      toolCallId: "call-1",
+      sourceEventId: "mm-1",
+    });
+  });
+
+  it("is null once a resume answers that same tool call", () => {
+    const events = [
+      turnCreated("t1"),
+      approvalRequired("main", "call-1", "mm-1"),
+      turnDone(),
+      turnCreated("t2", answer("call-1")),
+      turnDone(),
+    ];
+    expect(pendingApproval(events)).toBeNull();
+  });
+
+  /**
+   * The case `fold` cannot see: it leaves `approval` set and `decision` set,
+   * which reads as answered even though the second request is outstanding.
+   */
+  it("returns the second request when only the first was answered", () => {
+    const events = [
+      turnCreated("t1"),
+      approvalRequired("main", "call-1", "mm-1"),
+      turnDone(),
+      turnCreated("t2", answer("call-1")),
+      approvalRequired("main", "call-2", "mm-2"),
+      turnDone(),
+    ];
+    expect(fold(events).approval?.toolCallId).toBe("call-2");
+    expect(fold(events).decision).toBe("allow");
+    expect(pendingApproval(events)?.toolCallId).toBe("call-2");
+  });
+
+  it("ignores a resume that answers some other tool call", () => {
+    const events = [
+      turnCreated("t1"),
+      approvalRequired("main", "call-1", "mm-1"),
+      turnDone(),
+      turnCreated("t2", answer("call-9")),
+    ];
+    expect(pendingApproval(events)?.toolCallId).toBe("call-1");
+  });
+
+  it("never returns a request from a thread that may not hold one", () => {
+    const events = [turnCreated("t1"), approvalRequired("sub-1", "call-9", "nope"), turnDone()];
+    expect(pendingApproval(events)).toBeNull();
   });
 });
 

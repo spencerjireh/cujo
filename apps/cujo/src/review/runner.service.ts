@@ -1,8 +1,13 @@
 import { EventEmitter } from "node:events";
-import type { Harness, SessionEvent, StreamEvent } from "../clients/trueforge";
+import {
+  type Harness,
+  STALE_DENY_REASON,
+  type SessionEvent,
+  type StreamEvent,
+} from "../clients/trueforge";
 import type { RunStore } from "../store";
-import { fold } from "./fold";
-import type { Projection, RunRecord } from "./types";
+import { fold, pendingApproval } from "./fold";
+import type { PendingApproval, Projection, RunRecord } from "./types";
 
 type AnyEvent = SessionEvent | StreamEvent;
 
@@ -294,11 +299,56 @@ export class Runner {
   }
 
   /**
+   * Answer an approval nobody is going to decide, so the session can take
+   * another turn. An approval is outstanding on the *session*, not on the turn
+   * that requested it: the turn that raised it has already ended, so
+   * cancelling a turn does not answer it, and TrueForge refuses every later
+   * user message on the thread while one is pending (decision 37).
+   *
+   * The deny starts a turn of its own, which is cancelled straight after: the
+   * agent it belongs to is holding a review of a commit nobody is looking at.
+   * When the owning run is known, that turn is recorded as Cujo's so the fold
+   * can never read it as a resume someone sent from outside.
+   *
+   * Reports whether the deny landed, which is what decides if the session can
+   * take a turn now.
+   */
+  private async denyStaleApproval(
+    sessionId: string,
+    approval: PendingApproval,
+    runId?: string,
+  ): Promise<boolean> {
+    try {
+      const turnId = await this.harness.resume(sessionId, approval, "deny", STALE_DENY_REASON);
+      console.info(`session ${sessionId}: stale approval denied as turn ${turnId}`);
+      if (runId) {
+        this.state(runId).cujoResumeTurnIds.add(turnId);
+        this.store.addCujoTurn(runId, turnId);
+      }
+    } catch (error) {
+      // The session stays wedged, exactly as it was before this call. The
+      // next head retries through `start`, so the wedge is not permanent.
+      console.error(`session ${sessionId}: could not deny the stale approval`, error);
+      return false;
+    }
+    try {
+      await this.harness.cancelTurn(sessionId);
+    } catch (error) {
+      console.warn(`session ${sessionId}: cancel after the stale deny failed`, error);
+    }
+    return true;
+  }
+
+  /**
    * A newer head on the same PR replaced this run. The run stops following
    * its turn, no decision can be made on it (the decision claim requires
    * blocked_pending), and a turn still running on the harness is cancelled
    * so it cannot post a review for a stale head. Resolves once the cancel
    * has been sent, so the caller can start the newer head's turn after it.
+   *
+   * A run waiting on a human is the case that matters: its approval is
+   * answered rather than merely cancelled, or the pull request becomes
+   * unreviewable for good (decision 37).
    */
   async supersede(runId: string): Promise<void> {
     const s = this.state(runId);
@@ -307,8 +357,18 @@ export class Runner {
     console.info(`run ${runId}: superseded`);
     this.stopPolling(runId);
     const run = this.store.getRun(runId);
+    // Read before the refold, which rewrites the status to `superseded`.
+    const wasPending = run?.status === "blocked_pending";
     const live = run && run.turnIds.length > 0 && !this.isTerminal(run.status);
-    this.refold(runId);
+    // `fold` never clears `approval`, so it survives the refold; only the
+    // status is overridden.
+    const projection = this.refold(runId);
+    if (!run) return;
+    if (wasPending && projection.approval) {
+      // Already in memory, so no round trip to find it.
+      await this.denyStaleApproval(run.sessionId, projection.approval, runId);
+      return;
+    }
     if (!live) return;
     try {
       await this.harness.cancelTurn(run.sessionId);
@@ -319,9 +379,47 @@ export class Runner {
   }
 
   /**
+   * Clear an approval left pending on the session by something that is over.
+   * Reports whether anything was cleared, so the caller knows a retry is worth
+   * attempting.
+   *
+   * Refuses while any run on the session is `blocked_pending`: that approval
+   * is one a human is being asked about right now, and denying it would answer
+   * for them.
+   */
+  private async healSession(run: RunRecord): Promise<boolean> {
+    const live = this.store
+      .listRunsForSession(run.sessionId)
+      .filter((other) => other.status === "blocked_pending");
+    if (live.length > 0) {
+      console.warn(`run ${run.id}: not healing, run ${live[0]?.id} is still waiting on a human`);
+      return false;
+    }
+    try {
+      const items = await this.harness.listEvents(run.sessionId);
+      const approval = pendingApproval(items.map((item) => item.event));
+      if (!approval) return false;
+      console.warn(`run ${run.id}: session held a stale approval, clearing it`);
+      // No run id: the run that raised it is terminal, so it is never
+      // rehydrated (`listUnfinishedRuns` covers running and blocked_pending
+      // only) and no live run adopts a turn it did not chain from.
+      return await this.denyStaleApproval(run.sessionId, approval);
+    } catch (error) {
+      console.error(`run ${run.id}: could not inspect the session`, error);
+      return false;
+    }
+  }
+
+  /**
    * Start a run's first turn and fold it to the end. The turn is recorded as
    * the run's own before the subscribe, so a failed subscribe or a restart
    * in between can recover it instead of treating the run as turnless.
+   *
+   * One retry, after clearing an approval left pending on the session. That is
+   * the failure that would otherwise make a pull request unreviewable for
+   * good, and healing it here catches the cases `supersede` does not (decision
+   * 37). The error text is not inspected: the 422 wording is TrueForge's, not
+   * ours, and `startTurn` failing at all is rare enough to afford one lookup.
    */
   async start(run: RunRecord, message: string): Promise<void> {
     if (this.store.getRun(run.id)?.status !== "running" || this.state(run.id).superseded) return;
@@ -329,9 +427,18 @@ export class Runner {
     try {
       turnId = await this.harness.startTurn(run.sessionId, message);
     } catch (error) {
-      console.error(`run ${run.id}: could not start turn`, error);
-      this.fail(run.id, `could not start turn: ${String(error)}`);
-      return;
+      console.warn(`run ${run.id}: could not start turn, looking for a stale approval`, error);
+      if (!(await this.healSession(run))) {
+        this.fail(run.id, `could not start turn: ${String(error)}`);
+        return;
+      }
+      try {
+        turnId = await this.harness.startTurn(run.sessionId, message);
+      } catch (retryError) {
+        console.error(`run ${run.id}: could not start turn after healing`, retryError);
+        this.fail(run.id, `could not start turn: ${String(retryError)}`);
+        return;
+      }
     }
     console.info(`run ${run.id}: turn ${turnId} started`);
     this.adoptTurn(run.id, turnId);

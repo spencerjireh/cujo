@@ -1,6 +1,6 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it, vi } from "vitest";
-import type { Harness, StreamEvent } from "../../src/clients/trueforge";
+import { type Harness, STALE_DENY_REASON, type StreamEvent } from "../../src/clients/trueforge";
 import { ANY_RUN, type RunView, Runner } from "../../src/review/runner.service";
 import type { RunRecord } from "../../src/review/types";
 import { Store } from "../../src/store";
@@ -232,17 +232,101 @@ describe("Runner.start", () => {
     expect(store.runs.getRun(r.id)).toMatchObject({ status: "error", turnIds: [] });
     expect(store.runs.getProjection(r.id)?.error).toContain("harness down");
   });
+
+  /**
+   * The session-level wedge: an approval nobody will decide is left pending,
+   * and TrueForge refuses every later user message until it is answered.
+   */
+  it("clears a stale approval the session was holding, then starts the turn", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const startTurn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("422 user message cannot be sent"))
+      .mockResolvedValueOnce("t2");
+    const resume = vi.fn(async () => "t-deny");
+    const cancelTurn = vi.fn(async () => {});
+    const listEvents = vi.fn(async () => [
+      { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:00Z") },
+      { turnId: "t1", event: approvalRequired("c1") },
+      { turnId: "t1", event: turnDone("t1") },
+    ]);
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn,
+        resume,
+        cancelTurn,
+        listEvents,
+        subscribe: async () => streamOf([turnDone("t2")]),
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+    );
+
+    await runner.start(r, "review it");
+
+    expect(resume).toHaveBeenCalledWith(
+      "s",
+      expect.objectContaining({ toolCallId: "c1" }),
+      "deny",
+      STALE_DENY_REASON,
+    );
+    expect(startTurn).toHaveBeenCalledTimes(2);
+    expect(store.runs.getRun(r.id)?.turnIds).toEqual(["t2"]);
+    runner.stopAll();
+  });
+
+  it("does not retry when the session holds no pending approval", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const startTurn = vi.fn(async () => {
+      throw new Error("harness down");
+    });
+    const resume = vi.fn();
+    const listEvents = vi.fn(async () => [
+      { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:00Z") },
+      { turnId: "t1", event: turnDone("t1") },
+    ]);
+    const runner = new Runner(store.runs, { startTurn, resume, listEvents } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+
+    await runner.start(r, "review it");
+
+    expect(resume).not.toHaveBeenCalled();
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(store.runs.getProjection(r.id)?.error).toContain("harness down");
+  });
+
+  /** The guard that keeps the heal from answering for a human. */
+  it("refuses to clear an approval another run on the session is still waiting on", async () => {
+    const store = new Store(":memory:");
+    const waiting = store.runs.createRun(claim("h1")).run;
+    store.runs.updateRun(waiting.id, { status: "blocked_pending" });
+    const { run: r } = store.runs.createRun(claim("h2"));
+    const startTurn = vi.fn(async () => {
+      throw new Error("422 user message cannot be sent");
+    });
+    const resume = vi.fn();
+    const listEvents = vi.fn();
+    const runner = new Runner(store.runs, { startTurn, resume, listEvents } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+
+    await runner.start(r, "review it");
+
+    expect(listEvents).not.toHaveBeenCalled();
+    expect(resume).not.toHaveBeenCalled();
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
+    expect(store.runs.getRun(waiting.id)?.status).toBe("blocked_pending");
+  });
 });
 
 describe("Runner.supersede", () => {
-  it("moves a blocked run to superseded, cancels its turn, and refuses a decision", async () => {
-    const store = new Store(":memory:");
-    const { run: r } = store.runs.createRun(claim());
-    const resume = vi.fn();
-    const cancelTurn = vi.fn(async () => {});
-    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
-      turnTimeoutMs: 10_000,
-    });
+  /** Drive a fresh run to blocked_pending on one pending approval. */
+  async function blocked(store: Store, runner: Runner, headSha = "h") {
+    const { run: r } = store.runs.createRun(claim(headSha));
     await runner.consume(
       r.id,
       streamOf([
@@ -252,14 +336,82 @@ describe("Runner.supersede", () => {
       ]),
     );
     expect(store.runs.getRun(r.id)?.status).toBe("blocked_pending");
+    return r;
+  }
+
+  it("answers the pending approval before cancelling, and refuses a decision after", async () => {
+    const store = new Store(":memory:");
+    const calls: string[] = [];
+    const resume = vi.fn(async () => {
+      calls.push("resume");
+      return "t-deny";
+    });
+    const cancelTurn = vi.fn(async () => {
+      calls.push("cancel");
+    });
+    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    const r = await blocked(store, runner);
+
     await runner.supersede(r.id);
-    expect(cancelTurn).toHaveBeenCalledWith("s");
-    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+
+    // The deny is what stops the session refusing every later turn; the
+    // cancel only stops the turn the deny starts.
+    expect(calls).toEqual(["resume", "cancel"]);
+    expect(resume).toHaveBeenCalledWith(
+      "s",
+      expect.objectContaining({ threadId: "main", toolCallId: "c1" }),
+      "deny",
+      STALE_DENY_REASON,
+    );
+    // Recorded as Cujo's own, so a replay never reads it as someone else's.
+    expect(store.runs.listCujoTurns(r.id)).toEqual(["t-deny"]);
+    // The run reads as replaced, not as one a human turned down.
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "superseded", approver: null });
     expect(store.runs.getProjection(r.id)?.status).toBe("superseded");
+
     const decision = await runner.approve(r.id, "allow", "a@x");
     expect(decision.ok).toBe(false);
-    expect(resume).not.toHaveBeenCalled();
+    expect(resume).toHaveBeenCalledTimes(1);
     runner.stopAll();
+  });
+
+  it("stays superseded when the deny fails, and sends no cancel after it", async () => {
+    const store = new Store(":memory:");
+    const resume = vi.fn(async () => {
+      throw new Error("harness down");
+    });
+    const cancelTurn = vi.fn(async () => {});
+    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    const r = await blocked(store, runner);
+
+    await runner.supersede(r.id);
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    // Nothing was started, so there is nothing to cancel.
+    expect(cancelTurn).not.toHaveBeenCalled();
+    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+    runner.stopAll();
+  });
+
+  it("cancels without a deny when the run was never waiting on a human", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const resume = vi.fn();
+    const cancelTurn = vi.fn(async () => {});
+    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+
+    await runner.supersede(r.id);
+
+    expect(resume).not.toHaveBeenCalled();
+    expect(cancelTurn).toHaveBeenCalledWith("s");
+    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
   });
 
   it("sends no cancel for a run that has no turn, and survives a failed cancel", async () => {
