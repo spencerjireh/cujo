@@ -124,6 +124,7 @@ async function main(): Promise<void> {
       streamLimit: config.publicStreamLimit,
     },
     webhook: {
+      log,
       secret: config.githubWebhookSecret,
       github,
       store: store.runs,
