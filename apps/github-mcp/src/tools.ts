@@ -4,6 +4,7 @@
  * TrueForge's `@destructive` approval selector keys on.
  */
 
+import { type Logger, createLogger } from "@cujo/log";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { appendRunFooter } from "./body";
@@ -80,6 +81,7 @@ export async function postReview(
   event: "COMMENT" | "REQUEST_CHANGES",
   input: ReviewInput,
   publicBaseUrl = "",
+  log: Logger = createLogger({ service: "github-mcp" }),
 ): Promise<ReviewResult> {
   const files = await github.listPullFiles(input.repo, input.pr_number);
   const { inline, moved } = validateAnchors(files, input.comments);
@@ -91,9 +93,19 @@ export async function postReview(
     body: appendRunFooter(appendMovedComments(input.body, moved), publicBaseUrl, input.run_id),
     comments: inline,
   });
-  console.info(
-    `review posted: ${input.repo} #${input.pr_number} ${event} (review_id=${review.id}, inline=${inline.length}, moved=${moved.length})`,
-  );
+  // The only outward write this system makes, and until now the only one it
+  // did not record.
+  log.info("review.posted", {
+    repo: input.repo,
+    pr_number: input.pr_number,
+    head_sha: input.head_sha,
+    tool: event === "REQUEST_CHANGES" ? "post_blocking_review" : "post_advisory_review",
+    review_id: String(review.id),
+    html_url: review.html_url,
+    posted_inline: inline.length,
+    moved_to_body: moved.length,
+    findings: input.findings.length,
+  });
   return {
     review_id: review.id,
     html_url: review.html_url,
@@ -113,6 +125,7 @@ export function registerReviewTools(
   server: McpServer,
   github: GitHubClient,
   publicBaseUrl = "",
+  log: Logger = createLogger({ service: "github-mcp" }),
 ): void {
   server.registerTool(
     "post_advisory_review",
@@ -123,7 +136,7 @@ export function registerReviewTools(
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async (args) => asToolResult(await postReview(github, "COMMENT", args, publicBaseUrl)),
+    async (args) => asToolResult(await postReview(github, "COMMENT", args, publicBaseUrl, log)),
   );
 
   server.registerTool(
@@ -135,6 +148,7 @@ export function registerReviewTools(
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
-    async (args) => asToolResult(await postReview(github, "REQUEST_CHANGES", args, publicBaseUrl)),
+    async (args) =>
+      asToolResult(await postReview(github, "REQUEST_CHANGES", args, publicBaseUrl, log)),
   );
 }

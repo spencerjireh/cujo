@@ -50,6 +50,9 @@ importers:
       '@cujo/gh-app-auth':
         specifier: workspace:*
         version: link:../../packages/gh-app-auth
+      '@cujo/log':
+        specifier: workspace:*
+        version: link:../../packages/log
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)

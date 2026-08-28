@@ -36,7 +36,7 @@ describe("webhook", () => {
         runs: store.runs,
         notifications: store.notifications,
         runner,
-        verify: async () => null,
+        verify: async () => ({ email: null, reason: "no_assertion" as const }),
       },
       public: { runs: store.runs, runner, streamLimit: 200 },
       webhook: {

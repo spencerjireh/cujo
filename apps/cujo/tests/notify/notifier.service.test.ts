@@ -1,3 +1,4 @@
+import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
 import { DiscordError, UNKNOWN_MESSAGE } from "../../src/clients/discord";
 import type { DiscordClient } from "../../src/clients/discord";
@@ -8,6 +9,9 @@ import { emptyProjection } from "../../src/review/fold";
 import type { RunView } from "../../src/review/runner.service";
 import type { RunStatus } from "../../src/review/types";
 import { Store } from "../../src/store";
+
+/** Tests assert on behaviour, not on log output; the sink swallows it. */
+const silentLog = createLogger({ service: "cujo", sink: () => {} });
 
 const UI = "https://cujo-admin.example.com";
 const PUBLIC_UI = "https://cujo.example.com";
@@ -65,6 +69,7 @@ function build(
   const client = fakeClient();
   const github = fakeGithub(options.declaredGuild);
   const notifier = new DiscordNotifier({
+    log: silentLog,
     store,
     client: client as unknown as DiscordClient,
     github: github as unknown as GitHubReader,
@@ -107,6 +112,7 @@ describe("DiscordNotifier", () => {
     // A fresh notifier over the same store is what a restart looks like.
     const fresh = fakeClient();
     const restarted = new DiscordNotifier({
+      log: silentLog,
       store,
       client: fresh as unknown as DiscordClient,
       github: fakeGithub() as unknown as GitHubReader,
@@ -181,6 +187,7 @@ describe("DiscordNotifier", () => {
 
     const fresh = fakeClient();
     const restarted = new DiscordNotifier({
+      log: silentLog,
       store,
       client: fresh as unknown as DiscordClient,
       github: fakeGithub() as unknown as GitHubReader,
