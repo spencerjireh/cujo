@@ -99,6 +99,7 @@ export class Runner {
     const projection = fold(s.events, { cujoResumeTurnIds: s.cujoResumeTurnIds });
     if (s.superseded) projection.status = "superseded";
     const run = this.store.getRun(runId);
+    const previousStatus = run?.status;
     // The run may have recorded a turn whose turn.created has not arrived yet.
     for (const turnId of run?.turnIds ?? []) {
       if (!projection.turnIds.includes(turnId)) projection.turnIds.push(turnId);
@@ -113,6 +114,9 @@ export class Runner {
       patch.decidedAt = new Date().toISOString();
     }
     this.store.updateRun(runId, patch);
+    if (projection.status !== previousStatus && this.isTerminal(projection.status)) {
+      console.info(`run ${runId}: status → ${projection.status}`);
+    }
     // emit() is synchronous and rethrows into this call, which sits inside the
     // fold path: a subscriber that throws would surface as a stream error and
     // trigger a resubscribe. A subscriber must never be able to fail a run.
@@ -204,6 +208,7 @@ export class Runner {
     let timedOut = false;
     const deadline = setTimeout(() => {
       timedOut = true;
+      console.info(`run ${runId}: turn timed out`);
       this.push(
         runId,
         errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
@@ -299,6 +304,7 @@ export class Runner {
     const s = this.state(runId);
     if (s.superseded) return;
     s.superseded = true;
+    console.info(`run ${runId}: superseded`);
     this.stopPolling(runId);
     const run = this.store.getRun(runId);
     const live = run && run.turnIds.length > 0 && !this.isTerminal(run.status);
@@ -327,6 +333,7 @@ export class Runner {
       this.fail(run.id, `could not start turn: ${String(error)}`);
       return;
     }
+    console.info(`run ${run.id}: turn ${turnId} started`);
     this.adoptTurn(run.id, turnId);
     if (this.state(run.id).superseded) {
       // Replaced while the turn was being created; do not let it run on.
@@ -363,6 +370,7 @@ export class Runner {
       this.startPolling(runId);
       return { ok: false, reason: `resume failed: ${String(error)}` };
     }
+    console.info(`run ${runId}: resumed as turn ${turnId} (${decision} by ${approver})`);
     // Cujo's own resume, recorded before the subscribe and before its
     // turn.created, so the fold never mistakes it for an external one, on
     // this process or after a restart.
@@ -410,6 +418,9 @@ export class Runner {
     s.events = events;
     s.subscribedTurnIds = new Set(turnIds);
     const projection = this.refold(run.id);
+    console.info(
+      `run ${run.id}: rehydrated, status=${projection.status}, turns=${projection.turnIds.length}`,
+    );
     const last = s.events.at(-1);
     if (projection.status === "running" && (!last || last.type !== TERMINAL_EVENT)) {
       const turnId = projection.turnIds.at(-1);
