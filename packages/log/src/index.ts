@@ -21,5 +21,11 @@ export {
   isFieldName,
 } from "./fields";
 export { RANK, parseLevel, type Level } from "./level";
-export { createLogger, type Logger, type LoggerOptions, type Sink } from "./logger";
+export {
+  createLogger,
+  logFailureCount,
+  type Logger,
+  type LoggerOptions,
+  type Sink,
+} from "./logger";
 export { REDACTED, TRUNCATED, scrub } from "./redact";
