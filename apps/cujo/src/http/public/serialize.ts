@@ -1,0 +1,127 @@
+/**
+ * The public wire shape (decision 34).
+ *
+ * Built field by field from an allowlist, never by removing fields from the
+ * operator serializer. The difference is the default: a redaction like
+ * `{ approver, ...rest }` publishes every field added to `Projection` from then
+ * on, while construction names what may be seen and so publishes nothing new
+ * until somebody writes it down. Nothing in this file may import from
+ * `../operator/`.
+ *
+ * `PUBLIC_SOURCE_FIELDS` and `WITHHELD_SOURCE_FIELDS` together must cover every
+ * key of `RunRecord` and `Projection`; the test asserts that, so a new field is
+ * a red build until it has been classified.
+ */
+
+import type { DraftedReview, Projection, RunRecord } from "../../review/types";
+
+/** Every key the two source types have between them. */
+export type SourceField = keyof RunRecord | keyof Projection;
+
+/** Read by the serializers below. */
+export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
+  "id",
+  "repo",
+  "prNumber",
+  "headSha",
+  "status",
+  "createdAt",
+  "updatedAt",
+  "checks",
+  "findings",
+  "hardRuleHits",
+  "review",
+  "error",
+  "summary",
+];
+
+/**
+ * Deliberately not read. `approver` and `decidedAt` name a person; `sessionId`
+ * and `turnIds` are harness handles; `approval`, `decision`, `externalResume`
+ * and `gatedResponseSeen` are the state of a gate no anonymous visitor can
+ * touch; `isPublic` is the filter itself and says nothing to a caller who only
+ * ever sees rows where it is true.
+ */
+export const WITHHELD_SOURCE_FIELDS: readonly SourceField[] = [
+  "sessionId",
+  "turnIds",
+  "approver",
+  "decidedAt",
+  "isPublic",
+  "approval",
+  "decision",
+  "externalResume",
+  "gatedResponseSeen",
+];
+
+/** Exactly the keys `serializePublicRun` emits. */
+export const PUBLIC_RUN_FIELDS = [
+  "id",
+  "repo",
+  "pr_number",
+  "head_sha",
+  "status",
+  "created_at",
+  "updated_at",
+  "checks",
+  "findings",
+  "hard_rule_hits",
+  "review",
+  "error",
+  "summary",
+] as const;
+
+/** Exactly the keys `serializePublicSummary` emits. */
+export const PUBLIC_SUMMARY_FIELDS = [
+  "id",
+  "repo",
+  "pr_number",
+  "head_sha",
+  "status",
+  "created_at",
+  "updated_at",
+] as const;
+
+/**
+ * The drafted review, shaped rather than passed through. `toolCallId` is a
+ * harness handle and `findings` is the agent's own unvalidated tool-call
+ * payload, already merged into the run's `findings` by then; neither is
+ * rendered, so neither is published.
+ */
+function publicReview(review: DraftedReview | null) {
+  if (!review) return null;
+  return { tool: review.tool, body: review.body, comments: review.comments };
+}
+
+/** One run in full, for the public detail page. */
+export function serializePublicRun(view: { run: RunRecord; projection: Projection }) {
+  const { run, projection } = view;
+  return {
+    id: run.id,
+    repo: run.repo,
+    pr_number: run.prNumber,
+    head_sha: run.headSha,
+    status: run.status,
+    created_at: run.createdAt,
+    updated_at: run.updatedAt,
+    checks: projection.checks,
+    findings: projection.findings,
+    hard_rule_hits: projection.hardRuleHits,
+    review: publicReview(projection.review),
+    error: projection.error,
+    summary: projection.summary,
+  };
+}
+
+/** One row of the public list. */
+export function serializePublicSummary(run: RunRecord) {
+  return {
+    id: run.id,
+    repo: run.repo,
+    pr_number: run.prNumber,
+    head_sha: run.headSha,
+    status: run.status,
+    created_at: run.createdAt,
+    updated_at: run.updatedAt,
+  };
+}

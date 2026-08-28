@@ -70,6 +70,46 @@ describe("host dispatch", () => {
     const { app } = build();
     expect((await app.fetch(req("cujo", "/runs"))).status).toBe(404);
   });
+
+  /**
+   * The mount point, which is the whole of decision 34's split. `/public/*`
+   * has to answer with no assertion while its sibling `/runs` still refuses
+   * one, on the same host and in the same process — and the webhook host must
+   * not gain a read plane it never had.
+   */
+  describe("the public plane", () => {
+    it("answers without an Access assertion, on both UI-side hosts", async () => {
+      const { app } = build();
+      for (const host of [UI, INTERNAL]) {
+        const res = await app.fetch(req(host, "/public/runs"));
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ runs: [] });
+      }
+    });
+
+    it("leaves the gated routes gated", async () => {
+      const { app } = build();
+      expect((await app.fetch(req(UI, "/runs"))).status).toBe(401);
+      expect((await app.fetch(req(UI, "/discord/channels"))).status).toBe(401);
+    });
+
+    it("is not served on the webhook host", async () => {
+      const { app } = build();
+      expect((await app.fetch(req(HOOK, "/public/runs"))).status).toBe(404);
+    });
+
+    it("has no write route, gated or otherwise", async () => {
+      const { app } = build();
+      const res = await app.fetch(
+        req(UI, "/public/runs/r1/approve", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ decision: "allow" }),
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+  });
 });
 
 describe("approve route", () => {
