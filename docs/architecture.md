@@ -27,7 +27,7 @@ sandbox is thrown away afterwards.
 | **Cujo agent** | The parent reviewer: a language model, the review rubric as its instructions, a sandbox, subagents, and a GitHub tool. It sets up the sandbox, delegates the checks, merges the findings, and posts. |
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
-| **`sniff.py`** | The in-sandbox sensor script. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
+| **`sandbox/sniff.py`** | The in-sandbox sensor script. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
 | **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes: the Access-gated operator API, and an anonymous read-only `/public` group (decision 34). |
 | **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. It answers two hostnames from one container — the public read-only board and the Access-gated operator view — and tells them apart by the request's `Host`. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
@@ -237,6 +237,15 @@ The DNS records and the Access apps exist. Coolify routes
 the compose file on `main`, which `web` already satisfies.
 Configuration reaches the services as environment variables set in Coolify;
 `.env.example` lists every name.
+
+Merging to `main` is the deploy. Coolify watches the repository over a GitHub
+webhook and rebuilds on every push to `main`, so there is no separate release
+step. A variable edited in Coolify applies at the next deploy, not when it is
+saved, and the running container keeps serving until the new one replaces it. So
+between the merge and the swap the live service runs the pre-merge configuration
+against post-merge `main`, and anything that spans the two — a `main`-relative
+URL held in a variable, most of all — has to stay valid on both sides of it
+(decision 35).
 
 The Coolify control plane runs on a separate host (netcup) that never executes
 untrusted code.
