@@ -6,7 +6,7 @@ const auth = vi.hoisted(() => ({
 }));
 vi.mock("@cujo/gh-app-auth", () => auth);
 
-import { createGitHubClient, splitRepo } from "../src/github";
+import { GitHubError, createGitHubClient, splitRepo } from "../src/github";
 
 function fakeFetch(handler: (url: URL, init: RequestInit) => Response | Promise<Response>) {
   const calls: { url: URL; init: RequestInit }[] = [];
@@ -85,15 +85,38 @@ describe("createGitHubClient", () => {
     expect(calls).toHaveLength(2);
   });
 
-  it("surfaces the status and body of a failed call, and retries the lookup after a failure", async () => {
+  it("carries the status as a field, and retries the lookup after a failure", async () => {
     auth.getInstallationIdForRepo.mockClear();
     auth.getInstallationIdForRepo.mockRejectedValueOnce(new Error("no installation"));
     const { impl } = fakeFetch(() => json({ message: "Validation Failed" }, 422));
     const client = createGitHubClient({ appId: "1", privateKey: "pem", fetch: impl });
     await expect(client.listPullFiles("o/fail", 1)).rejects.toThrow("no installation");
-    await expect(client.listPullFiles("o/fail", 1)).rejects.toThrow(
-      "GitHub GET /repos/o/fail/pulls/1/files?per_page=100&page=1 failed: 422",
-    );
+    const error = await client.listPullFiles("o/fail", 1).catch((e: unknown) => e);
+    // A field, so `errorFields` can classify it and a caller can tell an
+    // expected 404 from an outage without a regular expression.
+    expect(error).toBeInstanceOf(GitHubError);
+    expect(error).toMatchObject({ status: 422, method: "GET" });
+    expect((error as GitHubError).path).toContain("/repos/o/fail/pulls/1/files");
     expect(auth.getInstallationIdForRepo).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes GitHub's own message and never the raw body", async () => {
+    // The body used to be interpolated whole, which is how an upstream payload
+    // that echoes a header back reaches a log line.
+    const { impl } = fakeFetch(() =>
+      json({ message: "Validation Failed", token: "ghs_leaked_value_here" }, 422),
+    );
+    const client = createGitHubClient({ appId: "1", privateKey: "pem", fetch: impl });
+    const error = await client.listPullFiles("o/r", 1).catch((e: unknown) => e);
+    expect((error as Error).message).toContain("Validation Failed");
+    expect((error as Error).message).not.toContain("ghs_leaked_value_here");
+  });
+
+  it("says nothing extra when the body is not GitHub's envelope", async () => {
+    const { impl } = fakeFetch(() => new Response("<html>502 Bad Gateway</html>", { status: 502 }));
+    const client = createGitHubClient({ appId: "1", privateKey: "pem", fetch: impl });
+    const error = await client.listPullFiles("o/r", 1).catch((e: unknown) => e);
+    expect((error as Error).message).not.toContain("html");
+    expect(error).toMatchObject({ status: 502 });
   });
 });
