@@ -40,6 +40,14 @@ export const MIGRATIONS: readonly string[] = [
   //     Every public read filters `is_public = 1`, so an unanswered row is
   //     excluded by the query rather than by a caller remembering to check.
   "ALTER TABLE runs ADD COLUMN is_public INTEGER",
+  // 3 — the `X-GitHub-Delivery` of the webhook that claimed the run
+  //     (decision 37). The request answers 202 and returns while the run
+  //     outlives it, and a rehydrate, a poll tick and an approve have no
+  //     request at all, so the correlation id has to be on the row rather
+  //     than in a variable. Nullable with no default: a run claimed before
+  //     this column existed genuinely has no delivery, which is not the same
+  //     fact as an empty one.
+  "ALTER TABLE runs ADD COLUMN delivery_id TEXT",
 ];
 
 const SCHEMA = `

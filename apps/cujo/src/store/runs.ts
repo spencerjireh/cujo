@@ -27,6 +27,7 @@ interface RunRow {
   approver: string | null;
   decided_at: string | null;
   is_public: number | null;
+  delivery_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +46,7 @@ function toRecord(row: RunRow): RunRecord {
     // The one place NULL collapses to false. A row written before the column
     // existed, or by a path that never learned the answer, is not public.
     isPublic: row.is_public === 1,
+    deliveryId: row.delivery_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -108,6 +110,12 @@ export class RunStore {
      * call site and silently mark real public runs private (decision 34).
      */
     isPublic: boolean;
+    /**
+     * The delivery that claimed it. Optional because only the webhook has one
+     * — a run created by a test or a future path legitimately has none, and
+     * `null` says so rather than pretending.
+     */
+    deliveryId?: string | null;
   }): { run: RunRecord; created: boolean } {
     const now = new Date().toISOString();
     const id = randomUUID();
@@ -120,8 +128,8 @@ export class RunStore {
     if (stale) this.deleteRun(stale.id);
     const result = this.db
       .prepare(
-        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, is_public, created_at, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?, ?)",
+        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, is_public, delivery_id, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?, ?, ?)",
       )
       .run(
         id,
@@ -130,6 +138,7 @@ export class RunStore {
         input.headSha,
         input.sessionId,
         input.isPublic ? 1 : 0,
+        input.deliveryId ?? null,
         now,
         now,
       );

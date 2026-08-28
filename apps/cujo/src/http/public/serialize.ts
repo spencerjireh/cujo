@@ -37,7 +37,7 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
 
 /**
  * Deliberately not read. `approver` and `decidedAt` name a person; `sessionId`
- * and `turnIds` are harness handles; `approval`, `decision`, `externalResume`
+ * and `turnIds` are harness handles and `deliveryId` is GitHub's; `approval`, `decision`, `externalResume`
  * and `gatedResponseSeen` are the state of a gate no anonymous visitor can
  * touch; `isPublic` is the filter itself and says nothing to a caller who only
  * ever sees rows where it is true.
@@ -45,6 +45,7 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
 export const WITHHELD_SOURCE_FIELDS: readonly SourceField[] = [
   "sessionId",
   "turnIds",
+  "deliveryId",
   "approver",
   "decidedAt",
   "isPublic",
