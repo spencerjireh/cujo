@@ -383,6 +383,15 @@ records as its own before any event arrives. On `allow` the blocking review post
 rubric says so explicitly, so a denied block never degrades into an advisory
 review nobody asked for.
 
+The deny is not always a human's. The approval is outstanding on the session
+rather than on the turn that raised it, and while one is pending TrueForge
+refuses every later user message on the thread, so a block nobody will decide
+has to be answered before the pull request can be reviewed again. `apps/cujo`
+sends that deny itself when a newer head supersedes the run, and once more as a
+retry if a turn cannot be started at all; the reason it sends says the commit
+was replaced, not that an operator rejected the block, and the run stays
+`superseded` with no approver (decision 39).
+
 The review body carries the findings, the signals behind them, and the
 execution summary, so the human confirms a judgment rather than reconstructing
 it.
@@ -443,7 +452,7 @@ Status moves on events from the session's turn streams, with one exception
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
 | `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). |
-| `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. |
+| `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. A run that was waiting on a human also has its approval denied, so the session can take the newer head's turn (decision 39). |
 
 One run, one turn chain. Every run on a PR shares the PR's session, so a run
 records the id of each turn it creates (`createTurn`, then `subscribeToTurn`)

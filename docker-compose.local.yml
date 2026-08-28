@@ -38,6 +38,11 @@ services:
       CUJO_WEBHOOK_HOST: cujo-ingress.localhost
       # No Cloudflare Access locally; the process logs a warning on start.
       CUJO_DEV_NO_ACCESS: '1'
+      # Only here, never in the base file: the deploy runs at the default
+      # `info`, and the lines this reaches down for — the public stream's
+      # open and close, an ignored webhook — are debug precisely because
+      # they are not worth their volume in production (decision 37).
+      CUJO_LOG_LEVEL: ${CUJO_LOG_LEVEL:-info}
       # Run links in a Discord card. A public run points at the board, anything
       # else at the operator UI; both are `web` on this one port locally, told
       # apart by Host (decision 34).

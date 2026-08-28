@@ -425,6 +425,29 @@ describe("the webhook logs every branch it takes", () => {
     });
   });
 
+  it("answers 502 and says why when the session cannot be created", async () => {
+    // Found by driving the real stack: TrueForge refused the model, the
+    // exception escaped the handler, and the only record was a stack trace on
+    // stderr carrying the whole upstream response body — unstructured, and the
+    // one thing the standard says never to put in a message.
+    const { app, logged } = build({
+      createSession: async () => {
+        throw new Error('Unknown model "x/y" - provider not configured');
+      },
+    });
+    const response = await app.fetch(post(prBody()));
+    expect(response.status).toBe(502);
+    expect(logged("webhook.failed")[0]).toMatchObject({
+      level: "error",
+      reason: "session_create_failed",
+      repo: "o/r",
+      pr_number: 7,
+      error_kind: "error",
+    });
+    // Nothing was claimed, so a redelivery can still take the head.
+    expect(logged("webhook.accepted")).toEqual([]);
+  });
+
   it("records a duplicate delivery against the run that already owns the head", async () => {
     const { app, logged, nextSettled } = build();
     const first = nextSettled();

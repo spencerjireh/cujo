@@ -10,7 +10,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Logger } from "@cujo/log";
+import { type Logger, errorFields } from "@cujo/log";
 import { type Context, Hono } from "hono";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
@@ -162,7 +162,26 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     let sessionId = deps.store.getSession(repo, prNumber);
     const sessionCreated = !sessionId;
     if (!sessionId) {
-      sessionId = deps.store.putSession(repo, prNumber, await deps.createSession(repo, prNumber));
+      // Guarded because this is the one call here that reaches another
+      // service. Unguarded it escaped the handler, and the only record was a
+      // stack trace on stderr carrying the whole TrueForge response body:
+      // unstructured, unqueryable, and the one thing the standard says never
+      // to put in a message. A 502 also tells the truth a 500 did not — the
+      // failure is upstream, and a redelivery is worth trying.
+      let created: string;
+      try {
+        created = await deps.createSession(repo, prNumber);
+      } catch (error) {
+        log.error("webhook.failed", {
+          repo,
+          pr_number: prNumber,
+          head_sha: headSha,
+          reason: "session_create_failed",
+          ...errorFields(error),
+        });
+        return c.json({ ok: false, error: "could not start a session" }, 502);
+      }
+      sessionId = deps.store.putSession(repo, prNumber, created);
     }
     const { run, created } = deps.store.createRun({
       repo,

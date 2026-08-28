@@ -8,6 +8,17 @@ export type TurnCreatedEvent = TrueForgeApi.TurnCreatedEvent;
 export type TurnDoneEvent = TrueForgeApi.TurnDoneEvent;
 export type ToolApprovalRequiredEvent = TrueForgeApi.ToolApprovalRequiredEvent;
 
+/** A human looked at the drafted block and said no. */
+export const OPERATOR_DENY_REASON = "Rejected by a Cujo operator. Post nothing and stop.";
+
+/**
+ * Nobody said no. The approval is answered only so the session can take
+ * another turn (decision 39); the commit the block described is no longer the
+ * head, so there is nothing left to post about it.
+ */
+export const STALE_DENY_REASON =
+  "Superseded: a newer commit replaced the review this block belongs to. Post nothing and end your turn.";
+
 /** Minutes of idle before Daytona stops a sandbox: the turn timeout plus slack. */
 export function sandboxAutoStopMinutes(turnTimeoutMs: number): number {
   return Math.ceil(turnTimeoutMs / 60_000) + 15;
@@ -160,11 +171,16 @@ export class Harness {
     return this.createTurn(sessionId, [{ type: "user.message", content: message }]);
   }
 
-  /** Contract 4: one send answers the pending approval and starts a new turn. */
+  /**
+   * Contract 4: one send answers the pending approval and starts a new turn.
+   * The deny reason reaches the model, which `agent/SKILL.md` tells to end the
+   * turn saying the block was denied, so it must say who denied it and why.
+   */
   resume(
     sessionId: string,
     approval: { threadId: string; toolCallId: string },
     decision: "allow" | "deny",
+    denyReason: string = OPERATOR_DENY_REASON,
   ): Promise<string> {
     return this.createTurn(sessionId, [
       {
@@ -172,9 +188,7 @@ export class Harness {
         threadId: approval.threadId,
         toolCallId: approval.toolCallId,
         approval:
-          decision === "allow"
-            ? { status: "allow" }
-            : { status: "deny", reason: "Rejected by a Cujo operator. Post nothing and stop." },
+          decision === "allow" ? { status: "allow" } : { status: "deny", reason: denyReason },
       },
     ]);
   }

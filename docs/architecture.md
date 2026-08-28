@@ -162,6 +162,8 @@ On Reject, step 14 sends `deny`; the agent posts nothing and the run ends
 instead, which is not gated, and steps 8 to 14 do not happen. If a new head
 is pushed while a run is still going, that run ends `superseded` and the new
 head gets its own run on the same session; only the newest head is reviewed.
+Superseding a run that was waiting on a human also answers its approval, since
+the session refuses the new head's turn while one is pending (decision 39).
 
 ## End-to-end flow
 
