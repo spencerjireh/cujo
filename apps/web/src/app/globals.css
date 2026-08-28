@@ -1,0 +1,135 @@
+@import "tailwindcss";
+/* Imported after Tailwind so the brand values win wherever a name collides
+   (--text-*, --radius-*). brand/tokens.css is the only place a hex literal
+   lives; nothing below restates one. */
+@import "@cujo/brand/tokens.css";
+
+@source "../";
+
+/* `@theme inline` emits the right-hand side verbatim into each utility, so
+   `bg-bg` compiles to `background-color: var(--bg)` and picks up whichever of
+   the three token states is active (system dark, [data-theme="dark"],
+   [data-theme="light"]). A plain `@theme` would resolve the value here and
+   freeze the light palette into every utility. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-fg: var(--accent-fg);
+
+  --color-sev-critical: var(--sev-critical);
+  --color-sev-critical-bg: var(--sev-critical-bg);
+  --color-sev-high: var(--sev-high);
+  --color-sev-high-bg: var(--sev-high-bg);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-medium-bg: var(--sev-medium-bg);
+  --color-sev-low: var(--sev-low);
+  --color-sev-low-bg: var(--sev-low-bg);
+  --color-sev-info: var(--sev-info);
+  --color-sev-info-bg: var(--sev-info-bg);
+
+  /* next/font publishes --font-*-src; the indirection avoids a specificity tie
+     with tokens.css, which declares --font-display on :root at the same weight. */
+  --font-display: var(--font-display-src), "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-mono-src), "SF Mono", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The UI is a log of what ran, so evidence type is the default and the
+     display face is reserved for headings. brand/brand.md, "Type". */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* The review body is sanitized agent markdown, so it arrives as bare tags with
+   no classes to target. Styling it here keeps that one blob consistent with the
+   rest of the page without reaching for a prose plugin. */
+.cujo-prose > * + * {
+  margin-top: 0.75em;
+}
+.cujo-prose h1,
+.cujo-prose h2,
+.cujo-prose h3 {
+  font-size: 1rem;
+  margin-top: 1.25em;
+}
+.cujo-prose code {
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  padding: 0.1em 0.35em;
+}
+.cujo-prose pre {
+  background: var(--bg-raised);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+}
+.cujo-prose pre code {
+  background: none;
+  padding: 0;
+}
+.cujo-prose ul,
+.cujo-prose ol {
+  padding-left: 1.25rem;
+}
+.cujo-prose ul {
+  list-style: disc;
+}
+.cujo-prose ol {
+  list-style: decimal;
+}
+.cujo-prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cujo-prose blockquote {
+  border-left: 2px solid var(--line);
+  color: var(--fg-muted);
+  padding-left: 0.75rem;
+}
+.cujo-prose table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.cujo-prose th,
+.cujo-prose td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.35rem 0.75rem 0.35rem 0;
+  text-align: left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

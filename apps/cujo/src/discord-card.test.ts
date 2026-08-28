@@ -243,9 +243,20 @@ describe("buildRunCard", () => {
       projection: projection({
         status: "clean",
         checks: [
-          { threadId: "a", title: "tests", isCheck: true, status: "done", report: {}, error: null },
+          {
+            threadId: "a",
+            title: "tests",
+            isCheck: true,
+            status: "done",
+            report: {},
+            error: null,
+            startedAt: null,
+            endedAt: null,
+          },
           {
             threadId: "b",
+            startedAt: null,
+            endedAt: null,
             title: "**pwned**",
             isCheck: false,
             status: "done",
