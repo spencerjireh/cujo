@@ -89,6 +89,7 @@ export function build(
       streamLimit: overrides.streamLimit ?? 200,
     },
     webhook: {
+      log,
       secret: "s3",
       github,
       store: store.runs,

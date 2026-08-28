@@ -66,6 +66,7 @@ const claim = (headSha = "h") => ({
   headSha,
   sessionId: "s",
   isPublic: true,
+  deliveryId: null,
 });
 
 function run(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -76,6 +77,7 @@ function run(overrides: Partial<RunRecord> = {}): RunRecord {
     headSha: "h",
     sessionId: "s",
     turnIds: [],
+    deliveryId: null,
     status: "running",
     approver: null,
     decidedAt: null,

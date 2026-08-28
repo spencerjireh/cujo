@@ -40,6 +40,7 @@ describe("webhook", () => {
       },
       public: { runs: store.runs, runner, streamLimit: 200 },
       webhook: {
+        log: createLogger({ service: "cujo", sink: () => {} }),
         secret: "s3",
         github: {} as GitHubReader,
         store: store.runs,
