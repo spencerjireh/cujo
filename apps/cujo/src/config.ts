@@ -50,6 +50,12 @@ export interface Config {
   publicStreamLimit: number;
   /** How often to re-ask GitHub whether each repo with a run is still public. */
   visibilityRecheckMs: number;
+  /**
+   * Does Cujo react on the pull requests it reviews (decision 38)? On unless
+   * `CUJO_PR_REACTIONS=0`. A kill switch, because this is the one thing
+   * `apps/cujo` writes to a stranger's repository.
+   */
+  prReactions: boolean;
   devNoAccess: boolean;
   bootstrap: {
     modelProvider: {
@@ -123,6 +129,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
     // 0 disables the sweep; the webhook still carries a flip in seconds.
     visibilityRecheckMs: count(env.CUJO_VISIBILITY_RECHECK_MS, 15 * 60 * 1000, { zeroOk: true }),
+    // Only an explicit "0" turns it off, so an unset or misspelt value keeps
+    // the pull request answering rather than going quiet without saying why.
+    prReactions: env.CUJO_PR_REACTIONS !== "0",
     devNoAccess,
     bootstrap: {
       modelProvider:
