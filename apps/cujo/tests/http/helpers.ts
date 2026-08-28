@@ -40,7 +40,12 @@ export const prOf = (headSha: string) => ({
 });
 
 export function build(
-  overrides: Partial<{ runner: Runner; github: GitHubReader; interactions: boolean }> = {},
+  overrides: Partial<{
+    runner: Runner;
+    github: GitHubReader;
+    interactions: boolean;
+    streamLimit: number;
+  }> = {},
 ) {
   const store = new Store(":memory:");
   const runner = overrides.runner ?? fakeRunner(store);
@@ -62,6 +67,11 @@ export function build(
       notifications: store.notifications,
       runner,
       verify: async (t) => (t === "good" ? "op@example.com" : null),
+    },
+    public: {
+      runs: store.runs,
+      runner,
+      streamLimit: overrides.streamLimit ?? 200,
     },
     webhook: {
       secret: "s3",

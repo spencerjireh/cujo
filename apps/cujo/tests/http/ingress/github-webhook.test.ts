@@ -36,6 +36,7 @@ describe("webhook", () => {
         runner,
         verify: async () => null,
       },
+      public: { runs: store.runs, runner, streamLimit: 200 },
       webhook: {
         secret: "s3",
         github: {} as GitHubReader,

@@ -100,6 +100,11 @@ async function main(): Promise<void> {
       github,
       ...(discord ? { discord } : {}),
     },
+    public: {
+      runs: store.runs,
+      runner,
+      streamLimit: config.publicStreamLimit,
+    },
     webhook: {
       secret: config.githubWebhookSecret,
       github,
