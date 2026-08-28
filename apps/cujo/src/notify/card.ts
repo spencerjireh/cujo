@@ -10,31 +10,9 @@
  * embed budget — and no derived string is ever written into a URL field.
  */
 
+import type { DiscordEmbed, DiscordEmbedField, DiscordMessagePayload } from "../clients/discord";
 import { CHECK_NAMES } from "../review/types";
 import type { Finding, Projection, RunRecord, RunStatus } from "../review/types";
-
-export interface DiscordEmbedField {
-  name: string;
-  value: string;
-  inline?: boolean;
-}
-
-export interface DiscordEmbed {
-  title?: string;
-  description?: string;
-  url?: string;
-  color?: number;
-  fields?: DiscordEmbedField[];
-  footer?: { text: string };
-  timestamp?: string;
-}
-
-export interface DiscordMessagePayload {
-  content?: string;
-  embeds?: DiscordEmbed[];
-  /** Always present. `parse: []` is what stops a PR titled `@everyone`. */
-  allowed_mentions: { parse: string[]; roles?: string[] };
-}
 
 /** Discord's documented maxima (docs.discord.com, read 2026-08-27). */
 export const LIMITS = {

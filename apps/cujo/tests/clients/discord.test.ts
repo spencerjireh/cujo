@@ -8,7 +8,7 @@ import {
   effectivePermissions,
   hasPermissions,
 } from "../../src/clients/discord";
-import type { DiscordMessagePayload } from "../../src/notify/card";
+import type { DiscordMessagePayload } from "../../src/clients/discord";
 
 const TOKEN = "bot-token-do-not-log";
 
