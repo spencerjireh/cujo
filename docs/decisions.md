@@ -925,3 +925,83 @@ Known limit: the footer is a permalink to a page whose visibility can change. A
 repo made private after a review leaves a live GitHub comment pointing at a URL
 that now 404s. That is the correct answer — the page is gone — but the link
 stays in the comment, and nothing in this decision can retract it.
+
+## 37. Logging is a closed vocabulary on stdout, and readiness is not liveness
+
+The happy path used to be invisible in Coolify: every `console.error` covered a
+failure and nothing recorded that a webhook arrived, a run was claimed, or a
+turn reached a terminal status. Two changes fixed the visibility — a Standards
+bullet saying to promote a stray `console.log` to `console.info`, and a pass
+that added lifecycle lines across the critical path. That was the right instinct
+at the wrong unit, and **this decision reverses that Standards bullet.** The
+lines it produced are prose: `run abc123: status → clean`. Asking how many runs
+blocked last week, or which delivery started this run, means a regular
+expression over English that the next PR is free to reword. Everything that pass
+made visible stays visible here; only the unit changes.
+
+Logs are structured events on stdout, one JSON object per line, through
+`@cujo/log`. No sink, no collector, no OpenTelemetry. Docker already captures
+stdout and Coolify already shows it, and a collector is a service to run, back
+up and secure for a system whose per-run detail is already durable — the fold
+persists every projection and the UI renders it (18). What was missing was
+service-level, not run-level, and stdout answers that.
+
+**The message is an event name from a closed set.** `log.info` takes a name from
+`EVENT_NAMES` and a bag of fields; there is no free-text argument. A name is
+greppable and countable without parsing, which is what an audit trail needs, and
+a closed set can be checked: a test scans the source for emit calls and fails on
+a name that is not declared, *and* on a declared name that nothing emits, since a
+vocabulary with dead entries is fiction. That test reads source files, the way
+the public plane's import guard does and for the same reason — no linter
+expresses the rule. `console` is then banned outright by `noConsole`, which is
+what stops the vocabulary being bypassed by the older habit.
+
+**Fields are an allowlist of scalars.** A name not in `FIELD_NAMES` is dropped at
+emit and its name — never its value — is reported under `dropped_fields`, and
+every name must be classified before it compiles. The value type is
+`string | number | boolean | null`, so an object, an `Error`, or the `Config`
+cannot be passed at all. That is the point: this process holds the App private
+key, the webhook secret and the bot token, and the way a logger leaks is that
+somebody spreads a wide object into a call. The same reasoning already shaped
+`agent-spec.ts`, which takes the two fields it needs rather than a config, so a
+future spread is a compile error instead of a leak. A pattern scrubber over every
+string value is the second layer, not the first. `github-mcp` was interpolating
+GitHub's raw response body into an error message that reached the logs; that is
+the concrete form of the hazard, and fixing it belongs to this change.
+
+Rejected: handing the logger the secrets to redact by exact match. It is more
+precise than patterns, and it makes a bug in the logging path a total
+disclosure. The logger is given nothing to lose.
+
+**`/healthz` does not learn anything; `/readyz` is new.** The tempting fix was to
+have the existing endpoint report whether the harness had bootstrapped, since a
+green healthcheck sits today on a process whose webhook may have answered `503`
+since boot. That would restart-loop the container. `/healthz` is the compose
+healthcheck on a roughly sixty-second budget, `bootstrapUntilReady` backs off to
+a minute and retries forever, and `web` starts only once `cujo` is healthy — so
+readiness in `healthz` would kill the container exactly when the retry schedule
+is being patient, and take the UI down with it. `/healthz` stays a liveness probe
+with the body it already has; `/readyz` answers `200` or `503` and carries the
+same harness flag the webhook itself gates on, a store ping, and the public
+stream count. Only `cujo` gets one: `github-mcp` is stateless per request, so its
+readiness *is* its liveness, and a second name for one fact is how a health
+endpoint starts lying.
+
+**A run carries the delivery that started it.** The correlation id is `ray` —
+Cloudflare's `cf-ray`, or GitHub's `x-github-delivery` on the webhook plane,
+which wins there because it is the value you redeliver from. But the request
+answers `202` and returns while the run outlives it, and a rehydrate, a poll tick
+and an approve have no request at all. So the delivery id is a column on `runs`
+(appended to `MIGRATIONS`, per 25 and 30) and every run event carries it, across
+restarts. It is a GitHub-side handle, so the public serializer withholds it
+alongside `sessionId` and `turnIds`.
+
+Rejected: correlating background work by run id alone. It works for a human with
+a log search and breaks the moment anything wants to join a delivery to its
+outcome, which is the one question the audit trail exists to answer.
+
+Known limit: the vocabulary scan sees a literal first argument on a receiver
+named `log` or `logger`, and nothing else. A computed name is already a type
+error, since the parameter is a union of string literals, so the scan and the
+compiler cover each other's gap — but neither alone is sufficient, and a third
+way of reaching the logger would escape both.

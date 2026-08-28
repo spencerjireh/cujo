@@ -94,9 +94,12 @@ into Qodo's `best_practices.md` so the file and the bot check the same things.
   boundary before trusting the type.
 - A PR that changes behavior ships a test, or states why not. A PR that changes
   how something works updates the relevant file in `docs/`.
-- Use `console.error` and `console.warn` for real errors and warnings.
-  `console.log` is usually leftover debugging — remove it or promote it to
-  `console.info` with enough context for Coolify logs.
+- Log through `@cujo/log`, never `console.*` — `noConsole` enforces it. A call is
+  an event name from the closed vocabulary in `EVENT_NAMES` plus allowlisted
+  scalar fields; adding a field means declaring and classifying it, and the build
+  fails until you do. Never pass an `Error`, a config object, or any other object
+  as a field value, and never interpolate an upstream response body into a
+  message (see [docs/decisions.md](docs/decisions.md) 37).
 
 ## Tests
 
