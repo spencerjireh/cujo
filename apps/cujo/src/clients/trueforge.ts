@@ -13,7 +13,7 @@ export const OPERATOR_DENY_REASON = "Rejected by a Cujo operator. Post nothing a
 
 /**
  * Nobody said no. The approval is answered only so the session can take
- * another turn (decision 37); the commit the block described is no longer the
+ * another turn (decision 39); the commit the block described is no longer the
  * head, so there is nothing left to post about it.
  */
 export const STALE_DENY_REASON =

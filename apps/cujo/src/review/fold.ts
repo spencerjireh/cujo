@@ -279,7 +279,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
  *
  * The question matters because an approval is outstanding on the session, not
  * on the turn that requested it: while one is pending, TrueForge refuses every
- * later user message on the thread (decision 37).
+ * later user message on the thread (decision 39).
  */
 export function pendingApproval(events: readonly Event[]): PendingApproval | null {
   let candidate: PendingApproval | null = null;
