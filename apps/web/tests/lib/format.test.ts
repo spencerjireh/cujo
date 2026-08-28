@@ -1,5 +1,5 @@
+import { bytes, duration, elapsedMs, prUrl, relativeTime, shortSha } from "@/lib/format";
 import { describe, expect, it } from "vitest";
-import { bytes, duration, elapsedMs, prUrl, relativeTime, shortSha } from "./format";
 
 describe("duration", () => {
   it("formats minutes and seconds", () => {

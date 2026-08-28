@@ -1,11 +1,18 @@
+import {
+  CHECK_NAMES,
+  RUN_STATUSES,
+  SEVERITIES,
+  canDecide,
+  isLive,
+  reviewPosted,
+} from "@/lib/api/types";
+import type { CheckState, Finding, Run } from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
 import { CHECK_NAMES as CUJO_CHECK_NAMES } from "../../../../cujo/src/types";
 import type {
   CheckState as CujoCheckState,
   Finding as CujoFinding,
 } from "../../../../cujo/src/types";
-import { CHECK_NAMES, RUN_STATUSES, SEVERITIES, canDecide, isLive, reviewPosted } from "./types";
-import type { CheckState, Finding, Run } from "./types";
 
 /**
  * apps/web mirrors the wire types by hand rather than importing the cujo app,

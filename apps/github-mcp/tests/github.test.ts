@@ -6,7 +6,7 @@ const auth = vi.hoisted(() => ({
 }));
 vi.mock("@cujo/gh-app-auth", () => auth);
 
-import { createGitHubClient, splitRepo } from "./github";
+import { createGitHubClient, splitRepo } from "../src/github";
 
 function fakeFetch(handler: (url: URL, init: RequestInit) => Response | Promise<Response>) {
   const calls: { url: URL; init: RequestInit }[] = [];

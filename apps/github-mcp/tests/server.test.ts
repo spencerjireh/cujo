@@ -2,8 +2,8 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CreateReviewInput, GitHubClient } from "./github";
-import { createApp } from "./server";
+import type { CreateReviewInput, GitHubClient } from "../src/github";
+import { createApp } from "../src/server";
 
 const PATCH = "@@ -1,2 +1,3 @@\n a\n+b\n c";
 

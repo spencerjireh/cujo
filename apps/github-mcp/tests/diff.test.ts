@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendMovedComments, parseDiffLines, validateAnchors } from "./diff";
+import { appendMovedComments, parseDiffLines, validateAnchors } from "../src/diff";
 
 const PATCH = [
   "@@ -10,4 +10,5 @@ def total(order):",
