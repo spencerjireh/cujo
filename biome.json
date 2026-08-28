@@ -17,12 +17,27 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "recommended": true,
+      "suspicious": {
+        "noConsole": "error"
+      }
     }
   },
   "javascript": {
     "formatter": {
       "quoteStyle": "double"
     }
-  }
+  },
+  "overrides": [
+    {
+      "include": ["**/tests/**", "brand/tools/**", "**/*.stories.tsx", "apps/web/.storybook/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ]
 }

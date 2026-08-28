@@ -49,11 +49,15 @@ export async function watch(
   // `expectGuildId`, because the option comes from this server's picker but a
   // request is a request: nothing stops a crafted one naming a channel
   // somewhere else.
-  const check = await checkChannel(deps.discord, {
-    channelId,
-    roleId: input.roleId,
-    expectGuildId: input.guildId,
-  });
+  const check = await checkChannel(
+    deps.discord,
+    {
+      channelId,
+      roleId: input.roleId,
+      expectGuildId: input.guildId,
+    },
+    deps.log,
+  );
   if (!check.ok) return refusalMessage(check.reason, channelId);
 
   // Re-checked here, not only at dispatch: the Discord round trips above are

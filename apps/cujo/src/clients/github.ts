@@ -4,6 +4,7 @@ import {
   getInstallationToken,
   normalisePrivateKey,
 } from "@cujo/gh-app-auth";
+import { type Logger, createLogger } from "@cujo/log";
 
 export interface PullRequestInfo {
   repo: string;
@@ -16,7 +17,8 @@ export interface PullRequestInfo {
   changedFiles: string[];
 }
 
-const BOT_LOGIN = "cujo-guard[bot]";
+/** The bot the App posts as. Shared with `github-reactions.ts`, so "ours" means one thing. */
+export const BOT_LOGIN = "cujo-guard[bot]";
 const API = "https://api.github.com";
 /** Long enough to survive a burst of autocomplete, short enough to notice a new install. */
 const REPO_CACHE_MS = 60_000;
@@ -44,8 +46,30 @@ export function parseDeclaredGuild(yaml: string): string | null {
 
 /**
  * The read side of the GitHub App: PR metadata, changed files, and the
- * idempotency check on existing reviews. Posting stays in github-mcp.
+ * idempotency check on existing reviews. Posting a review stays in github-mcp;
+ * the one write `apps/cujo` makes is the reaction in `github-reactions.ts`,
+ * which carries no content (decision 38).
  */
+/**
+ * A GitHub call that did not return 2xx.
+ *
+ * The status is a field, not text inside the message. It used to be
+ * interpolated — `GitHub ${path} returned ${status}` — which left every caller
+ * regexing English to find out whether a failure was an expected 404 or a real
+ * outage, and left `errorFields` unable to classify it at all. Modelled on
+ * `DiscordError`, which already carried its status this way.
+ */
+export class GitHubError extends Error {
+  constructor(
+    readonly status: number,
+    /** The API path, without the token or any query the caller added. */
+    readonly path: string,
+  ) {
+    super(`GitHub ${path} returned ${status}`);
+    this.name = "GitHubError";
+  }
+}
+
 export class GitHubReader {
   private readonly privateKey: string;
   private repoCache: { repos: string[]; expiresAt: number } | null = null;
@@ -56,6 +80,7 @@ export class GitHubReader {
     private readonly appId: string,
     privateKey: string,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly log: Logger = createLogger({ service: "cujo" }),
   ) {
     this.privateKey = normalisePrivateKey(privateKey);
   }
@@ -80,7 +105,7 @@ export class GitHubReader {
         "user-agent": "cujo",
       },
     });
-    if (!res.ok) throw new Error(`GitHub ${path} returned ${res.status}`);
+    if (!res.ok) throw new GitHubError(res.status, path);
     return (await res.json()) as T;
   }
 
@@ -123,7 +148,7 @@ export class GitHubReader {
         "user-agent": "cujo",
       },
     });
-    if (!res.ok) throw new Error(`GitHub ${path} returned ${res.status}`);
+    if (!res.ok) throw new GitHubError(res.status, path);
     return (await res.json()) as T;
   }
 
@@ -162,7 +187,7 @@ export class GitHubReader {
       );
       for (const installation of installations) await this.addRepos(installation.id, names);
       if (installations.length < 100) break;
-      if (page === MAX_PAGES) console.warn("github: stopped listing installations at the page cap");
+      if (page === MAX_PAGES) this.log.warn("github.page_cap", { path: "/app/installations" });
     }
     return [...names].sort();
   }
@@ -184,13 +209,13 @@ export class GitHubReader {
           },
         },
       );
-      if (!res.ok) throw new Error(`GitHub /installation/repositories returned ${res.status}`);
+      if (!res.ok) throw new GitHubError(res.status, "/installation/repositories");
       const body = (await res.json()) as { repositories: { full_name: string }[] };
       for (const repo of body.repositories) into.add(repo.full_name);
       if (body.repositories.length < 100) return;
       // A cap that stops silently reads as "that is all of them"; say so.
       if (page === MAX_PAGES) {
-        console.warn(`github: stopped listing installation ${installationId} at the page cap`);
+        this.log.warn("github.page_cap", { path: "/installation/repositories" });
       }
     }
   }
@@ -270,7 +295,7 @@ export class GitHubReader {
       },
     });
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`GitHub /repos/${repo}/contents/${path} returned ${res.status}`);
+    if (!res.ok) throw new GitHubError(res.status, `/repos/${repo}/contents/${path}`);
     return res.text();
   }
 

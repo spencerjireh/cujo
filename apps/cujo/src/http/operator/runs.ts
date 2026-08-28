@@ -95,8 +95,20 @@ export function runRoutes(deps: RunRoutesDeps): Hono<Env> {
     if (body.decision !== "allow" && body.decision !== "deny") {
       return c.json({ ok: false, error: "decision must be allow or deny" }, 400);
     }
-    const result = await deps.runner.approve(c.req.param("id"), body.decision, c.get("email"));
-    if (!result.ok) return c.json({ ok: false, error: result.reason }, 409);
+    const runId = c.req.param("id");
+    // The request, before its outcome. `approve.applied` is emitted by the
+    // runner once the resume lands, so the pair brackets the one action on
+    // this service a human takes with their own name on it.
+    c.get("log").info("approve.requested", {
+      run_id: runId,
+      decision: body.decision,
+      actor: c.get("email"),
+      request_ray: c.get("ray"),
+    });
+    const result = await deps.runner.approve(runId, body.decision, c.get("email"));
+    // `detail` keeps the wording the UI already shows; `reason` is the
+    // countable half and is what the log carries.
+    if (!result.ok) return c.json({ ok: false, error: result.detail, reason: result.reason }, 409);
     return c.json({ ok: true, decision: body.decision, approver: c.get("email") });
   });
 

@@ -10,6 +10,12 @@ const config: NextConfig = {
   // outputFileTracingRoot, which would drop the build at the repo root. An
   // explicit value resolves against this app, so the output stays beside it.
   distDir: ".next",
+  // `@cujo/log` is a raw-TypeScript workspace package (it has no build step,
+  // like `@cujo/gh-app-auth`), so Next has to compile it rather than treat it
+  // as a prebuilt dependency. Without this the route handlers below fail to
+  // build; with it the standalone tracer follows the hoisted symlink the way
+  // `outputFileTracingRoot` above already arranges for.
+  transpilePackages: ["@cujo/log"],
   poweredByHeader: false,
   reactStrictMode: true,
   // No `rewrites` for the API: rewrites are baked into routes-manifest.json at

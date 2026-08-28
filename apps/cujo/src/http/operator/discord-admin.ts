@@ -94,7 +94,7 @@ export function discordAdminRoutes(deps: DiscordAdminDeps): Hono<Env> {
 
     // Validate against Discord so a typo fails here rather than silently at
     // the first blocked run.
-    const check = await checkChannel(discord, { channelId, roleId: notifyRoleId });
+    const check = await checkChannel(discord, { channelId, roleId: notifyRoleId }, c.get("log"));
     if (!check.ok) return c.json({ ok: false, error: REFUSALS[check.reason] }, 400);
 
     const stored = deps.notifications.putDiscordChannel({

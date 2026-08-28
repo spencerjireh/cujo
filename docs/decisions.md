@@ -930,7 +930,197 @@ repo made private after a review leaves a live GitHub comment pointing at a URL
 that now 404s. That is the correct answer — the page is gone — but the link
 stays in the comment, and nothing in this decision can retract it.
 
-## 37. A superseded run answers its pending approval
+## 37. Logging is a closed vocabulary on stdout, and readiness is not liveness
+
+The happy path used to be invisible in Coolify: every `console.error` covered a
+failure and nothing recorded that a webhook arrived, a run was claimed, or a
+turn reached a terminal status. Two changes fixed the visibility — a Standards
+bullet saying to promote a stray `console.log` to `console.info`, and a pass
+that added lifecycle lines across the critical path. That was the right instinct
+at the wrong unit, and **this decision reverses that Standards bullet.** The
+lines it produced are prose: `run abc123: status → clean`. Asking how many runs
+blocked last week, or which delivery started this run, means a regular
+expression over English that the next PR is free to reword. Everything that pass
+made visible stays visible here; only the unit changes.
+
+Logs are structured events on stdout, one JSON object per line, through
+`@cujo/log`. No sink, no collector, no OpenTelemetry. Docker already captures
+stdout and Coolify already shows it, and a collector is a service to run, back
+up and secure for a system whose per-run detail is already durable — the fold
+persists every projection and the UI renders it (18). What was missing was
+service-level, not run-level, and stdout answers that.
+
+**The message is an event name from a closed set.** `log.info` takes a name from
+`EVENT_NAMES` and a bag of fields; there is no free-text argument. A name is
+greppable and countable without parsing, which is what an audit trail needs, and
+a closed set can be checked: a test scans the source for emit calls and fails on
+a name that is not declared, *and* on a declared name that nothing emits, since a
+vocabulary with dead entries is fiction. That test reads source files, the way
+the public plane's import guard does and for the same reason — no linter
+expresses the rule. `console` is then banned outright by `noConsole`, which is
+what stops the vocabulary being bypassed by the older habit.
+
+**Fields are an allowlist of scalars.** A name not in `FIELD_NAMES` is dropped at
+emit and its name — never its value — is reported under `dropped_fields`, and
+every name must be classified before it compiles. The value type is
+`string | number | boolean | null`, so an object, an `Error`, or the `Config`
+cannot be passed at all. That is the point: this process holds the App private
+key, the webhook secret and the bot token, and the way a logger leaks is that
+somebody spreads a wide object into a call. The same reasoning already shaped
+`agent-spec.ts`, which takes the two fields it needs rather than a config, so a
+future spread is a compile error instead of a leak. A pattern scrubber over every
+string value is the second layer, not the first. `github-mcp` was interpolating
+GitHub's raw response body into an error message that reached the logs; that is
+the concrete form of the hazard, and fixing it belongs to this change.
+
+Rejected: handing the logger the secrets to redact by exact match. It is more
+precise than patterns, and it makes a bug in the logging path a total
+disclosure. The logger is given nothing to lose.
+
+**`/healthz` does not learn anything; `/readyz` is new.** The tempting fix was to
+have the existing endpoint report whether the harness had bootstrapped, since a
+green healthcheck sits today on a process whose webhook may have answered `503`
+since boot. That would restart-loop the container. `/healthz` is the compose
+healthcheck on a roughly sixty-second budget, `bootstrapUntilReady` backs off to
+a minute and retries forever, and `web` starts only once `cujo` is healthy — so
+readiness in `healthz` would kill the container exactly when the retry schedule
+is being patient, and take the UI down with it. `/healthz` stays a liveness probe
+with the body it already has; `/readyz` carries the same harness flag the
+webhook itself gates on, a store ping, the public stream count, and a count of
+the log lines the process could not write, and answers `503` when *either* of
+the first two fails. The store belongs in that disjunction
+rather than in the body alone: a delivery calls `getSession`, `putSession` and
+`createRun` synchronously, so an unreachable store means no run can be claimed
+however healthy the harness is. Only `cujo` gets one: `github-mcp` is stateless
+per request, so its readiness *is* its liveness, and a second name for one fact
+is how a health endpoint starts lying.
+
+**A run carries the delivery that started it.** The correlation id is `ray` —
+Cloudflare's `cf-ray`, or GitHub's `x-github-delivery` on the webhook plane,
+which wins there because it is the value you redeliver from. But the request
+answers `202` and returns while the run outlives it, and a rehydrate, a poll tick
+and an approve have no request at all. So the delivery id is a column on `runs`
+(appended to `MIGRATIONS`, per 25 and 30) and every run event carries it, across
+restarts. It is a GitHub-side handle, so the public serializer withholds it
+alongside `sessionId` and `turnIds`.
+
+Rejected: correlating background work by run id alone. It works for a human with
+a log search and breaks the moment anything wants to join a delivery to its
+outcome, which is the one question the audit trail exists to answer.
+
+Known limit: the vocabulary scan sees a literal first argument on a receiver
+named `log` or `logger`, and nothing else. A computed name is already a type
+error, since the parameter is a union of string literals, so the scan and the
+compiler cover each other's gap — but neither alone is sufficient, and a third
+way of reaching the logger would escape both.
+
+## 38. `apps/cujo` may write a reaction; the gate is about reviews, not writes
+
+A pull request gave no sign that Cujo had seen it. Everything Cujo says it says
+elsewhere — a review at the end, a Discord card, a page on the board — so
+between the push and the review the pull request is silent for as long as a
+sandbox takes. That costs a reader an acknowledgement, and it costs an operator
+the one cheap signal that would say *where* a silent run stopped: the ingress,
+the signature, the session and the claim all happen before the agent does
+anything, and all of them were invisible. `apps/cujo` now reacts on the pull
+request as `cujo-guard[bot]` and moves that reaction with the run's status
+(Contract 9).
+
+**The invariant this appears to break is not the one that matters.** The rule
+was that `apps/cujo` reads GitHub and every write goes through `github-mcp`,
+where `post_blocking_review` is marked destructive and TrueForge's
+`@destructive` selector pauses for a human. But the thing being protected is
+that **nothing states a finding on a pull request without a human allowing it**.
+A reaction states no finding, carries no text, names no file, and approves
+nothing; the payload is one member of a closed set of eight emoji. Restated
+honestly the rule is about reviews, and it survives intact. Kept literally, it
+would have forced the acknowledgement onto the agent's own path — a third
+`github-mcp` tool — where it could only fire after the agent was already
+running, which is exactly the case nobody needs to debug.
+
+**Three facts were checked against the live App before any of this was
+designed**, and each one removed a piece of the build:
+
+- **`pull_requests: write` is enough.** The endpoint is
+  `POST /repos/{repo}/issues/{n}/reactions` and GitHub's docs name
+  `issues: write`, but a pull request target is accepted with the permission
+  the App already holds. So there is no permission change, and **no installation
+  has to re-approve** — which would have left every repo unreacted until someone
+  clicked, for a feature whose whole value is being immediate.
+- **The POST is idempotent**: the same content twice answers 200 rather than
+  201 and leaves one reaction. So "set the reaction" needs no read first and no
+  stored reaction id, and a restart simply re-applies and converges. That is
+  why this decision adds **no table and no migration** to a store that has to
+  migrate by hand (decision 30).
+- **Ours are identifiable from the list**, by `user.login` against the same
+  `BOT_LOGIN` that `alreadyReviewed` already trusts, so nothing has to be
+  remembered across a restart to know what to clear.
+
+**The reactions describe what happened to the pull request, not what Cujo
+concluded.** `denied` is a thumbs up: a human cleared the pull request to
+proceed, even though the critical finding stands. The alternative read it as
+Cujo's verdict and kept the thumbs down, which is more precise and less useful —
+the audience for a reaction is whoever opened the pull request, and the board
+and the Discord card both carry the precise version. `error` gets 😕 and shares
+it with nothing, so one glance separates "Cujo blocked this" from "Cujo broke".
+
+**One reaction, several runs: only a current run may write.** Reactions attach
+to the pull request and not to a head SHA, so every run on a pull request is
+writing to the same square inch, and delivery order is not commit order — the
+stale-head guard in `start-run.ts` exists precisely because an older head's
+delivery can arrive after a newer one's. The first draft acknowledged the run
+before that guard and mapped `superseded` back to 👀, and the two together were
+a hole: a delayed delivery for an older SHA would replace the current run's
+posted verdict with 👀, then settle as `superseded` — 👀 again — and nothing
+would ever restore it. The pull request would sit on a finished, clean review
+wearing an eye forever. Both halves are now closed. The eye is placed only after
+GitHub has confirmed this run's head is the pull request's head, and
+`superseded` writes nothing at all, because the run that replaced it is about to
+say what the pull request should show.
+
+Placing the acknowledgement after that confirmation costs one GitHub read of
+latency — a few hundred milliseconds — and buys back the property the whole
+feature is for: 👀 still means the ingress, the signature, the session and the
+claim all worked, and now means the PR read did too. It is a better signal, not
+a weaker one.
+
+**A failed call is retried, with backoff.** A terminal status is the last event
+a run produces, so "the next status change will fix it" is not true where it
+matters most: one transient GitHub failure on `clean` would leave the pull
+request wearing 👀 indefinitely. Two retries, abandoned the moment a newer status
+is queued behind — the ordering property doing its job rather than a second
+mechanism. And what the reactor holds in memory to collapse the per-event storm
+is bounded and evicts the least recently seen run: it lives as long as the
+process and sees every run, so an unbounded map was a slow leak with no ceiling.
+
+`CUJO_PR_REACTIONS=0` turns it off. This is the only thing `apps/cujo` writes
+into somebody else's repository, and a switch that does not need a code change
+is worth one line of config.
+
+Chosen over / Rejected: **a Check Run** (`Cujo / review`, with in-progress and
+completed states and a details link), which is the better product and stays on
+the list — it needs `Checks: write`, which *is* a new permission every
+installation must accept, and it is a much larger build than this; **a status
+comment edited in place**, which is louder than a review deserves, sends a
+notification on every status change, and clutters a thread Cujo is about to post
+a review into; **a third `github-mcp` tool**, rejected above; **reacting before
+either guard** in `start-run.ts`, covered above; and **keying the
+de-duplication on the run status**, where the claim and the first fold both want
+👀 and would make two identical calls — keying on the reaction set collapses
+them, and two statuses that look the same on the pull request genuinely have
+nothing to say to each other.
+
+Known limit: a reaction is per pull request, so a pull request with two runs in
+flight (a push landing mid-review) shows one state, the newer one. That is the
+correct answer and it is still lossy; the board and the Discord card are where
+per-run history lives. The residual case is narrow: a stale delivery whose
+`pullRequest()` read *fails* ends in `error`, and 😕 will land over a current
+run's verdict. It takes a delayed delivery and a transient GitHub failure at the
+same moment, it self-corrects on the next push, and closing it would mean
+teaching the reactor which run is newest for a pull request — a store query on
+the fold path to buy back an emoji.
+
+## 39. A superseded run answers its pending approval
 
 Decision 20 says a superseded run cancels its turn so it cannot post a review
 for a commit nobody is looking at. That was not enough, and the gap made the

@@ -6,6 +6,7 @@
  */
 
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { type Logger, createLogger, errorFields } from "@cujo/log";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { GitHubClient } from "./github";
@@ -13,6 +14,8 @@ import { registerReviewTools } from "./tools";
 
 export interface AppOptions {
   github: GitHubClient;
+  /** Structured output for this service (decision 37). */
+  log?: Logger;
   /**
    * The public board this deployment links reviews to (decision 36). Held here
    * rather than taken from the agent, so the review footer can only ever point
@@ -34,13 +37,14 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return text.length === 0 ? undefined : JSON.parse(text);
 }
 
-export function createMcpServer(github: GitHubClient, publicBaseUrl = ""): McpServer {
+export function createMcpServer(github: GitHubClient, publicBaseUrl = "", log?: Logger): McpServer {
   const server = new McpServer({ name: "cujo-github-mcp", version: "0.1.0" });
-  registerReviewTools(server, github, publicBaseUrl);
+  registerReviewTools(server, github, publicBaseUrl, log);
   return server;
 }
 
 export function createApp(options: AppOptions) {
+  const log = options.log ?? createLogger({ service: "github-mcp" });
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
@@ -54,7 +58,7 @@ export function createApp(options: AppOptions) {
       return;
     }
 
-    const mcp = createMcpServer(options.github, options.publicBaseUrl ?? "");
+    const mcp = createMcpServer(options.github, options.publicBaseUrl ?? "", log);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();
@@ -65,7 +69,10 @@ export function createApp(options: AppOptions) {
       const body = req.method === "POST" ? await readBody(req) : undefined;
       await transport.handleRequest(req, res, body);
     } catch (error) {
-      console.error("mcp request failed", error);
+      // The transport-level backstop. `review.failed` in tools.ts is the
+      // line that names the repo and the PR; this one only knows that a
+      // request died before the tool could say anything about it.
+      log.error("mcp.request.failed", { path: url.pathname, ...errorFields(error) });
       if (!res.headersSent) {
         json(res, 500, {
           jsonrpc: "2.0",

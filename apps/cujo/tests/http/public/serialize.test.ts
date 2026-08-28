@@ -39,6 +39,7 @@ const EVERY_RUN_FIELD: Record<keyof RunRecord, true> = {
   approver: true,
   decidedAt: true,
   isPublic: true,
+  deliveryId: true,
   createdAt: true,
   updatedAt: true,
 };
@@ -72,6 +73,7 @@ describe("the public field allowlist", () => {
     expect(WITHHELD_SOURCE_FIELDS).toContain("approver");
     expect(WITHHELD_SOURCE_FIELDS).toContain("decidedAt");
     expect(WITHHELD_SOURCE_FIELDS).toContain("sessionId");
+    expect(WITHHELD_SOURCE_FIELDS).toContain("deliveryId");
     expect(WITHHELD_SOURCE_FIELDS).toContain("turnIds");
     expect(WITHHELD_SOURCE_FIELDS).toContain("approval");
   });
@@ -93,6 +95,7 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
     approver: "SENTINEL_approver",
     decidedAt: "SENTINEL_decidedAt",
     isPublic: true,
+    deliveryId: "SENTINEL_deliveryId",
     createdAt: "SENTINEL_createdAt",
     updatedAt: "SENTINEL_updatedAt",
   };
@@ -162,6 +165,8 @@ describe("serializePublicRun", () => {
       "SENTINEL_decidedAt",
       "SENTINEL_sessionId",
       "SENTINEL_turnIds",
+      // A GitHub-side handle, the same class as the two above.
+      "SENTINEL_deliveryId",
       "SENTINEL_projectionTurnIds",
       "SENTINEL_approvalThreadId",
       "SENTINEL_approvalToolCallId",

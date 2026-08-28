@@ -32,8 +32,21 @@ export function operatorRoutes(deps: OperatorDeps): Hono<Env> {
   const app = new Hono<Env>();
 
   app.use("*", async (c, next) => {
-    const email = await deps.verify(c.req.header("cf-access-jwt-assertion"));
-    if (!email) return c.json({ ok: false, error: "unauthorized" }, 401);
+    const { email, reason } = await deps.verify(c.req.header("cf-access-jwt-assertion"));
+    if (!email) {
+      // The caller still gets a bare 401 — naming the failing check tells a
+      // stranger how to pass it. The reason goes to the log, where the
+      // operator debugging their own login can read it.
+      //
+      // Never the assertion itself, and never an email lifted from it: on a
+      // failed verification nothing in that token has been checked, so every
+      // claim in it is attacker-supplied.
+      c.get("log").warn("access.denied", {
+        path: new URL(c.req.url).pathname,
+        reason: reason ?? "malformed",
+      });
+      return c.json({ ok: false, error: "unauthorized" }, 401);
+    }
     c.set("email", email);
     await next();
   });

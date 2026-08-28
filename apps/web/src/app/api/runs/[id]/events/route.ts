@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { CUJO_API_URL } from "@/lib/api/client";
+import { streamOutcome, streamStatus } from "@/lib/api/upstream";
+import { log } from "@/lib/log";
+import { errorFields } from "@cujo/log";
 import { headers } from "next/headers";
 
 /**
@@ -20,19 +24,41 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const incoming = await headers();
   const assertion = incoming.get("cf-access-jwt-assertion");
   const host = incoming.get("host");
+  const ray = incoming.get("cf-ray") ?? `cujo-${randomUUID()}`;
 
-  const upstream = await fetch(`${CUJO_API_URL()}/runs/${encodeURIComponent(id)}/events`, {
-    headers: {
-      accept: "text/event-stream",
-      ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}),
-      ...(host ? { "x-forwarded-host": host, "x-forwarded-proto": "https" } : {}),
-    },
-    cache: "no-store",
-    signal: request.signal,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${CUJO_API_URL()}/runs/${encodeURIComponent(id)}/events`, {
+      headers: {
+        accept: "text/event-stream",
+        "cf-ray": ray,
+        ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}),
+        ...(host ? { "x-forwarded-host": host, "x-forwarded-proto": "https" } : {}),
+      },
+      cache: "no-store",
+      signal: request.signal,
+    });
+  } catch (error) {
+    // A browser closing the stream aborts this fetch, which is the normal end
+    // of every run page and not a failure worth a line.
+    if (request.signal.aborted) return new Response(null, { status: 499 });
+    log.error("proxy.stream.failed", { run_id: id, mode: "operator", ray, ...errorFields(error) });
+    return new Response(null, { status: 502 });
+  }
 
   if (!upstream.ok || !upstream.body) {
-    return new Response(null, { status: upstream.status === 200 ? 502 : upstream.status });
+    // Written as two branches with the names spelled out, rather than
+    // `log[level](event, …)`. The event name is the vocabulary's whole
+    // enforcement surface: the guard test scans the source for these literals
+    // and fails on a declared name nothing emits, and a computed call is
+    // invisible to it — this one was, until the scan said so.
+    const fields = { run_id: id, mode: "operator", ray, http_status: upstream.status };
+    if (streamOutcome(upstream.status, upstream.ok, "operator").event === "proxy.stream.degraded") {
+      log.warn("proxy.stream.degraded", { ...fields, reason: "stream_limit" });
+    } else {
+      log.error("proxy.stream.failed", fields);
+    }
+    return new Response(null, { status: streamStatus(upstream.status) });
   }
 
   return new Response(upstream.body, {

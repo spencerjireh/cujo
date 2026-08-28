@@ -4,6 +4,7 @@
  * TrueForge's `@destructive` approval selector keys on.
  */
 
+import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { appendRunFooter } from "./body";
@@ -80,26 +81,69 @@ export async function postReview(
   event: "COMMENT" | "REQUEST_CHANGES",
   input: ReviewInput,
   publicBaseUrl = "",
+  log: Logger = createLogger({ service: "github-mcp" }),
 ): Promise<ReviewResult> {
-  const files = await github.listPullFiles(input.repo, input.pr_number);
-  const { inline, moved } = validateAnchors(files, input.comments);
-  const review = await github.createReview(input.repo, input.pr_number, {
-    commitId: input.head_sha,
-    event,
-    // Outward-in: the footer is last, so it sits below the findings that lost
-    // their diff anchor rather than between them and the body (decision 36).
-    body: appendRunFooter(appendMovedComments(input.body, moved), publicBaseUrl, input.run_id),
-    comments: inline,
-  });
-  console.info(
-    `review posted: ${input.repo} #${input.pr_number} ${event} (review_id=${review.id}, inline=${inline.length}, moved=${moved.length})`,
-  );
-  return {
-    review_id: review.id,
-    html_url: review.html_url,
-    posted_inline: inline.length,
-    moved_to_body: moved.length,
-  };
+  const tool = event === "REQUEST_CHANGES" ? "post_blocking_review" : "post_advisory_review";
+  try {
+    return await post();
+  } catch (error) {
+    // The one outward write this system makes, and the case that mattered
+    // most was the one with no line at all: a failed file listing, a rejected
+    // anchor set or a refused review left `server.ts`'s transport catch as the
+    // only record, and that one knows neither the repo nor the pull request.
+    log.error("review.failed", {
+      repo: input.repo,
+      pr_number: input.pr_number,
+      head_sha: input.head_sha,
+      tool,
+      ...errorFields(error),
+    });
+    throw error;
+  }
+
+  async function post(): Promise<ReviewResult> {
+    const files = await github.listPullFiles(input.repo, input.pr_number);
+    const { inline, moved } = validateAnchors(files, input.comments);
+    for (const { comment, reason } of moved) {
+      // One line per rejected anchor, because `moved_to_body` is a count with
+      // no explanation: an agent citing a file the PR does not touch and one
+      // citing a real file outside the hunk are different mistakes, and only
+      // the first suggests the rubric is pointing it at the wrong thing.
+      log.info("review.anchor.moved", {
+        repo: input.repo,
+        pr_number: input.pr_number,
+        path: comment.path,
+        reason,
+      });
+    }
+    const review = await github.createReview(input.repo, input.pr_number, {
+      commitId: input.head_sha,
+      event,
+      // Outward-in: the footer is last, so it sits below the findings that lost
+      // their diff anchor rather than between them and the body (decision 36).
+      body: appendRunFooter(appendMovedComments(input.body, moved), publicBaseUrl, input.run_id),
+      comments: inline,
+    });
+    // The only outward write this system makes, and until now the only one it
+    // did not record.
+    log.info("review.posted", {
+      repo: input.repo,
+      pr_number: input.pr_number,
+      head_sha: input.head_sha,
+      tool,
+      review_id: String(review.id),
+      html_url: review.html_url,
+      posted_inline: inline.length,
+      moved_to_body: moved.length,
+      findings: input.findings.length,
+    });
+    return {
+      review_id: review.id,
+      html_url: review.html_url,
+      posted_inline: inline.length,
+      moved_to_body: moved.length,
+    };
+  }
 }
 
 function asToolResult(result: ReviewResult) {
@@ -113,6 +157,7 @@ export function registerReviewTools(
   server: McpServer,
   github: GitHubClient,
   publicBaseUrl = "",
+  log: Logger = createLogger({ service: "github-mcp" }),
 ): void {
   server.registerTool(
     "post_advisory_review",
@@ -123,7 +168,7 @@ export function registerReviewTools(
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async (args) => asToolResult(await postReview(github, "COMMENT", args, publicBaseUrl)),
+    async (args) => asToolResult(await postReview(github, "COMMENT", args, publicBaseUrl, log)),
   );
 
   server.registerTool(
@@ -135,6 +180,7 @@ export function registerReviewTools(
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
-    async (args) => asToolResult(await postReview(github, "REQUEST_CHANGES", args, publicBaseUrl)),
+    async (args) =>
+      asToolResult(await postReview(github, "REQUEST_CHANGES", args, publicBaseUrl, log)),
   );
 }

@@ -1,5 +1,6 @@
 import { generateKeyPairSync, sign as signEd25519 } from "node:crypto";
 import type { KeyObject } from "node:crypto";
+import { createLogger } from "@cujo/log";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { DiscordClient } from "../../../src/clients/discord";
 import type { GitHubReader } from "../../../src/clients/github";
@@ -8,6 +9,9 @@ import {
   verifyInteraction,
 } from "../../../src/http/ingress/discord-interactions";
 import { Store } from "../../../src/store";
+
+/** Tests assert on behaviour, not on log output; the sink swallows it. */
+const silentLog = createLogger({ service: "cujo", sink: () => {} });
 
 const GUILD = "222222222222222222";
 const CHANNEL = "111111111111111111";
@@ -79,6 +83,7 @@ function build(
   const settled: ((name: string) => void)[] = [];
   const nextSettled = () => new Promise<string>((resolve) => settled.push(resolve));
   const app = interactionRoutes({
+    log: silentLog,
     publicKey,
     store: store.notifications,
     discord: discord as unknown as DiscordClient,

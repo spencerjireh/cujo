@@ -29,6 +29,9 @@ importers:
       '@cujo/gh-app-auth':
         specifier: workspace:*
         version: link:../../packages/gh-app-auth
+      '@cujo/log':
+        specifier: workspace:*
+        version: link:../../packages/log
       '@hono/node-server':
         specifier: 2.1.1
         version: 2.1.1(hono@4.13.5)
@@ -47,6 +50,9 @@ importers:
       '@cujo/gh-app-auth':
         specifier: workspace:*
         version: link:../../packages/gh-app-auth
+      '@cujo/log':
+        specifier: workspace:*
+        version: link:../../packages/log
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)
@@ -59,6 +65,9 @@ importers:
       '@cujo/brand':
         specifier: workspace:*
         version: link:../../brand
+      '@cujo/log':
+        specifier: workspace:*
+        version: link:../../packages/log
       '@radix-ui/react-collapsible':
         specifier: 1.1.20
         version: 1.1.20(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -138,6 +147,8 @@ importers:
       '@octokit/auth-app':
         specifier: 8.3.0
         version: 8.3.0
+
+  packages/log: {}
 
 packages:
 
