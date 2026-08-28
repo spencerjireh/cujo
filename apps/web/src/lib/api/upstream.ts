@@ -23,14 +23,21 @@ export function refusalFields(path: string[], mode: Mode, reason: ProxyRefusal):
  *
  * The public route deliberately passes a `503` through untouched so the client
  * falls back to polling (decision 34), so that one is `degraded` rather than
- * `failed`: it is the cap doing its job, not the service breaking. Anything
- * else is a real failure and says so.
+ * `failed`: it is the cap doing its job, not the service breaking.
+ *
+ * The plane is part of that judgement and not an afterthought. `createStreamLimit`
+ * "counts public streams only. An operator must never lose the approval page
+ * because the board is busy" — so a `503` on the operator plane is not the cap
+ * at all, it is a real outage on the one surface where a human is waiting to
+ * approve a block, and calling it `degraded` would file the loudest failure in
+ * the system under the quietest name.
  */
 export function streamOutcome(
   status: number,
   ok: boolean,
+  mode: Mode,
 ): { event: "proxy.stream.degraded" | "proxy.stream.failed"; level: "warn" | "error" } {
-  if (!ok && status === 503) {
+  if (!ok && status === 503 && mode === "public") {
     return { event: "proxy.stream.degraded", level: "warn" };
   }
   return { event: "proxy.stream.failed", level: "error" };
