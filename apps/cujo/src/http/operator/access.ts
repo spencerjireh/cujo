@@ -1,4 +1,5 @@
 import { type JWTVerifyGetKey, createRemoteJWKSet, jwtVerify } from "jose";
+import type { RequestEnv } from "../request-log";
 
 /** Resolves the caller's email from a Cloudflare Access assertion, or null. */
 export type AccessVerifier = (assertion: string | undefined) => Promise<string | null>;
@@ -7,8 +8,12 @@ export type AccessVerifier = (assertion: string | undefined) => Promise<string |
  * The verified email, set once by the gate in `index.ts` and read by any route
  * that records who acted. Declared here because this is what puts it there;
  * a route file that redeclared it would be describing someone else's promise.
+ *
+ * It extends `RequestEnv` for that same reason in reverse: `ray` and `log`
+ * belong to every plane and are set above the host split, so this file states
+ * only the variable it is responsible for and inherits the rest.
  */
-export type Env = { Variables: { email: string } };
+export type Env = RequestEnv & { Variables: { email: string } };
 
 /**
  * Cloudflare Access at the edge is the first gate; this is the second, so a
