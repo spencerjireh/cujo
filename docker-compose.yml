@@ -104,7 +104,7 @@ services:
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
       CUJO_MODEL: ${CUJO_MODEL}
-      CUJO_SNIFF_URL: ${CUJO_SNIFF_URL:-https://raw.githubusercontent.com/spencerjireh/cujo/main/sniff.py}
+      CUJO_SNIFF_URL: ${CUJO_SNIFF_URL:-https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py}
       # Optional Discord notifications (spec Contract 7). Unset means the
       # service runs without them; the repo-to-channel map lives in the store.
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}

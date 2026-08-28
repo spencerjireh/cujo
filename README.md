@@ -62,7 +62,7 @@ bundled TrueForge UI is used only as an operator console.
 | `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. |
 | `packages/gh-app-auth/` | Shared GitHub App installation-token auth. |
 | `agent/SKILL.md` | The rubric: the parent agent's instructions, sent as the agent spec on every session. |
-| `sniff.py` | The in-sandbox sensor script: dependency detonation plus the egress, filesystem, and decoy-secret sensors every check shares. |
+| `sandbox/` | Everything that runs inside the disposable box. `sniff.py` is the in-sandbox sensor script: dependency detonation plus the egress, filesystem, and decoy-secret sensors every check shares. |
 | `docker-compose.yml` | The whole stack: TrueForge `server`, Postgres, Redis, `cujo`, `github-mcp`. The file the deploy uses. |
 | `docker-compose.local.yml` | Local overlay: publishes service ports and points `PUBLIC_BASE_URL` at `localhost`. Never used by the deploy. |
 | `Makefile` | Local run helpers (`make up-local`, `down`, `logs`, `clean`). |

@@ -50,7 +50,7 @@ into Qodo's `best_practices.md` so the file and the bot check the same things.
   (see [docs/decisions.md](docs/decisions.md) 31). Read it trusted-side through
   the GitHub App, never from the sandbox's copy.
 - Schema changes in `apps/cujo`: prefer a new table. To alter one that already
-  exists in the deployed database, append to `MIGRATIONS` in `store.ts` — never
+  exists in the deployed database, append to `MIGRATIONS` in `store/db.ts` — never
   edit a past entry, and never change a `CREATE TABLE` in place, which applies
   to a fresh database and silently not to a live one
   (see [docs/decisions.md](docs/decisions.md) 25 and 30).
