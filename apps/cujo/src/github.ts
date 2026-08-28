@@ -22,6 +22,20 @@ const API = "https://api.github.com";
 const REPO_CACHE_MS = 60_000;
 /** The same bound the PR reads use: enough for any real account, and finite. */
 const MAX_PAGES = 30;
+/** Short: a repo that just declared a server should not wait to be believed. */
+const GUILD_CACHE_MS = 30_000;
+
+/**
+ * Pull `discord_guild` out of a `.cujo.yml` without parsing YAML. One key, one
+ * shape — a Discord snowflake at the top level — so a strict line match reads
+ * it and anything else simply does not match, which is the "ignored, and said
+ * so in `/cujo status`" behaviour Contract 8 asks for. A YAML dependency for
+ * one scalar is not worth the bundle or the parser's own surface.
+ */
+export function parseDeclaredGuild(yaml: string): string | null {
+  const match = /^discord_guild:[ \t]*["']?(\d{17,20})["']?[ \t]*(?:#.*)?$/m.exec(yaml);
+  return match?.[1] ?? null;
+}
 
 /**
  * The read side of the GitHub App: PR metadata, changed files, and the
@@ -31,6 +45,7 @@ export class GitHubReader {
   private readonly privateKey: string;
   private repoCache: { repos: string[]; expiresAt: number } | null = null;
   private repoScan: Promise<string[]> | null = null;
+  private readonly guildCache = new Map<string, { guildId: string | null; expiresAt: number }>();
 
   constructor(
     private readonly appId: string,
@@ -173,6 +188,50 @@ export class GitHubReader {
         console.warn(`github: stopped listing installation ${installationId} at the page cap`);
       }
     }
+  }
+
+  /**
+   * The Discord server a repo declares in `.cujo.yml` on its default branch
+   * (Contract 8). Null when the file is absent, unreadable, or carries no
+   * usable `discord_guild`.
+   *
+   * Read here, through the App, and never from the sandbox's copy: the sandbox
+   * holds the pull request's code, and code that declares its own authorization
+   * is not an authorization at all.
+   *
+   * The default branch, not the pull request's: declaring a server is an act
+   * that has to be merged, which is exactly what makes it proof of control.
+   */
+  async declaredGuild(repo: string): Promise<string | null> {
+    const cached = this.guildCache.get(repo);
+    if (cached && cached.expiresAt > Date.now()) return cached.guildId;
+    let guildId: string | null = null;
+    try {
+      const { default_branch } = await this.get<{ default_branch: string }>(repo, `/repos/${repo}`);
+      const yaml = await this.rawFile(repo, ".cujo.yml", default_branch);
+      guildId = yaml === null ? null : parseDeclaredGuild(yaml);
+    } catch (error) {
+      // A repo with no `.cujo.yml`, or a GitHub hiccup. Both mean "not
+      // declared" for now; the caller says so rather than guessing.
+      console.warn(`github: could not read .cujo.yml for ${repo}`, error);
+      guildId = null;
+    }
+    this.guildCache.set(repo, { guildId, expiresAt: Date.now() + GUILD_CACHE_MS });
+    return guildId;
+  }
+
+  /** A file's bytes at a ref, or null when it is not there. */
+  private async rawFile(repo: string, path: string, ref: string): Promise<string | null> {
+    const res = await this.fetchImpl(`${API}/repos/${repo}/contents/${path}?ref=${ref}`, {
+      headers: {
+        authorization: `Bearer ${await this.token(repo)}`,
+        accept: "application/vnd.github.raw",
+        "user-agent": "cujo",
+      },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`GitHub /repos/${repo}/contents/${path} returned ${res.status}`);
+    return res.text();
   }
 
   /** Contract 5: skip the turn when the bot already reviewed this head SHA. */

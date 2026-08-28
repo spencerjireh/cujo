@@ -15,6 +15,7 @@
 
 import { createPublicKey, verify as verifySignature } from "node:crypto";
 import { Hono } from "hono";
+import { authorizationFor, explain } from "./authorization";
 import {
   GUILD_ANNOUNCEMENT,
   GUILD_TEXT,
@@ -157,11 +158,20 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
     const repo = optionValue(command, "repo");
     if (!repo || !REPO.test(repo)) return "That does not look like an `owner/name` repository.";
     const normalized = repo.toLowerCase();
-    if (!deps.store.isGuildAuthorized(guildId, normalized)) {
-      // Which repos a server may reach is an operator's decision, made over
-      // the Access-gated API where it carries an email (decision 28).
-      return `This server is not authorized for \`${normalized}\`. A Cujo operator has to allow it first.`;
+
+    // Checked before authorization so the refusal names the real problem: a
+    // repo the App cannot see has no readable `.cujo.yml` either, and "it has
+    // not named this server" would send someone editing a file that Cujo could
+    // not read anyway. Only a list Cujo actually read can refuse.
+    const installed = await deps.github.installedRepos().catch(() => null);
+    if (installed && !installed.some((full) => full.toLowerCase() === normalized)) {
+      return `Cujo's GitHub App is not installed on \`${normalized}\`, so it would never have anything to send.`;
     }
+
+    // The repo says which server may have its reviews; the server says which
+    // channel. Both halves are needed (decision 31).
+    const authorization = await authorizationFor(deps, guildId, normalized);
+    if (!authorization.allowed) return explain(normalized, guildId, authorization);
 
     if (command?.name === "unwatch") {
       // A binding is global to the repo, so a server may only take down its
@@ -249,8 +259,6 @@ async function repoChoices(
 ): Promise<{ name: string; value: string }[]> {
   const guildId = interaction.guild_id;
   if (!guildId) return [];
-  const authorized = new Set(deps.store.listGuildRepos(guildId).map((a) => a.repo));
-  if (authorized.size === 0) return [];
   let installed: string[];
   try {
     installed = await Promise.race([
@@ -263,13 +271,16 @@ async function repoChoices(
     console.error("discord: could not list installed repos", error);
     installed = [];
   }
-  // A cold cache or a GitHub hiccup falls back to what Cujo already knows,
-  // rather than showing an empty picker.
-  const candidates = installed.length > 0 ? installed : [...authorized];
+  // Everything Cujo could review, not everything this server may watch:
+  // narrowing by authorization would mean reading each repo's `.cujo.yml` on
+  // every keystroke. `watch` does one targeted read and says exactly what to
+  // add if the repo has not named this server, which teaches more than a
+  // missing row in a dropdown.
+  const known = new Set(deps.store.listGuildRepos(guildId).map((a) => a.repo));
+  const candidates = installed.length > 0 ? installed : [...known];
   const typed = focusedValue(interaction).toLowerCase();
   return (
     candidates
-      .filter((repo) => authorized.has(repo.toLowerCase()))
       .filter((repo) => repo.toLowerCase().includes(typed))
       // A choice value must be the exact repo, and Discord caps it at 100
       // characters, so a longer name cannot be offered — it can still be
@@ -280,20 +291,28 @@ async function repoChoices(
   );
 }
 
+/**
+ * What this server is sending, plus anything an operator allowed that is not
+ * being sent yet. It does not try to enumerate every repo that named this
+ * server: that would be one `.cujo.yml` read per installed repo, so the
+ * closing line says how to add one instead.
+ */
 function status(deps: InteractionDeps, guildId: string): string {
-  const authorizations = deps.store.listGuildRepos(guildId);
-  if (authorizations.length === 0) {
-    return "This server is not authorized for any repository yet.";
+  const repos = new Set(deps.store.listGuildRepos(guildId).map((a) => a.repo));
+  for (const binding of deps.store.listDiscordChannels()) {
+    if (binding.guildId === guildId) repos.add(binding.repo);
   }
-  const lines = authorizations.map((authorization) => {
-    const binding = deps.store.getDiscordChannel(authorization.repo);
+  const lines = [...repos].sort().map((repo) => {
+    const binding = deps.store.getDiscordChannel(repo);
     if (!binding || binding.guildId !== guildId) {
-      return `• \`${authorization.repo}\` — authorized, not being sent anywhere`;
+      return `• \`${repo}\` — allowed, not being sent anywhere`;
     }
     const role = binding.notifyRoleId ? `, pinging <@&${binding.notifyRoleId}>` : "";
-    return `• \`${authorization.repo}\` → <#${binding.channelId}>${role}`;
+    return `• \`${repo}\` → <#${binding.channelId}>${role}`;
   });
-  return fitLines(lines);
+  const hint = `Any repo whose \`.cujo.yml\` says \`discord_guild: "${guildId}"\` can be watched here.`;
+  if (lines.length === 0) return `Nothing is being sent to this server yet. ${hint}`;
+  return fitLines([...lines, "", hint]);
 }
 
 /**
@@ -330,15 +349,6 @@ async function watch(
     return `\`${input.repo}\` is already being sent to another server. A Cujo operator can move it.`;
   }
 
-  // A repo the App is not installed on can be bound and then never notified,
-  // which is the silent failure the rest of this route exists to prevent. Only
-  // refuse on a list Cujo actually managed to read: GitHub being down is not a
-  // reason to block a bind.
-  const installed = await deps.github.installedRepos().catch(() => null);
-  if (installed && !installed.some((repo) => repo.toLowerCase() === input.repo)) {
-    return `Cujo's GitHub App is not installed on \`${input.repo}\`, so it would never have anything to send.`;
-  }
-
   const channel = await deps.discord.getChannel(channelId).catch(() => null);
   if (!channel) return "Cujo cannot see that channel.";
   if (channel.type !== GUILD_TEXT && channel.type !== GUILD_ANNOUNCEMENT) {
@@ -367,11 +377,11 @@ async function watch(
   }
 
   // Re-checked here, not only at the top: the Discord round trips above are
-  // awaits, and an operator revoking this server in the meantime must not end
-  // with a binding written for a server that may no longer see the repo.
-  if (!deps.store.isGuildAuthorized(input.guildId, input.repo)) {
-    return `This server is no longer authorized for \`${input.repo}\`.`;
-  }
+  // awaits, and a declaration reverted or an operator's allowance withdrawn in
+  // the meantime must not end with a binding for a server that may no longer
+  // see the repo.
+  const still = await authorizationFor(deps, input.guildId, input.repo);
+  if (!still.allowed) return `This server is no longer allowed to watch \`${input.repo}\`.`;
   deps.store.putDiscordChannel({
     repo: input.repo,
     channelId,
