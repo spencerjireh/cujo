@@ -13,6 +13,8 @@
  *    the first two would see — someone spreading a whole run into a sub-object.
  */
 
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   PUBLIC_RUN_FIELDS,
@@ -198,5 +200,43 @@ describe("serializePublicSummary", () => {
     const json = JSON.stringify(serializePublicSummary(sentinelView().run));
     expect(json).not.toContain("SENTINEL_approver");
     expect(json).not.toContain("SENTINEL_decidedAt");
+  });
+});
+
+/**
+ * The one rule here that no type system expresses: the public module must not
+ * reach into the operator one.
+ *
+ * It is also the rule that makes the allowlist meaningful — importing the
+ * operator `serialize()` and deleting fields from its result would pass every
+ * other test in this file while restoring exactly the public-by-default
+ * behaviour decision 34 rejected. Biome 1.9's `noRestrictedImports` is a
+ * nursery rule that matches exact module specifiers rather than a directory,
+ * so this reads the source instead. Unusual, and better than a comment nobody
+ * is obliged to obey.
+ */
+describe("the public module's imports", () => {
+  const dir = join(import.meta.dirname, "../../../src/http/public");
+  const IMPORT = /^\s*import[^;]*?from\s+["']([^"']+)["']/gm;
+
+  const specifiersIn = (file: string): string[] => {
+    const source = readFileSync(join(dir, file), "utf8");
+    return [...source.matchAll(IMPORT)].map(([, specifier]) => specifier ?? "");
+  };
+
+  it("never reaches into the operator plane", () => {
+    const offenders: string[] = [];
+    for (const file of readdirSync(dir).filter((name) => name.endsWith(".ts"))) {
+      for (const specifier of specifiersIn(file)) {
+        if (specifier.includes("operator")) offenders.push(`${file} -> ${specifier}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("finds the imports it is checking, so the guard cannot pass vacuously", () => {
+    expect(specifiersIn("index.ts")).toEqual(
+      expect.arrayContaining(["hono", "./serialize", "./stream-limit"]),
+    );
   });
 });
