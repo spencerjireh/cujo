@@ -181,3 +181,22 @@ describe("what the public stream says about itself", () => {
     });
   });
 });
+
+describe("a server-initiated close", () => {
+  it("releases the stream slot when the repo goes private mid-stream", async () => {
+    const { app, runner, setView, limit } = build(viewOf(runOf({ isPublic: true })));
+    const controller = new AbortController();
+    const res = await app.fetch(
+      new Request("http://public.test/runs/r1/events", { signal: controller.signal }),
+    );
+    expect(res.status).toBe(200);
+    expect(limit.active()).toBe(1);
+    // The repo flips private; the listener calls stream.close().
+    const gone = viewOf(runOf({ isPublic: false }));
+    setView(gone);
+    runner.changes.emit("r1", gone);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(limit.active()).toBe(0);
+    controller.abort();
+  });
+});
