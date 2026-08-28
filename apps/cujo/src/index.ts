@@ -2,12 +2,14 @@ import { createLogger } from "@cujo/log";
 import { serve } from "@hono/node-server";
 import { DiscordClient } from "./clients/discord";
 import { GitHubReader } from "./clients/github";
+import { GitHubReactions } from "./clients/github-reactions";
 import { Harness } from "./clients/trueforge";
 import { loadConfig } from "./config";
 import { createAccessVerifier, devVerifier } from "./http/operator/access";
 import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
+import { PrReactor } from "./notify/reactions.service";
 import { buildAgentSpec } from "./review/agent-spec";
 import { publicRunId } from "./review/links";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
@@ -62,6 +64,20 @@ async function main(): Promise<void> {
   const notifier = discord ? new DiscordNotifier({ store, client: discord, github, links }) : null;
   if (notifier) {
     runner.changes.on(ANY_RUN, (view: RunView | null) => notifier.onRunChanged(view));
+  }
+
+  // Decision 38. The pull request wears the run's status. Subscribed beside
+  // the notifier and, like it, before the rehydrate loop, so a run that moved
+  // while the process was down still reaches the pull request.
+  const reactor = config.prReactions
+    ? new PrReactor({
+        reactions: new GitHubReactions(config.githubAppId, config.githubAppPrivateKey),
+      })
+    : null;
+  if (reactor) {
+    runner.changes.on(ANY_RUN, (view: RunView | null) => reactor.onRunChanged(view));
+  } else {
+    console.warn("CUJO_PR_REACTIONS=0: Cujo will not react on the pull requests it reviews");
   }
 
   // Contract 8. The slash commands need the application's public key as well
@@ -134,6 +150,7 @@ async function main(): Promise<void> {
       // open the gated host. `github-mcp` turns the id into a link, so no
       // hostname passes through the agent (decision 36).
       reviewRunId: (run: RunRecord) => publicRunId(run),
+      ...(reactor ? { onClaimed: (run: RunRecord) => reactor.markClaimed(run) } : {}),
       createSession: () => harness.createSession(spec),
       isReady: () => harness.ready,
     },
@@ -155,10 +172,15 @@ async function main(): Promise<void> {
     visibility.stop();
     runner.stopAll();
     server.close();
-    void (notifier?.flush(5_000) ?? Promise.resolve()).finally(() => {
-      store.close();
-      process.exit(0);
-    });
+    void Promise.all([notifier?.flush(5_000), reactor?.flush(5_000)])
+      // Nothing here rejects today, but this promise is not awaited and the
+      // `.finally` has to run whatever happens: the store close and the exit
+      // are the shutdown.
+      .catch((error) => console.error("shutdown: a queue flush failed", error))
+      .finally(() => {
+        store.close();
+        process.exit(0);
+      });
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

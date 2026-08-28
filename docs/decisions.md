@@ -1009,3 +1009,110 @@ named `log` or `logger`, and nothing else. A computed name is already a type
 error, since the parameter is a union of string literals, so the scan and the
 compiler cover each other's gap — but neither alone is sufficient, and a third
 way of reaching the logger would escape both.
+||||||| parent of c6ba3e7 (feat(cujo): react on the pull request as the run's status moves)
+
+## 38. `apps/cujo` may write a reaction; the gate is about reviews, not writes
+
+A pull request gave no sign that Cujo had seen it. Everything Cujo says it says
+elsewhere — a review at the end, a Discord card, a page on the board — so
+between the push and the review the pull request is silent for as long as a
+sandbox takes. That costs a reader an acknowledgement, and it costs an operator
+the one cheap signal that would say *where* a silent run stopped: the ingress,
+the signature, the session and the claim all happen before the agent does
+anything, and all of them were invisible. `apps/cujo` now reacts on the pull
+request as `cujo-guard[bot]` and moves that reaction with the run's status
+(Contract 9).
+
+**The invariant this appears to break is not the one that matters.** The rule
+was that `apps/cujo` reads GitHub and every write goes through `github-mcp`,
+where `post_blocking_review` is marked destructive and TrueForge's
+`@destructive` selector pauses for a human. But the thing being protected is
+that **nothing states a finding on a pull request without a human allowing it**.
+A reaction states no finding, carries no text, names no file, and approves
+nothing; the payload is one member of a closed set of eight emoji. Restated
+honestly the rule is about reviews, and it survives intact. Kept literally, it
+would have forced the acknowledgement onto the agent's own path — a third
+`github-mcp` tool — where it could only fire after the agent was already
+running, which is exactly the case nobody needs to debug.
+
+**Three facts were checked against the live App before any of this was
+designed**, and each one removed a piece of the build:
+
+- **`pull_requests: write` is enough.** The endpoint is
+  `POST /repos/{repo}/issues/{n}/reactions` and GitHub's docs name
+  `issues: write`, but a pull request target is accepted with the permission
+  the App already holds. So there is no permission change, and **no installation
+  has to re-approve** — which would have left every repo unreacted until someone
+  clicked, for a feature whose whole value is being immediate.
+- **The POST is idempotent**: the same content twice answers 200 rather than
+  201 and leaves one reaction. So "set the reaction" needs no read first and no
+  stored reaction id, and a restart simply re-applies and converges. That is
+  why this decision adds **no table and no migration** to a store that has to
+  migrate by hand (decision 30).
+- **Ours are identifiable from the list**, by `user.login` against the same
+  `BOT_LOGIN` that `alreadyReviewed` already trusts, so nothing has to be
+  remembered across a restart to know what to clear.
+
+**The reactions describe what happened to the pull request, not what Cujo
+concluded.** `denied` is a thumbs up: a human cleared the pull request to
+proceed, even though the critical finding stands. The alternative read it as
+Cujo's verdict and kept the thumbs down, which is more precise and less useful —
+the audience for a reaction is whoever opened the pull request, and the board
+and the Discord card both carry the precise version. `error` gets 😕 and shares
+it with nothing, so one glance separates "Cujo blocked this" from "Cujo broke".
+
+**One reaction, several runs: only a current run may write.** Reactions attach
+to the pull request and not to a head SHA, so every run on a pull request is
+writing to the same square inch, and delivery order is not commit order — the
+stale-head guard in `start-run.ts` exists precisely because an older head's
+delivery can arrive after a newer one's. The first draft acknowledged the run
+before that guard and mapped `superseded` back to 👀, and the two together were
+a hole: a delayed delivery for an older SHA would replace the current run's
+posted verdict with 👀, then settle as `superseded` — 👀 again — and nothing
+would ever restore it. The pull request would sit on a finished, clean review
+wearing an eye forever. Both halves are now closed. The eye is placed only after
+GitHub has confirmed this run's head is the pull request's head, and
+`superseded` writes nothing at all, because the run that replaced it is about to
+say what the pull request should show.
+
+Placing the acknowledgement after that confirmation costs one GitHub read of
+latency — a few hundred milliseconds — and buys back the property the whole
+feature is for: 👀 still means the ingress, the signature, the session and the
+claim all worked, and now means the PR read did too. It is a better signal, not
+a weaker one.
+
+**A failed call is retried, with backoff.** A terminal status is the last event
+a run produces, so "the next status change will fix it" is not true where it
+matters most: one transient GitHub failure on `clean` would leave the pull
+request wearing 👀 indefinitely. Two retries, abandoned the moment a newer status
+is queued behind — the ordering property doing its job rather than a second
+mechanism. And what the reactor holds in memory to collapse the per-event storm
+is bounded and evicts the least recently seen run: it lives as long as the
+process and sees every run, so an unbounded map was a slow leak with no ceiling.
+
+`CUJO_PR_REACTIONS=0` turns it off. This is the only thing `apps/cujo` writes
+into somebody else's repository, and a switch that does not need a code change
+is worth one line of config.
+
+Chosen over / Rejected: **a Check Run** (`Cujo / review`, with in-progress and
+completed states and a details link), which is the better product and stays on
+the list — it needs `Checks: write`, which *is* a new permission every
+installation must accept, and it is a much larger build than this; **a status
+comment edited in place**, which is louder than a review deserves, sends a
+notification on every status change, and clutters a thread Cujo is about to post
+a review into; **a third `github-mcp` tool**, rejected above; **reacting before
+either guard** in `start-run.ts`, covered above; and **keying the
+de-duplication on the run status**, where the claim and the first fold both want
+👀 and would make two identical calls — keying on the reaction set collapses
+them, and two statuses that look the same on the pull request genuinely have
+nothing to say to each other.
+
+Known limit: a reaction is per pull request, so a pull request with two runs in
+flight (a push landing mid-review) shows one state, the newer one. That is the
+correct answer and it is still lossy; the board and the Discord card are where
+per-run history lives. The residual case is narrow: a stale delivery whose
+`pullRequest()` read *fails* ends in `error`, and 😕 will land over a current
+run's verdict. It takes a delayed delivery and a transient GitHub failure at the
+same moment, it self-corrects on the next push, and closing it would mean
+teaching the reactor which run is newest for a pull request — a store query on
+the fold path to buy back an emoji.

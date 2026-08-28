@@ -123,6 +123,41 @@ describe("webhook", () => {
     expect(store.runs.listRuns()).toHaveLength(0);
   });
 
+  it("tells the pull request it was claimed, but only for a current head", async () => {
+    const { app, claimed, nextSettled } = build();
+    let done = nextSettled();
+    await deliver(app);
+    const started = await done;
+    expect(claimed).toEqual([started]);
+
+    // A head the bot already reviewed is released without a turn, so nothing
+    // would ever clear a reaction placed on it.
+    const reviewed = build({
+      github: {
+        alreadyReviewed: vi.fn(async () => true),
+        pullRequest: vi.fn(),
+      } as unknown as GitHubReader,
+    });
+    done = reviewed.nextSettled();
+    await deliver(reviewed.app);
+    await done;
+    expect(reviewed.claimed).toEqual([]);
+
+    // A delayed delivery for an older head is superseded. One pull request has
+    // one reaction, so it must not reach for it: the run for the head GitHub
+    // reports now may already have put its verdict there.
+    const stale = build({
+      github: {
+        alreadyReviewed: vi.fn(async () => false),
+        pullRequest: vi.fn(async () => prOf("h2")),
+      } as unknown as GitHubReader,
+    });
+    done = stale.nextSettled();
+    await deliver(stale.app);
+    await done;
+    expect(stale.claimed).toEqual([]);
+  });
+
   it("ends a run whose preparation fails and lets a redelivery re-claim the head", async () => {
     const pullRequest = vi.fn().mockRejectedValueOnce(new Error("502 from GitHub"));
     pullRequest.mockResolvedValue(prOf("h"));

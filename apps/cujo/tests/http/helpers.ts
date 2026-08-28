@@ -63,6 +63,8 @@ export function build(
   /** Every line for one event name, in order. */
   const logged = (event: string) => lines.filter((line) => line.event === event);
   const runner = overrides.runner ?? fakeRunner(store);
+  // Every run the webhook decided was worth starting, in order.
+  const claimed: string[] = [];
   // Resolves once the background preparation of a run has settled.
   const settled: Array<(runId: string) => void> = [];
   const nextSettled = () => new Promise<string>((resolve) => settled.push(resolve));
@@ -97,6 +99,7 @@ export function build(
       createSession: async () => "sess-1",
       ...(overrides.isReady ? { isReady: overrides.isReady } : {}),
       reviewRunId: (run) => (run.isPublic ? run.id : ""),
+      onClaimed: (run) => claimed.push(run.id),
       onSettled: (runId) => settled.shift()?.(runId),
     },
     ...(overrides.interactions
@@ -114,7 +117,7 @@ export function build(
         }
       : {}),
   });
-  return { app, store, runner, github, nextSettled, lines, logged };
+  return { app, store, runner, github, nextSettled, lines, logged, claimed };
 }
 
 export const req = (host: string, path: string, init?: RequestInit) =>
