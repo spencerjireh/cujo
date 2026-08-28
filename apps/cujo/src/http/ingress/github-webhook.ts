@@ -67,6 +67,9 @@ function handleRepository(deps: WebhookDeps, c: Context, body: string): Response
   }
   const isPublic = event.action === "publicized";
   const changed = deps.store.setRepoVisibility(event.repository.full_name, isPublic);
+  console.info(
+    `webhook: ${event.repository.full_name} visibility → ${isPublic ? "public" : "private"} (${changed} runs restamped)`,
+  );
   return c.json({ ok: true, repo: event.repository.full_name, is_public: isPublic, changed }, 200);
 }
 
@@ -82,6 +85,7 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
     // is the only gate this route has, and it is what makes a `repository`
     // delivery as trustworthy as a `pull_request` one.
     if (!verifySignature(deps.secret, body, c.req.header("x-hub-signature-256"))) {
+      console.info("webhook: bad signature");
       return c.json({ ok: false, error: "bad signature" }, 401);
     }
     const eventType = c.req.header("x-github-event");
@@ -93,14 +97,15 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
     if (event.action !== "opened" && event.action !== "synchronize") {
       return c.json({ ok: true, ignored: "action" }, 200);
     }
-    if (deps.isReady && !deps.isReady()) {
-      // GitHub does not retry on its own, but a 503 shows in the delivery
-      // log and the head is claimed by nothing, so a redelivery works.
-      return c.json({ ok: false, error: "harness not ready" }, 503);
-    }
     const repo = event.repository.full_name;
     const prNumber = event.number;
     const headSha = event.pull_request.head.sha;
+    if (deps.isReady && !deps.isReady()) {
+      // GitHub does not retry on its own, but a 503 shows in the delivery
+      // log and the head is claimed by nothing, so a redelivery works.
+      console.info(`webhook: 503, harness not ready (${repo} #${prNumber})`);
+      return c.json({ ok: false, error: "harness not ready" }, 503);
+    }
 
     // Find or create the session first, so the run row can be claimed before
     // any slow GitHub call: two concurrent deliveries then agree on one
@@ -108,6 +113,7 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
     let sessionId = deps.store.getSession(repo, prNumber);
     if (!sessionId) {
       sessionId = deps.store.putSession(repo, prNumber, await deps.createSession(repo, prNumber));
+      console.info(`webhook: new session ${sessionId} for ${repo} #${prNumber}`);
     }
     const { run, created } = deps.store.createRun({
       repo,
@@ -117,8 +123,14 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
       isPublic: event.repository.private === false,
     });
     if (!created) {
+      console.info(
+        `webhook: duplicate delivery for ${repo} #${prNumber} sha=${headSha.slice(0, 7)}, run ${run.id}`,
+      );
       return c.json({ ok: true, ignored: "duplicate delivery", run_id: run.id }, 200);
     }
+    console.info(
+      `webhook: run ${run.id} created for ${repo} #${prNumber} sha=${headSha.slice(0, 7)}`,
+    );
     void startRun(deps, run);
     return c.json({ ok: true, run_id: run.id }, 202);
   });

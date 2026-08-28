@@ -91,6 +91,9 @@ export async function postReview(
     body: appendRunFooter(appendMovedComments(input.body, moved), publicBaseUrl, input.run_id),
     comments: inline,
   });
+  console.info(
+    `review posted: ${input.repo} #${input.pr_number} ${event} (review_id=${review.id}, inline=${inline.length}, moved=${moved.length})`,
+  );
   return {
     review_id: review.id,
     html_url: review.html_url,

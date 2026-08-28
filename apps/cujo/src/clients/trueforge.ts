@@ -111,7 +111,7 @@ export class Harness {
     while (!this.ready) {
       try {
         const applied = await this.bootstrap();
-        console.log(`trueforge bootstrap: ${applied.join(", ")}`);
+        console.info(`trueforge bootstrap: ${applied.join(", ")}`);
       } catch (error) {
         console.error(`trueforge bootstrap failed; retrying in ${delay / 1000}s`, error);
         await sleep(delay);
