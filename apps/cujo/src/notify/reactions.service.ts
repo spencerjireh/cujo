@@ -20,7 +20,7 @@
  * a finished verdict gets overwritten by a stale delivery.
  */
 
-import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReactions, Reaction } from "../clients/github-reactions";
 import type { RunView } from "../review/runner.service";
 import type { RunRecord, RunStatus } from "../review/types";
@@ -166,16 +166,16 @@ export class PrReactor {
       } catch (error) {
         // Unreachable: `attempt` swallows. Belt and braces, because a throw
         // here would break the queue for every later run.
-        this.log.child({ run_id: runId }).error("discord.notify.failed", {
-          reason: "reaction_queue",
+        this.log.child({ run_id: runId }).error("reaction.failed", {
+          reason: "queue_step",
           ...errorFields(error),
         });
       }
       try {
         this.deps.onSettled?.(runId);
       } catch (error) {
-        this.log.child({ run_id: runId }).error("discord.notify.failed", {
-          reason: "reaction_on_settled",
+        this.log.child({ run_id: runId }).error("reaction.failed", {
+          reason: "on_settled",
           ...errorFields(error),
         });
       }
@@ -203,11 +203,13 @@ export class PrReactor {
         if (attempt >= this.retryDelaysMs.length) {
           // Give up, and forget the key so a later status change tries again.
           this.applied.delete(runId);
-          this.log.child({ run_id: runId }).error("discord.notify.failed", {
+          this.log.child({ run_id: runId }).error("reaction.failed", {
             repo,
             pr_number: prNumber,
-            reason: "reaction_gave_up",
-            attempts: attempt,
+            reason: "gave_up",
+            // The loop index is zero-based, so the count of calls actually
+            // made is one more than it.
+            attempts: attempt + 1,
             ...errorFields(error),
           });
           return;

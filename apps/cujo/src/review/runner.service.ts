@@ -474,13 +474,20 @@ export class Runner {
     decision: "allow" | "deny",
     approver: string,
   ): Promise<ApproveResult> {
-    const log = this.state(runId).log;
+    // Deliberately not `this.state(runId)` before the run is known to exist:
+    // `state()` inserts, and nothing ever removes, so an authenticated POST to
+    // /runs/<anything>/approve would grow the map for the life of the process.
+    // A run that does not exist gets a plain child logger and no state.
     const refuse = (reason: ApproveRefusal, detail?: string): ApproveResult => {
+      const log = this.states.has(runId)
+        ? this.state(runId).log
+        : this.log.child({ run_id: runId });
       log.warn("approve.rejected", { decision, actor: approver, reason });
       return { ok: false, reason, detail: detail ?? REFUSAL_TEXT[reason] };
     };
     const view = this.view(runId);
     if (!view) return refuse("no_such_run");
+    const log = this.state(runId).log;
     if (view.run.status !== "blocked_pending" || !view.projection.approval) {
       return refuse("not_blocked_pending", `run is ${view.run.status}, not blocked_pending`);
     }

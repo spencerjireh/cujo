@@ -1,4 +1,4 @@
-import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { errorFields } from "@cujo/log";
 import { emptyProjection } from "../../review/fold";
 import { buildRunCard } from "../card";
 import type { CommandDeps } from "./index";

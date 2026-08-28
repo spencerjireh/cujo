@@ -11,7 +11,7 @@
  * `.service.ts` because it holds a timer across requests, per decision 32.
  */
 
-import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { RunStore } from "../store";
 

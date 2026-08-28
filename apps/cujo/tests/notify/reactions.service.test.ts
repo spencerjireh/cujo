@@ -187,8 +187,18 @@ describe("PrReactor", () => {
     const reactor = build(reactions, { log });
     expect(() => reactor.onRunChanged(view("running"))).not.toThrow();
     await reactor.flush();
-    const failed = lines.filter((l) => l.event === "discord.notify.failed");
-    expect(failed[0]).toMatchObject({ reason: "reaction_gave_up", repo: "o/r", pr_number: 7 });
+    // `reaction.failed`, not `discord.notify.failed`: a reaction is a GitHub
+    // write, and filing it under Discord both inflates Discord failure counts
+    // and hides which outbound integration actually broke.
+    const failed = lines.filter((l) => l.event === "reaction.failed");
+    expect(failed[0]).toMatchObject({
+      reason: "gave_up",
+      repo: "o/r",
+      pr_number: 7,
+      // The loop index is zero-based; the count of calls made is one more.
+      attempts: 1,
+    });
+    expect(lines.filter((l) => l.event === "discord.notify.failed")).toEqual([]);
     // The pre-filter was cleared, so the same status is attempted again.
     fail = false;
     reactor.onRunChanged(view("running"));

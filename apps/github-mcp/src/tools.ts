@@ -4,7 +4,7 @@
  * TrueForge's `@destructive` approval selector keys on.
  */
 
-import { type Logger, createLogger } from "@cujo/log";
+import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { appendRunFooter } from "./body";
@@ -83,35 +83,55 @@ export async function postReview(
   publicBaseUrl = "",
   log: Logger = createLogger({ service: "github-mcp" }),
 ): Promise<ReviewResult> {
-  const files = await github.listPullFiles(input.repo, input.pr_number);
-  const { inline, moved } = validateAnchors(files, input.comments);
-  const review = await github.createReview(input.repo, input.pr_number, {
-    commitId: input.head_sha,
-    event,
-    // Outward-in: the footer is last, so it sits below the findings that lost
-    // their diff anchor rather than between them and the body (decision 36).
-    body: appendRunFooter(appendMovedComments(input.body, moved), publicBaseUrl, input.run_id),
-    comments: inline,
-  });
-  // The only outward write this system makes, and until now the only one it
-  // did not record.
-  log.info("review.posted", {
-    repo: input.repo,
-    pr_number: input.pr_number,
-    head_sha: input.head_sha,
-    tool: event === "REQUEST_CHANGES" ? "post_blocking_review" : "post_advisory_review",
-    review_id: String(review.id),
-    html_url: review.html_url,
-    posted_inline: inline.length,
-    moved_to_body: moved.length,
-    findings: input.findings.length,
-  });
-  return {
-    review_id: review.id,
-    html_url: review.html_url,
-    posted_inline: inline.length,
-    moved_to_body: moved.length,
-  };
+  const tool = event === "REQUEST_CHANGES" ? "post_blocking_review" : "post_advisory_review";
+  try {
+    return await post();
+  } catch (error) {
+    // The one outward write this system makes, and the case that mattered
+    // most was the one with no line at all: a failed file listing, a rejected
+    // anchor set or a refused review left `server.ts`'s transport catch as the
+    // only record, and that one knows neither the repo nor the pull request.
+    log.error("review.failed", {
+      repo: input.repo,
+      pr_number: input.pr_number,
+      head_sha: input.head_sha,
+      tool,
+      ...errorFields(error),
+    });
+    throw error;
+  }
+
+  async function post(): Promise<ReviewResult> {
+    const files = await github.listPullFiles(input.repo, input.pr_number);
+    const { inline, moved } = validateAnchors(files, input.comments);
+    const review = await github.createReview(input.repo, input.pr_number, {
+      commitId: input.head_sha,
+      event,
+      // Outward-in: the footer is last, so it sits below the findings that lost
+      // their diff anchor rather than between them and the body (decision 36).
+      body: appendRunFooter(appendMovedComments(input.body, moved), publicBaseUrl, input.run_id),
+      comments: inline,
+    });
+    // The only outward write this system makes, and until now the only one it
+    // did not record.
+    log.info("review.posted", {
+      repo: input.repo,
+      pr_number: input.pr_number,
+      head_sha: input.head_sha,
+      tool,
+      review_id: String(review.id),
+      html_url: review.html_url,
+      posted_inline: inline.length,
+      moved_to_body: moved.length,
+      findings: input.findings.length,
+    });
+    return {
+      review_id: review.id,
+      html_url: review.html_url,
+      posted_inline: inline.length,
+      moved_to_body: moved.length,
+    };
+  }
 }
 
 function asToolResult(result: ReviewResult) {

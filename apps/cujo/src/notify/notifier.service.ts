@@ -14,7 +14,7 @@
  *   Discord offers no idempotency key, so this is the safe direction.
  */
 
-import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { type Logger, errorFields } from "@cujo/log";
 import { DiscordError, UNKNOWN_MESSAGE } from "../clients/discord";
 import type { DiscordClient } from "../clients/discord";
 import type { DiscordMessagePayload } from "../clients/discord";

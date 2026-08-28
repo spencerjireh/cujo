@@ -55,7 +55,6 @@ function reasonFor(error: unknown): DenialReason {
       return "expired";
     case "ERR_JWS_SIGNATURE_VERIFICATION_FAILED":
       return "bad_signature";
-    case "ERR_JWKS_TIMEOUT":
     case "ERR_JWKS_NO_MATCHING_KEY":
     case "ERR_JWKS_MULTIPLE_MATCHING_KEYS":
       return "jwks_unavailable";
@@ -70,8 +69,17 @@ function reasonFor(error: unknown): DenialReason {
       return "malformed";
     }
     default:
-      return "malformed";
+      break;
   }
+  // Every other JWKS code, by prefix rather than by name: jose has several
+  // (timeout, invalid, unreachable) and adds more, and an operator reading
+  // "malformed" would go looking at the client's token when the key service
+  // is the thing that is down.
+  if (typeof code === "string" && code.startsWith("ERR_JWKS")) return "jwks_unavailable";
+  // A failed fetch of the key set reaches here as undici's TypeError with the
+  // real reason on `cause`, carrying no jose code at all.
+  if (error instanceof TypeError && error.cause !== undefined) return "jwks_unavailable";
+  return "malformed";
 }
 
 /**

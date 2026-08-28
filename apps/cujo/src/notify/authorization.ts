@@ -17,7 +17,7 @@
  * do not belong to.
  */
 
-import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { NotificationStore } from "../store";
 
