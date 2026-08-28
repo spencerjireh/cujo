@@ -59,8 +59,13 @@ export function CheckReports({ checks }: { checks: CheckState[] }) {
   return (
     <section aria-label="Check reports">
       <h2 className="mb-1 text-lg">Reports</h2>
-      {reported.map((check) => (
-        <CheckReport key={check.threadId} check={check} />
+      {/*
+        Keyed by position rather than by thread id: the public plane publishes
+        no harness handles, and the fold emits these in a fixed order, so the
+        index is stable for as long as the list is.
+      */}
+      {reported.map((check, index) => (
+        <CheckReport key={`${check.title}-${index}`} check={check} />
       ))}
     </section>
   );
