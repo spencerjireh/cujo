@@ -15,14 +15,13 @@
 
 import { createPublicKey, verify as verifySignature } from "node:crypto";
 import { Hono } from "hono";
+import { GUILD_ANNOUNCEMENT, GUILD_TEXT } from "../../clients/discord";
+import type { DiscordClient } from "../../clients/discord";
 import {
-  GUILD_ANNOUNCEMENT,
-  GUILD_TEXT,
   REQUIRED_PERMISSIONS,
   effectivePermissions,
   hasPermissions,
-} from "../../clients/discord";
-import type { DiscordClient } from "../../clients/discord";
+} from "../../clients/discord-permissions";
 import type { GitHubReader } from "../../clients/github";
 import { authorizationFor, explain } from "../../notify/authorization";
 import { buildRunCard } from "../../notify/card";
