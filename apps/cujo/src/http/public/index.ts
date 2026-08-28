@@ -15,6 +15,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { RunView, Runner } from "../../review/runner.service";
 import type { RunStore } from "../../store";
+import type { RequestEnv } from "../request-log";
 import { serializePublicRun, serializePublicSummary } from "./serialize";
 import { type StreamLimit, createStreamLimit } from "./stream-limit";
 
@@ -28,8 +29,8 @@ export interface PublicDeps {
 /** How long a public stream may sit between keepalives, in milliseconds. */
 const KEEPALIVE_MS = 25_000;
 
-export function publicRoutes(deps: PublicDeps): { app: Hono; limit: StreamLimit } {
-  const app = new Hono();
+export function publicRoutes(deps: PublicDeps): { app: Hono<RequestEnv>; limit: StreamLimit } {
+  const app = new Hono<RequestEnv>();
   const limit = createStreamLimit(deps.streamLimit);
 
   /**
@@ -59,11 +60,26 @@ export function publicRoutes(deps: PublicDeps): { app: Hono; limit: StreamLimit 
     // process's capacity. 429 is the edge's word for too many requests from one
     // address, so keeping them apart says which bound bit.
     if (!limit.acquire()) {
+      // Before the stream opens, so `release()` is deliberately not called
+      // here: nothing was acquired. `warn` rather than `debug` — the cap being
+      // reached is the board shedding load, which an operator should see even
+      // though the visitor recovers by polling.
+      c.get("log").warn("public.stream.rejected", {
+        run_id: id,
+        active: limit.active(),
+        limit: deps.streamLimit,
+        reason: "limit",
+      });
       c.header("retry-after", "30");
       return c.json({ ok: false, error: "too many public streams" }, 503);
     }
+    const log = c.get("log");
     return streamSSE(c, async (stream) => {
+      // `debug`, both of these: at the cap this is 200 concurrent streams, and
+      // the frames themselves are never logged at all.
+      log.debug("public.stream.opened", { run_id: id, active: limit.active() });
       let seq = 0;
+      let closedBecause: "went_private" | "aborted" = "aborted";
       const send = (v: RunView) =>
         stream.writeSSE({
           event: "run",
@@ -74,7 +90,10 @@ export function publicRoutes(deps: PublicDeps): { app: Hono; limit: StreamLimit 
         // A repo can go private mid-stream, and that flip is a store write
         // that emits nothing of its own, so re-check on every frame.
         if (v.run.isPublic) void send(v);
-        else void stream.close();
+        else {
+          closedBecause = "went_private";
+          void stream.close();
+        }
       };
       let keepalive: ReturnType<typeof setInterval> | undefined;
 
@@ -91,7 +110,10 @@ export function publicRoutes(deps: PublicDeps): { app: Hono; limit: StreamLimit 
           // The keepalive doubles as the poll that catches a flip on a run
           // that is emitting nothing, so exposure is bounded by this interval.
           if (deps.runs.getRun(id)?.isPublic) void stream.writeSSE({ event: "ping", data: "" });
-          else void stream.close();
+          else {
+            closedBecause = "went_private";
+            void stream.close();
+          }
         }, KEEPALIVE_MS);
         await new Promise<void>((resolve) => {
           stream.onAbort(() => resolve());
@@ -100,6 +122,13 @@ export function publicRoutes(deps: PublicDeps): { app: Hono; limit: StreamLimit 
         if (keepalive) clearInterval(keepalive);
         deps.runner.changes.off(id, listener);
         limit.release();
+        // `went_private` is the one worth telling apart: the visitor did not
+        // leave, the repo stopped being public underneath them.
+        log.debug("public.stream.closed", {
+          run_id: id,
+          active: limit.active(),
+          reason: closedBecause,
+        });
       }
     });
   });

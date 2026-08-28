@@ -140,3 +140,44 @@ describe("public run stream", () => {
     await third.body?.cancel();
   });
 });
+
+/**
+ * The public plane's own lines (decision 37). These were declared in the
+ * vocabulary and never implemented — the guard test in `packages/log` is what
+ * said so, which is the whole reason that test checks both directions.
+ */
+describe("what the public stream says about itself", () => {
+  it("records a rejection at the cap, at warn, with the counts", async () => {
+    // Before the stream opens, so nothing was acquired and nothing is
+    // released. `warn` because the board shedding load is worth seeing even
+    // though the visitor recovers by polling.
+    const { app, logged } = build(viewOf(runOf()), { streamLimit: 0 });
+    const res = await app.fetch(new Request("http://public.test/runs/r1/events"));
+    expect(res.status).toBe(503);
+    expect(logged("public.stream.rejected")[0]).toMatchObject({
+      run_id: "r1",
+      level: "warn",
+      limit: 0,
+      reason: "limit",
+    });
+  });
+
+  it("keeps open and close at debug, because at the cap this is 200 streams", async () => {
+    const quiet = build(viewOf(runOf()));
+    // The helper captures at debug; assert the level rather than the absence,
+    // since a level filter is what an operator changes, not the call site.
+    const controller = new AbortController();
+    const streamed = Promise.resolve(
+      quiet.app.fetch(
+        new Request("http://public.test/runs/r1/events", { signal: controller.signal }),
+      ),
+    ).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    await streamed;
+    expect(quiet.logged("public.stream.opened")[0]).toMatchObject({
+      run_id: "r1",
+      level: "debug",
+    });
+  });
+});

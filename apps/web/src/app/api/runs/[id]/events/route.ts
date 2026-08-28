@@ -47,14 +47,17 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   }
 
   if (!upstream.ok || !upstream.body) {
-    const { event, level } = streamOutcome(upstream.status, upstream.ok, "operator");
-    log[level](event, {
-      run_id: id,
-      mode: "operator",
-      ray,
-      http_status: upstream.status,
-      ...(event === "proxy.stream.degraded" ? { reason: "stream_limit" } : {}),
-    });
+    // Written as two branches with the names spelled out, rather than
+    // `log[level](event, …)`. The event name is the vocabulary's whole
+    // enforcement surface: the guard test scans the source for these literals
+    // and fails on a declared name nothing emits, and a computed call is
+    // invisible to it — this one was, until the scan said so.
+    const fields = { run_id: id, mode: "operator", ray, http_status: upstream.status };
+    if (streamOutcome(upstream.status, upstream.ok, "operator").event === "proxy.stream.degraded") {
+      log.warn("proxy.stream.degraded", { ...fields, reason: "stream_limit" });
+    } else {
+      log.error("proxy.stream.failed", fields);
+    }
     return new Response(null, { status: streamStatus(upstream.status) });
   }
 
