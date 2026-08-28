@@ -12,12 +12,8 @@
 import { Hono } from "hono";
 import { GUILD_ANNOUNCEMENT, GUILD_TEXT } from "../../clients/discord";
 import type { DiscordClient } from "../../clients/discord";
-import {
-  REQUIRED_PERMISSIONS,
-  effectivePermissions,
-  hasPermissions,
-} from "../../clients/discord-permissions";
 import type { GitHubReader } from "../../clients/github";
+import { type ChannelRefusal, checkChannel } from "../../notify/channel-check";
 import type { DiscordChannelRecord } from "../../notify/types";
 import type { NotificationStore } from "../../store";
 import type { Env } from "./access";
@@ -46,6 +42,21 @@ function serializeChannel(record: DiscordChannelRecord) {
 const SNOWFLAKE = /^\d{17,20}$/;
 /** One path segment of `owner/name`; a slash in a single param is not worth it. */
 const REPO_SEGMENT = /^[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * The shared channel rule's refusals, in this route's words. `wrong_guild`
+ * cannot happen here: the route asks which server the channel is in rather
+ * than asserting one, so no expectGuildId is passed.
+ */
+const REFUSALS: Record<ChannelRefusal, string> = {
+  unreadable_channel: "the bot cannot see that channel",
+  not_a_text_channel: "not a guild text channel",
+  wrong_guild: "not a guild text channel",
+  unreadable_roles: "could not read the server's roles",
+  no_such_role: "no such role in that server",
+  unreadable_permissions: "could not check the bot's permissions",
+  missing_permissions: "the bot needs View Channel, Send Messages and Embed Links there",
+};
 
 export function discordAdminRoutes(deps: DiscordAdminDeps): Hono<Env> {
   const app = new Hono<Env>();
@@ -82,59 +93,15 @@ export function discordAdminRoutes(deps: DiscordAdminDeps): Hono<Env> {
     const notifyRoleId = rawRole as string | null;
 
     // Validate against Discord so a typo fails here rather than silently at
-    // the first blocked run. 403 and 404 give the same answer on purpose: the
-    // difference would let an operator probe channels across all of Discord.
-    let channel: Awaited<ReturnType<DiscordClient["getChannel"]>>;
-    try {
-      channel = await discord.getChannel(channelId);
-    } catch (error) {
-      console.error(`discord: could not read channel ${channelId}`, error);
-      return c.json({ ok: false, error: "the bot cannot see that channel" }, 400);
-    }
-    if (channel.type !== GUILD_TEXT && channel.type !== GUILD_ANNOUNCEMENT) {
-      return c.json({ ok: false, error: "not a guild text channel" }, 400);
-    }
-    const guildId = channel.guild_id;
-    if (!guildId) return c.json({ ok: false, error: "not a guild text channel" }, 400);
+    // the first blocked run.
+    const check = await checkChannel(discord, { channelId, roleId: notifyRoleId });
+    if (!check.ok) return c.json({ ok: false, error: REFUSALS[check.reason] }, 400);
 
-    const roles = await discord.listRoles(guildId).catch(() => null);
-    if (!roles) return c.json({ ok: false, error: "could not read the server's roles" }, 400);
-    if (notifyRoleId && !roles.some((r) => r.id === notifyRoleId)) {
-      // Otherwise the ping would mention nobody and say nothing about it.
-      return c.json({ ok: false, error: "no such role in that server" }, 400);
-    }
-
-    // Reading a channel does not mean the bot may post an embed in it. A
-    // channel-level deny would otherwise bind cleanly and then fail on every
-    // run, which is the silent failure this whole route exists to prevent.
-    const permissions = await (async () => {
-      const me = await discord.currentUser();
-      const member = await discord.guildMember(guildId, me.id);
-      return effectivePermissions({
-        guildId,
-        memberId: me.id,
-        memberRoles: member.roles,
-        roles,
-        overwrites: channel.permission_overwrites ?? [],
-      });
-    })().catch((error) => {
-      console.error(`discord: could not resolve permissions in ${channelId}`, error);
-      return null;
-    });
-    if (permissions === null) {
-      return c.json({ ok: false, error: "could not check the bot's permissions" }, 400);
-    }
-    if (!hasPermissions(permissions, REQUIRED_PERMISSIONS)) {
-      return c.json(
-        { ok: false, error: "the bot needs View Channel, Send Messages and Embed Links there" },
-        400,
-      );
-    }
     const stored = deps.notifications.putDiscordChannel({
       repo: `${owner}/${name}`,
       channelId,
-      guildId,
-      channelName: channel.name ?? null,
+      guildId: check.guildId,
+      channelName: check.channelName,
       notifyRoleId,
       boundBy: c.get("email"),
     });
