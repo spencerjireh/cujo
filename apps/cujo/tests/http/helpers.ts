@@ -48,6 +48,8 @@ export function build(
     streamLimit: number;
     level: Level;
     isReady: () => boolean;
+    /** Overridden by the secret sweep, so the value under test is the real one. */
+    webhookSecret: string;
   }> = {},
 ) {
   const store = new Store(":memory:");
@@ -95,7 +97,7 @@ export function build(
     },
     webhook: {
       log,
-      secret: "s3",
+      secret: overrides.webhookSecret ?? "s3",
       github,
       store: store.runs,
       runner,
