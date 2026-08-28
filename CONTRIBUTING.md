@@ -61,6 +61,29 @@ into Qodo's `best_practices.md` so the file and the bot check the same things.
   narrows the window but does not close it, because the running container keeps
   the old value until the deploy swaps it
   (see [docs/decisions.md](docs/decisions.md) 35).
+- Do not swallow errors: no empty `catch` blocks, no fire-and-forget promises.
+  A handler that fails silently is a run that vanishes with no trace.
+- No `as any` or `@ts-ignore` without a comment. Validate external input at the
+  boundary before trusting the type.
+- A PR that changes behavior ships a test, or states why not. A PR that changes
+  how something works updates the relevant file in `docs/`.
+- Use `console.error` and `console.warn` for real errors and warnings.
+  `console.log` is usually leftover debugging — remove it or promote it to
+  `console.info` with enough context for Coolify logs.
+
+## Tests
+
+Tests mirror the source tree (`tests/` parallels `src/`), use `kebab-case.test.ts`,
+are grouped with `describe`/`it`, and name the behavior, not the implementation.
+Biome is the style authority (`pnpm lint`, `pnpm format`); source files are
+`kebab-case.ts`.
+
+Unit tests (`*.test.ts`, `pnpm test`) cover pure functions and state
+transformations with synthetic inputs; mock the neighbors, not the module under
+test. Contract tests (`*.contract.test.ts`, `make test-int`) verify that the fakes
+the unit tests rely on match real TrueForge and MCP behavior. When a unit test
+introduces a new mock assumption, consider whether it needs a contract-test
+counterpart.
 
 ## Branches and commits
 

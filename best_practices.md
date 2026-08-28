@@ -36,3 +36,18 @@ this file when reviewing pull requests; keep the two in sync.
   then delete the old one in a follow-up. Updating the Coolify value first
   narrows the window but does not close it, because the running container keeps
   the old value until the deploy swaps it (see `docs/decisions.md` 35).
+- Do not swallow errors: no empty `catch` blocks and no fire-and-forget promises
+  without `.catch()`. A webhook or API handler that fails silently is a run that
+  vanishes with no trace in the store.
+- No `as any` or `@ts-ignore` without a comment saying why. Webhook payloads,
+  MCP tool inputs, and TrueForge events are validated at the boundary before the
+  type is trusted; the shape comes from the sender, not from us.
+- A PR that changes behavior ships a test that covers the change, or states why
+  it does not. Tests mirror the source tree in `tests/`, use `*.test.ts`, and
+  follow the `describe`/`it` naming convention.
+- A PR that changes how something works updates the relevant file in `docs/` in
+  the same PR; a load-bearing choice gets an entry in `docs/decisions.md`.
+- Use `console.error` and `console.warn` for errors and warnings that belong in
+  container logs. A bare `console.log` added in a PR is usually leftover
+  debugging — remove it or promote it to `console.info` with enough context to
+  be useful to someone reading Coolify logs who is not you.
