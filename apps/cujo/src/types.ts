@@ -102,8 +102,30 @@ export interface DiscordChannelRecord {
   channelName: string | null;
   /** Mentioned by the ping a blocked run posts. Null means ping with no mention. */
   notifyRoleId: string | null;
+  /**
+   * Who bound it: an operator's Access email, or `discord:<user id>` when it
+   * came from a slash command (Contract 8). Null for a binding written before
+   * the column existed.
+   */
+  boundBy: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * One Discord server allowed to manage notifications for one repo (Contract 8,
+ * decision 28). Written only over the Access-gated API, so the question "which
+ * repos may this server see" always has a verified email attached to it; the
+ * server then chooses its own channel and role.
+ */
+export interface GuildRepoAuthorization {
+  guildId: string;
+  /** `owner/name`, lower-cased, as everywhere else. */
+  repo: string;
+  guildName: string | null;
+  /** The Access email of the operator who authorized the pair. */
+  authorizedBy: string;
+  authorizedAt: string;
 }
 
 /** The card Cujo posted for one run, plus the one-shot ping beside it. */

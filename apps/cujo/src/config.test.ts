@@ -49,6 +49,12 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...base, DISCORD_BOT_TOKEN: "tok" }).discordBotToken).toBe("tok");
   });
 
+  it("treats the Discord public key the same way, since it gates the commands", () => {
+    expect(loadConfig(base).discordPublicKey).toBeNull();
+    expect(loadConfig({ ...base, DISCORD_PUBLIC_KEY: "" }).discordPublicKey).toBeNull();
+    expect(loadConfig({ ...base, DISCORD_PUBLIC_KEY: "ab12" }).discordPublicKey).toBe("ab12");
+  });
+
   it("derives the UI base URL from the UI host, and lets it be overridden", () => {
     expect(loadConfig(base).uiBaseUrl).toBe("https://cujo.spencerjireh.com");
     expect(loadConfig({ ...base, CUJO_UI_BASE_URL: "" }).uiBaseUrl).toBe(

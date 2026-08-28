@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Store } from "./store";
 
@@ -160,5 +163,107 @@ describe("store", () => {
     store.deleteRun(run.id);
     expect(store.getRunDiscordMessage(run.id)).toBeNull();
     expect(store.getRunPrTitle(run.id)).toBeNull();
+  });
+
+  it("records who bound a repo to a channel", () => {
+    const store = new Store(":memory:");
+    const stored = store.putDiscordChannel({
+      repo: "o/r",
+      channelId: "c1",
+      guildId: "g1",
+      channelName: "reviews",
+      notifyRoleId: null,
+      boundBy: "discord:42",
+    });
+    expect(stored.boundBy).toBe("discord:42");
+    expect(store.getDiscordChannel("o/r")?.boundBy).toBe("discord:42");
+  });
+
+  it("migrates a database that already exists, and does it once", () => {
+    // The whole point of the mechanism is a database that is already out
+    // there, which :memory: cannot represent.
+    const dir = mkdtempSync(join(tmpdir(), "cujo-store-"));
+    const path = join(dir, "cujo.db");
+    try {
+      const first = new Store(path);
+      first.putDiscordChannel({
+        repo: "o/r",
+        channelId: "c1",
+        guildId: "g1",
+        channelName: "reviews",
+        notifyRoleId: null,
+        boundBy: "op@example.com",
+      });
+      first.close();
+
+      // Re-opening must not try to add the column a second time.
+      const second = new Store(path);
+      expect(second.getDiscordChannel("o/r")?.boundBy).toBe("op@example.com");
+      second.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("authorizes a server for a repo, and lists it per server", () => {
+    const store = new Store(":memory:");
+    expect(store.isGuildAuthorized("g1", "o/r")).toBe(false);
+    store.authorizeGuildRepo({
+      guildId: "g1",
+      repo: "O/R",
+      guildName: "My Server",
+      authorizedBy: "op@example.com",
+    });
+    store.authorizeGuildRepo({
+      guildId: "g2",
+      repo: "o/other",
+      guildName: "Other",
+      authorizedBy: "op@example.com",
+    });
+    expect(store.isGuildAuthorized("g1", "o/r")).toBe(true);
+    expect(store.isGuildAuthorized("g2", "o/r")).toBe(false);
+    expect(store.listGuildRepos("g1").map((a) => a.repo)).toEqual(["o/r"]);
+    expect(store.listGuildRepos()).toHaveLength(2);
+  });
+
+  it("drops the binding a revoked authorization permitted", () => {
+    const store = new Store(":memory:");
+    store.authorizeGuildRepo({
+      guildId: "g1",
+      repo: "o/r",
+      guildName: null,
+      authorizedBy: "op@example.com",
+    });
+    store.putDiscordChannel({
+      repo: "o/r",
+      channelId: "c1",
+      guildId: "g1",
+      channelName: null,
+      notifyRoleId: null,
+    });
+    expect(store.revokeGuildRepo("g1", "o/r")).toBe(true);
+    // Leaving it bound would keep the server receiving reviews it may no
+    // longer see.
+    expect(store.getDiscordChannel("o/r")).toBeNull();
+    expect(store.revokeGuildRepo("g1", "o/r")).toBe(false);
+  });
+
+  it("leaves another server's binding alone when one is revoked", () => {
+    const store = new Store(":memory:");
+    store.authorizeGuildRepo({
+      guildId: "g1",
+      repo: "o/r",
+      guildName: null,
+      authorizedBy: "op@example.com",
+    });
+    store.putDiscordChannel({
+      repo: "o/r",
+      channelId: "c1",
+      guildId: "g2",
+      channelName: null,
+      notifyRoleId: null,
+    });
+    expect(store.revokeGuildRepo("g1", "o/r")).toBe(true);
+    expect(store.getDiscordChannel("o/r")?.guildId).toBe("g2");
   });
 });
