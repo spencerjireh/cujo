@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Fields } from "../src/fields";
-import { createLogger } from "../src/logger";
+import { createLogger, logFailureCount } from "../src/logger";
 
 const AT = "2026-08-28T00:00:00.000Z";
 
@@ -106,6 +106,45 @@ describe("the field allowlist at runtime", () => {
     expect(last()).not.toHaveProperty("from");
   });
 
+  it("drops a non-scalar even under a declared name", () => {
+    // The type stops this at a literal and stops nothing after a cast, and the
+    // whole security argument is that an object cannot reach a line — so the
+    // check has to live where a cast cannot reach it either.
+    const { log, last } = build();
+    log.info("service.started", {
+      repo: { nested: "s3cret" },
+      run_id: ["also", "s3cret"],
+      port: 8080,
+    } as unknown as Fields);
+    expect(last().repo).toBeUndefined();
+    expect(last().run_id).toBeUndefined();
+    expect(JSON.stringify(last())).not.toContain("s3cret");
+    expect(last().dropped_fields).toEqual(["repo", "run_id"]);
+    expect(last().port).toBe(8080);
+  });
+
+  it("drops a bigint rather than losing the whole line to JSON.stringify", () => {
+    const { log, last } = build();
+    log.info("service.started", { port: 10n as unknown as number, repo: "o/r" });
+    expect(last().event).toBe("service.started");
+    expect(last().repo).toBe("o/r");
+    expect(last().dropped_fields).toEqual(["port"]);
+  });
+
+  it("drops a non-finite number, which JSON would have turned into null", () => {
+    const { log, last } = build();
+    log.info("check.finished", { duration_ms: Number.NaN, check: "tests" });
+    expect(last()).not.toHaveProperty("duration_ms");
+    expect(last().dropped_fields).toEqual(["duration_ms"]);
+  });
+
+  it("keeps a legitimate null, which is a declared scalar", () => {
+    const { log, last } = build();
+    log.info("run.status.changed", { from: null, to: "clean" });
+    expect(last().from).toBeNull();
+    expect(last()).not.toHaveProperty("dropped_fields");
+  });
+
   it("scrubs a declared string field", () => {
     // Assembled rather than written out; see redact.test.ts for why.
     const token = ["ghs", "_", "0123456789abcdef0123456789abcdef0123"].join("");
@@ -128,7 +167,8 @@ describe("the stack rule", () => {
 });
 
 describe("the logger never fails its caller", () => {
-  it("swallows a throwing sink", () => {
+  it("counts a throwing sink rather than swallowing or rethrowing it", () => {
+    const before = logFailureCount().emit;
     const log = createLogger({
       service: "cujo",
       sink: () => {
@@ -136,6 +176,9 @@ describe("the logger never fails its caller", () => {
       },
     });
     expect(() => log.info("service.started")).not.toThrow();
+    // Counted, because a logger cannot rethrow and cannot log its own failure,
+    // and a dropped audit trail should not be invisible.
+    expect(logFailureCount().emit).toBe(before + 1);
   });
 
   it("swallows a throwing clock", () => {

@@ -15,11 +15,33 @@
  */
 
 import type { EventName } from "./events";
-import { CAP, FIELD_CLASS, type Fields, isFieldName } from "./fields";
+import {
+  CAP,
+  FIELD_CLASS,
+  type FieldName,
+  type FieldValue,
+  type Fields,
+  isFieldName,
+} from "./fields";
 import { type Level, RANK } from "./level";
 import { scrub } from "./redact";
 
 export type Sink = (line: string) => void;
+
+/**
+ * Lines this process could not write, and the closest thing to handling that a
+ * logger has: it cannot rethrow, because it sits in a path where "a subscriber
+ * must never be able to fail a run", and it cannot log the failure, because
+ * logging is what failed. So the loss is counted rather than swallowed, and
+ * `/readyz` reports the count — a service quietly dropping its own audit trail
+ * is a thing an operator should be able to see.
+ */
+let emitFailures = 0;
+let stdoutFailures = 0;
+
+export function logFailureCount(): { emit: number; stdout: number } {
+  return { emit: emitFailures, stdout: stdoutFailures };
+}
 
 export interface LoggerOptions {
   /** Bound once. `child()` cannot change it, because it is not a `Fields` key. */
@@ -52,10 +74,27 @@ interface Sanitized {
 }
 
 /**
- * Drop what is not declared, scrub and cap what is. The dropped **names** are
- * reported by `emit`; their values never are, so reporting them cannot leak.
- * A silent drop would be a debugging trap — the field simply would not appear
- * and nothing would say why.
+ * The value side of the boundary, checked at run time and not only by the type.
+ *
+ * `Fields` stops an object at a call site written as a literal, and stops
+ * nothing at all once somebody casts. Since the whole security argument is
+ * "an object cannot reach a log line", the check has to exist where a cast
+ * cannot reach it. `bigint` is rejected for a second reason: `JSON.stringify`
+ * throws on it, which would cost the entire line rather than one field.
+ */
+function scalarOf(name: FieldName, value: unknown): FieldValue | undefined {
+  if (value === null) return null;
+  if (typeof value === "string") return scrub(value, CAP[FIELD_CLASS[name]]);
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  return undefined;
+}
+
+/**
+ * Drop what is not declared or not a scalar, scrub and cap what is. The dropped
+ * **names** are reported by `emit`; their values never are, so reporting them
+ * cannot leak. A silent drop would be a debugging trap — the field simply would
+ * not appear and nothing would say why.
  */
 function sanitize(fields: Fields | undefined): Sanitized {
   const kept: Record<string, unknown> = {};
@@ -67,12 +106,34 @@ function sanitize(fields: Fields | undefined): Sanitized {
       dropped.push(name);
       continue;
     }
-    kept[name] = typeof value === "string" ? scrub(value, CAP[FIELD_CLASS[name]]) : value;
+    const scalar = scalarOf(name, value);
+    if (scalar === undefined) {
+      dropped.push(name);
+      continue;
+    }
+    kept[name] = scalar;
   }
   return { kept, dropped };
 }
 
+/**
+ * A writable reports a failed write asynchronously, through an `error` event,
+ * so `emit`'s try/catch cannot see one: an EPIPE from a departed log reader
+ * would reach the process as an unhandled `error` and end it. That is the exact
+ * outcome this logger promises never to cause, so the listener is attached once
+ * — lazily, and only for the default sink, so a test with its own sink never
+ * touches the process — rather than once per logger, which would trip Node's
+ * max-listener warning as soon as run loggers are created per run.
+ */
+let stdoutGuarded = false;
+
 const defaultSink: Sink = (line) => {
+  if (!stdoutGuarded) {
+    stdoutGuarded = true;
+    process.stdout.on("error", () => {
+      stdoutFailures += 1;
+    });
+  }
   process.stdout.write(`${line}\n`);
 };
 
@@ -102,10 +163,13 @@ function make(
       if (dropped.length > 0) line.dropped_fields = dropped;
       sink(JSON.stringify(line));
     } catch {
-      // A logger must never fail its caller. `Runner.refold` already wraps its
-      // own emit because "a subscriber must never be able to fail a run", and
-      // this sits in that same path; `process.stdout.write` can also throw on
-      // EPIPE when the container's log reader goes away.
+      // Counted, not swallowed. Rethrowing is not available — `Runner.refold`
+      // guards its own emit because "a subscriber must never be able to fail a
+      // run", and this sits in that path — and neither is logging the failure,
+      // since the logger is the thing that just failed. The count is what
+      // `/readyz` reports, so a service dropping its own audit trail is visible
+      // rather than silent.
+      emitFailures += 1;
     }
   };
 

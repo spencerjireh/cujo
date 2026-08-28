@@ -43,6 +43,41 @@ describe("errorFields", () => {
     expect(errorFields({ nope: true }).error_kind).toBe("non_error");
   });
 
+  it("survives a value whose own toString throws", () => {
+    // The coercion runs code the thrower chose. Callers build these fields
+    // before calling a log method, so emit's guard is not yet in scope: an
+    // unguarded read would replace the original failure with a second one.
+    const hostile = {
+      toString() {
+        throw new Error("nice try");
+      },
+    };
+    expect(() => errorFields(hostile)).not.toThrow();
+    expect(errorFields(hostile).error_message).toBe("[unprintable value]");
+  });
+
+  it("survives an Error whose message, name and status are throwing getters", () => {
+    const hostile = Object.create(Error.prototype, {
+      message: {
+        get() {
+          throw new Error("no message for you");
+        },
+      },
+      name: {
+        get() {
+          throw new Error("no name either");
+        },
+      },
+      status: {
+        get() {
+          throw new Error("nor a status");
+        },
+      },
+    }) as Error;
+    expect(() => errorFields(hostile, { stack: true })).not.toThrow();
+    expect(errorFields(hostile).error_kind).toBe("non_error");
+  });
+
   it("ignores a non-numeric code, so a Node system error does not fake a status", () => {
     const fields = errorFields(httpError("no such file", { code: "ENOENT" }));
     expect(fields.error_kind).toBe("error");
