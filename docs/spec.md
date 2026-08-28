@@ -99,6 +99,7 @@ cross back out of the sandbox.
      - GET /orders/1
    allow_hosts:                # egress the repo legitimately needs
      - api.stripe.com
+   discord_guild: "2222…"      # which Discord server may watch it (Contract 8)
    ```
 
    Any key can be omitted. Missing keys are inferred from the repo; if the
@@ -625,32 +626,64 @@ role — in the wrong place, behind a login the people who care about the channe
 may not have. This contract moves that choice into Discord without moving the
 decision that matters.
 
-**Two tiers** (decision 28). They answer different questions and carry
-different authority:
+**Two halves** (decisions 28 and 31). They answer different questions and are
+proved by different people. Neither alone does anything:
 
-| Tier | Question | Who decides | Where |
-|------|----------|-------------|-------|
-| Authorization | Which repos may this Discord server see at all? | An operator, identified by a Cloudflare Access email | `PUT /discord/authorizations/:guildId/:owner/:name` on the UI host |
-| Binding | Which channel, and which role gets pinged? | A member with Manage Server | `/cujo` in that server |
+| Half | Question | Proved by | Where |
+|------|----------|-----------|-------|
+| Declaration | Which Discord server may have this repo's reviews? | Whoever can merge to the repo's default branch | `discord_guild` in `.cujo.yml` |
+| Binding | Which channel, and which role gets pinged? | A member with Manage Server | `/cujo watch` in that server |
 
-So the reach of a server is always a decision with an email attached to it,
-recorded in `authorized_by`, and everything inside that reach is self-serve.
-A binding records who made it too: an email, or `discord:<user id>`.
+Without the repo's half, anyone could point a repo they do not own at their own
+channel. Without the server's half, anyone could send a repo's reviews into a
+server they do not belong to. A binding records who made it: an email, or
+`discord:<user id>`.
+
+```yaml
+# .cujo.yml on the default branch
+discord_guild: "222222222222222222"
+```
+
+Cujo reads that file through the GitHub App, from the **default branch**, and
+never from the sandbox's copy — the sandbox holds the pull request's code, and
+code that declares its own authorization is not an authorization. Reading the
+default branch rather than the pull request's is also what makes the
+declaration proof: it has to be merged.
+
+The key is extracted, not parsed as YAML. It has one shape — a Discord
+snowflake at the top level — so anything else simply does not match and the
+repo counts as undeclared, which is the silent-but-visible behaviour below.
+
+**The operator override.** `PUT /discord/authorizations/:guildId/:owner/:name`
+on the UI host still allows a pair directly, recorded with the operator's
+Access email in `authorized_by`. It is for moving a repo between servers, and
+for a repo whose `.cujo.yml` cannot be changed. It is no longer the way
+notifications are normally set up.
+
+**When a declaration is wrong**, nothing fails: a malformed value, a server the
+bot is not in, or a missing file all mean "not declared". Reviews are
+unaffected — a config typo must not cost a review. `/cujo watch` says exactly
+what to add and where, and `/cujo status` closes with the line to paste, since
+listing every repo that named a server would mean reading each installed
+repo's `.cujo.yml` on every command.
 
 Revoking an authorization also drops the binding it permitted. Leaving the
 channel bound would keep a server receiving reviews it may no longer see.
 
 **The command.** One `/cujo` with four subcommands, so a server gets one entry
 in the picker. `channel:` and `role:` are Discord's own option types, which
-render as native pickers; `repo:` is completed from the repos the Cujo App is
-installed on, narrowed to the ones this server is authorized for, so the list
-doubles as the answer to "what can I bind here".
+render as native pickers; `repo:` is completed from every repo the Cujo App is
+installed on. It is deliberately not narrowed to the ones this server may
+watch: that would mean reading each repo's `.cujo.yml` on every keystroke,
+against a three-second budget. `watch` does one targeted read for the repo that
+was picked and says exactly what to add if it has not named this server, which
+teaches more than a row missing from a dropdown.
 
 | Subcommand | Does |
 |------------|------|
 | `/cujo watch repo channel [role]` | Sends that repo's cards to that channel, pinging that role when a review blocks. |
 | `/cujo unwatch repo` | Stops sending them. |
-| `/cujo status` | What this server is authorized for, and where each repo currently goes. |
+| `/cujo status` | Where each repo watched here currently goes, plus anything an operator allowed that is not being sent yet, and the line to add to a repo to allow another. |
 | `/cujo test repo` | Posts a sample card to the bound channel. It exercises the token, the channel permissions and the rendering at once, which nothing else can do without waiting for a real pull request. |
 
 Every reply is ephemeral, so configuring makes no noise in the channel.
@@ -664,26 +697,30 @@ reply says which one failed:
    the bar — but a server admin can change that default, so the handler checks
    the interaction's own `member.permissions` as well. A permission check that
    lives only on the client is not a permission check.
-3. The server is authorized for the repo (tier one above). `watch` checks this
-   again immediately before it writes: the Discord round trips in between are
-   awaits, and an operator revoking the server during them must not end with a
-   binding written for a server that may no longer see the repo.
-4. For `watch`: the channel is in **this** server, is a text or announcement
+3. The repo is one the Cujo App is installed on. A repo it is not can be bound
+   and then never notified, which is the silent failure the rest of these
+   checks exist to prevent. Only a list Cujo managed to read can refuse a bind:
+   GitHub being unreachable is not a reason to block one. The authorization
+   route applies the same check when a pair is allowed by hand. This comes
+   before the next check on purpose: a repo the App cannot see has no readable
+   `.cujo.yml` either, and "it has not named this server" would send someone to
+   edit a file Cujo could not have read.
+4. The repo names this server in `.cujo.yml`, or an operator allowed the pair.
+   `watch` checks this again immediately before it writes: the Discord round
+   trips in between are awaits, and a declaration reverted or an allowance
+   withdrawn during them must not end with a binding for a server that may no
+   longer see the repo.
+5. For `watch` and `unwatch`: no **other** server already holds this repo. One
+   repo notifies one channel (Contract 7), so two servers allowed the same repo
+   would otherwise be able to redirect or silence each other's reviews. Moving
+   a repo between servers is an operator's job, over
+   `PUT /discord/channels/:owner/:name`.
+6. For `watch`: the channel is in **this** server, is a text or announcement
    channel, and the bot has View Channel, Send Messages and Embed Links there,
    resolved through the overwrites exactly as Contract 7's bind route does. The
    channel option comes from this server's own picker, but a request is a
    request; nothing stops a crafted one naming a channel somewhere else.
-5. For `watch` with a role: the role is in this server.
-6. The repo is one the Cujo App is installed on. A repo it is not can be bound
-   and then never notified, which is the silent failure the rest of these
-   checks exist to prevent. Only a list Cujo managed to read can refuse a bind:
-   GitHub being unreachable is not a reason to block one. The authorization
-   route applies the same check when the pair is first allowed.
-7. For `watch` and `unwatch`: no **other** authorized server already holds this
-   repo. One repo notifies one channel (Contract 7), so two servers authorized
-   for the same repo would otherwise be able to redirect or silence each
-   other's reviews. Moving a repo between servers is an operator's job, over
-   `PUT /discord/channels/:owner/:name`.
+7. For `watch` with a role: the role is in this server.
 
 **Discord's limits are enforced, not hoped for.** A `status` reply is cut with
 a count rather than sent over the 2000-character message cap, since a deferred
