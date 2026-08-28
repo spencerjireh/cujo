@@ -29,9 +29,10 @@ services:
 
   cujo:
     environment:
-      # Host dispatch (spec Contract 6): both hostnames resolve to loopback, so
-      # curl with -H 'Host: cujo.localhost' or open http://cujo.localhost:8080.
-      CUJO_UI_HOST: cujo.localhost
+      # Host dispatch (spec Contract 6). Every hostname resolves to loopback, so
+      # curl the API with -H 'Host: cujo-admin.localhost'. The `/public` group
+      # answers on the same host with no assertion at all (decision 34).
+      CUJO_UI_HOST: cujo-admin.localhost
       # How `web` addresses this service on the compose network.
       CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: cujo-ingress.localhost

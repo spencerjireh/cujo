@@ -700,3 +700,88 @@ Rejected: an Origin CA certificate for `cujo.spencerjireh.com` like the
 console's, which ends the renewal dependency but puts a fifteen-year
 certificate on the box and loses browser trust the moment the proxy is turned
 off; and restricting port 22 to a guessed control-plane address.
+
+## 34. The run board is public and read-only; the operator surface moves hosts
+
+`cujo.spencerjireh.com` sat behind Cloudflare Access, so nobody could see what
+Cujo does without being admitted one email at a time. The board is a projection
+of *public* pull requests — the finding text and the review body describe code
+that is already public. What is not public is who approved, and anything at all
+about a repo that is not. So the board is now anonymous and read-only, and
+everything an operator can act on moves to `cujo-admin.spencerjireh.com`, which
+keeps the Access application. `cujo-harness` is untouched (see 2).
+
+Access stays on the operator side because it is not only a lock, it is the
+identity source: `approver` is an email taken from the assertion, and that
+record is the whole point of the human gate (see 23 and 28). An API key would
+make everyone who holds it the same principal, and a browser has nowhere safe
+to keep one.
+
+**The split is by path, not by a third hostname.** `apps/cujo` never receives
+the public name — `apps/web` reaches it over the compose network and Node's
+`fetch` overwrites `Host` with the target's own authority (see 27) — so a
+fourth branch in the host dispatch would have to trust a forwarded header, and
+a header a client can also send is not a boundary. `/public` is therefore a
+route group, mounted on its own router *beside* the gated one rather than under
+it. That last part is not styling: `operatorRoutes` applies its gate with
+`app.use("*")`, which matches `/public/*` too, and before this the sibling
+`/healthz` escaped only because Hono returns from the earlier matching handler
+first — true, invisible to a reviewer, and one `await next()` from being false.
+
+**The serializer is an allowlist.** Naming the fields to remove makes the next
+field added to the projection public by default; naming the fields to keep
+makes it private by default. Which one is right is decided entirely by what
+happens when someone forgets, so the response is built field by field, nothing
+in the public module may import from the operator one, and a compile-time
+exhaustive test over both source types turns a new field into a red build until
+it has been classified. A sentinel sweep covers the nested case the key checks
+would miss.
+
+**Visibility is stamped once and corrected twice.** `repository.private` on the
+webhook is the fact at claim time and costs no API call. GitHub's `repository`
+event carries a flip in seconds. A periodic sweep covers a delivery that never
+arrived, a repo renamed out from under its stamp, and the rows that predate the
+column — that last one is why it also runs at start, since without it the
+fail-closed default leaves every existing run invisible and the board launches
+empty. A row nobody has answered reads as private *in SQL*, so a route that
+forgets the filter returns nothing rather than everything. The sweep marks a
+404 private and leaves anything else alone: failing closed on a five-minute
+GitHub outage would take the whole board dark while protecting nothing, because
+the repo did not become private.
+
+**The stream is bounded twice, and the two codes differ on purpose.**
+Cloudflare rate-limits per address at the edge and answers 429; the process
+caps concurrent public streams and answers 503 with `Retry-After`, because that
+visitor sent one request and the limit is capacity, not abuse. Keeping them
+apart is what lets a log say which bound bit. Operator streams are never
+counted, so a busy board cannot cost somebody the approval page. The realistic
+pressure is idle tabs rather than an attacker — a blocked run stays live for
+hours — which is why the cap is 200 and why the page says so and falls back to
+polling instead of freezing silently.
+
+A Discord card links per run: the public board when the run is public, the
+operator UI when it is not. A repo's channel holds its team, not Cujo's
+operators, so pointing every card at the gated name would answer most of them
+with a login page; the public run page carries its own link on to `cujo-admin`
+when a decision is pending. `CUJO_UI_BASE_URL` follows `CUJO_UI_HOST` to the
+admin name, which is easy to miss and would otherwise send every "needs a
+human" ping to a page with no buttons.
+
+Both hostnames are `noindex`. Cujo reviews public pull requests belonging to
+people who never asked to be indexed here, and a link someone chooses to share
+is a different thing from a result that surfaces beside their repository.
+
+Chosen over a second, read-only deployment of `apps/web` against a replica of
+the store, which is airtight and costs a second image and a replication story
+for a demo. Rejected: redacting the operator serializer, which is
+public-by-default; a fourth hostname in the router, which would trust a
+forwarded header; path-scoped Access on one hostname, which answers XHR and
+`EventSource` with an HTML login redirect; `NOT NULL DEFAULT 0` on the new
+column, which collapses "never answered" into "private" and loses the ability
+to say how many rows the sweep still owes; and two `web` containers differing
+by one static variable, which is simpler and safer but doubles the deploy for a
+boolean.
+
+Known limit: `runs.repo` is a name, not an id, so a rename orphans the stamp
+until the sweep's 404 rule catches up. Storing `repository.id` is the durable
+fix and is not in this change.
