@@ -8,6 +8,10 @@ import {
 } from "@/lib/api/types";
 import type { CheckState, Finding, Run } from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
+import {
+  PUBLIC_RUN_FIELDS,
+  PUBLIC_SUMMARY_FIELDS,
+} from "../../../../cujo/src/http/public/serialize";
 import { CHECK_NAMES as CUJO_CHECK_NAMES } from "../../../../cujo/src/review/types";
 import type {
   CheckState as CujoCheckState,
@@ -147,6 +151,76 @@ describe("reviewPosted", () => {
       expect(reviewPosted({ ...base, status, review: draft("post_blocking_review") } as Run)).toBe(
         false,
       );
+    }
+  });
+});
+
+/**
+ * The public plane's wire shape, cross-checked the same way (decision 34).
+ *
+ * `apps/web` renders both planes with one set of components, so the fields the
+ * public serializer withholds have to be exactly the ones this app treats as
+ * optional. A field added on either side without the other fails here.
+ */
+describe("the public wire shape tracks apps/cujo", () => {
+  /** Keys a public payload always carries, so they must not be optional here. */
+  const REQUIRED_ON_BOTH_PLANES = [
+    "id",
+    "repo",
+    "pr_number",
+    "head_sha",
+    "status",
+    "created_at",
+    "updated_at",
+  ];
+
+  it("keeps the summary shape to what a public list can carry", () => {
+    expect([...PUBLIC_SUMMARY_FIELDS].sort()).toEqual([...REQUIRED_ON_BOTH_PLANES].sort());
+  });
+
+  it("never publishes a field this app treats as operator-only", () => {
+    for (const field of [
+      "approver",
+      "decided_at",
+      "session_id",
+      "turn_ids",
+      "approval",
+      "external_resume",
+    ]) {
+      expect(PUBLIC_RUN_FIELDS).not.toContain(field);
+      expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
+    }
+  });
+
+  /**
+   * The other direction: a public payload has to satisfy `Run`, or the shared
+   * components could not render it. This compiles only while every field the
+   * public plane omits is optional in `types.ts`.
+   */
+  it("type-checks a public payload as a Run, and offers no decision on it", () => {
+    const publicRun: Run = {
+      id: "r1",
+      repo: "o/r",
+      pr_number: 7,
+      head_sha: "abc1234",
+      status: "blocked_pending",
+      created_at: "2026-08-28T00:00:00.000Z",
+      updated_at: "2026-08-28T00:01:00.000Z",
+      checks: [],
+      findings: [],
+      hard_rule_hits: [],
+      review: null,
+      error: null,
+      summary: null,
+    };
+    expect(publicRun.approver).toBeUndefined();
+    // No approval on the public plane, so the decision surface never appears.
+    expect(canDecide(publicRun)).toBe(false);
+  });
+
+  it("carries every emitted key the shared components read", () => {
+    for (const field of [...REQUIRED_ON_BOTH_PLANES, "checks", "findings", "review", "summary"]) {
+      expect(PUBLIC_RUN_FIELDS).toContain(field);
     }
   });
 });

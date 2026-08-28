@@ -1,11 +1,13 @@
 "use client";
 
+import { usePlane } from "@/app/providers";
 import { runsListOptions } from "@/lib/api/queries";
 import { useQuery } from "@tanstack/react-query";
 import { RunsTable } from "./RunsTable";
 
 export function RunsView() {
-  const { data, error, isPending } = useQuery(runsListOptions());
+  const { mode } = usePlane();
+  const { data, error, isPending } = useQuery(runsListOptions(mode));
 
   if (error) {
     return (
@@ -19,7 +21,9 @@ export function RunsView() {
     <div>
       <h1 className="mb-1 text-2xl">Runs</h1>
       <p className="mb-6 text-sm text-fg-muted">
-        Every pull request Cujo has executed, newest first.
+        {mode === "public"
+          ? "Every public pull request Cujo has executed, newest first."
+          : "Every pull request Cujo has executed, newest first."}
       </p>
       {isPending ? (
         <p className="text-sm text-fg-muted">Loading runs…</p>

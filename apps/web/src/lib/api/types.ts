@@ -58,12 +58,17 @@ export interface ReviewComment {
   body: string;
 }
 
+/**
+ * `toolCallId` and `findings` are operator-only: the public serializer shapes
+ * them out, since one is a harness handle and the other is the agent's own
+ * unvalidated tool-call payload (decision 34).
+ */
 export interface DraftedReview {
   tool: "post_advisory_review" | "post_blocking_review";
-  toolCallId: string;
+  toolCallId?: string;
   body: string;
   comments: ReviewComment[];
-  findings: unknown[];
+  findings?: unknown[];
 }
 
 export interface PendingApproval {
@@ -72,14 +77,23 @@ export interface PendingApproval {
   sourceEventId: string;
 }
 
-/** `GET /runs` — deliberately narrower than the detail shape. */
+/**
+ * `GET /runs` — deliberately narrower than the detail shape.
+ *
+ * The fields the public plane withholds are optional here rather than absent,
+ * so one set of components renders both planes. Their optionality is never what
+ * protects them: `apps/cujo` decides what it emits, and the mode in the query
+ * key is what keeps an operator-sourced cache entry from reaching a public
+ * render (decision 34).
+ */
 export interface RunSummary {
   id: string;
   repo: string;
   pr_number: number;
   head_sha: string;
   status: RunStatus;
-  approver: string | null;
+  /** Operator plane only; undefined on the public plane. */
+  approver?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -90,16 +104,21 @@ export interface RunList {
 
 /** `GET /runs/:id` and every `run` event on the SSE stream. */
 export interface Run extends RunSummary {
-  session_id: string;
-  turn_ids: string[];
-  decided_at: string | null;
+  /** Operator plane only, all four. */
+  session_id?: string;
+  turn_ids?: string[];
+  decided_at?: string | null;
+  external_resume?: boolean;
   checks: CheckState[];
   findings: Finding[];
   hard_rule_hits: Finding[];
   review: DraftedReview | null;
-  /** Non-null only while status is `blocked_pending` (api.ts nulls it otherwise). */
-  approval: PendingApproval | null;
-  external_resume: boolean;
+  /**
+   * Non-null only while status is `blocked_pending` (the operator serializer
+   * nulls it otherwise), and never present on the public plane — which is why
+   * `canDecide` is false there and no decision is ever offered.
+   */
+  approval?: PendingApproval | null;
   error: string | null;
   summary: string | null;
 }
@@ -117,7 +136,7 @@ export interface ApproveResult {
  * all fall out of this one predicate.
  */
 export function canDecide(run: Run): boolean {
-  return run.status === "blocked_pending" && run.approval !== null;
+  return run.status === "blocked_pending" && !!run.approval;
 }
 
 /**

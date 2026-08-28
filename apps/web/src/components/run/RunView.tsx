@@ -1,5 +1,6 @@
 "use client";
 
+import { usePlane } from "@/app/providers";
 import { useRunStream } from "@/hooks/useRunStream";
 import { runOptions } from "@/lib/api/queries";
 import { reviewPosted } from "@/lib/api/types";
@@ -16,8 +17,9 @@ import { RunHeader } from "./RunHeader";
  * produced, then the review those findings justify, then the decision.
  */
 export function RunView({ id }: { id: string }) {
-  const { data: run, error } = useQuery(runOptions(id));
-  useRunStream(id, run?.status);
+  const { mode } = usePlane();
+  const { data: run, error } = useQuery(runOptions(mode, id));
+  const { streamFailed } = useRunStream(mode, id, run?.status);
 
   if (error) {
     return (
@@ -31,6 +33,11 @@ export function RunView({ id }: { id: string }) {
   return (
     <article className="flex flex-col gap-10 pb-4">
       <RunHeader run={run} />
+      {streamFailed ? (
+        <p className="-mt-6 text-xs text-fg-muted">
+          Live updates are unavailable right now. Reload to see the latest.
+        </p>
+      ) : null}
       <ChecksTimeline checks={run.checks} findings={run.findings} />
       <FindingsList findings={run.findings} status={run.status} />
       {run.review ? <ReviewPanel review={run.review} posted={reviewPosted(run)} /> : null}

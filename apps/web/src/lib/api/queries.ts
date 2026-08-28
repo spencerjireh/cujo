@@ -1,16 +1,17 @@
 import { queryOptions } from "@tanstack/react-query";
 import { fetchRun, fetchRuns } from "./client";
 import { runKeys } from "./keys";
+import type { Mode } from "./mode";
 import { type RunList, isLive } from "./types";
 
 /**
  * There is no stream for the list, so it polls: often while anything is live,
  * rarely when the board is quiet, and never while the tab is backgrounded.
  */
-export function runsListOptions() {
+export function runsListOptions(mode: Mode) {
   return queryOptions({
-    queryKey: runKeys.list(),
-    queryFn: ({ signal }) => fetchRuns(signal),
+    queryKey: runKeys.list(mode),
+    queryFn: ({ signal }) => fetchRuns(mode, signal),
     refetchInterval: (query) => {
       const data = query.state.data as RunList | undefined;
       const anyLive = (data?.runs ?? []).some((run) => isLive(run.status));
@@ -26,10 +27,10 @@ export function runsListOptions() {
  * source of truth and writes straight into this cache entry, and once it is
  * terminal nothing can change it.
  */
-export function runOptions(id: string) {
+export function runOptions(mode: Mode, id: string) {
   return queryOptions({
-    queryKey: runKeys.detail(id),
-    queryFn: ({ signal }) => fetchRun(id, signal),
+    queryKey: runKeys.detail(mode, id),
+    queryFn: ({ signal }) => fetchRun(mode, id, signal),
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });
