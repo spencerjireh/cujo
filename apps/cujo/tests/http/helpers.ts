@@ -79,6 +79,7 @@ export function build(
       store: store.runs,
       runner,
       createSession: async () => "sess-1",
+      reviewUrl: (run) => (run.isPublic ? `https://public.test/runs/${run.id}` : ""),
       onSettled: (runId) => settled.shift()?.(runId),
     },
     ...(overrides.interactions

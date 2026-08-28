@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Cujo mark on dark">
+  <rect width="512" height="512" fill="#0f0e0c"/>
+  <g transform="translate(81.75 92) scale(5.125)">
+    <polygon fill="#ede6da" points="10,60 10,22 16,4 26,20 40,20 58,32 56,42 42,42 38,52 26,60"/>
+    <circle fill="#f2a900" cx="40" cy="30" r="3.5"/>
+  </g>
+</svg>

@@ -74,6 +74,32 @@ describe("buildTurnMessage", () => {
       manifest_changed: true,
     });
   });
+
+  const pr = {
+    repo: "o/r",
+    prNumber: 7,
+    title: "t",
+    body: "b",
+    baseSha: "b".repeat(40),
+    headSha: "h".repeat(40),
+    cloneUrl: "https://github.com/o/r.git",
+    changedFiles: ["app.py"],
+  };
+
+  const payloadOf = (message: string) =>
+    JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
+
+  it("carries run_url when the run has a public page", () => {
+    const payload = payloadOf(buildTurnMessage(pr, "https://cujo.example.com/runs/r1"));
+    expect(payload.run_url).toBe("https://cujo.example.com/runs/r1");
+  });
+
+  it("omits the key entirely when the run has no public page", () => {
+    // Absent, not "". The key's absence and the tool's optional field are the
+    // same rule, so a private repo needs no special case downstream.
+    const payload = payloadOf(buildTurnMessage(pr, ""));
+    expect("run_url" in payload).toBe(false);
+  });
 });
 
 describe("buildAgentSpec", () => {

@@ -89,6 +89,61 @@ describe("github-mcp", () => {
     expect(last?.input.body).toContain("`app.py:50` (RIGHT): no such line");
   });
 
+  it("appends the run footer below the anchorless findings", async () => {
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    await client.callTool({
+      name: "post_advisory_review",
+      arguments: {
+        repo: "spencerjireh/orders-api",
+        pr_number: 7,
+        head_sha: "abcdef1",
+        body: "Tests: 212 passed.",
+        comments: [{ path: "app.py", line: 50, body: "no such line" }],
+        run_url: "https://cujo.example.com/runs/r1",
+      },
+    });
+    await client.close();
+
+    const body = github.posted.at(-1)?.input.body ?? "";
+    expect(body.endsWith("Full evidence: https://cujo.example.com/runs/r1\n")).toBe(true);
+    expect(body.indexOf("Full evidence")).toBeGreaterThan(body.indexOf("without a diff anchor"));
+  });
+
+  it("posts no footer when the run has no public page", async () => {
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    await client.callTool({
+      name: "post_advisory_review",
+      arguments: {
+        repo: "spencerjireh/orders-api",
+        pr_number: 7,
+        head_sha: "abcdef1",
+        body: "Tests: 212 passed.",
+      },
+    });
+    await client.close();
+
+    expect(github.posted.at(-1)?.input.body).toBe("Tests: 212 passed.");
+  });
+
+  it("rejects a run_url that is not a URL", async () => {
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const result = await client.callTool({
+      name: "post_blocking_review",
+      arguments: {
+        repo: "spencerjireh/orders-api",
+        pr_number: 7,
+        head_sha: "abcdef1",
+        body: "x",
+        run_url: "javascript:alert(1)",
+      },
+    });
+    await client.close();
+    expect(result.isError).toBe(true);
+  });
+
   it("rejects input that fails the schema", async () => {
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));

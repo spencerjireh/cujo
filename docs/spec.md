@@ -72,7 +72,9 @@ For a `pull_request` event the `apps/cujo` webhook module:
    token (Contents: read, Pull requests: read).
 3. Finds or creates the TrueForge session for this PR (see Contract 5) and
    starts one turn with a single user message: repo full name, PR number, base
-   SHA, head SHA, and the changed-file list.
+   SHA, head SHA, the changed-file list, and — only when the repo is public —
+   `run_url`, the run's page on the board, which the agent passes back to the
+   review tool (Contract 4).
 4. Records a run (see Contract 6) and stays subscribed to the turn's event
    stream, folding events into that run until `turn.done`.
 
@@ -327,6 +329,14 @@ egress observed. Each entry in `comments[]` is one finding with a `path`,
 `github-mcp` validates each anchor against the PR diff before posting; a
 finding with no anchor, or with an anchor outside the diff, moves into the
 body so a bad anchor never blocks the review.
+
+Both also take an optional `run_url`, which the agent copies verbatim from the
+turn payload and never writes into the body itself. `github-mcp` appends the
+footer — a rule, then `Full evidence: <run_url>` — after the anchorless
+findings, so the link is always last and always the same shape (decision 36).
+`apps/cujo` omits `run_url` from the turn payload for a private repository,
+which has no page a reader of the pull request could open, so those reviews
+carry no footer at all.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.
