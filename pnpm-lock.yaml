@@ -65,6 +65,9 @@ importers:
       '@cujo/brand':
         specifier: workspace:*
         version: link:../../brand
+      '@cujo/log':
+        specifier: workspace:*
+        version: link:../../packages/log
       '@radix-ui/react-collapsible':
         specifier: 1.1.20
         version: 1.1.20(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
