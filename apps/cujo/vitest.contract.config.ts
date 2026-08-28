@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["src/**/*.contract.test.ts"],
+    include: ["tests/**/*.contract.test.ts"],
     // One server, one session: the tests build on each other in order.
     fileParallelism: false,
     sequence: { concurrent: false },

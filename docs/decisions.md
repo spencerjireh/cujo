@@ -611,7 +611,64 @@ expiry and replay to get right and leaves no lasting record of the decision.
 Also rejected, again, Manage Server alone — it still lets any server admin bind
 any repo Cujo knows about.
 
-## 32. The origin accepts Cloudflare only; the ACME path is bypassed to match
+## 32. The file tree carries the trust boundary, not the layer
+
+`apps/cujo/src` was twenty flat files. Every load-bearing fact about the service
+— two trust zones, two hostnames, one pure fold from events to a run — lived in
+prose: `AGENTS.md`, `docs/architecture.md`, and a header comment on nearly every
+file. None of it lived in the directory structure, so `webhook.ts` (reachable by
+anyone on the internet, HMAC the only gate) sat indistinguishable from `api.ts`
+(behind Cloudflare Access), and the distinction existed in exactly one place,
+the host dispatch.
+
+`src/` is now grouped by **trust plane and bounded context**: `http/ingress`,
+`http/operator`, `review`, `notify`, `clients`, `store`, with `tests/` mirroring
+it. Each directory carries a `README.md` stating its invariant, which GitHub
+renders when you browse into it.
+
+Rejected: `controllers/services/models`. It is the convention everyone already
+knows, which is a real argument, and it was weighed on that basis. It loses
+because layering sorts by technical role and trust zone is orthogonal to
+technical role — a layered tree puts `webhook.controller.ts` beside
+`runs.controller.ts` and deletes the one distinction most expensive to get
+wrong. The `services/` bucket also destroys information here: `fold.ts` and
+`findings.ts` are pure, `runner` and `notifier` are long-lived and stateful, and
+the clients are IO; calling all of them "service" says none of that. And
+`models/` implies authority, which is the opposite of what a projection is
+(decision 18). Two of the four layers were kept under different names:
+`clients/` is infrastructure, `store/` is repositories.
+
+Naming: suffix only where the directory does not already say it. `store/runs.ts`
+is obviously a repository and `clients/github.ts` is obviously a client, so
+`.repository` and `.client` would be noise. Only `.service.ts` is used, on the
+two objects that hold state across requests — `runner` and `notifier` — so its
+*absence* means a file is safe to call from anywhere.
+
+Invariants that were comments are now types. Splitting the store means the
+`/cujo` command handlers hold a `NotificationStore`, which has no
+`claimDecision`, so "Discord routes notifications and never approves a review"
+(decision 28) is a compile error rather than a rule to remember. Splitting
+`clients/` off means nothing there imports from the contexts it serves.
+
+The duplicated rule that prompted this: "can the bot post an embed in that
+channel" was written twice and had already drifted — the operator API turned a
+failed permission lookup into a 400, the slash command let it reach a generic
+"something went wrong". It is stated once in `notify/channel-check.ts`, which
+returns a typed refusal so each caller keeps its own wording.
+
+`sniff.py` moved to `sandbox/`, so the untrusted zone is visible at the repo
+root. That changed `CUJO_SNIFF_URL`'s default; see the breaking-change note on
+that commit, because the deployed value comes from Coolify and not from this
+repo.
+
+Paths named in decisions 1–31 refer to the pre-restructure tree. They are left
+as written, per the rule that a decision is reversed rather than edited.
+
+Deferred: splitting `runner.service.ts` into run lifecycle and TrueForge stream
+transport. It is the largest test surface in the service and the split is a
+behaviour risk, not a move.
+
+## 33. The origin accepts Cloudflare only; the ACME path is bypassed to match
 
 Cloudflare proxies all three hostnames, so until now the server's own address
 was a path that skipped Access: fetching `https://cujo.spencerjireh.com/`

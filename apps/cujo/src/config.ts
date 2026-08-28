@@ -75,7 +75,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     model: required(env, "CUJO_MODEL"),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
     sniffUrl:
-      env.CUJO_SNIFF_URL ?? "https://raw.githubusercontent.com/spencerjireh/cujo/main/sniff.py",
+      env.CUJO_SNIFF_URL ??
+      "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
     turnTimeoutMs: Number(env.CUJO_TURN_TIMEOUT_MS ?? 30 * 60 * 1000),
     devNoAccess,
     bootstrap: {

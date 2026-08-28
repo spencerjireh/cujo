@@ -8,6 +8,6 @@
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["next-env.d.ts", "src", "next.config.ts", "vitest.config.ts", ".storybook"],
+  "include": ["next-env.d.ts", "src", "tests", "next.config.ts", "vitest.config.ts", ".storybook"],
   "exclude": ["node_modules", ".next"]
 }
