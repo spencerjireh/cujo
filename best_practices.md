@@ -52,7 +52,9 @@ this file when reviewing pull requests; keep the two in sync.
   follow the `describe`/`it` naming convention.
 - A PR that changes how something works updates the relevant file in `docs/` in
   the same PR; a load-bearing choice gets an entry in `docs/decisions.md`.
-- Use `console.error` and `console.warn` for errors and warnings that belong in
-  container logs. A bare `console.log` added in a PR is usually leftover
-  debugging — remove it or promote it to `console.info` with enough context to
-  be useful to someone reading Coolify logs who is not you.
+- Log through `@cujo/log`, never `console.*` — `noConsole` enforces it. A call is
+  an event name from the closed vocabulary in `EVENT_NAMES` plus allowlisted
+  scalar fields; adding a field means declaring and classifying it, and the build
+  fails until you do. Never pass an `Error`, a config object, or any other object
+  as a field value, and never interpolate an upstream response body into a
+  message (see `docs/decisions.md` 37).
