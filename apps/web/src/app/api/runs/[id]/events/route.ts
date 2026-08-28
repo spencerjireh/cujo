@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { CUJO_API_URL } from "@/lib/api/client";
+import { streamOutcome, streamStatus } from "@/lib/api/upstream";
+import { log } from "@/lib/log";
+import { errorFields } from "@cujo/log";
 import { headers } from "next/headers";
 
 /**
@@ -20,19 +24,38 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const incoming = await headers();
   const assertion = incoming.get("cf-access-jwt-assertion");
   const host = incoming.get("host");
+  const ray = incoming.get("cf-ray") ?? `cujo-${randomUUID()}`;
 
-  const upstream = await fetch(`${CUJO_API_URL()}/runs/${encodeURIComponent(id)}/events`, {
-    headers: {
-      accept: "text/event-stream",
-      ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}),
-      ...(host ? { "x-forwarded-host": host, "x-forwarded-proto": "https" } : {}),
-    },
-    cache: "no-store",
-    signal: request.signal,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${CUJO_API_URL()}/runs/${encodeURIComponent(id)}/events`, {
+      headers: {
+        accept: "text/event-stream",
+        "cf-ray": ray,
+        ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}),
+        ...(host ? { "x-forwarded-host": host, "x-forwarded-proto": "https" } : {}),
+      },
+      cache: "no-store",
+      signal: request.signal,
+    });
+  } catch (error) {
+    // A browser closing the stream aborts this fetch, which is the normal end
+    // of every run page and not a failure worth a line.
+    if (request.signal.aborted) return new Response(null, { status: 499 });
+    log.error("proxy.stream.failed", { run_id: id, mode: "operator", ray, ...errorFields(error) });
+    return new Response(null, { status: 502 });
+  }
 
   if (!upstream.ok || !upstream.body) {
-    return new Response(null, { status: upstream.status === 200 ? 502 : upstream.status });
+    const { event, level } = streamOutcome(upstream.status, upstream.ok, "operator");
+    log[level](event, {
+      run_id: id,
+      mode: "operator",
+      ray,
+      http_status: upstream.status,
+      ...(event === "proxy.stream.degraded" ? { reason: "stream_limit" } : {}),
+    });
+    return new Response(null, { status: streamStatus(upstream.status) });
   }
 
   return new Response(upstream.body, {
