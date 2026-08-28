@@ -46,6 +46,26 @@ export function parseDeclaredGuild(yaml: string): string | null {
  * The read side of the GitHub App: PR metadata, changed files, and the
  * idempotency check on existing reviews. Posting stays in github-mcp.
  */
+/**
+ * A GitHub call that did not return 2xx.
+ *
+ * The status is a field, not text inside the message. It used to be
+ * interpolated — `GitHub ${path} returned ${status}` — which left every caller
+ * regexing English to find out whether a failure was an expected 404 or a real
+ * outage, and left `errorFields` unable to classify it at all. Modelled on
+ * `DiscordError`, which already carried its status this way.
+ */
+export class GitHubError extends Error {
+  constructor(
+    readonly status: number,
+    /** The API path, without the token or any query the caller added. */
+    readonly path: string,
+  ) {
+    super(`GitHub ${path} returned ${status}`);
+    this.name = "GitHubError";
+  }
+}
+
 export class GitHubReader {
   private readonly privateKey: string;
   private repoCache: { repos: string[]; expiresAt: number } | null = null;
@@ -80,7 +100,7 @@ export class GitHubReader {
         "user-agent": "cujo",
       },
     });
-    if (!res.ok) throw new Error(`GitHub ${path} returned ${res.status}`);
+    if (!res.ok) throw new GitHubError(res.status, path);
     return (await res.json()) as T;
   }
 
@@ -123,7 +143,7 @@ export class GitHubReader {
         "user-agent": "cujo",
       },
     });
-    if (!res.ok) throw new Error(`GitHub ${path} returned ${res.status}`);
+    if (!res.ok) throw new GitHubError(res.status, path);
     return (await res.json()) as T;
   }
 
@@ -184,7 +204,7 @@ export class GitHubReader {
           },
         },
       );
-      if (!res.ok) throw new Error(`GitHub /installation/repositories returned ${res.status}`);
+      if (!res.ok) throw new GitHubError(res.status, "/installation/repositories");
       const body = (await res.json()) as { repositories: { full_name: string }[] };
       for (const repo of body.repositories) into.add(repo.full_name);
       if (body.repositories.length < 100) return;
@@ -270,7 +290,7 @@ export class GitHubReader {
       },
     });
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`GitHub /repos/${repo}/contents/${path} returned ${res.status}`);
+    if (!res.ok) throw new GitHubError(res.status, `/repos/${repo}/contents/${path}`);
     return res.text();
   }
 
