@@ -31,7 +31,7 @@ export interface StartRunDeps {
 export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void> {
   try {
     if (await deps.github.alreadyReviewed(run.repo, run.prNumber, run.headSha)) {
-      // Release the claim so nothing shows a run that never happened.
+      console.info(`run ${run.id}: already reviewed, deleting`);
       deps.store.deleteRun(run.id);
       return;
     }
@@ -42,14 +42,19 @@ export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void
     // Delivery order is not commit order: a delayed delivery for an older
     // head must not replace the run for the head GitHub reports now.
     if (pr.headSha !== run.headSha) {
+      console.info(`run ${run.id}: stale head (PR reports ${pr.headSha.slice(0, 7)}), superseding`);
       await deps.runner.supersede(run.id);
       return;
     }
     // This is the current head, so a review of any older head is stale.
     const scope = { repo: run.repo, prNumber: run.prNumber };
     for (const old of deps.store.listUnfinishedRuns(scope)) {
-      if (old.id !== run.id) await deps.runner.supersede(old.id);
+      if (old.id !== run.id) {
+        console.info(`run ${old.id}: superseded by ${run.id}`);
+        await deps.runner.supersede(old.id);
+      }
     }
+    console.info(`run ${run.id}: starting turn for ${run.repo} #${run.prNumber}`);
     await deps.runner.start(run, buildTurnMessage(pr, deps.reviewRunId(run)));
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim

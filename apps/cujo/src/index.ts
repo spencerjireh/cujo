@@ -30,7 +30,7 @@ async function registerCommands(discord: DiscordClient): Promise<void> {
     for (const guild of guilds) {
       try {
         await discord.putGuildCommands(application.id, guild.id, COMMANDS);
-        console.log(`discord: registered /cujo in ${guild.name}`);
+        console.info(`discord: registered /cujo in ${guild.name}`);
       } catch (error) {
         console.error(`discord: could not register commands in ${guild.name}`, error);
       }
@@ -135,7 +135,7 @@ async function main(): Promise<void> {
   });
 
   const server = serve({ fetch: app.fetch, port: config.port }, () => {
-    console.log(
+    console.info(
       `cujo listening on :${config.port} (ui ${config.uiHost}, webhook ${config.webhookHost})`,
     );
   });

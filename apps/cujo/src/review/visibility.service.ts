@@ -45,7 +45,7 @@ export class VisibilityService {
       changed += this.deps.runs.setRepoVisibility(repo, answer === "public");
     }
     if (changed || unknown) {
-      console.log(
+      console.info(
         `visibility sweep: ${repos.length} repos, ${changed} runs re-stamped, ${unknown} unanswered`,
       );
     }

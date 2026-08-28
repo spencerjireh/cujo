@@ -26,6 +26,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Optional: with no board configured, no review carries an evidence footer.
   const publicBaseUrl = (process.env.CUJO_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
   createApp({ github, publicBaseUrl }).listen(PORT, () => {
-    console.log(`github-mcp listening on :${PORT}`);
+    console.info(`github-mcp listening on :${PORT}`);
   });
 }
