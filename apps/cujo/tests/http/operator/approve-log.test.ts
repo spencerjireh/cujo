@@ -34,9 +34,9 @@ const view = (status: string): RunView =>
     projection: { approval: { threadId: "main", toolCallId: "c1", sourceEventId: "e1" } },
   }) as unknown as RunView;
 
-const approve = (app: Hono<Env>, body = "allow") =>
+const approve = (app: Hono<Env>, runId: string, body = "allow") =>
   app.fetch(
-    new Request("http://cujo.test/runs/r1/approve", {
+    new Request(`http://cujo.test/runs/${runId}/approve`, {
       method: "POST",
       headers: { ...AUTH, "content-type": "application/json" },
       body: JSON.stringify({ decision: body }),
@@ -45,10 +45,10 @@ const approve = (app: Hono<Env>, body = "allow") =>
 
 describe("approve.requested", () => {
   it("names the operator, the decision and the run before the outcome is known", async () => {
-    const { app, logged } = build(view("blocked_pending"));
-    await approve(app);
+    const { app, logged, runId } = build(view("blocked_pending"));
+    await approve(app, runId);
     expect(logged("approve.requested")[0]).toMatchObject({
-      run_id: "r1",
+      run_id: runId,
       decision: "allow",
       actor: "op@example.com",
     });
@@ -60,9 +60,9 @@ describe("approve.requested", () => {
     // only `request_ray`, which the handler set from the same request ray the
     // middleware had already bound, so the two ids on the line were always
     // equal and nothing said so.
-    const { app, logged } = build(view("blocked_pending"));
+    const { app, logged, runId } = build(view("blocked_pending"));
     await app.fetch(
-      new Request("http://cujo.test/runs/r1/approve", {
+      new Request(`http://cujo.test/runs/${runId}/approve`, {
         method: "POST",
         headers: { ...AUTH, "content-type": "application/json", "cf-ray": "operator-ray" },
         body: JSON.stringify({ decision: "deny" }),
@@ -83,21 +83,21 @@ describe("approve.requested", () => {
     // null, and this line matches it rather than reporting a null id.
     const stale = view("blocked_pending");
     (stale.run as { deliveryId: string | null }).deliveryId = null;
-    const { app, logged } = build(stale);
-    await approve(app);
+    const { app, logged, runId } = build(stale);
+    await approve(app, runId);
     expect(logged("approve.requested")[0]).not.toHaveProperty("delivery_id");
   });
 });
 
 describe("approve.rejected", () => {
   it("gives the caller wording and the log a countable reason", async () => {
-    const { app, runner } = build(view("clean"));
+    const { app, runner, runId } = build(view("clean"));
     (runner as unknown as { approve: () => Promise<unknown> }).approve = async () => ({
       ok: false,
       reason: "not_blocked_pending",
       detail: "run is clean, not blocked_pending",
     });
-    const res = await approve(app);
+    const res = await approve(app, runId);
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string; reason: string };
     // The UI keeps its sentence; a query gets a word it can count. The 409

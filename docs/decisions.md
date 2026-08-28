@@ -1008,6 +1008,18 @@ Rejected: correlating background work by run id alone. It works for a human with
 a log search and breaks the moment anything wants to join a delivery to its
 outcome, which is the one question the audit trail exists to answer.
 
+The one place both ids belong on a single line is the approval, because two
+different questions are being asked of it: which request decided, and which
+delivery it decided about. `approve.requested` carries `ray` — the operator's
+own request, bound by the middleware — beside `delivery_id`, read from the run
+row and omitted when the run predates that column. `approve.applied` follows
+from the run's own logger once the resume lands. They are two fields and not
+one: bound fields beat call-site fields, so a handler cannot repoint `ray` at
+the run without a child logger, and an earlier attempt that named the second
+field `request_ray` set it from the same request ray the middleware had already
+bound — one fact under two names, on the one line where the second fact
+mattered.
+
 Known limit: the vocabulary scan sees a literal first argument on a receiver
 named `log` or `logger`, and nothing else. A computed name is already a type
 error, since the parameter is a union of string literals, so the scan and the
