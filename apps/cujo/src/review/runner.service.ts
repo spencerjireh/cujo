@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { Harness, SessionEvent, StreamEvent } from "../clients/trueforge";
-import type { Store } from "../store";
+import type { RunStore } from "../store";
 import { fold } from "./fold";
 import type { Projection, RunRecord } from "./types";
 
@@ -65,7 +65,7 @@ export class Runner {
   private readonly retryDelaysMs: number[];
 
   constructor(
-    private readonly store: Store,
+    private readonly store: RunStore,
     private readonly harness: Harness,
     private readonly options: RunnerOptions = { turnTimeoutMs: 30 * 60 * 1000 },
   ) {
@@ -104,7 +104,7 @@ export class Runner {
       if (!projection.turnIds.includes(turnId)) projection.turnIds.push(turnId);
     }
     this.store.putProjection(runId, projection);
-    const patch: Parameters<Store["updateRun"]>[1] = {
+    const patch: Parameters<RunStore["updateRun"]>[1] = {
       status: projection.status,
       turnIds: projection.turnIds,
     };

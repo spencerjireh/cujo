@@ -4,7 +4,7 @@ import type { GitHubReader } from "../../clients/github";
 import { buildTurnMessage } from "../../review/agent-spec";
 import type { Runner } from "../../review/runner.service";
 import type { RunRecord } from "../../review/types";
-import type { Store } from "../../store";
+import type { RunStore } from "../../store";
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
@@ -29,7 +29,7 @@ interface PullRequestEvent {
 export interface WebhookDeps {
   secret: string;
   github: GitHubReader;
-  store: Store;
+  store: RunStore;
   runner: Runner;
   createSession: (repo: string, prNumber: number) => Promise<string>;
   /** False until the harness bootstrap has completed every registration. */

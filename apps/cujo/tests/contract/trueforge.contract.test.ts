@@ -187,9 +187,9 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   // the fold, the store, the approve route, and the poll are all exercised.
   const store = new Store(":memory:");
   const runFor = (headSha: string) =>
-    store.createRun({ repo: "o/r", prNumber: 1, headSha, sessionId }).run;
+    store.runs.createRun({ repo: "o/r", prNumber: 1, headSha, sessionId }).run;
   const settled = (id: string, statuses: string[]) =>
-    vi.waitFor(() => expect(statuses).toContain(store.getRun(id)?.status), {
+    vi.waitFor(() => expect(statuses).toContain(store.runs.getRun(id)?.status), {
       timeout: 30_000,
       interval: 250,
     });
@@ -198,7 +198,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     const names = stub.requests.at(-1)?.tools?.map((t) => t.function.name) ?? [];
     expect(names).toEqual(expect.arrayContaining(["call_tool", "list_tools", "get_tool_info"]));
     expect(names.some((n) => n.endsWith("post_blocking_review"))).toBe(false);
-    runner = new Runner(store, harness, { turnTimeoutMs: 60_000, pollIntervalMs: 1_000 });
+    runner = new Runner(store.runs, harness, { turnTimeoutMs: 60_000, pollIntervalMs: 1_000 });
   });
   const active = (): Runner => {
     if (!runner) throw new Error("runner not built");
@@ -208,8 +208,8 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   it("an advisory review folds to clean, even when github-mcp's GitHub call fails", async () => {
     const run = runFor("h-adv");
     await active().start(run, reviewMessage("post_advisory_review"));
-    expect(store.getRun(run.id)?.status).toBe("clean");
-    const projection = store.getProjection(run.id);
+    expect(store.runs.getRun(run.id)?.status).toBe("clean");
+    const projection = store.runs.getProjection(run.id);
     expect(projection?.review).toMatchObject({
       tool: "post_advisory_review",
       body: "Tests: fine.",
@@ -220,23 +220,23 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   it("a blocking review pauses for approval; Cujo's allow posts it", async () => {
     const run = runFor("h-blk");
     await active().start(run, reviewMessage("post_blocking_review"));
-    expect(store.getRun(run.id)?.status).toBe("blocked_pending");
-    const projection = store.getProjection(run.id);
+    expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
+    const projection = store.runs.getProjection(run.id);
     expect(projection?.review?.tool).toBe("post_blocking_review");
     expect(projection?.approval?.threadId).toBe("main");
 
     const decision = await active().approve(run.id, "allow", "op@example.com");
     expect(decision).toEqual({ ok: true });
     await settled(run.id, ["blocked_posted"]);
-    expect(store.getRun(run.id)).toMatchObject({ approver: "op@example.com" });
-    expect(store.getProjection(run.id)?.externalResume).toBe(false);
-    expect(store.getRun(run.id)?.turnIds).toHaveLength(2);
+    expect(store.runs.getRun(run.id)).toMatchObject({ approver: "op@example.com" });
+    expect(store.runs.getProjection(run.id)?.externalResume).toBe(false);
+    expect(store.runs.getRun(run.id)?.turnIds).toHaveLength(2);
   });
 
   it("a denied blocking review folds to denied", async () => {
     const run = runFor("h-deny");
     await active().start(run, reviewMessage("post_blocking_review"));
-    expect(store.getRun(run.id)?.status).toBe("blocked_pending");
+    expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
     expect((await active().approve(run.id, "deny", "op@example.com")).ok).toBe(true);
     await settled(run.id, ["denied"]);
   });
@@ -250,25 +250,25 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     const input = `SAY \`\`\`json ${JSON.stringify(report)} \`\`\``;
     const message = `CALL create_sub_agent ${JSON.stringify({ name: "tests", input })}`;
     await active().start(run, message);
-    const projection = store.getProjection(run.id);
+    const projection = store.runs.getProjection(run.id);
     const check = projection?.checks.find((c) => c.title === "tests");
     expect(check).toMatchObject({ isCheck: true, status: "done" });
     expect(check?.report).toMatchObject({ base_pass_head_fail: ["t_x"] });
     expect(projection?.hardRuleHits).toHaveLength(1);
-    expect(store.getRun(run.id)?.status).toBe("error");
+    expect(store.runs.getRun(run.id)?.status).toBe("error");
     expect(projection?.error).toBe("turn ended without a review");
   });
 
   it("a resume sent outside Cujo is picked up by the poll and marked external", async () => {
     const run = runFor("h-ext");
     await active().start(run, reviewMessage("post_blocking_review"));
-    const approval = store.getProjection(run.id)?.approval;
+    const approval = store.runs.getProjection(run.id)?.approval;
     expect(approval).not.toBeNull();
     if (!approval) return;
     await harness.resume(sessionId, approval, "allow");
     await settled(run.id, ["blocked_posted"]);
-    expect(store.getRun(run.id)?.approver).toBe("external");
-    expect(store.getProjection(run.id)?.externalResume).toBe(true);
+    expect(store.runs.getRun(run.id)?.approver).toBe("external");
+    expect(store.runs.getProjection(run.id)?.externalResume).toBe(true);
     active().stopAll();
   });
 });

@@ -16,9 +16,9 @@ function fakeRunner(store: Store): Runner {
     view: () => null,
     start: vi.fn(async () => {}),
     approve: vi.fn(),
-    fail: vi.fn((runId: string) => store.updateRun(runId, { status: "error" })),
+    fail: vi.fn((runId: string) => store.runs.updateRun(runId, { status: "error" })),
     supersede: vi.fn(async (runId: string) => {
-      store.updateRun(runId, { status: "superseded" });
+      store.runs.updateRun(runId, { status: "superseded" });
     }),
   } as unknown as Runner;
 }
@@ -56,7 +56,7 @@ function build(
     webhook: {
       secret: "s3",
       github,
-      store,
+      store: store.runs,
       runner,
       createSession: async () => "sess-1",
       onSettled: (runId) => settled.shift()?.(runId),
@@ -65,7 +65,7 @@ function build(
       ? {
           interactions: {
             publicKey: "ab".repeat(32),
-            store,
+            store: store.notifications,
             discord: {} as never,
             github,
             uiBaseUrl: "https://cujo.example.com",
@@ -205,7 +205,7 @@ describe("webhook", () => {
       webhook: {
         secret: "s3",
         github: {} as GitHubReader,
-        store,
+        store: store.runs,
         runner,
         createSession: async () => "sess-1",
         isReady: () => false,
@@ -253,8 +253,8 @@ describe("webhook", () => {
     const signed = await deliver(app);
     expect(signed.status).toBe(202);
     const body = (await signed.json()) as { run_id: string };
-    expect(store.getRun(body.run_id)?.sessionId).toBe("sess-1");
-    expect(store.getSession("o/r", 7)).toBe("sess-1");
+    expect(store.runs.getRun(body.run_id)?.sessionId).toBe("sess-1");
+    expect(store.runs.getSession("o/r", 7)).toBe("sess-1");
     await done;
     expect(runner.start).toHaveBeenCalledOnce();
   });
@@ -276,12 +276,12 @@ describe("webhook", () => {
     const res = await deliver(app);
     // 202 arrived while alreadyReviewed is still pending.
     expect(res.status).toBe(202);
-    expect(store.listRuns()).toHaveLength(1);
+    expect(store.runs.listRuns()).toHaveLength(1);
     release();
     await done;
     expect(runner.start).not.toHaveBeenCalled();
     // The claimed row is released so a later real run for this head is possible.
-    expect(store.listRuns()).toHaveLength(0);
+    expect(store.runs.listRuns()).toHaveLength(0);
   });
 
   it("ends a run whose preparation fails and lets a redelivery re-claim the head", async () => {
@@ -298,7 +298,7 @@ describe("webhook", () => {
     expect(first.status).toBe(202);
     const firstId = await done;
     expect(runner.fail).toHaveBeenCalledWith(firstId, expect.stringContaining("502 from GitHub"));
-    expect(store.getRun(firstId)).toMatchObject({ status: "error", turnIds: [] });
+    expect(store.runs.getRun(firstId)).toMatchObject({ status: "error", turnIds: [] });
 
     done = nextSettled();
     const second = await deliver(app);
@@ -306,7 +306,7 @@ describe("webhook", () => {
     const secondId = await done;
     expect(secondId).not.toBe(firstId);
     expect(runner.start).toHaveBeenCalledOnce();
-    expect(store.getRun(firstId)).toBeNull();
+    expect(store.runs.getRun(firstId)).toBeNull();
   });
 
   const headPayload = (sha: string) =>
@@ -324,7 +324,7 @@ describe("webhook", () => {
     let done = nextSettled();
     const first = (await (await deliver(app)).json()) as { run_id: string };
     await done;
-    store.updateRun(first.run_id, { status: "blocked_pending" });
+    store.runs.updateRun(first.run_id, { status: "blocked_pending" });
 
     // GitHub now reports h2 as the head.
     pullRequest.mockResolvedValue(prOf("h2"));
@@ -333,7 +333,7 @@ describe("webhook", () => {
     await done;
     expect(runner.supersede).toHaveBeenCalledWith(first.run_id);
     expect(runner.supersede).not.toHaveBeenCalledWith(second.run_id);
-    expect(store.getRun(first.run_id)?.status).toBe("superseded");
+    expect(store.runs.getRun(first.run_id)?.status).toBe("superseded");
     expect(runner.start).toHaveBeenCalledTimes(2);
   });
 
@@ -352,8 +352,8 @@ describe("webhook", () => {
     await done;
     expect(runner.supersede).toHaveBeenCalledWith(stale.run_id);
     expect(runner.supersede).not.toHaveBeenCalledWith(current.run_id);
-    expect(store.getRun(stale.run_id)?.status).toBe("superseded");
-    expect(store.getRun(current.run_id)?.status).toBe("running");
+    expect(store.runs.getRun(stale.run_id)?.status).toBe("superseded");
+    expect(store.runs.getRun(current.run_id)?.status).toBe("running");
     expect(runner.start).toHaveBeenCalledOnce();
   });
 });

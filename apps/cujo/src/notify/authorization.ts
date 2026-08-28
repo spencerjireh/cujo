@@ -18,7 +18,7 @@
  */
 
 import type { GitHubReader } from "../clients/github";
-import type { Store } from "../store";
+import type { NotificationStore } from "../store";
 
 /**
  * `unknown` is not a refusal. GitHub being unreachable says nothing about what
@@ -32,7 +32,7 @@ export type Authorization =
   | { allowed: false; reason: "not_declared" | "declared_elsewhere" | "unknown" };
 
 export interface AuthorizationDeps {
-  store: Store;
+  store: NotificationStore;
   github: GitHubReader;
 }
 

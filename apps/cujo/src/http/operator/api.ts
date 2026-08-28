@@ -80,7 +80,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
   });
 
   app.get("/runs", (c) => {
-    const runs = deps.store.listRuns().map((run) => ({
+    const runs = deps.store.runs.listRuns().map((run) => ({
       id: run.id,
       repo: run.repo,
       pr_number: run.prNumber,
@@ -139,7 +139,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
   app.get("/discord/channels", (c) =>
     c.json({
       configured: Boolean(deps.discord),
-      channels: deps.store.listDiscordChannels().map(serializeChannel),
+      channels: deps.store.notifications.listDiscordChannels().map(serializeChannel),
     }),
   );
 
@@ -214,7 +214,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
         400,
       );
     }
-    const stored = deps.store.putDiscordChannel({
+    const stored = deps.store.notifications.putDiscordChannel({
       repo: `${owner}/${name}`,
       channelId,
       guildId,
@@ -227,7 +227,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
 
   app.delete("/discord/channels/:owner/:name", (c) => {
     const repo = `${c.req.param("owner")}/${c.req.param("name")}`;
-    if (!deps.store.deleteDiscordChannel(repo)) {
+    if (!deps.store.notifications.deleteDiscordChannel(repo)) {
       return c.json({ ok: false, error: "not found" }, 404);
     }
     return c.json({ ok: true });
@@ -238,7 +238,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
   // decision carries their email (decision 28).
   app.get("/discord/authorizations", (c) =>
     c.json({
-      authorizations: deps.store.listGuildRepos().map((a) => ({
+      authorizations: deps.store.notifications.listGuildRepos().map((a) => ({
         guild_id: a.guildId,
         guild_name: a.guildName,
         repo: a.repo,
@@ -273,7 +273,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
       return c.json({ ok: false, error: "the Cujo App is not installed on that repo" }, 400);
     }
 
-    const stored = deps.store.authorizeGuildRepo({
+    const stored = deps.store.notifications.authorizeGuildRepo({
       guildId,
       repo: `${owner}/${name}`,
       guildName: guild.name,
@@ -290,7 +290,7 @@ export function apiRoutes(deps: ApiDeps): Hono<Env> {
 
   app.delete("/discord/authorizations/:guildId/:owner/:name", (c) => {
     const repo = `${c.req.param("owner")}/${c.req.param("name")}`;
-    if (!deps.store.revokeGuildRepo(c.req.param("guildId"), repo)) {
+    if (!deps.store.notifications.revokeGuildRepo(c.req.param("guildId"), repo)) {
       return c.json({ ok: false, error: "not found" }, 404);
     }
     return c.json({ ok: true });

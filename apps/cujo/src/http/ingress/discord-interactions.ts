@@ -28,7 +28,7 @@ import { authorizationFor, explain } from "../../notify/authorization";
 import { buildRunCard } from "../../notify/card";
 import { MANAGE_GUILD } from "../../notify/commands/definitions";
 import { emptyProjection } from "../../review/fold";
-import type { Store } from "../../store";
+import type { NotificationStore } from "../../store";
 
 /** Interaction types. */
 const PING = 1;
@@ -130,7 +130,7 @@ const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
 export interface InteractionDeps {
   /** The application's Ed25519 public key, hex. */
   publicKey: string;
-  store: Store;
+  store: NotificationStore;
   discord: DiscordClient;
   github: GitHubReader;
   uiBaseUrl: string;

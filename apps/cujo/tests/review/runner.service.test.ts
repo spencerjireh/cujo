@@ -120,36 +120,46 @@ describe("Runner.selectRunEvents", () => {
 describe("Runner.start", () => {
   it("records the turn id before the first event and folds to the end", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     let seenAtFirstEvent: string[] = [];
     async function* stream(): AsyncIterable<StreamEvent> {
-      seenAtFirstEvent = store.getRun(r.id)?.turnIds ?? [];
+      seenAtFirstEvent = store.runs.getRun(r.id)?.turnIds ?? [];
       yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
       yield reviewCall("c1");
       yield turnDone("t1");
     }
     const startTurn = vi.fn(async () => "t1");
     const subscribe = vi.fn(async () => stream());
-    const runner = new Runner(store, { startTurn, subscribe } as unknown as Harness, {
+    const runner = new Runner(store.runs, { startTurn, subscribe } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.start(r, "review it");
     expect(startTurn).toHaveBeenCalledWith("s", "review it");
     expect(subscribe).toHaveBeenCalledWith("s", "t1");
     expect(seenAtFirstEvent).toEqual(["t1"]);
-    expect(store.getRun(r.id)).toMatchObject({ status: "clean", turnIds: ["t1"] });
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "clean", turnIds: ["t1"] });
   });
 
   it("tells a process-wide subscriber about every run, and survives one that throws", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const events = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       reviewCall("c1"),
       turnDone("t1"),
     ];
     const runner = new Runner(
-      store,
+      store.runs,
       {
         startTurn: async () => "t1",
         subscribe: async () => streamOf(events),
@@ -168,12 +178,17 @@ describe("Runner.start", () => {
     await runner.start(r, "review it");
     expect(anyRun).toEqual(perRun);
     expect(anyRun.at(-1)?.run.status).toBe("clean");
-    expect(store.getRun(r.id)).toMatchObject({ status: "clean" });
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "clean" });
   });
 
   it("keeps the turn and resubscribes when the first subscribe fails", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const events = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       reviewCall("c1"),
@@ -182,55 +197,70 @@ describe("Runner.start", () => {
     const subscribe = vi.fn(async () => streamOf(events));
     let recordedBeforeSubscribe: string[] = [];
     subscribe.mockImplementationOnce(async () => {
-      recordedBeforeSubscribe = store.getRun(r.id)?.turnIds ?? [];
+      recordedBeforeSubscribe = store.runs.getRun(r.id)?.turnIds ?? [];
       throw new Error("subscribe failed");
     });
     const runner = new Runner(
-      store,
+      store.runs,
       { startTurn: async () => "t1", subscribe } as unknown as Harness,
       { turnTimeoutMs: 10_000, retryDelaysMs: [0] },
     );
     await runner.start(r, "review it");
     expect(recordedBeforeSubscribe).toEqual(["t1"]);
     expect(subscribe).toHaveBeenCalledTimes(2);
-    expect(store.getRun(r.id)).toMatchObject({ status: "clean", turnIds: ["t1"] });
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "clean", turnIds: ["t1"] });
   });
 
   it("does not create a turn for a run that is no longer running", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const startTurn = vi.fn();
-    const runner = new Runner(store, { startTurn } as unknown as Harness, {
+    const runner = new Runner(store.runs, { startTurn } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.supersede(r.id);
     await runner.start(r, "review it");
     expect(startTurn).not.toHaveBeenCalled();
-    expect(store.getRun(r.id)?.status).toBe("superseded");
+    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
   });
 
   it("ends the run in error, with no turn, when the harness refuses the turn", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const startTurn = vi.fn(async () => {
       throw new Error("harness down");
     });
-    const runner = new Runner(store, { startTurn } as unknown as Harness, {
+    const runner = new Runner(store.runs, { startTurn } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.start(r, "review it");
-    expect(store.getRun(r.id)).toMatchObject({ status: "error", turnIds: [] });
-    expect(store.getProjection(r.id)?.error).toContain("harness down");
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "error", turnIds: [] });
+    expect(store.runs.getProjection(r.id)?.error).toContain("harness down");
   });
 });
 
 describe("Runner.supersede", () => {
   it("moves a blocked run to superseded, cancels its turn, and refuses a decision", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const resume = vi.fn();
     const cancelTurn = vi.fn(async () => {});
-    const runner = new Runner(store, { resume, cancelTurn } as unknown as Harness, {
+    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.consume(
@@ -241,11 +271,11 @@ describe("Runner.supersede", () => {
         turnDone("t1"),
       ]),
     );
-    expect(store.getRun(r.id)?.status).toBe("blocked_pending");
+    expect(store.runs.getRun(r.id)?.status).toBe("blocked_pending");
     await runner.supersede(r.id);
     expect(cancelTurn).toHaveBeenCalledWith("s");
-    expect(store.getRun(r.id)?.status).toBe("superseded");
-    expect(store.getProjection(r.id)?.status).toBe("superseded");
+    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+    expect(store.runs.getProjection(r.id)?.status).toBe("superseded");
     const decision = await runner.approve(r.id, "allow", "a@x");
     expect(decision.ok).toBe(false);
     expect(resume).not.toHaveBeenCalled();
@@ -254,47 +284,52 @@ describe("Runner.supersede", () => {
 
   it("sends no cancel for a run that has no turn, and survives a failed cancel", async () => {
     const store = new Store(":memory:");
-    const a = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h1", sessionId: "s" }).run;
-    const b = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h2", sessionId: "s" }).run;
-    store.updateRun(b.id, { turnIds: ["t2"] });
+    const a = store.runs.createRun({ repo: "o/r", prNumber: 1, headSha: "h1", sessionId: "s" }).run;
+    const b = store.runs.createRun({ repo: "o/r", prNumber: 1, headSha: "h2", sessionId: "s" }).run;
+    store.runs.updateRun(b.id, { turnIds: ["t2"] });
     const cancelTurn = vi.fn(async () => {
       throw new Error("no running turn");
     });
-    const runner = new Runner(store, { cancelTurn } as unknown as Harness, {
+    const runner = new Runner(store.runs, { cancelTurn } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.supersede(a.id);
     expect(cancelTurn).not.toHaveBeenCalled();
     await runner.supersede(b.id);
     expect(cancelTurn).toHaveBeenCalledTimes(1);
-    expect(store.getRun(a.id)?.status).toBe("superseded");
-    expect(store.getRun(b.id)?.status).toBe("superseded");
+    expect(store.runs.getRun(a.id)?.status).toBe("superseded");
+    expect(store.runs.getRun(b.id)?.status).toBe("superseded");
   });
 });
 
 describe("Runner.rehydrate", () => {
   it("ends a run that has no recorded turn instead of guessing from the session", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const listEvents = vi.fn();
-    const runner = new Runner(store, { listEvents } as unknown as Harness, {
+    const runner = new Runner(store.runs, { listEvents } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.rehydrate(r);
     expect(listEvents).not.toHaveBeenCalled();
-    expect(store.getRun(r.id)?.status).toBe("error");
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
     // The head can be claimed again by a redelivery.
     expect(
-      store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" }).created,
+      store.runs.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" }).created,
     ).toBe(true);
   });
 
   it("replays only its own chain when another run shares the session", async () => {
     const store = new Store(":memory:");
-    const a = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h1", sessionId: "s" }).run;
-    const b = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h2", sessionId: "s" }).run;
-    store.updateRun(a.id, { turnIds: ["t1"] });
-    store.updateRun(b.id, { turnIds: ["t2"] });
+    const a = store.runs.createRun({ repo: "o/r", prNumber: 1, headSha: "h1", sessionId: "s" }).run;
+    const b = store.runs.createRun({ repo: "o/r", prNumber: 1, headSha: "h2", sessionId: "s" }).run;
+    store.runs.updateRun(a.id, { turnIds: ["t1"] });
+    store.runs.updateRun(b.id, { turnIds: ["t2"] });
     const listEvents = vi.fn(async () => [
       { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T09:00:00Z") },
       { turnId: "t1", event: approvalRequired("c1") },
@@ -304,11 +339,11 @@ describe("Runner.rehydrate", () => {
       { turnId: "t2", event: reviewCall("c2") },
       { turnId: "t2", event: turnDone("t2") },
     ]);
-    const runner = new Runner(store, { listEvents } as unknown as Harness, {
+    const runner = new Runner(store.runs, { listEvents } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
-    await runner.rehydrate(store.updateRun(a.id, {}) as RunRecord);
-    expect(store.getRun(a.id)).toMatchObject({ status: "blocked_pending", turnIds: ["t1"] });
+    await runner.rehydrate(store.runs.updateRun(a.id, {}) as RunRecord);
+    expect(store.runs.getRun(a.id)).toMatchObject({ status: "blocked_pending", turnIds: ["t1"] });
     runner.stopAll();
   });
 });
@@ -316,8 +351,13 @@ describe("Runner.rehydrate", () => {
 describe("Runner.hydrate", () => {
   it("reads the persisted model.message when the stream only carried a stub", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
-    store.updateRun(r.id, { turnIds: ["t1"] });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
     const stub: StreamEvent = {
       type: "model.message",
       id: "mm-c1",
@@ -332,7 +372,7 @@ describe("Runner.hydrate", () => {
       { turnId: "t9", event: { ...full, id: "mm-c1", threadId: "main" } },
       { turnId: "t1", event: turnDone("t1") },
     ]);
-    const runner = new Runner(store, { listEvents } as unknown as Harness, {
+    const runner = new Runner(store.runs, { listEvents } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.consume(
@@ -340,31 +380,41 @@ describe("Runner.hydrate", () => {
       streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), stub, turnDone("t1")]),
     );
     expect(listEvents).toHaveBeenCalledTimes(1);
-    expect(store.getRun(r.id)?.status).toBe("clean");
-    expect(store.getProjection(r.id)?.review?.tool).toBe("post_advisory_review");
+    expect(store.runs.getRun(r.id)?.status).toBe("clean");
+    expect(store.runs.getProjection(r.id)?.review?.tool).toBe("post_advisory_review");
   });
 
   it("keeps the stream's events when the read fails", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const listEvents = vi.fn(async () => {
       throw new Error("server down");
     });
-    const runner = new Runner(store, { listEvents } as unknown as Harness, {
+    const runner = new Runner(store.runs, { listEvents } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.consume(
       r.id,
       streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), reviewCall("c1"), turnDone("t1")]),
     );
-    expect(store.getRun(r.id)?.status).toBe("clean");
+    expect(store.runs.getRun(r.id)?.status).toBe("clean");
   });
 });
 
 describe("Runner.consume", () => {
   it("resubscribes after a dropped stream and finishes the turn", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const events: StreamEvent[] = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       reviewCall("c1"),
@@ -372,22 +422,27 @@ describe("Runner.consume", () => {
     ];
     const subscribe = vi.fn(async () => streamOf(events));
     const harness = { subscribe } as unknown as Harness;
-    const runner = new Runner(store, harness, { turnTimeoutMs: 10_000, retryDelaysMs: [0] });
+    const runner = new Runner(store.runs, harness, { turnTimeoutMs: 10_000, retryDelaysMs: [0] });
     await runner.consume(r.id, streamOf(events, 1));
     expect(subscribe).toHaveBeenCalledWith("s", "t1");
-    expect(store.getRun(r.id)?.status).toBe("clean");
+    expect(store.runs.getRun(r.id)?.status).toBe("clean");
   });
 
   it("resubscribes when the stream ends cleanly before the terminal event", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const events: StreamEvent[] = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       reviewCall("c1"),
       turnDone("t1"),
     ];
     const subscribe = vi.fn(async () => streamOf(events));
-    const runner = new Runner(store, { subscribe } as unknown as Harness, {
+    const runner = new Runner(store.runs, { subscribe } as unknown as Harness, {
       turnTimeoutMs: 10_000,
       retryDelaysMs: [0],
     });
@@ -395,16 +450,21 @@ describe("Runner.consume", () => {
     // does when its subscribe window ends.
     await runner.consume(r.id, streamOf(events.slice(0, 1)));
     expect(subscribe).toHaveBeenCalledWith("s", "t1");
-    expect(store.getRun(r.id)?.status).toBe("clean");
+    expect(store.runs.getRun(r.id)?.status).toBe("clean");
   });
 
   it("ends the run in error when every resubscribe fails", async () => {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const subscribe = vi.fn(async () => {
       throw new Error("still down");
     });
-    const runner = new Runner(store, { subscribe } as unknown as Harness, {
+    const runner = new Runner(store.runs, { subscribe } as unknown as Harness, {
       turnTimeoutMs: 10_000,
       retryDelaysMs: [0, 0],
     });
@@ -413,18 +473,23 @@ describe("Runner.consume", () => {
       streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), reviewCall("c1")], 1),
     );
     expect(subscribe).toHaveBeenCalledTimes(2);
-    expect(store.getRun(r.id)?.status).toBe("error");
-    expect(store.getProjection(r.id)?.error).toBe("turn stream lost");
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
+    expect(store.runs.getProjection(r.id)?.error).toBe("turn stream lost");
   });
 });
 
 describe("Runner.approve", () => {
   async function blocked() {
     const store = new Store(":memory:");
-    const { run: r } = store.createRun({ repo: "o/r", prNumber: 1, headSha: "h", sessionId: "s" });
+    const { run: r } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 1,
+      headSha: "h",
+      sessionId: "s",
+    });
     const resume = vi.fn(async () => "t2");
     const subscribe = vi.fn(async () => streamOf([]));
-    const runner = new Runner(store, { resume, subscribe } as unknown as Harness, {
+    const runner = new Runner(store.runs, { resume, subscribe } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     await runner.consume(
@@ -435,7 +500,7 @@ describe("Runner.approve", () => {
         turnDone("t1"),
       ]),
     );
-    expect(store.getRun(r.id)?.status).toBe("blocked_pending");
+    expect(store.runs.getRun(r.id)?.status).toBe("blocked_pending");
     return { store, runner, resume, subscribe, id: r.id };
   }
 
@@ -454,7 +519,7 @@ describe("Runner.approve", () => {
     resume.mockRejectedValueOnce(new Error("harness down"));
     const first = await runner.approve(id, "allow", "a@x");
     expect(first.ok).toBe(false);
-    expect(store.getRun(id)?.approver).toBeNull();
+    expect(store.runs.getRun(id)?.approver).toBeNull();
     const second = await runner.approve(id, "allow", "a@x");
     expect(second.ok).toBe(true);
     runner.stopAll();
@@ -470,15 +535,15 @@ describe("Runner.approve", () => {
     };
     let recordedBeforeSubscribe: string[] = [];
     subscribe.mockImplementationOnce(async () => {
-      recordedBeforeSubscribe = store.listCujoTurns(id);
+      recordedBeforeSubscribe = store.runs.listCujoTurns(id);
       return streamOf([turnCreated("t2", "t1", "2026-08-27T10:05:00Z", [approval])]);
     });
     expect((await runner.approve(id, "allow", "a@x")).ok).toBe(true);
     await vi.waitFor(() => expect(recordedBeforeSubscribe).toEqual(["t2"]));
-    await vi.waitFor(() => expect(store.getRun(id)?.turnIds).toEqual(["t1", "t2"]));
-    expect(store.listCujoTurns(id)).toEqual(["t2"]);
-    expect(store.getProjection(id)?.externalResume).toBe(false);
-    expect(store.getRun(id)?.approver).toBe("a@x");
+    await vi.waitFor(() => expect(store.runs.getRun(id)?.turnIds).toEqual(["t1", "t2"]));
+    expect(store.runs.listCujoTurns(id)).toEqual(["t2"]);
+    expect(store.runs.getProjection(id)?.externalResume).toBe(false);
+    expect(store.runs.getRun(id)?.approver).toBe("a@x");
     runner.stopAll();
   });
 });

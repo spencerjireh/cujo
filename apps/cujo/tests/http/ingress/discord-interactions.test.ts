@@ -80,7 +80,7 @@ function build(
   const nextSettled = () => new Promise<string>((resolve) => settled.push(resolve));
   const app = interactionRoutes({
     publicKey,
-    store,
+    store: store.notifications,
     discord: discord as unknown as DiscordClient,
     github: github as unknown as GitHubReader,
     uiBaseUrl: "https://cujo.example.com",
@@ -128,7 +128,7 @@ async function reply(built: ReturnType<typeof build>, payload: unknown): Promise
 }
 
 function authorize(store: Store, repo = "spencerjireh/orders-api") {
-  store.authorizeGuildRepo({
+  store.notifications.authorizeGuildRepo({
     guildId: GUILD,
     repo,
     guildName: "My Server",
@@ -196,7 +196,7 @@ describe("interactions endpoint", () => {
     );
     expect(content).toContain(`<#${CHANNEL}>`);
     expect(content).toContain(`<@&${ROLE}>`);
-    const binding = built.store.getDiscordChannel("spencerjireh/orders-api");
+    const binding = built.store.notifications.getDiscordChannel("spencerjireh/orders-api");
     expect(binding).toMatchObject({
       channelId: CHANNEL,
       guildId: GUILD,
@@ -215,9 +215,11 @@ describe("interactions endpoint", () => {
       ]),
     );
     expect(content).toContain(`<#${CHANNEL}>`);
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(GUILD);
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+      GUILD,
+    );
     // Nothing was written to the operator table to make this work.
-    expect(built.store.listGuildRepos()).toHaveLength(0);
+    expect(built.store.notifications.listGuildRepos()).toHaveLength(0);
   });
 
   it("tells a server that has not been named exactly what to add, and where", async () => {
@@ -231,7 +233,7 @@ describe("interactions endpoint", () => {
     );
     expect(content).toContain(".cujo.yml");
     expect(content).toContain(`discord_guild: "${GUILD}"`);
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
     expect(built.discord.getChannel).not.toHaveBeenCalled();
   });
 
@@ -245,7 +247,7 @@ describe("interactions endpoint", () => {
       ]),
     );
     expect(content).toContain("a different Discord server");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("still honours an operator's allowance when the repo declares nothing", async () => {
@@ -276,7 +278,7 @@ describe("interactions endpoint", () => {
       ),
     );
     expect(content).toContain("Manage Server");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("refuses a channel in another server, whatever the option said", async () => {
@@ -300,7 +302,7 @@ describe("interactions endpoint", () => {
       ]),
     );
     expect(content).toContain("not in this server");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("refuses a channel the bot cannot post an embed in", async () => {
@@ -324,13 +326,13 @@ describe("interactions endpoint", () => {
       ]),
     );
     expect(content).toContain("Send Messages");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("unwatches, and says so when there was nothing to unwatch", async () => {
     const built = build();
     authorize(built.store);
-    built.store.putDiscordChannel({
+    built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
       guildId: GUILD,
@@ -342,7 +344,7 @@ describe("interactions endpoint", () => {
       command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
     );
     expect(first).toContain("Stopped");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
     const second = await reply(
       built,
       command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
@@ -354,7 +356,7 @@ describe("interactions endpoint", () => {
     const built = build();
     authorize(built.store);
     authorize(built.store, "spencerjireh/other-repo");
-    built.store.putDiscordChannel({
+    built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
       guildId: GUILD,
@@ -372,7 +374,7 @@ describe("interactions endpoint", () => {
 
   it("lists a repo watched here even when no operator allowed it", async () => {
     const built = build({ declaredGuild: GUILD });
-    built.store.putDiscordChannel({
+    built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
       guildId: GUILD,
@@ -386,7 +388,7 @@ describe("interactions endpoint", () => {
   it("posts a sample card, and reports a channel it cannot post to", async () => {
     const built = build();
     authorize(built.store);
-    built.store.putDiscordChannel({
+    built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
       guildId: GUILD,
@@ -479,7 +481,7 @@ describe("interactions endpoint", () => {
   it("will not take a repo another authorized server already claimed", async () => {
     const built = build();
     authorize(built.store);
-    built.store.putDiscordChannel({
+    built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: "888888888888888888",
       guildId: "999999999999999999",
@@ -500,7 +502,7 @@ describe("interactions endpoint", () => {
       command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
     );
     expect(unwatched).toContain("another server");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")?.channelId).toBe(
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.channelId).toBe(
       "888888888888888888",
     );
   });
@@ -510,7 +512,7 @@ describe("interactions endpoint", () => {
     authorize(built.store);
     // Revoked while `watch` was awaiting Discord.
     built.discord.listRoles.mockImplementationOnce(async () => {
-      built.store.revokeGuildRepo(GUILD, "spencerjireh/orders-api");
+      built.store.notifications.revokeGuildRepo(GUILD, "spencerjireh/orders-api");
       return [{ id: GUILD, name: "@everyone", permissions: CAN_POST }];
     });
     const content = await reply(
@@ -521,7 +523,7 @@ describe("interactions endpoint", () => {
       ]),
     );
     expect(content).toContain("no longer allowed");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("re-checks a repo declaration reverted during the Discord round trips", async () => {
@@ -539,7 +541,7 @@ describe("interactions endpoint", () => {
       ]),
     );
     expect(content).toContain("no longer allowed");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("refuses a repo the GitHub App is not installed on", async () => {
@@ -553,7 +555,7 @@ describe("interactions endpoint", () => {
       ]),
     );
     expect(content).toContain("not installed");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("still binds when GitHub cannot be reached", async () => {
@@ -599,7 +601,7 @@ describe("interactions endpoint", () => {
     // The commit that revokes is the one that makes the binding stale, so
     // gating cleanup behind the declaration would strand the channel.
     const built = build({ declaredGuild: null });
-    built.store.putDiscordChannel({
+    built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
       guildId: GUILD,
@@ -611,12 +613,12 @@ describe("interactions endpoint", () => {
       command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
     );
     expect(content).toContain("Stopped");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("lets a server stop receiving a repo the App was removed from", async () => {
     const built = build({ repos: ["spencerjireh/something-else"] });
-    built.store.putDiscordChannel({
+    built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
       guildId: GUILD,
@@ -628,7 +630,7 @@ describe("interactions endpoint", () => {
       command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
     );
     expect(content).toContain("Stopped");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("asks for a retry rather than refusing when GitHub cannot be read", async () => {
@@ -643,7 +645,7 @@ describe("interactions endpoint", () => {
     );
     expect(content).toContain("could not read");
     expect(content).toContain("Try again");
-    expect(built.store.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")).toBeNull();
   });
 
   it("refuses to act outside a server", async () => {

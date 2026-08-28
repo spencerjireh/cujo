@@ -121,7 +121,12 @@ function blockedView(): RunView {
 describe("api", () => {
   it("lists runs in the flat shape", async () => {
     const { app, store } = build(null);
-    const { run } = store.createRun({ repo: "o/r", prNumber: 7, headSha: "h", sessionId: "s" });
+    const { run } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h",
+      sessionId: "s",
+    });
     const res = await app.request("/runs", { headers: AUTH });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -248,12 +253,12 @@ describe("api discord routes", () => {
     });
     expect(discord.getChannel).toHaveBeenCalledWith("111111111111111111");
     // Stored lower-cased, so the webhook's repository.full_name matches it.
-    expect(store.getDiscordChannel("o/r")?.channelId).toBe("111111111111111111");
+    expect(store.notifications.getDiscordChannel("o/r")?.channelId).toBe("111111111111111111");
   });
 
   it("lists the bindings and says whether Discord is configured at all", async () => {
     const { app, store } = build(null);
-    store.putDiscordChannel({
+    store.notifications.putDiscordChannel({
       repo: "o/r",
       channelId: "111111111111111111",
       guildId: null,
@@ -277,7 +282,7 @@ describe("api discord routes", () => {
     );
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ ok: false, error: "the bot cannot see that channel" });
-    expect(store.getDiscordChannel("o/r")).toBeNull();
+    expect(store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
   it("refuses a channel the bot can read but cannot post an embed in", async () => {
@@ -303,7 +308,7 @@ describe("api discord routes", () => {
       ok: false,
       error: "the bot needs View Channel, Send Messages and Embed Links there",
     });
-    expect(store.getDiscordChannel("o/r")).toBeNull();
+    expect(store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
   it("refuses anything that is not a guild text channel", async () => {
@@ -316,7 +321,7 @@ describe("api discord routes", () => {
       put({ channel_id: "111111111111111111" }),
     );
     expect(res.status).toBe(400);
-    expect(store.getDiscordChannel("o/r")).toBeNull();
+    expect(store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
   it("refuses a malformed id and a role that is not in the server", async () => {
@@ -338,12 +343,12 @@ describe("api discord routes", () => {
     );
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ ok: false, error: "no such role in that server" });
-    expect(store.getDiscordChannel("o/r")).toBeNull();
+    expect(store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
   it("deletes a binding, and answers 404 when there was none", async () => {
     const { app, store } = build(null);
-    store.putDiscordChannel({
+    store.notifications.putDiscordChannel({
       repo: "o/r",
       channelId: "111111111111111111",
       guildId: null,
@@ -381,7 +386,7 @@ describe("api discord routes", () => {
       repo: "o/r",
       authorized_by: "op@example.com",
     });
-    expect(store.isGuildAuthorized("222222222222222222", "o/r")).toBe(true);
+    expect(store.notifications.isGuildAuthorized("222222222222222222", "o/r")).toBe(true);
   });
 
   it("refuses to authorize a repo the Cujo App is not installed on", async () => {
@@ -399,7 +404,7 @@ describe("api discord routes", () => {
       ok: false,
       error: "the Cujo App is not installed on that repo",
     });
-    expect(store.listGuildRepos()).toHaveLength(0);
+    expect(store.notifications.listGuildRepos()).toHaveLength(0);
   });
 
   it("refuses to authorize a server the bot is not in", async () => {
@@ -410,12 +415,12 @@ describe("api discord routes", () => {
     });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ ok: false, error: "the bot is not in that server" });
-    expect(store.listGuildRepos()).toHaveLength(0);
+    expect(store.notifications.listGuildRepos()).toHaveLength(0);
   });
 
   it("lists and revokes authorizations", async () => {
     const { app, store } = build(null, fakeDiscord() as unknown as DiscordClient);
-    store.authorizeGuildRepo({
+    store.notifications.authorizeGuildRepo({
       guildId: "222222222222222222",
       repo: "o/r",
       guildName: "My Server",
