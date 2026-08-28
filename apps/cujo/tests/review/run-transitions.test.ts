@@ -9,7 +9,7 @@
  */
 
 import { type Level, createLogger } from "@cujo/log";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Harness, SessionEvent, StreamEvent } from "../../src/clients/trueforge";
 import { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
@@ -37,6 +37,14 @@ const turnDone = (turnId: string, createdAt: string = at): Ev => ({
   createdAt,
   threadId: null,
   state: { status: "done", completedAt: createdAt, output: null, requiredActions: [] },
+});
+
+const approvalRequired = (callId: string): Ev => ({
+  type: "tool.approval_required",
+  id: `ar-${callId}`,
+  createdAt: at,
+  threadId: "main",
+  toolCalls: [{ id: callId, sourceEventId: "none" }],
 });
 
 const reviewCall = (id: string): Ev => ({
@@ -318,5 +326,202 @@ describe("the paths that were silent", () => {
       run_id: run.id,
       timeout_ms: 1,
     });
+  });
+});
+
+/**
+ * The heal is the one path here that answers a *TrueForge* approval on its own
+ * initiative, so what it says about itself is the only record that it did.
+ * These assert the lines, not the behaviour — `runner.service.test.ts` owns
+ * the behaviour and takes no sink.
+ */
+describe("healing a wedged session", () => {
+  const claim = (headSha = "h") => ({
+    repo: "o/r",
+    prNumber: 7,
+    headSha,
+    sessionId: "s",
+    isPublic: true,
+    deliveryId: "delivery-1",
+  });
+
+  function sink() {
+    const lines: Record<string, unknown>[] = [];
+    const log = createLogger({
+      service: "cujo",
+      sink: (line) => lines.push(JSON.parse(line)),
+    });
+    return { lines, log, logged: (event: string) => lines.filter((l) => l.event === event) };
+  }
+
+  /** A session holding one unanswered approval, and a first `startTurn` that 422s. */
+  function wedged(harness: Partial<Record<string, unknown>> = {}) {
+    const store = new Store(":memory:");
+    const { log, logged } = sink();
+    const { run } = store.runs.createRun(claim());
+    const startTurn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("422 user message cannot be sent"))
+      .mockResolvedValueOnce("t2");
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn,
+        resume: async () => "t-deny",
+        cancelTurn: async () => {},
+        listEvents: async () => [
+          { turnId: "t1", event: turnCreated("t1") },
+          { turnId: "t1", event: approvalRequired("c1") },
+          { turnId: "t1", event: turnDone("t1") },
+        ],
+        subscribe: async () => streamOf([turnDone("t2")]),
+        ...harness,
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    return { store, run, runner, startTurn, logged };
+  }
+
+  it("records the first failure even when the heal rescues the turn", async () => {
+    // The regression the merge with main could have hidden: this branch
+    // replaced the only `run.turn.start.failed` with a warning about looking
+    // for a stale approval, which would have made a session wedged badly
+    // enough to need healing indistinguishable from one that started first go.
+    const { run, runner, startTurn, logged } = wedged();
+
+    await runner.start(run, "review it");
+
+    expect(startTurn).toHaveBeenCalledTimes(2);
+    const failed = logged("run.turn.start.failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({
+      level: "error",
+      attempt: 1,
+      session_id: "s",
+      run_id: run.id,
+      error_message: expect.stringContaining("422"),
+    });
+    // And the run still reports the turn it eventually got.
+    expect(logged("run.turn.started")).toHaveLength(1);
+    runner.stopAll();
+  });
+
+  it("names the approval it cleared and the turn the deny started", async () => {
+    const { run, runner, logged } = wedged();
+
+    await runner.start(run, "review it");
+
+    expect(logged("run.approval.cleared")[0]).toMatchObject({
+      level: "info",
+      session_id: "s",
+      turn_id: "t-deny",
+      reason: "wedged_session",
+      // The healing run, not the terminal run that raised the approval — that
+      // one has no id here, which is why the deny is sent without one.
+      run_id: run.id,
+    });
+    runner.stopAll();
+  });
+
+  it("says why it refused, without naming the wrong run", async () => {
+    const store = new Store(":memory:");
+    const { log, logged } = sink();
+    const other = store.runs.createRun(claim("h1")).run;
+    store.runs.updateRun(other.id, { status: "blocked_pending" });
+    const { run } = store.runs.createRun(claim("h2"));
+    const listEvents = vi.fn();
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => {
+          throw new Error("422 user message cannot be sent");
+        },
+        resume: vi.fn(),
+        listEvents,
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+
+    await runner.start(run, "review it");
+
+    // Refused before the round trip, so the reason is the only evidence.
+    expect(listEvents).not.toHaveBeenCalled();
+    const [line] = logged("run.approval.clear.skipped");
+    expect(line).toMatchObject({
+      level: "warn",
+      session_id: "s",
+      reason: "run_in_flight",
+      status: "blocked_pending",
+      active: 1,
+    });
+    // The blocking run's id deliberately does not appear: bound fields beat
+    // call-site fields, so putting it in `run_id` would be overwritten with
+    // the healing run's id and the line would name the wrong run.
+    expect(line?.run_id).toBe(run.id);
+    expect(line?.run_id).not.toBe(other.id);
+    runner.stopAll();
+  });
+
+  it("reports a run that could not be healed at error, and does not claim a retry", async () => {
+    const store = new Store(":memory:");
+    const { log, logged } = sink();
+    const { run } = store.runs.createRun(claim());
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => {
+          throw new Error("harness down");
+        },
+        resume: vi.fn(),
+        // A session with nothing pending: there is nothing to heal.
+        listEvents: async () => [
+          { turnId: "t1", event: turnCreated("t1") },
+          { turnId: "t1", event: turnDone("t1") },
+        ],
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+
+    await runner.start(run, "review it");
+
+    const failed = logged("run.turn.start.failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ level: "error", attempt: 1 });
+    // No second attempt was made, so none may be reported.
+    expect(failed.some((line) => line.attempt === 2)).toBe(false);
+    expect(logged("run.approval.cleared")).toHaveLength(0);
+    runner.stopAll();
+  });
+
+  it("announces the deny on the supersede path too, with its own reason", async () => {
+    // The production bug the whole change exists to fix. Nothing else asserts
+    // that the fix announces itself.
+    const store = new Store(":memory:");
+    const { log, logged } = sink();
+    const runner = new Runner(
+      store.runs,
+      { resume: async () => "t-deny", cancelTurn: async () => {} } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    const { run } = store.runs.createRun(claim());
+    await runner.consume(
+      run.id,
+      streamOf([turnCreated("t1"), approvalRequired("c1"), turnDone("t1")]),
+    );
+    expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
+
+    await runner.supersede(run.id);
+
+    expect(logged("run.approval.cleared")[0]).toMatchObject({
+      session_id: "s",
+      turn_id: "t-deny",
+      reason: "newer_head",
+      run_id: run.id,
+    });
+    runner.stopAll();
   });
 });
