@@ -30,7 +30,12 @@ export function verifySignature(secret: string, body: string, header: string | u
 interface PullRequestEvent {
   action: string;
   number: number;
-  repository: { full_name: string };
+  /**
+   * `private` is optional so the read below has to be an explicit `=== false`.
+   * A missing field then means "not known to be public", which is the safe
+   * reading; `!private` would call it public (decision 34).
+   */
+  repository: { full_name: string; private?: boolean };
   pull_request: { head: { sha: string } };
 }
 
@@ -76,7 +81,13 @@ export function webhookRoutes(deps: WebhookDeps): Hono {
     if (!sessionId) {
       sessionId = deps.store.putSession(repo, prNumber, await deps.createSession(repo, prNumber));
     }
-    const { run, created } = deps.store.createRun({ repo, prNumber, headSha, sessionId });
+    const { run, created } = deps.store.createRun({
+      repo,
+      prNumber,
+      headSha,
+      sessionId,
+      isPublic: event.repository.private === false,
+    });
     if (!created) {
       return c.json({ ok: true, ignored: "duplicate delivery", run_id: run.id }, 200);
     }

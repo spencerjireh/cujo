@@ -47,6 +47,7 @@ function blockedView(): RunView {
       prNumber: 7,
       headSha: "h",
       sessionId: "s",
+      isPublic: true,
       turnIds: ["t1"],
       status: "blocked_pending",
       approver: null,
@@ -66,6 +67,7 @@ describe("operator runs API", () => {
       prNumber: 7,
       headSha: "h",
       sessionId: "s",
+      isPublic: true,
     });
     const res = await app.request("/runs", { headers: AUTH });
     expect(res.status).toBe(200);

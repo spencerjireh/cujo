@@ -99,6 +99,13 @@ export interface RunRecord {
   status: RunStatus;
   approver: string | null;
   decidedAt: string | null;
+  /**
+   * Was the repo public when this run was claimed (decision 34). The stored
+   * column is nullable, and the unanswered case collapses to `false` here so
+   * no consumer has to carry a third state; the read paths that matter filter
+   * in SQL anyway.
+   */
+  isPublic: boolean;
   createdAt: string;
   updatedAt: string;
 }

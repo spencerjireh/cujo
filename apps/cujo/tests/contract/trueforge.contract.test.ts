@@ -187,7 +187,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   // the fold, the store, the approve route, and the poll are all exercised.
   const store = new Store(":memory:");
   const runFor = (headSha: string) =>
-    store.runs.createRun({ repo: "o/r", prNumber: 1, headSha, sessionId }).run;
+    store.runs.createRun({ repo: "o/r", prNumber: 1, headSha, sessionId, isPublic: true }).run;
   const settled = (id: string, statuses: string[]) =>
     vi.waitFor(() => expect(statuses).toContain(store.runs.getRun(id)?.status), {
       timeout: 30_000,

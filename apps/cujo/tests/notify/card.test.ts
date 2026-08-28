@@ -30,6 +30,7 @@ function run(patch: Partial<RunRecord> = {}): RunRecord {
     status: "running",
     approver: null,
     decidedAt: null,
+    isPublic: true,
     createdAt: "2026-08-27T00:00:00.000Z",
     updatedAt: "2026-08-27T00:01:00.000Z",
     ...patch,
