@@ -412,6 +412,7 @@ list in order.
 | `status` | One of the seven states below. |
 | `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
+| `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `created_at`, `updated_at` | Timestamps. |
 
 Status moves on events from the session's turn streams, with one exception
@@ -481,7 +482,7 @@ And the public plane, under `/public`, which no gate stands in front of
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /public/runs` | Public runs only, newest first. Filtered on `is_public = 1` in SQL, not by the route. |
-| `GET /public/runs/:id` | The same run the operator route returns, minus `approver`, `decided_at`, `session_id`, `turn_ids`, `approval` and `external_resume`, and with the drafted review shaped down to its tool, body and comments. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id` | The same run the operator route returns, minus `approver`, `decided_at`, `session_id`, `turn_ids`, `delivery_id`, `approval` and `external_resume`, and with the drafted review shaped down to its tool, body and comments. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` public streams; operator streams are not counted. Closes if the repo goes private while it is open. |
 
 The response is built by an allowlist, field by field, and never by removing
@@ -489,12 +490,16 @@ fields from the operator shape: the difference is what happens when a field is
 added to the projection later, and only the allowlist keeps that field private
 until somebody says otherwise.
 
-Two probes answer on every hostname, and no gate stands in front of either:
+Two probes answer on each host this process already serves — the webhook host,
+the UI host, and the internal name in `CUJO_INTERNAL_HOST` — plus `/healthz` on
+`127.0.0.1` and `localhost` for the container healthcheck. They widen no host
+boundary: an unrecognised `Host` still gets 404, exactly as below. No gate
+stands in front of either:
 
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /healthz` | Liveness. `{ok: true, service: 'cujo'}` for as long as the process is up. This is the container healthcheck, so it reads nothing and can fail for one reason only. |
-| `GET /readyz` | Readiness. `200` with the harness flag the webhook itself gates on, a store ping, and the public stream count; `503` when the harness has not finished bootstrapping. Deliberately *not* the healthcheck: a readiness failure there would restart the container while `bootstrapUntilReady` is backing off on purpose, and would take `web` down with it (decision 37). |
+| `GET /readyz` | Readiness. `200` when the process can accept work, carrying the harness flag the webhook itself gates on, a store ping, and the public stream count. `503` when **either** the harness has not finished bootstrapping **or** the store ping fails, with the same body and the failing check named — a webhook delivery calls `getSession`, `putSession` and `createRun` synchronously, so an unreachable store means no run can be claimed and readiness is false whatever the harness says. Deliberately *not* the healthcheck: a readiness failure there would restart the container while `bootstrapUntilReady` is backing off on purpose, and would take `web` down with it (decision 37). |
 
 Neither is gated because neither says anything an anonymous reader could not
 already infer: the body is booleans and counts, names no repo and no person, and

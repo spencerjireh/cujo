@@ -213,10 +213,11 @@ Coolify in a single `docker-compose` project so the services share a network.
   Its JSON API is not published; `web` reaches it at `http://cujo:8080` on the
   compose network. A volume holds its SQLite run store. It needs outbound HTTPS
   to `api.github.com` and, when Discord is configured, to `discord.com`; with
-  no `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody. `GET
-  /healthz` is its container healthcheck and reads nothing; `GET /readyz`
+  no `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody.
+  `GET /healthz` is its container healthcheck and reads nothing; `GET /readyz`
   reports whether the harness has bootstrapped, which is the flag the webhook
-  gates on. Both answer on every hostname and neither is gated (decision 37).
+  gates on. Both answer on each hostname this process serves — the ingress
+  host, the UI host and the internal name — and neither is gated (decision 37).
 - **`web`** — the `apps/web` UI, on two hostnames from one container
   (decision 34). `https://cujo-admin.spencerjireh.com` is behind Access and is
   where a human sees a paused run and approves a block;
