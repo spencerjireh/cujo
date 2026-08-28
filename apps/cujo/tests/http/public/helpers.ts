@@ -27,6 +27,7 @@ export function runOf(overrides: Partial<RunRecord> = {}): RunRecord {
     approver: null,
     decidedAt: null,
     isPublic: true,
+    deliveryId: null,
     createdAt: "2026-08-28T00:00:00.000Z",
     updatedAt: "2026-08-28T00:01:00.000Z",
     ...overrides,

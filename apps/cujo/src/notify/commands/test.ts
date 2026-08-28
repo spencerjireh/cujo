@@ -25,6 +25,7 @@ export async function test(deps: CommandDeps, guildId: string, repo: string): Pr
       approver: null,
       decidedAt: null,
       isPublic: true,
+      deliveryId: null,
       createdAt: now,
       updatedAt: now,
     },
