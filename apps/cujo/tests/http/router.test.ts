@@ -1,0 +1,102 @@
+import { describe, expect, it, vi } from "vitest";
+import type { Runner } from "../../src/review/runner.service";
+import { HOOK, INTERNAL, UI, build, req } from "./helpers";
+
+describe("host dispatch", () => {
+  it("serves healthz on both hosts", async () => {
+    const { app } = build();
+    for (const host of [UI, HOOK]) {
+      const res = await app.fetch(req(host, "/healthz"));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, service: "cujo" });
+    }
+  });
+
+  it("answers 404 on an unknown host and on the wrong route per host", async () => {
+    const { app } = build();
+    expect((await app.fetch(req("other.test", "/healthz"))).status).toBe(404);
+    expect((await app.fetch(req(HOOK, "/runs"))).status).toBe(404);
+    expect((await app.fetch(req(UI, "/webhook", { method: "POST" }))).status).toBe(404);
+    // Signature-gated ingress belongs on the webhook host, never behind Access.
+    expect((await app.fetch(req(UI, "/discord/interactions", { method: "POST" }))).status).toBe(
+      404,
+    );
+  });
+
+  it("serves the Discord interactions route only when it is configured", async () => {
+    const without = build();
+    expect(
+      (await without.app.fetch(req(HOOK, "/discord/interactions", { method: "POST" }))).status,
+    ).toBe(404);
+
+    const withCommands = build({ interactions: true });
+    const res = await withCommands.app.fetch(
+      req(HOOK, "/discord/interactions", { method: "POST", body: "{}" }),
+    );
+    // Present, and refusing an unsigned request.
+    expect(res.status).toBe(401);
+  });
+
+  it("requires an Access assertion on every UI route", async () => {
+    const { app } = build();
+    // The UI moved to apps/web, so this process serves no page: `/` is behind
+    // the Access check like everything else, and 404s once past it.
+    expect((await app.fetch(req(UI, "/"))).status).toBe(401);
+    const page = await app.fetch(req(UI, "/", { headers: { "cf-access-jwt-assertion": "good" } }));
+    expect(page.status).toBe(404);
+    expect((await app.fetch(req(UI, "/runs"))).status).toBe(401);
+    const ok = await app.fetch(
+      req(UI, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
+    );
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ runs: [] });
+  });
+
+  it("serves the API on the internal host, still behind Access", async () => {
+    // apps/web reaches this process by its compose service name, because Node's
+    // fetch always sends the target's own authority as Host. The Access check
+    // is not relaxed for it, and the webhook stays unreachable.
+    const { app } = build();
+    expect((await app.fetch(req(INTERNAL, "/runs"))).status).toBe(401);
+    const ok = await app.fetch(
+      req(INTERNAL, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
+    );
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ runs: [] });
+    expect((await app.fetch(req(INTERNAL, "/webhook", { method: "POST" }))).status).toBe(404);
+  });
+
+  it("does not accept an internal host that was never configured", async () => {
+    const { app } = build();
+    expect((await app.fetch(req("cujo", "/runs"))).status).toBe(404);
+  });
+});
+
+describe("approve route", () => {
+  it("rejects a bad decision and passes the approver through", async () => {
+    const approve = vi.fn(async () => ({
+      ok: false as const,
+      reason: "run is clean, not blocked_pending",
+    }));
+    const runner = { view: () => null, start: vi.fn(), approve } as unknown as Runner;
+    const { app } = build({ runner });
+    const headers = { "cf-access-jwt-assertion": "good", "content-type": "application/json" };
+    const bad = await app.fetch(
+      req(UI, "/runs/r1/approve", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ decision: "maybe" }),
+      }),
+    );
+    expect(bad.status).toBe(400);
+    const res = await app.fetch(
+      req(UI, "/runs/r1/approve", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ decision: "allow" }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect(approve).toHaveBeenCalledWith("r1", "allow", "op@example.com");
+  });
+});

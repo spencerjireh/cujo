@@ -12,16 +12,22 @@ dev = [
 ]
 
 [tool.uv]
-# sniff.py is a standalone script, not an installable package.
+# sandbox/sniff.py is a standalone script, not an installable package.
 package = false
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Where first-party code lives, so isort classifies `import sniff` as ours.
+# Without it the import is read as third-party and `ruff check` fails I001 --
+# and, worse, `ruff check --fix` "resolves" it by merging the import blocks,
+# which goes green while making the misclassification permanent.
+src = ["sandbox"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
+testpaths = ["sandbox/tests"]
+# sniff.py is imported by name, not installed, so its directory is the path.
+pythonpath = ["sandbox"]
