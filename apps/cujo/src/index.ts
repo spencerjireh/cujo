@@ -1,3 +1,4 @@
+import { createLogger } from "@cujo/log";
 import { serve } from "@hono/node-server";
 import { DiscordClient } from "./clients/discord";
 import { GitHubReader } from "./clients/github";
@@ -42,6 +43,9 @@ async function registerCommands(discord: DiscordClient): Promise<void> {
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  // One process logger; every request gets a child of it bound to its ray, and
+  // later a run gets a child bound to its delivery (decision 37).
+  const log = createLogger({ service: "cujo", level: config.logLevel });
   const store = new Store(config.dbPath);
   const harness = new Harness(config);
   const runner = new Runner(store.runs, harness, { turnTimeoutMs: config.turnTimeoutMs });
@@ -102,6 +106,7 @@ async function main(): Promise<void> {
   visibility.start();
 
   const app = createApp({
+    log,
     uiHost: config.uiHost,
     internalHost: config.internalHost,
     webhookHost: config.webhookHost,

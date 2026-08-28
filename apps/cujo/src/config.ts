@@ -1,3 +1,5 @@
+import { type Level, parseLevel } from "@cujo/log";
+
 /**
  * Environment for the apps/cujo process. Every name here is fixed by the build
  * contract; a missing required value fails at start, not on the first webhook.
@@ -5,6 +7,12 @@
 
 export interface Config {
   port: number;
+  /**
+   * Level for `@cujo/log`. Correct with the variable unset, which is what makes
+   * this safe across a deploy: merging is the release and the running container
+   * keeps its old environment until the swap (decision 35).
+   */
+  logLevel: Level;
   trueforgeBaseUrl: string;
   githubWebhookSecret: string;
   githubAppId: string;
@@ -86,6 +94,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const uiHost = env.CUJO_UI_HOST ?? "cujo.spencerjireh.com";
   return {
     port: Number(env.PORT ?? 8080),
+    logLevel: parseLevel(env.CUJO_LOG_LEVEL),
     trueforgeBaseUrl: env.TRUEFORGE_BASE_URL ?? "http://server:8790",
     githubWebhookSecret: required(env, "GITHUB_WEBHOOK_SECRET"),
     githubAppId: required(env, "GITHUB_APP_ID"),

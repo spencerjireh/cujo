@@ -19,6 +19,11 @@
  */
 
 export const EVENT_NAMES = [
+  // One line per request, on every plane, emitted after the handler returns so
+  // it can carry the status and the duration. The health probes are excluded
+  // at the call site: they run every few seconds forever and would drown the
+  // signal this whole vocabulary exists to create.
+  "http.request",
   // Process lifecycle. `service.stopping` is what distinguishes a deploy from
   // a crash in a log that otherwise just ends.
   "service.started",

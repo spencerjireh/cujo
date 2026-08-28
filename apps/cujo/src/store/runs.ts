@@ -56,6 +56,20 @@ export class RunStore {
     private readonly notifications: NotificationStore,
   ) {}
 
+  /**
+   * The cheapest possible "is the database answering", for `/readyz`
+   * (decision 37). Deliberately not `listRunRepos()`, which is a full scan: a
+   * readiness probe runs every few seconds for the life of the container.
+   */
+  ping(): boolean {
+    try {
+      this.db.prepare("SELECT 1").get();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   getSession(repo: string, prNumber: number): string | null {
     const row = this.db
       .prepare("SELECT session_id FROM sessions WHERE repo = ? AND pr_number = ?")

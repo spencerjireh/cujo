@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
 import type { GitHubReader } from "../../../src/clients/github";
 import { verifySignature } from "../../../src/http/ingress/github-webhook";
@@ -28,6 +29,7 @@ describe("webhook", () => {
     const store = new Store(":memory:");
     const runner = { view: () => null, start: vi.fn() } as unknown as Runner;
     const app = createApp({
+      log: createLogger({ service: "cujo", sink: () => {} }),
       uiHost: UI,
       webhookHost: HOOK,
       api: {
