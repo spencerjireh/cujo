@@ -299,27 +299,66 @@ describe("Runner.start", () => {
   });
 
   /** The guard that keeps the heal from answering for a human. */
-  it("refuses to clear an approval another run on the session is still waiting on", async () => {
+  it.each(["blocked_pending", "running"] as const)(
+    "refuses to heal while another run on the session is %s",
+    async (status) => {
+      const store = new Store(":memory:");
+      const other = store.runs.createRun(claim("h1")).run;
+      store.runs.updateRun(other.id, { status });
+      const { run: r } = store.runs.createRun(claim("h2"));
+      const startTurn = vi.fn(async () => {
+        throw new Error("422 user message cannot be sent");
+      });
+      const resume = vi.fn();
+      const listEvents = vi.fn();
+      const runner = new Runner(
+        store.runs,
+        { startTurn, resume, listEvents } as unknown as Harness,
+        { turnTimeoutMs: 10_000 },
+      );
+
+      await runner.start(r, "review it");
+
+      expect(listEvents).not.toHaveBeenCalled();
+      expect(resume).not.toHaveBeenCalled();
+      expect(startTurn).toHaveBeenCalledTimes(1);
+      expect(store.runs.getRun(r.id)?.status).toBe("error");
+      expect(store.runs.getRun(other.id)?.status).toBe(status);
+    },
+  );
+
+  /**
+   * `listEvents` is a network round trip. A run that crosses into the waiting
+   * state while it is in flight owns the approval the read just found, so the
+   * guard is re-checked before anything is denied.
+   */
+  it("refuses when a run becomes live while the session is being read", async () => {
     const store = new Store(":memory:");
-    const waiting = store.runs.createRun(claim("h1")).run;
-    store.runs.updateRun(waiting.id, { status: "blocked_pending" });
+    const other = store.runs.createRun(claim("h1")).run;
+    store.runs.updateRun(other.id, { status: "clean" });
     const { run: r } = store.runs.createRun(claim("h2"));
     const startTurn = vi.fn(async () => {
       throw new Error("422 user message cannot be sent");
     });
     const resume = vi.fn();
-    const listEvents = vi.fn();
+    const listEvents = vi.fn(async () => {
+      // The window the second check exists to close.
+      store.runs.updateRun(other.id, { status: "blocked_pending" });
+      return [
+        { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:00Z") },
+        { turnId: "t1", event: approvalRequired("c1") },
+        { turnId: "t1", event: turnDone("t1") },
+      ];
+    });
     const runner = new Runner(store.runs, { startTurn, resume, listEvents } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
 
     await runner.start(r, "review it");
 
-    expect(listEvents).not.toHaveBeenCalled();
+    expect(listEvents).toHaveBeenCalledTimes(1);
     expect(resume).not.toHaveBeenCalled();
-    expect(startTurn).toHaveBeenCalledTimes(1);
     expect(store.runs.getRun(r.id)?.status).toBe("error");
-    expect(store.runs.getRun(waiting.id)?.status).toBe("blocked_pending");
   });
 });
 
@@ -377,10 +416,16 @@ describe("Runner.supersede", () => {
     runner.stopAll();
   });
 
-  it("stays superseded when the deny fails, and sends no cancel after it", async () => {
+  /**
+   * `claimDecision` leaves the run `blocked_pending`, so an operator's resume
+   * can be in flight and invisible to supersede. If it answered the approval
+   * first, this deny fails — and its turn is now reviewing a commit nobody is
+   * looking at, so the cancel still has to happen.
+   */
+  it("cancels anyway when the deny fails, so a decision that beat it cannot post", async () => {
     const store = new Store(":memory:");
     const resume = vi.fn(async () => {
-      throw new Error("harness down");
+      throw new Error("approval already answered");
     });
     const cancelTurn = vi.fn(async () => {});
     const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
@@ -391,9 +436,23 @@ describe("Runner.supersede", () => {
     await runner.supersede(r.id);
 
     expect(resume).toHaveBeenCalledTimes(1);
-    // Nothing was started, so there is nothing to cancel.
-    expect(cancelTurn).not.toHaveBeenCalled();
+    expect(cancelTurn).toHaveBeenCalledWith("s");
     expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+    runner.stopAll();
+  });
+
+  it("cancels once, not twice, when the deny lands", async () => {
+    const store = new Store(":memory:");
+    const resume = vi.fn(async () => "t-deny");
+    const cancelTurn = vi.fn(async () => {});
+    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    const r = await blocked(store, runner);
+
+    await runner.supersede(r.id);
+
+    expect(cancelTurn).toHaveBeenCalledTimes(1);
     runner.stopAll();
   });
 
