@@ -2,10 +2,12 @@
 #
 # No ports are published here: the deploy runs behind a reverse proxy that
 # terminates TLS and routes cujo-harness.spencerjireh.com to `server` (8790),
-# cujo.spencerjireh.com to `web` (3000), and cujo-ingress.spencerjireh.com to
-# `cujo` (8080). For a local run with ports on your host, see the local stack
-# section of AGENTS.md. Secrets come from the deploy environment, never this
-# file.
+# cujo.spencerjireh.com and cujo-admin.spencerjireh.com to `web` (3000), and
+# cujo-ingress.spencerjireh.com to `cujo` (8080). The two `web` hostnames are
+# the public board and the Access-gated operator UI; the app tells them apart
+# by the request's own Host (decision 34). For a local run with ports on your
+# host, see the local stack section of AGENTS.md. Secrets come from the deploy
+# environment, never this file.
 
 services:
   postgres:
@@ -76,11 +78,12 @@ services:
     stop_grace_period: 35s
     restart: unless-stopped
 
-  # The Cujo service: webhook receiver, run store, TrueForge event folder, UI and
-  # API, approve endpoint. Serves two hostnames from one process (spec Contract
-  # 6); Coolify/Traefik routes both here, so no published ports. Hardened:
-  # non-root image, read-only rootfs except the SQLite volume, no extra
-  # capabilities.
+  # The Cujo service: webhook receiver, run store, TrueForge event folder, the
+  # JSON API, approve endpoint. Two hostnames and two planes from one process
+  # (spec Contract 6): the signature-gated ingress host, and the UI host that
+  # carries both the Access-gated API and the anonymous `/public` group.
+  # Hardened: non-root image, read-only rootfs except the SQLite volume, no
+  # extra capabilities.
   cujo:
     build:
       context: .
@@ -110,7 +113,17 @@ services:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
       # The application public key, which gates the /cujo command (Contract 8).
       DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:-}
+      # Where a Discord card sends someone who has to decide. Since decision 34
+      # this is the ADMIN hostname: the board at CUJO_PUBLIC_BASE_URL is
+      # read-only and has no buttons.
       CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-}
+      # Where a card for a *public* run points instead, so a repo's channel is
+      # not answered with an Access login page. Empty falls back to the above.
+      CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-}
+      # Concurrent anonymous run streams this process will hold, and how often
+      # it re-asks GitHub whether each repo with a run is still public.
+      CUJO_PUBLIC_STREAM_LIMIT: ${CUJO_PUBLIC_STREAM_LIMIT:-200}
+      CUJO_VISIBILITY_RECHECK_MS: ${CUJO_VISIBILITY_RECHECK_MS:-900000}
       # One turn, stream retries included; the Daytona idle stop is derived from it.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}
       # Optional one-time bootstrap of the harness (model + sandbox providers).
@@ -148,10 +161,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # The operator UI (apps/web). It takes the public UI hostname; `cujo` is now
-  # API-only and is reached from here over the compose network. Every browser
-  # call goes through this service's /api proxy, which forwards the Cloudflare
-  # Access assertion, so no Cujo API route needs a public route of its own.
+  # The UI (apps/web), on both public hostnames; `cujo` is API-only and is
+  # reached from here over the compose network. Browser calls go through this
+  # service's /api proxy: on the operator hostname it forwards the Cloudflare
+  # Access assertion, and on the public one it forwards no assertion and only
+  # `/public/*` paths (decision 34). No Cujo API route is published directly.
   web:
     build:
       context: .
@@ -161,6 +175,12 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
       CUJO_API_URL: http://cujo:8080
+      # Public only on an exact match of this name; every other Host — an
+      # unknown one, or this variable left unset — is treated as the operator
+      # plane, which then needs an Access assertion and is refused without one.
+      CUJO_PUBLIC_HOST: ${CUJO_PUBLIC_HOST:-}
+      # Where the public board sends someone who has to approve something.
+      CUJO_ADMIN_BASE_URL: ${CUJO_ADMIN_BASE_URL:-}
     read_only: true
     tmpfs:
       - /tmp

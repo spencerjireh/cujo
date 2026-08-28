@@ -9,7 +9,9 @@ import type { RunView } from "../../src/review/runner.service";
 import type { RunStatus } from "../../src/review/types";
 import { Store } from "../../src/store";
 
-const UI = "https://cujo.example.com";
+const UI = "https://cujo-admin.example.com";
+const PUBLIC_UI = "https://cujo.example.com";
+const LINKS = { uiBaseUrl: UI, publicBaseUrl: PUBLIC_UI };
 
 function fakeClient() {
   let created = 0;
@@ -66,7 +68,7 @@ function build(
     store,
     client: client as unknown as DiscordClient,
     github: github as unknown as GitHubReader,
-    uiBaseUrl: UI,
+    links: LINKS,
     sleepImpl: async () => {},
   });
   const emit = (status?: RunStatus): void => {
@@ -108,7 +110,7 @@ describe("DiscordNotifier", () => {
       store,
       client: fresh as unknown as DiscordClient,
       github: fakeGithub() as unknown as GitHubReader,
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     const run = store.runs.getRun(runId);
     restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
@@ -182,7 +184,7 @@ describe("DiscordNotifier", () => {
       store,
       client: fresh as unknown as DiscordClient,
       github: fakeGithub() as unknown as GitHubReader,
-      uiBaseUrl: UI,
+      links: LINKS,
     });
     const run = store.runs.getRun(runId);
     restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
