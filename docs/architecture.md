@@ -214,9 +214,11 @@ Coolify in a single `docker-compose` project so the services share a network.
   no `DISCORD_BOT_TOKEN` set it boots normally and notifies nobody.
 - **`web`** — the `apps/web` operator UI on `https://cujo.spencerjireh.com`
   behind Access; this is where a human sees a paused run and approves a block.
-  It proxies `/api/*` to `cujo` server-side, forwarding the Access assertion
+  It proxies the JSON API at `/api/cujo/*` and the run stream at
+  `/api/runs/:id/events` to `cujo` server-side, forwarding the Access assertion
   rather than terminating the check, so the UI and the API stay same-origin
-  (decision 27).
+  (decision 27). `/api/health` is this container's healthcheck and never calls
+  `cujo`.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
 
