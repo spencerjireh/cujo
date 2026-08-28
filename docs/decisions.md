@@ -284,6 +284,10 @@ rather than trusting delivery order, because a delayed delivery for an older
 commit can arrive after the newer one. Chosen over keeping both runs live,
 which would let a human approve a blocking review on a stale SHA.
 
+Cancelling the turn turned out not to be enough for a run that was waiting on a
+human: a superseded run answers its pending approval too, or the pull request
+becomes unreviewable for good (decision 37).
+
 ## 21. The hard rules are re-derived in `apps/cujo`, not only in the rubric
 
 Contract 3 calls Layer 1 "deterministic, code", but until this decision the
@@ -925,3 +929,59 @@ Known limit: the footer is a permalink to a page whose visibility can change. A
 repo made private after a review leaves a live GitHub comment pointing at a URL
 that now 404s. That is the correct answer — the page is gone — but the link
 stays in the comment, and nothing in this decision can retract it.
+
+## 37. A superseded run answers its pending approval
+
+Decision 20 says a superseded run cancels its turn so it cannot post a review
+for a commit nobody is looking at. That was not enough, and the gap made the
+ordinary workflow fail: Cujo blocks a pull request, the author pushes the fix,
+and the fix is never reviewed. Every head after the block failed to start with
+
+```
+422 thread main: user message cannot be sent while approvals or questions are pending
+```
+
+An approval is outstanding on the **session**, not on the turn that raised it.
+`tool.approval_required` ends the turn it arrives in (Contract 4), so by the
+time a newer head arrives there is nothing left to cancel, and `sessions.cancel`
+was never the call that answers it. Decision 16 keys the session on the pull
+request, so the wedge is permanent: that pull request can never be reviewed
+again. Reproduced on `orders-api` PR 5, which had to be closed and reopened
+before the run could complete.
+
+So `supersede` now denies the approval before cancelling, with a reason of its
+own. The operator's deny says a human rejected the block; here nobody rejected
+anything, and the string reaches the model, which the rubric tells to end its
+turn saying the block was denied. `STALE_DENY_REASON` says the commit was
+replaced instead. The deny starts a turn, which is cancelled straight after:
+that turn holds a review of a head nobody is looking at, and `supersede`'s
+caller starts the newer head's turn as soon as it resolves. The deny turn is
+recorded through `addCujoTurn`, so a replay can never read it as a resume sent
+from outside and stamp the run `approver: external`. The run stays
+`superseded`, never `denied` — `denied` means an operator said no.
+
+That closes the one known cause. It does not heal a session already wedged, so
+`Runner.start` retries once: on any `startTurn` failure it looks for an
+approval left pending on the session (`pendingApproval` in `review/fold.ts`),
+denies it, and tries again. `fold` cannot answer that question — it never
+clears `approval`, and `decision` does not record which tool call it answered,
+so a session holding one answered and one outstanding approval folds to both
+fields set. The heal refuses while any run on the session is `blocked_pending`:
+that approval is one a human is being asked about right now, and answering it
+for them is the one thing this must never do.
+
+Chosen over / Rejected: **matching the 422 text** to decide whether to retry,
+which pins Cujo to wording that belongs to TrueForge and fails silently when it
+changes — `startTurn` failing at all is rare enough to afford one `listEvents`;
+**a session per head SHA**, which reverses decision 16 and costs the agent its
+memory of what it already said on the pull request, to fix a lifecycle bug;
+**cancelling the approval without answering it**, which is what the code
+already did and is the bug; **leaving the wedge and telling operators to reopen
+the pull request**, which turns a Cujo defect into a manual step on the exact
+path the product exists to serve; and **denying whatever is pending with no
+`blocked_pending` guard**, which is simpler and would eventually answer for a
+human mid-decision.
+
+Known limit: if the deny itself fails, the session stays wedged exactly as it
+was. The next head retries it through `start`, so the wedge is no longer
+permanent, but that head's run still ends in `error` first.

@@ -241,6 +241,31 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     await settled(run.id, ["denied"]);
   });
 
+  /**
+   * The regression behind decision 37, and the only test that exercises the
+   * refusal itself. An approval is outstanding on the session, not on the turn
+   * that raised it, so before the fix `supersede`'s cancel left it pending and
+   * every later head on that pull request failed to start a turn with
+   * `422 user message cannot be sent while approvals or questions are pending`.
+   */
+  it("a superseded block leaves the session able to take the next head's turn", async () => {
+    const stale = runFor("h-stale");
+    await active().start(stale, reviewMessage("post_blocking_review"));
+    expect(store.runs.getRun(stale.id)?.status).toBe("blocked_pending");
+
+    // What the webhook does when a newer commit arrives while a human is
+    // still being asked about the old one.
+    await active().supersede(stale.id);
+    expect(store.runs.getRun(stale.id)?.status).toBe("superseded");
+    // Nobody decided it, so it must not read as a run someone turned down.
+    expect(store.runs.getRun(stale.id)?.approver).toBeNull();
+
+    const next = runFor("h-next");
+    await active().start(next, reviewMessage("post_advisory_review"));
+    expect(store.runs.getProjection(next.id)?.error).toBeNull();
+    expect(store.runs.getRun(next.id)?.status).toBe("clean");
+  });
+
   it("a sub-agent's name is the thread title, and its report trips a hard rule", async () => {
     const run = runFor("h-sub");
     const report = { check: "tests", base_pass_head_fail: ["t_x"] };
