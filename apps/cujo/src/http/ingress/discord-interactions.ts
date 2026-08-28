@@ -15,12 +15,14 @@
  */
 
 import { createPublicKey, verify as verifySignature } from "node:crypto";
+import { errorFields } from "@cujo/log";
 import { Hono } from "hono";
 import type { DiscordClient } from "../../clients/discord";
 import type { GitHubReader } from "../../clients/github";
 import { type CommandDeps, runCommand } from "../../notify/commands";
 import { MANAGE_GUILD } from "../../notify/commands/definitions";
 import type { NotificationStore } from "../../store";
+import type { RequestEnv } from "../request-log";
 
 /** Interaction types. */
 const PING = 1;
@@ -125,8 +127,8 @@ export interface InteractionDeps extends CommandDeps {
   onSettled?: (name: string) => void;
 }
 
-export function interactionRoutes(deps: InteractionDeps): Hono {
-  const app = new Hono();
+export function interactionRoutes(deps: InteractionDeps): Hono<RequestEnv> {
+  const app = new Hono<RequestEnv>();
 
   /** Every command answers with one ephemeral line of text. */
   const run = async (interaction: Interaction): Promise<string> => {
@@ -188,7 +190,10 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
       try {
         content = await run(interaction);
       } catch (error) {
-        console.error("discord: command failed", error);
+        c.get("log").error("discord.command.failed", {
+          guild_id: interaction.guild_id ?? null,
+          ...errorFields(error),
+        });
         content = "Something went wrong. The details are in Cujo's log.";
       }
       try {
@@ -197,7 +202,11 @@ export function interactionRoutes(deps: InteractionDeps): Hono {
           allowed_mentions: { parse: [] },
         });
       } catch (error) {
-        console.error("discord: could not answer the command", error);
+        c.get("log").error("discord.command.failed", {
+          guild_id: interaction.guild_id ?? null,
+          reason: "reply_failed",
+          ...errorFields(error),
+        });
       }
       deps.onSettled?.(subcommand(interaction)?.name ?? "unknown");
     })();
@@ -228,7 +237,11 @@ async function repoChoices(
       }),
     ]);
   } catch (error) {
-    console.error("discord: could not list installed repos", error);
+    deps.log.error("discord.command.failed", {
+      guild_id: guildId,
+      reason: "installed_repos",
+      ...errorFields(error),
+    });
     installed = [];
   }
   // Everything Cujo could review, not everything this server may watch:

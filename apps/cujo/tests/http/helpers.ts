@@ -83,7 +83,10 @@ export function build(
       runs: store.runs,
       notifications: store.notifications,
       runner,
-      verify: async (t) => (t === "good" ? "op@example.com" : null),
+      verify: async (t) =>
+        t === "good"
+          ? { email: "op@example.com", reason: null }
+          : { email: null, reason: "no_assertion" as const },
     },
     public: {
       runs: store.runs,
@@ -105,6 +108,7 @@ export function build(
     ...(overrides.interactions
       ? {
           interactions: {
+            log,
             publicKey: "ab".repeat(32),
             store: store.notifications,
             discord: {} as never,

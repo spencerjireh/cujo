@@ -4,6 +4,7 @@ import {
   getInstallationToken,
   normalisePrivateKey,
 } from "@cujo/gh-app-auth";
+import { type Logger, createLogger } from "@cujo/log";
 
 export interface PullRequestInfo {
   repo: string;
@@ -79,6 +80,7 @@ export class GitHubReader {
     private readonly appId: string,
     privateKey: string,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly log: Logger = createLogger({ service: "cujo" }),
   ) {
     this.privateKey = normalisePrivateKey(privateKey);
   }
@@ -185,7 +187,7 @@ export class GitHubReader {
       );
       for (const installation of installations) await this.addRepos(installation.id, names);
       if (installations.length < 100) break;
-      if (page === MAX_PAGES) console.warn("github: stopped listing installations at the page cap");
+      if (page === MAX_PAGES) this.log.warn("github.page_cap", { path: "/app/installations" });
     }
     return [...names].sort();
   }
@@ -213,7 +215,7 @@ export class GitHubReader {
       if (body.repositories.length < 100) return;
       // A cap that stops silently reads as "that is all of them"; say so.
       if (page === MAX_PAGES) {
-        console.warn(`github: stopped listing installation ${installationId} at the page cap`);
+        this.log.warn("github.page_cap", { path: "/installation/repositories" });
       }
     }
   }
