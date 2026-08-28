@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const store = new Store(config.dbPath);
   const harness = new Harness(config);
-  const runner = new Runner(store, harness, { turnTimeoutMs: config.turnTimeoutMs });
+  const runner = new Runner(store.runs, harness, { turnTimeoutMs: config.turnTimeoutMs });
   const github = new GitHubReader(config.githubAppId, config.githubAppPrivateKey);
   const spec = buildAgentSpec(config);
 
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
     discord && config.discordPublicKey
       ? {
           publicKey: config.discordPublicKey,
-          store,
+          store: store.notifications,
           discord,
           github,
           uiBaseUrl: config.uiBaseUrl,
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   // container is healthy, but the webhook answers 503 until this succeeds.
   void harness.bootstrapUntilReady();
 
-  for (const run of store.listUnfinishedRuns()) {
+  for (const run of store.runs.listUnfinishedRuns()) {
     runner.rehydrate(run).catch((error) => console.error(`rehydrate ${run.id} failed`, error));
   }
 
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     webhook: {
       secret: config.githubWebhookSecret,
       github,
-      store,
+      store: store.runs,
       runner,
       createSession: () => harness.createSession(spec),
       isReady: () => harness.ready,

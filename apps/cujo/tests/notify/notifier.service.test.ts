@@ -43,15 +43,15 @@ function build(
   } = {},
 ) {
   const store = new Store(":memory:");
-  const { run } = store.createRun({
+  const { run } = store.runs.createRun({
     repo: "o/r",
     prNumber: 7,
     headSha: "abc1234",
     sessionId: "s1",
   });
-  store.putProjection(run.id, emptyProjection());
+  store.runs.putProjection(run.id, emptyProjection());
   if (options.bind !== false) {
-    store.putDiscordChannel({
+    store.notifications.putDiscordChannel({
       repo: "o/r",
       channelId: "c1",
       guildId: "g1",
@@ -69,8 +69,8 @@ function build(
     sleepImpl: async () => {},
   });
   const emit = (status?: RunStatus): void => {
-    if (status) store.updateRun(run.id, { status });
-    const current = store.getRun(run.id);
+    if (status) store.runs.updateRun(run.id, { status });
+    const current = store.runs.getRun(run.id);
     notifier.onRunChanged(
       current ? ({ run: current, projection: emptyProjection() } as RunView) : null,
     );
@@ -109,7 +109,7 @@ describe("DiscordNotifier", () => {
       github: fakeGithub() as unknown as GitHubReader,
       uiBaseUrl: UI,
     });
-    const run = store.getRun(runId);
+    const run = store.runs.getRun(runId);
     restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
     await restarted.flush();
     expect(fresh.createMessage).not.toHaveBeenCalled();
@@ -135,8 +135,8 @@ describe("DiscordNotifier", () => {
 
   it("sends only the ping when a restart finds the card written and the ping not", async () => {
     const { store, client, notifier, runId, emit } = build();
-    store.updateRun(runId, { status: "blocked_pending" });
-    store.putRunDiscordMessage({
+    store.runs.updateRun(runId, { status: "blocked_pending" });
+    store.notifications.putRunDiscordMessage({
       runId,
       channelId: "c1",
       messageId: "m1",
@@ -174,7 +174,7 @@ describe("DiscordNotifier", () => {
       .mockRejectedValueOnce(new Error("discord is down"));
     emit("blocked_posted");
     await notifier.flush();
-    expect(store.getRunDiscordMessage(runId)?.pingResolved).toBe(false);
+    expect(store.notifications.getRunDiscordMessage(runId)?.pingResolved).toBe(false);
 
     const fresh = fakeClient();
     const restarted = new DiscordNotifier({
@@ -183,12 +183,12 @@ describe("DiscordNotifier", () => {
       github: fakeGithub() as unknown as GitHubReader,
       uiBaseUrl: UI,
     });
-    const run = store.getRun(runId);
+    const run = store.runs.getRun(runId);
     restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
     await restarted.flush();
     expect(fresh.editMessage).toHaveBeenCalledOnce();
     expect(fresh.editMessage.mock.calls[0]?.[2]?.content).toContain("Resolved");
-    expect(store.getRunDiscordMessage(runId)?.pingResolved).toBe(true);
+    expect(store.notifications.getRunDiscordMessage(runId)?.pingResolved).toBe(true);
 
     // And once resolved it is left alone.
     restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
@@ -202,13 +202,13 @@ describe("DiscordNotifier", () => {
     await notifier.flush();
     // Re-bound by an operator to a different server: that server's role means
     // nothing in the channel this run's card already lives in.
-    store.authorizeGuildRepo({
+    store.notifications.authorizeGuildRepo({
       guildId: "g2",
       repo: "o/r",
       guildName: null,
       authorizedBy: "op@example.com",
     });
-    store.putDiscordChannel({
+    store.notifications.putDiscordChannel({
       repo: "o/r",
       channelId: "c2",
       guildId: "g2",
@@ -247,18 +247,18 @@ describe("DiscordNotifier", () => {
     client.createMessage.mockRejectedValueOnce(new Error("discord is down"));
     emit();
     await expect(notifier.flush()).resolves.toBeUndefined();
-    expect(store.getRunDiscordMessage(runId)).toBeNull();
+    expect(store.notifications.getRunDiscordMessage(runId)).toBeNull();
 
     emit("clean");
     await notifier.flush();
     expect(client.createMessage).toHaveBeenCalledTimes(2);
     expect(client.editMessage).not.toHaveBeenCalled();
-    expect(store.getRunDiscordMessage(runId)?.lastNotifiedStatus).toBe("clean");
+    expect(store.notifications.getRunDiscordMessage(runId)?.lastNotifiedStatus).toBe("clean");
   });
 
   it("reposts a card someone deleted", async () => {
     const { store, client, notifier, runId, emit } = build();
-    store.putRunDiscordMessage({
+    store.notifications.putRunDiscordMessage({
       runId,
       channelId: "c1",
       messageId: "gone",
@@ -272,7 +272,7 @@ describe("DiscordNotifier", () => {
     emit("clean");
     await notifier.flush();
     expect(client.createMessage).toHaveBeenCalledOnce();
-    expect(store.getRunDiscordMessage(runId)?.messageId).toBe("m1");
+    expect(store.notifications.getRunDiscordMessage(runId)?.messageId).toBe("m1");
   });
 
   it("retries once when Discord rate-limits the send", async () => {
@@ -290,7 +290,7 @@ describe("DiscordNotifier", () => {
     built.emit();
     await built.notifier.flush();
     expect(built.client.createMessage).not.toHaveBeenCalled();
-    expect(built.store.getDiscordChannel("o/r")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
   it("stops when the repo names a different server", async () => {
@@ -298,12 +298,12 @@ describe("DiscordNotifier", () => {
     built.emit();
     await built.notifier.flush();
     expect(built.client.createMessage).not.toHaveBeenCalled();
-    expect(built.store.getDiscordChannel("o/r")).toBeNull();
+    expect(built.store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
   it("keeps an operator's binding even when the repo declares nothing", async () => {
     const built = build({ declaredGuild: null });
-    built.store.authorizeGuildRepo({
+    built.store.notifications.authorizeGuildRepo({
       guildId: "g1",
       repo: "o/r",
       guildName: null,
@@ -321,7 +321,7 @@ describe("DiscordNotifier", () => {
     built.emit();
     await built.notifier.flush();
     expect(built.client.createMessage).toHaveBeenCalledOnce();
-    expect(built.store.getDiscordChannel("o/r")).not.toBeNull();
+    expect(built.store.notifications.getDiscordChannel("o/r")).not.toBeNull();
   });
 
   it("makes no request at all for a repo with no channel bound", async () => {
@@ -335,7 +335,7 @@ describe("DiscordNotifier", () => {
     const { store, client, notifier, emit } = build();
     emit();
     await notifier.flush();
-    store.putDiscordChannel({
+    store.notifications.putDiscordChannel({
       repo: "o/r",
       channelId: "c2",
       guildId: "g1",

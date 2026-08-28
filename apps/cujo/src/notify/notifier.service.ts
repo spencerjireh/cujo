@@ -129,11 +129,11 @@ export class DiscordNotifier {
     const { store, uiBaseUrl } = this.deps;
     // Re-read rather than trust the captured view: a burst then collapses to
     // one send at the newest status for free.
-    const run = store.getRun(runId);
+    const run = store.runs.getRun(runId);
     if (!run) return;
-    const row = store.getRunDiscordMessage(runId);
+    const row = store.notifications.getRunDiscordMessage(runId);
     if (!owesWork(run, row)) return;
-    const mapping = store.getDiscordChannel(run.repo);
+    const mapping = store.notifications.getDiscordChannel(run.repo);
     // The channel is pinned to the run at first post, so re-pointing a repo
     // mid-run cannot edit a message into a channel that does not hold it.
     const channelId = row?.channelId ?? mapping?.channelId ?? null;
@@ -146,7 +146,7 @@ export class DiscordNotifier {
     // "revoked by a commit" true instead of aspirational.
     if (mapping?.guildId) {
       const allowed = await authorizationFor(
-        { store, github: this.deps.github },
+        { store: store.notifications, github: this.deps.github },
         mapping.guildId,
         run.repo,
       );
@@ -155,7 +155,7 @@ export class DiscordNotifier {
         // being unreachable, which says nothing about what the repo declares:
         // a hiccup must not silence a team's reviews.
         console.warn(`discord: ${run.repo} no longer allows this server; dropping the binding`);
-        store.deleteDiscordChannel(run.repo);
+        store.notifications.deleteDiscordChannel(run.repo);
         return;
       }
     }
@@ -164,7 +164,7 @@ export class DiscordNotifier {
     let pingMessageId = row?.pingMessageId ?? null;
     let pingResolved = row?.pingResolved ?? false;
     const write = (): void => {
-      store.putRunDiscordMessage({
+      store.notifications.putRunDiscordMessage({
         runId,
         channelId,
         messageId,
@@ -175,12 +175,12 @@ export class DiscordNotifier {
     };
 
     if (row?.lastNotifiedStatus !== run.status || !messageId) {
-      const projection = store.getProjection(runId);
+      const projection = store.runs.getProjection(runId);
       if (!projection) return;
       const card = buildRunCard({
         run,
         projection,
-        prTitle: store.getRunPrTitle(runId),
+        prTitle: store.runs.getRunPrTitle(runId),
         uiBaseUrl,
       });
       messageId = await this.upsert(channelId, messageId, card);
