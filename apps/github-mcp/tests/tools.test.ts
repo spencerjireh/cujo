@@ -47,6 +47,40 @@ describe("review.posted", () => {
   });
 });
 
+describe("review.anchor.moved", () => {
+  it("says why each anchor was rejected, which the count alone cannot", async () => {
+    const { log, of } = capture();
+    const github = {
+      // Only a.py is in the diff, and only line 2 of it.
+      listPullFiles: vi.fn(async () => [
+        { filename: "a.py", patch: "@@ -1,1 +1,2 @@\n context\n+added" },
+      ]),
+      createReview: vi.fn(async () => ({ id: 1, html_url: "https://gh/r/1" })),
+    } as unknown as GitHubClient;
+    await postReview(
+      github,
+      "COMMENT",
+      {
+        ...input,
+        comments: [
+          { path: "a.py", line: 2, body: "kept" },
+          { path: "b.py", line: 5, body: "file is not in the diff" },
+          { path: "a.py", line: 99, body: "line is outside the hunk" },
+          { path: "a.py", line: 0, body: "not a line at all" },
+        ],
+      },
+      "",
+      log,
+    );
+    expect(of("review.anchor.moved").map((l) => l.reason)).toEqual([
+      "file_not_in_diff",
+      "line_not_in_hunk",
+      "bad_line",
+    ]);
+    expect(of("review.posted")[0]).toMatchObject({ posted_inline: 1, moved_to_body: 3 });
+  });
+});
+
 describe("review.failed", () => {
   it("names the repo and the pull request the transport catch cannot", async () => {
     const { log, of } = capture();
