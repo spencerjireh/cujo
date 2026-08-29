@@ -2602,3 +2602,40 @@ ever reads a watched path. **Dropping `.aws` from the sensitive list**, which
 would stop the hashing and also stop `wrote_sensitive` firing on a real
 credentials write. **Filtering the decoy's rows by which process caused them**,
 which inotify does not report.
+
+## 59. The checks start together, because nothing was ever waiting
+
+A measured run: **17.8 seconds of sandbox commands inside about 800 seconds of
+wall clock**, with 156 of those seconds spent before the first check started.
+The sandbox is not the cost; the model's own turns are. And the largest
+recoverable slice of them was that the four checks were taken one at a time —
+`tests` alone, a long gap, then the rest — for about 257 seconds of the 800.
+
+The cause was three sentences of rubric: "Run `tests` first. Run `probes` and
+`smoke` after it." Nothing depended on that order. No check reads another's
+report, and both facts that decide which checks run at all — whether a test
+command could be inferred, and whether the manifest changed — are settled during
+setup, before any sub-agent exists. The `tests` gate is a gate on the
+*inference*, not on the report, and had been written as though it were the
+report.
+
+Decision 41 had already answered the safety question and answered it the other
+way round: it put an exclusive lock on the sensors precisely because "nothing in
+the rubric serialises the checks", and rejected "leaving it to the rubric" as a
+sentence of prose defending a correctness property. So concurrent checks were
+always meant to be safe. The rubric simply never stopped reading as if they
+were not. The wrapped commands still run one at a time — 17.8 seconds of them —
+and a window that does overlap says so as `window_exclusive`.
+
+**This reaches only new pull requests.** One session per pull request (see 16),
+and the spec — rubric included — is set when that session is created, so an
+existing pull request keeps the wording it started with and a push to one proves
+nothing about this change.
+
+Rejected: **spawning three and keeping `detonation` last**, on the theory that
+an install is the one check that should not compete — the lock already makes
+that a queueing question rather than a correctness one, and detonation is the
+slowest check, so starting it last is the worst possible order for it.
+**Raising `SENSED_LOCK_TIMEOUT_S`** in anticipation of contention: 900 seconds
+already exceeds any check by two orders of magnitude, and a timeout is not the
+thing to tune before there is a queue to measure.
