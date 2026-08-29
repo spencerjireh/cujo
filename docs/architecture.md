@@ -57,8 +57,9 @@ whole design protects, so keep it in mind when reading the flow below.
 ## System map
 
 Three zones. TrueForge is one box in the middle zone: it runs the agent, but
-nothing outside the server talks to it. `apps/cujo` is the only thing GitHub or
-a person touches. Thick edges are the one path a human is on.
+nothing outside the server talks to it. `apps/cujo` is the only thing GitHub
+touches; a person only ever reads the board. Thick edges are the one path a
+human is on — the answer to a held review, which travels over GitHub.
 
 ```mermaid
 flowchart LR
@@ -70,8 +71,8 @@ flowchart LR
   end
 
   subgraph server [Our server - compose network - secrets live here]
-    Access{{Operator gate<br/>bearer token}}
-    Cujo[apps/cujo<br/>webhook - run store<br/>event folder - UI + API<br/>approve endpoint]
+    Web[apps/web<br/>anonymous board<br/>read-only - no state]
+    Cujo[apps/cujo<br/>webhook - run store<br/>event folder - read API<br/>resumes the held turn]
     TF[TrueForge server<br/>agent runtime - internal<br/>parent agent + subagents<br/>approval gate - sessions]
     MCP[github-mcp<br/>holds App private key]
     DB[(Postgres + Redis<br/>TrueForge state)]
@@ -82,10 +83,10 @@ flowchart LR
     Canary[Unknown host<br/>where evil-package phones]
   end
 
-  GH -- "pull_request webhook - HMAC" --> Cujo
+  GH -- "pull_request + issue_comment<br/>webhooks - HMAC" --> Cujo
   MCP -- "POST review as cujo-guard[bot]<br/>installation token" --> GH
-  Human -- https --> Access
-  Access --> Cujo
+  Human -- "reads the evidence" --> Web
+  Web -- "/api/* to /public" --> Cujo
   Cujo -- "create session / turn" --> TF
   TF -- "events by thread_id" --> Cujo
   Cujo -- "user.tool_approval" --> TF
@@ -98,8 +99,9 @@ flowchart LR
   %% Appended last on purpose: linkStyle below indexes edges by declaration
   %% order, so inserting one earlier recolours the wrong arrows.
   Cujo -- "card per run + ping<br/>bot token" --> Discord
+  Human -- "/cujo confirm on the PR" --> GH
 
-  linkStyle 2,3,6,7 stroke:#b85c0b,stroke-width:2.5px
+  linkStyle 0,6,7,14 stroke:#b85c0b,stroke-width:2.5px
   style sandbox stroke-dasharray: 6 4
 ```
 
