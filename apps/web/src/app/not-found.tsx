@@ -8,7 +8,9 @@ import Link from "next/link";
  */
 export default function NotFound() {
   return (
-    <div>
+    // The column the layout used to impose on every page. It stayed with the
+    // pages that want it when the board took the full window.
+    <div className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="mb-2 text-2xl">No such page</h1>
       <p className="mb-6 max-w-[60ch] text-sm text-fg-muted">
         The board has two kinds of page: the list of runs, and one page per run. Nothing else is
