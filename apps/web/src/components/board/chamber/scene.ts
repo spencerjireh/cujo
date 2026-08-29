@@ -151,7 +151,11 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   );
   shell.position.set(RECORD_X, 0, shellZ);
   scene.add(shell);
-  scene.add(floorGrid(shellZ, lineColor.clone().multiplyScalar(2.2)));
+  // Held in a name rather than added inline: `dispose()` below has to free its
+  // buffers and material, and an object only the scene graph refers to is one
+  // nothing frees.
+  const floor = floorGrid(shellZ, lineColor.clone().multiplyScalar(2.2));
+  scene.add(floor);
 
   // The chain: one taut line down the length of the volume, with every
   // specimen hanging off it.
@@ -260,11 +264,18 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
    * the one rule the chamber keeps, that a specimen's colour is its verdict.
    */
   function applyFocus(): void {
+    // Only a run the chamber is actually drawing dims the rest of it. The
+    // record lists every run and the chamber holds the newest `capacity`, so
+    // hovering a row past that end would otherwise fade every specimen to
+    // pick out none of them.
+    const drawn = focus !== null && nodes.some((node) => node.spec.id === focus);
     for (const node of nodes) {
-      const on = focus === node.spec.id;
+      const on = drawn && focus === node.spec.id;
       node.group.scale.setScalar(on ? 1.55 : 1);
-      for (const material of node.materials) material.opacity = focus && !on ? 0.45 : 1;
-      for (const material of node.materials) material.transparent = focus !== null;
+      for (const material of node.materials) {
+        material.opacity = drawn && !on ? 0.45 : 1;
+        material.transparent = drawn;
+      }
     }
   }
 
@@ -438,7 +449,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     armGeometry.dispose();
     coreGeometry.dispose();
     dropMaterial.dispose();
-    for (const object of [shell, chain, sweep]) {
+    for (const object of [shell, chain, sweep, floor]) {
       object.geometry.dispose();
       (object.material as LineBasicMaterial).dispose();
     }
