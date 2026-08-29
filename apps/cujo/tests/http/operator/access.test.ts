@@ -42,9 +42,14 @@ describe("createAccessVerifier", () => {
     otherKeySign = signer(other.privateKey);
   });
 
-  it("returns the email of a valid assertion, and no reason to refuse it", async () => {
+  it("accepts a valid assertion as the fixed identity, not as its email", async () => {
+    // The email is still required — its absence says the assertion is not the
+    // shape Access issues — but it is not what gets recorded. `authorized_by`
+    // must not depend on which transitional credential a request carried, or a
+    // reader would need to know which gate was configured that day to know
+    // what a row means (decision 48).
     expect(await verify(await sign({ email: "op@example.com" }))).toEqual({
-      operator: "op@example.com",
+      operator: OPERATOR_IDENTITY,
       reason: null,
     });
   });

@@ -52,6 +52,14 @@ describe("the operator gate", () => {
     expect((await get({ authorization: `Bearer ${TOKEN}` })).status).toBe(200);
   });
 
+  it("accepts the scheme in any case, because HTTP says it is case-insensitive", async () => {
+    // RFC 9110 §11.1. Refusing `bearer` would turn a correct token into a 401
+    // for anyone whose client spells it that way.
+    const { get } = build({ operatorToken: TOKEN });
+    expect((await get({ authorization: `bearer ${TOKEN}` })).status).toBe(200);
+    expect((await get({ authorization: `BEARER ${TOKEN}` })).status).toBe(200);
+  });
+
   it("still accepts an Access assertion while both are configured", async () => {
     const { get } = build({ operatorToken: TOKEN });
     expect((await get({ "cf-access-jwt-assertion": "good" })).status).toBe(200);

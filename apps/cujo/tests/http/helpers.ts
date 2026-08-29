@@ -93,7 +93,7 @@ export function build(
       runner,
       verify: async (t) =>
         t === "good"
-          ? { operator: "op@example.com", reason: null }
+          ? { operator: "operator", reason: null }
           : { operator: null, reason: "no_assertion" as const },
     },
     public: {

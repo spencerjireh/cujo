@@ -194,7 +194,7 @@ describe("operator Discord admin API", () => {
       guild_id: "222222222222222222",
       guild_name: "My Server",
       repo: "o/r",
-      authorized_by: "op@example.com",
+      authorized_by: "operator",
     });
     expect(store.notifications.isGuildAuthorized("222222222222222222", "o/r")).toBe(true);
   });

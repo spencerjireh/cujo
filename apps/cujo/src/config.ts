@@ -151,6 +151,11 @@ function tarballUrl(raw: string): string {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const devNoAccess = env.CUJO_DEV_NO_ACCESS === "1";
+  // Trimmed once, and read only from here after: the login form trims what an
+  // operator pastes, and a secret normalised on one side of a comparison but
+  // not the other is a token that disables the Access requirement while being
+  // impossible to present through the UI. Whitespace-only is no token at all.
+  const operatorToken = (env.CUJO_OPERATOR_TOKEN ?? "").trim();
   const modelProviderBaseUrl = env.MODEL_PROVIDER_BASE_URL;
   const modelProviderApiKey = env.MODEL_PROVIDER_API_KEY;
   const uiHost = env.CUJO_UI_HOST ?? "cujo.spencerjireh.com";
@@ -176,14 +181,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // makes the two gates orderable: a deploy that has set the token no longer
     // has to keep the Access variables around to start.
     cfAccessTeamDomain:
-      devNoAccess || env.CUJO_OPERATOR_TOKEN
+      devNoAccess || operatorToken
         ? (env.CF_ACCESS_TEAM_DOMAIN ?? "")
         : required(env, "CF_ACCESS_TEAM_DOMAIN"),
     cfAccessAud:
-      devNoAccess || env.CUJO_OPERATOR_TOKEN
-        ? (env.CF_ACCESS_AUD ?? "")
-        : required(env, "CF_ACCESS_AUD"),
-    operatorToken: env.CUJO_OPERATOR_TOKEN ?? "",
+      devNoAccess || operatorToken ? (env.CF_ACCESS_AUD ?? "") : required(env, "CF_ACCESS_AUD"),
+    operatorToken,
     dbPath: env.CUJO_DB_PATH ?? "/data/cujo.db",
     model: required(env, "CUJO_MODEL"),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
