@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CUJO_API_URL } from "@/lib/api/client";
+import { operatorCredentials } from "@/lib/api/credentials";
 import { modeForHost, publicHost } from "@/lib/api/mode";
 import { refusalFields } from "@/lib/api/upstream";
 import { log } from "@/lib/log";
@@ -44,7 +45,7 @@ async function forward(request: Request, path: string[]): Promise<Response> {
     log.warn("proxy.rejected", { ...refusalFields(path, mode, "public_plane"), ray });
     return Response.json({ ok: false, error: "not found" }, { status: 404 });
   }
-  const assertion = mode === "public" ? null : incoming.get("cf-access-jwt-assertion");
+  const credentials = mode === "public" ? {} : operatorCredentials(incoming, request);
   const contentType = request.headers.get("content-type");
 
   const target = new URL(`${CUJO_API_URL()}/${path.map(encodeURIComponent).join("/")}`);
@@ -56,7 +57,7 @@ async function forward(request: Request, path: string[]): Promise<Response> {
       method: request.method,
       headers: {
         accept: "application/json",
-        ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}),
+        ...credentials,
         ...(contentType ? { "content-type": contentType } : {}),
         // fetch always sends the target's own authority as Host, so the real
         // client host travels as a forwarded header instead.

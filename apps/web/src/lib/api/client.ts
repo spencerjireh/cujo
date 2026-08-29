@@ -1,6 +1,7 @@
 import { environmentManager } from "@tanstack/react-query";
+import { OPERATOR_COOKIE } from "./credentials";
 import { type Mode, apiPrefix } from "./mode";
-import type { ApproveResult, Run, RunList } from "./types";
+import type { Run, RunList } from "./types";
 
 /**
  * Two call paths for the same API. On the server the fetch goes straight to
@@ -33,14 +34,22 @@ async function readError(res: Response): Promise<string> {
 
 async function serverGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   // Imported lazily so the module stays usable from a client component.
-  const { headers } = await import("next/headers");
+  const { headers, cookies } = await import("next/headers");
   const incoming = await headers();
+  const jar = await cookies();
+  const token = jar.get(OPERATOR_COOKIE)?.value;
   const assertion = incoming.get("cf-access-jwt-assertion");
   const host = incoming.get("host");
   const res = await fetch(`${CUJO_API_URL()}${path}`, {
     headers: {
       accept: "application/json",
-      ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}),
+      // The token first, for the same reason `apps/cujo` checks it first: it
+      // is where this plane is going, and both are accepted meanwhile.
+      ...(token
+        ? { authorization: `Bearer ${token}` }
+        : assertion
+          ? { "cf-access-jwt-assertion": assertion }
+          : {}),
       ...(host ? { "x-forwarded-host": host } : {}),
     },
     cache: "no-store",
@@ -71,22 +80,6 @@ export function fetchRuns(mode: Mode, signal?: AbortSignal): Promise<RunList> {
 export function fetchRun(mode: Mode, id: string, signal?: AbortSignal): Promise<Run> {
   return get<Run>(`${apiPrefix(mode)}/runs/${encodeURIComponent(id)}`, signal);
 }
-
-/**
- * Browser-only: the decision always originates from a click. There is no mode
- * parameter because there is no public equivalent — approving is what the
- * gated hostname exists for (decision 28).
- */
-export async function approveRun(id: string, decision: "allow" | "deny"): Promise<ApproveResult> {
-  const res = await fetch(`/api/cujo/runs/${encodeURIComponent(id)}/approve`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ decision }),
-  });
-  if (!res.ok) throw new ApiError(await readError(res), res.status);
-  return (await res.json()) as ApproveResult;
-}
-
 /**
  * The two streams are separate routes rather than one route with a `?mode=`
  * parameter: a query string is something the browser controls, and a public

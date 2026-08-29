@@ -599,7 +599,7 @@ list in order.
 | `session_id` | The TrueForge session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
 | `status` | One of the eight states below. |
-| `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
+| `approver`, `decided_at` | Who decided and when. `github:<login>` for a decision made with `/cujo confirm` or `/cujo dismiss` on the pull request, which is the only way a held finding is answered (decisions 45 and 48); the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `created_at`, `updated_at` | Timestamps. |
@@ -662,7 +662,6 @@ The operator API `apps/cujo` serves on `cujo-admin.spencerjireh.com`:
 | `GET /runs` | Runs, newest first, with status. |
 | `GET /runs/:id` | The run, its checks (thread, status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits` (the hard-rule subset), and the drafted review when `blocked_pending`. |
 | `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
-| `POST /runs/:id/approve` | Body `{decision: 'allow' \| 'deny'}`. Records the approver; resumes the turn as Contract 4 describes. Rejected unless the run is `blocked_pending`. A refusal answers `409` with `{ok: false, error, reason}`: `error` is the sentence the UI shows and `reason` is one of `no_such_run`, `not_blocked_pending`, `already_decided` or `resume_failed` — four conditions that used to arrive as one prose string a caller could only match on (decision 37). The decision leaves a pair of log lines: `approve.requested` before the outcome, carrying the actor, the decision, `ray` (the operator request that decided) and `delivery_id` (the webhook that claimed the run, omitted for a run claimed before that column existed); then `approve.applied` from the run's own logger once the resume lands. |
 
 The `/discord/*` routes on the same host are Contract 7.
 
@@ -725,15 +724,28 @@ the process, not only at the edge:
   fetch surface as an unhandled `500` that says nothing (decision 37). It also
   forwards `Cf-Ray`, so a line from the UI and a line from this process share
   one correlation id.
-- Every route outside `/public` — reads as well as the approve route —
-  requires a `Cf-Access-Jwt-Assertion` header that verifies against the
-  Cloudflare Access public keys for the application's audience tag. A missing
-  or invalid token is 401. Cloudflare Access at the edge is the first gate;
-  this check is the second, so a request that reaches the origin by another
-  path (a misrouted hostname, a direct hit on the origin IP) is still refused.
+- Every route outside `/public` requires an operator credential, and there are
+  two for one release (decision 48). An `Authorization: Bearer` carrying
+  `CUJO_OPERATOR_TOKEN`, compared in constant time, is where this plane is
+  going; a `Cf-Access-Jwt-Assertion` that verifies against the Cloudflare
+  Access public keys for the application's audience tag is what it has today.
+  A missing or invalid credential is a bare 401 either way — naming the failing
+  check tells a stranger how to pass it — and the reason goes to the log. A
+  presented token that is wrong is refused rather than falling through to
+  Access: whoever sent it meant to use that gate.
+
+  Both are accepted so the token can be configured and the Access application
+  removed in either order. Merging is the deploy (decision 35), and a gate that
+  accepts only the credential nobody has issued yet locks the operator out of
+  their own board.
+
+  The browser never holds the token in JavaScript. `apps/web` takes it once at
+  `/login`, keeps it in an httpOnly cookie on its own origin, and turns it into
+  the bearer header server-side; a value a page can read is a value a script
+  injected into that page can read.
 - The webhook route on `cujo-ingress.spencerjireh.com` is the only route that
-  accepts a request without an Access token, and it accepts only a request
-  whose HMAC verifies (Contract 1).
+  accepts a request with no operator credential at all, and it accepts only a
+  request whose HMAC verifies (Contract 1).
 
 Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
 subagent was given the review tool, which the design forbids. `apps/cujo` logs
@@ -897,7 +909,7 @@ proved by different people. Neither alone does anything:
 
 Without the repo's half, anyone could point a repo they do not own at their own
 channel. Without the server's half, anyone could send a repo's reviews into a
-server they do not belong to. A binding records who made it: an email, or
+server they do not belong to. A binding records who made it: `operator`, or
 `discord:<user id>`. On a deploy that serves one server, the declaration half
 can be answered once in the environment instead of once per repo — see **The
 deploy's own server** below; the server's half is never skipped.
@@ -931,10 +943,12 @@ the same way reverting a commit drops a declared one. An unreadable
 `.cujo.yml` stays `unknown` and the default does not rescue it.
 
 **The operator override.** `PUT /discord/authorizations/:guildId/:owner/:name`
-on the UI host still allows a pair directly, recorded with the operator's
-Access email in `authorized_by`. It is for moving a repo between servers, and
-for a repo whose `.cujo.yml` cannot be changed. It is no longer the way
-notifications are normally set up.
+on the UI host still allows a pair directly, recorded in `authorized_by` as
+the fixed identity `operator` — a shared token names nobody, and saying so is
+honest where an email would be a claim the gate can no longer support
+(decision 48). It is for moving a repo between servers, and for a repo whose
+`.cujo.yml` cannot be changed. It is no longer the way notifications are
+normally set up.
 
 **When a declaration is wrong**, nothing fails: a malformed value, a server the
 bot is not in, or a missing file all mean "not declared". Reviews are

@@ -1,7 +1,12 @@
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { createLocalJWKSet } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createAccessVerifier, devVerifier } from "../../../src/http/operator/access";
+import {
+  OPERATOR_IDENTITY,
+  createAccessVerifier,
+  devVerifier,
+  verifyOperatorToken,
+} from "../../../src/http/operator/access";
 
 const TEAM = "team.cloudflareaccess.com";
 const AUD = "aud-tag";
@@ -39,7 +44,7 @@ describe("createAccessVerifier", () => {
 
   it("returns the email of a valid assertion, and no reason to refuse it", async () => {
     expect(await verify(await sign({ email: "op@example.com" }))).toEqual({
-      email: "op@example.com",
+      operator: "op@example.com",
       reason: null,
     });
   });
@@ -54,7 +59,7 @@ describe("createAccessVerifier", () => {
       await sign({}),
       await sign({ email: "" }),
     ]) {
-      expect((await verify(assertion)).email).toBeNull();
+      expect((await verify(assertion)).operator).toBeNull();
     }
   });
 
@@ -97,12 +102,52 @@ describe("createAccessVerifier", () => {
       },
     });
     const result = await unreachable(await sign({ email: "op@example.com" }));
-    expect(result).toEqual({ email: null, reason: "jwks_unavailable" });
+    expect(result).toEqual({ operator: null, reason: "jwks_unavailable" });
   });
 });
 
 describe("devVerifier", () => {
   it("accepts everyone as the local operator", async () => {
-    expect(await devVerifier(undefined)).toEqual({ email: "dev@localhost", reason: null });
+    expect(await devVerifier(undefined)).toEqual({ operator: "operator", reason: null });
+  });
+});
+
+describe("verifyOperatorToken", () => {
+  it("accepts the token and records the fixed identity", () => {
+    // A shared token names nobody, and `operator` says so. An email here
+    // would be a claim the gate can no longer support (decision 48).
+    expect(verifyOperatorToken("s3cret", "s3cret")).toEqual({
+      operator: OPERATOR_IDENTITY,
+      reason: null,
+    });
+    expect(OPERATOR_IDENTITY).toBe("operator");
+  });
+
+  it("tells a missing token apart from a wrong one, for the log", () => {
+    expect(verifyOperatorToken("s3cret", undefined)).toEqual({
+      operator: null,
+      reason: "no_token",
+    });
+    expect(verifyOperatorToken("s3cret", "")).toEqual({ operator: null, reason: "no_token" });
+    expect(verifyOperatorToken("s3cret", "wrong!")).toEqual({
+      operator: null,
+      reason: "bad_token",
+    });
+  });
+
+  it("refuses a token of the wrong length without throwing", () => {
+    // `timingSafeEqual` throws on a length mismatch, which would turn a bad
+    // credential into a 500 and take the reason out of the log.
+    expect(verifyOperatorToken("s3cret", "s3")).toEqual({ operator: null, reason: "bad_token" });
+    expect(verifyOperatorToken("s3cret", "s3cret-and-more")).toEqual({
+      operator: null,
+      reason: "bad_token",
+    });
+  });
+
+  it("refuses a prefix of the real token", () => {
+    // The property constant-time comparison exists for: an attacker must not
+    // learn that they have the first four characters right.
+    expect(verifyOperatorToken("s3cretvalue", "s3cr").operator).toBeNull();
   });
 });
