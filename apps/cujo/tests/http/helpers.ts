@@ -121,6 +121,7 @@ export function build(
               uiBaseUrl: "https://cujo-admin.example.com",
               publicBaseUrl: "https://cujo.example.com",
             },
+            defaultGuild: null,
           },
         }
       : {}),

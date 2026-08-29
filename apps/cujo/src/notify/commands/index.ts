@@ -31,6 +31,8 @@ export interface CommandDeps {
   discord: DiscordClient;
   github: GitHubReader;
   links: UiLinks;
+  /** The server an undeclared repo belongs to, or null for none (decision 40). */
+  defaultGuild: string | null;
 }
 
 export interface CommandInput {

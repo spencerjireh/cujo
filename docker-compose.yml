@@ -113,6 +113,10 @@ services:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
       # The application public key, which gates the /cujo command (Contract 8).
       DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:-}
+      # The one server a repo that declares no `discord_guild` belongs to
+      # (decision 40). One id, never a list: every other server is refused
+      # exactly as before. Unset keeps Contract 8's original rule.
+      CUJO_DEFAULT_DISCORD_GUILD: ${CUJO_DEFAULT_DISCORD_GUILD:-}
       # Where a Discord card sends someone who has to decide. Since decision 34
       # this is the ADMIN hostname: the board at CUJO_PUBLIC_BASE_URL is
       # read-only and has no buttons.

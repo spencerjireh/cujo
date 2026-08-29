@@ -62,7 +62,14 @@ async function main(): Promise<void> {
   // while the process was down is still reported.
   const discord = config.discordBotToken ? new DiscordClient(config.discordBotToken) : null;
   const notifier = discord
-    ? new DiscordNotifier({ log, store, client: discord, github, links })
+    ? new DiscordNotifier({
+        log,
+        store,
+        client: discord,
+        github,
+        links,
+        defaultGuild: config.defaultDiscordGuild,
+      })
     : null;
   if (notifier) {
     runner.changes.on(ANY_RUN, (view: RunView | null) => notifier.onRunChanged(view));
@@ -95,6 +102,7 @@ async function main(): Promise<void> {
           discord,
           github,
           links,
+          defaultGuild: config.defaultDiscordGuild,
         }
       : null;
   if (interactions && discord) {

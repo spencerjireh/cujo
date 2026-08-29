@@ -733,7 +733,9 @@ proved by different people. Neither alone does anything:
 Without the repo's half, anyone could point a repo they do not own at their own
 channel. Without the server's half, anyone could send a repo's reviews into a
 server they do not belong to. A binding records who made it: an email, or
-`discord:<user id>`.
+`discord:<user id>`. On a deploy that serves one server, the declaration half
+can be answered once in the environment instead of once per repo — see **The
+deploy's own server** below; the server's half is never skipped.
 
 ```yaml
 # .cujo.yml on the default branch
@@ -749,6 +751,19 @@ declaration proof: it has to be merged.
 The key is extracted, not parsed as YAML. It has one shape — a Discord
 snowflake at the top level — so anything else simply does not match and the
 repo counts as undeclared, which is the silent-but-visible behaviour below.
+
+**The deploy's own server.** `CUJO_DEFAULT_DISCORD_GUILD` names one Discord
+server, and a repo that declares nothing belongs to it (decision 40). A deploy
+serving a single server then needs no per-repo commit: set the variable once
+and run `/cujo watch`. Unset, every repo must declare, which is the rule above.
+
+It is one id and never a list, so it answers "is this the deploy's own
+server?" — every other server is refused exactly as it is today, including one
+that invited the bot itself. It is consulted only after the declaration is read
+and found absent, so a repo that named a different server still wins. It is
+checked on the delivery path too, so unsetting it drops a binding it created,
+the same way reverting a commit drops a declared one. An unreadable
+`.cujo.yml` stays `unknown` and the default does not rescue it.
 
 **The operator override.** `PUT /discord/authorizations/:guildId/:owner/:name`
 on the UI host still allows a pair directly, recorded with the operator's
