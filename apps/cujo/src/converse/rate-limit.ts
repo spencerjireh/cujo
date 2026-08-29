@@ -111,6 +111,19 @@ export class ConverseRateLimit {
     return true;
   }
 
+  /**
+   * Give the claim back, because nothing reached the pull request.
+   *
+   * A claim that outlives a failed reply is worse than no claim at all: the
+   * person got no answer, and every redelivery — the mechanism that would have
+   * recovered it — is then ignored as already answered. The claim covers a
+   * comment that *was* answered, so it is released whenever the write did not
+   * land.
+   */
+  unclaim(commentId: number): void {
+    this.answered.delete(commentId);
+  }
+
   private readonly answered = new Set<number>();
 
   /**

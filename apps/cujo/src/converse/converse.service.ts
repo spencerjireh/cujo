@@ -140,7 +140,12 @@ export class ConverseService {
         actor: request.actor,
         reason: outcome.reason,
       });
-      await this.say(request, outcome.say);
+      // A refusal nobody can see is the failure mode this service exists to
+      // avoid, so a reply that did not land gives the claim back and lets a
+      // redelivery try again. Releasing one that was never taken is a no-op.
+      if (!(await this.say(request, outcome.say))) {
+        this.deps.limit.unclaim(request.commentId);
+      }
     }
   }
 
@@ -207,7 +212,14 @@ export class ConverseService {
         run_id: run.id,
       });
       const reply = await this.runTurn(request, sessionId, message);
-      await this.say(request, reply);
+      // Only a write that landed counts as answered — for the log line and for
+      // the claim alike. A claim held over a failed reply leaves the person
+      // with nothing *and* makes every redelivery, the thing that would have
+      // recovered it, a no-op.
+      if (!(await this.say(request, reply))) {
+        this.deps.limit.unclaim(request.commentId);
+        return { kind: "ignored", reason: "already_answered" };
+      }
       request.log.info("converse.answered", {
         repo: request.repo,
         pr_number: request.prNumber,
@@ -298,6 +310,12 @@ export class ConverseService {
       // were the whole one.
       return "I lost track of that run before it finished, so I do not have an answer I trust. Ask again.";
     }
+    if (ended === "failed") {
+      // A terminal event is not the same as a successful one. `fold` treats
+      // `error` and `cancelled` as failures for the review, and a half-written
+      // thought from a turn that died is not an answer here either.
+      return "That run did not finish cleanly, so I have nothing I would stand behind. Ask again.";
+    }
     const text = await this.finalMessage(sessionId, turnId);
     return text ?? "I did not get to an answer on that one, and I would rather say so than guess.";
   }
@@ -318,25 +336,41 @@ export class ConverseService {
    * resubscribe is enough here — the reviewer's budget exists because a review
    * is thirty minutes of work, and a question that has already lost its stream
    * twice is better answered honestly than waited on.
+   *
+   * A terminal event is not a *successful* one. `fold` reads `state.status` and
+   * treats `error` and `cancelled` as failures for a review; a turn that died
+   * halfway leaves persisted messages that are not an answer.
    */
   private async drain(
     request: ConverseRequest,
     sessionId: string,
     turnId: string,
-  ): Promise<"done" | "timeout" | "lost"> {
+  ): Promise<"done" | "failed" | "timeout" | "lost"> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Losing the race does not stop the consumer on its own, so it is told.
+    // Without this it would resubscribe *after* the person had already been
+    // answered, holding a stream and this request's state for as long as the
+    // server kept it open.
+    let stopped = false;
     const expired = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), this.deps.turnTimeoutMs);
+      timer = setTimeout(() => {
+        stopped = true;
+        resolve("timeout");
+      }, this.deps.turnTimeoutMs);
     });
-    const consume = async (): Promise<"done" | "lost"> => {
-      for (let attempt = 1; attempt <= 2; attempt++) {
+    const consume = async (): Promise<"done" | "failed" | "lost"> => {
+      for (let attempt = 1; attempt <= 2 && !stopped; attempt++) {
         try {
           const stream = await this.deps.harness.subscribe(sessionId, turnId);
           for await (const event of stream) {
-            if (event.type === "turn.done") return "done";
+            if (stopped) return "lost";
+            if (event.type !== "turn.done") continue;
+            const status = event.state?.status;
+            return status === "error" || status === "cancelled" ? "failed" : "done";
           }
           throw new Error("stream ended before the terminal event");
         } catch (error) {
+          if (stopped) return "lost";
           request.log.warn("converse.stream.dropped", {
             session_id: sessionId,
             attempt,
@@ -393,8 +427,14 @@ export class ConverseService {
     return text;
   }
 
-  /** The reply goes back to the surface the question came from. */
-  private async say(request: ConverseRequest, body: string): Promise<void> {
+  /**
+   * The reply goes back to the surface the question came from.
+   *
+   * Reports whether it landed, rather than swallowing the failure: the caller
+   * decides what a comment nobody was answered on means, and "answered" is a
+   * claim about the pull request, not about this process.
+   */
+  private async say(request: ConverseRequest, body: string): Promise<boolean> {
     try {
       if (request.surface.kind === "review_thread") {
         await this.deps.github.replyToReviewComment(
@@ -403,9 +443,10 @@ export class ConverseService {
           request.surface.commentId,
           body,
         );
-        return;
+        return true;
       }
       await this.deps.github.createComment(request.repo, request.prNumber, body);
+      return true;
     } catch (error) {
       // There is no surface left to apologise on, so this only gets a line.
       request.log.error("converse.reply.failed", {
@@ -414,6 +455,7 @@ export class ConverseService {
         comment_id: String(request.commentId),
         error_kind: error instanceof Error ? error.name : "unknown",
       });
+      return false;
     }
   }
 }
