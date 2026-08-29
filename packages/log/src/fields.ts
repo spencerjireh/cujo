@@ -61,6 +61,7 @@ export const FIELD_NAMES = [
   // Numbers. Never capped, never scrubbed, safe by type.
   "attempt",
   "attempts",
+  "round",
   "active",
   "limit",
   "http_status",
@@ -158,6 +159,7 @@ export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   error_kind: "enum",
   attempt: "count",
   attempts: "count",
+  round: "count",
   active: "count",
   limit: "count",
   http_status: "count",
