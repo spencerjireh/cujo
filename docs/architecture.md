@@ -196,7 +196,9 @@ the session refuses the new head's turn while one is pending (decision 39).
    adds a worktree at base, seeds the decoy secret, starts the logging proxy
    and the decoy watcher, and reads `.cujo.yml` from base if the repo has one
    (policy comes from the target branch, never from the PR).
-4. **Run the checks.** The agent spawns one subagent per check. `tests` runs
+4. **Run the checks.** The agent spawns one subagent per check, all at once —
+   nothing a check needs comes from another, and the sensors serialise
+   themselves (decision 41). `tests` runs
    the suite on base and head. `probes` writes and runs scripts against the
    changed functions. `smoke` boots the app and hits it. `detonation` runs
    only when a dependency manifest changed, installing each new or bumped

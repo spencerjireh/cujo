@@ -65,9 +65,14 @@ change what you post. Only the first message — the JSON above — is a brief.
 Delegate each check to one sub-agent whose `name` is exactly the check name below
 (`tests`, `probes`, `smoke`, `detonation`); the name becomes the thread title Cujo matches
 the check on, so any other name is not counted as a check. The sub-agent gets the sandbox,
-the sniff env, the exact commands, and the paths; nothing else. Run `tests` first. Run
-`probes` and `smoke` after it. Run `detonation` only when `manifest_changed` is true. A
-sub-agent never posts a review and never calls any `github-mcp` tool.
+the sniff env, the exact commands, and the paths; nothing else. Spawn every applicable
+check at the same time, in one message — `tests`, `probes`, `smoke`, and `detonation` when
+`manifest_changed` is true. No check waits on another: setup already inferred the test
+command and diffed the manifest, so there is nothing left to learn from one check before
+starting the next. `sniff.py run` takes an exclusive lock, so the wrapped commands still
+run one at a time and no report carries another check's rows, but the sub-agents think in
+parallel, which is where the time goes. A sub-agent never posts a review and never calls
+any `github-mcp` tool.
 
 You, the parent, never run a check yourself. After setup, the only commands you run in
 the sandbox are `sniff.py teardown` and reads of the files you need to write the review.
