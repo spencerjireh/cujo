@@ -62,9 +62,15 @@ export function RunsView() {
             scene. No box, no panel — the type just gets somewhere to sit. */}
         <div
           aria-hidden="true"
-          className="absolute inset-y-0 left-0 hidden w-3/5 bg-gradient-to-r from-[var(--chamber)] from-40% to-transparent lg:block"
+          className="pointer-events-none absolute inset-y-0 left-0 hidden w-3/5 bg-gradient-to-r from-[var(--chamber)] from-40% to-transparent lg:block"
         />
-        <div className="relative flex min-h-[28rem] items-center py-16 pr-24 pl-4 sm:pr-32 md:pl-8 lg:min-h-[40rem] lg:pr-12 lg:pl-12">
+        {/* `pointer-events-none` on both this and the wash above, because they
+            are painted after the canvas and span it: whichever of them the
+            pointer lands on is the hit target, and the chamber would never
+            receive a hover, a click or a drag anywhere in the hero. Nothing in
+            here is interactive — the readout is text, the wash is decoration —
+            so nothing needs the events back. */}
+        <div className="pointer-events-none relative flex min-h-[28rem] items-center py-16 pr-24 pl-4 sm:pr-32 md:pl-8 lg:min-h-[40rem] lg:pr-12 lg:pl-12">
           <HeroReadout metrics={metrics} />
         </div>
       </section>
