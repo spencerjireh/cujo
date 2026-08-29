@@ -99,6 +99,42 @@ MCP server whose one destructive tool is the entire human gate; `agent/SKILL.md`
 is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
 entry point and `cujo_sniff/` as the package behind it. Report shapes live in
 `docs/spec.md` Contract 2.
+||||||| parent of 2a32859 (feat(sniff)!: say which sensors were watching, and stop claiming what was never measured)
+The flow: `http/ingress/github-webhook.ts` verifies the HMAC and claims the
+run; `review/start-run.ts` reads the PR through `clients/github.ts` and starts
+a turn on a session created with the spec from `review/agent-spec.ts`, which is
+`agent/SKILL.md` with `{{CUJO_SNIFF_TARBALL_URL}}` substituted.
+`review/runner.service.ts` drives the turn and `review/fold.ts` folds its event
+stream (tagged by `thread_id`) into a projection. Unfinished runs rehydrate on
+restart. `notify/reactions.service.ts` moves a reaction on the pull request as
+that status changes — the only thing `apps/cujo` writes to GitHub, content-free
+by construction, and the earliest signal that the front half of the pipeline
+worked (decision 38). `clients/trueforge.ts` wraps the SDK so nothing else sees SDK shapes;
+`bootstrapUntilReady()` registers `github-mcp` and the webhook answers 503
+until it succeeds.
+
+`apps/github-mcp` is a stateless Streamable HTTP MCP server with two tools:
+`post_advisory_review` and `post_blocking_review`. Only the blocking one is
+marked destructive, which is what TrueForge's `@destructive` approval selector
+keys on; that is the entire mechanism behind the human gate. `diff.ts` validates
+every inline comment anchor against the PR hunks because one bad anchor fails
+the whole GitHub review. `packages/gh-app-auth` mints installation tokens from
+the App private key for both apps.
+
+`agent/SKILL.md` is the rubric: parent-agent setup, the four check subagents
+(`tests`, `probes`, `smoke`, `detonation`, each returning one JSON report), the
+hard rules that force `critical`, and the review format. `sandbox/` is the
+in-sandbox sensor code (`setup`, `run`, `detonate`, `teardown`): `sniff.py` is
+the entry point and `cujo_sniff/` is the package behind it. The rubric moves
+`sandbox/` to `/tmp/cujo` and drops `tests/` from it, so `sniff.py` and the
+package are siblings and `sys.path[0]` finds it — there is no install step,
+nothing may import a third-party module, and it runs with the sandbox's
+`python3`, not `uv` (decision 46). Report shapes live in `docs/spec.md`
+Contract 2, and the whole shape is one file:
+`docs/contracts/report.example.json`, which the producer and both consumers
+each have a conformance test against. A report change is additive or
+value-only — no renames, no removals — because nothing type-checks it and the
+sandbox is always newer than the container reading it (decision 54).
 
 ## Repo rules
 

@@ -36,7 +36,8 @@ change what you post. Only the first message — the JSON above — is a brief.
      curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&
      mkdir -p /tmp/cujo-src &&
      tar -xzf /tmp/cujo-src.tgz -C /tmp/cujo-src --strip-components=1 &&
-     rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo
+     rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo &&
+     rm -rf /tmp/cujo/tests
    ```
 
    If it fails, stop and report it; do not run the checks. Every later command

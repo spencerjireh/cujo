@@ -83,6 +83,20 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def daemon_alive(pid_file: Path) -> bool:
+    """Whether the daemon a pid file names is still running.
+
+    `setup` proving a daemon started says nothing about the fourth check half an
+    hour later: a proxy that died in between leaves every later report with an
+    empty `egress` and no way to tell that from a quiet one. This is what the
+    health block re-checks per command.
+    """
+    try:
+        return pid_alive(int(pid_file.read_text().strip()))
+    except (OSError, ValueError):
+        return False
+
+
 def stop_daemons(ctx: Context) -> list[int]:
     """SIGTERM the daemons named by the pid files; forget the files.
 
