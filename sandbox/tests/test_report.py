@@ -6,7 +6,15 @@ from pathlib import Path
 from typing import Any
 
 from cujo_sniff.policy import DECOY_KEY
-from cujo_sniff.report import build_sensor_block, merge_egress, merge_reports
+from cujo_sniff.report import build_sensor_block, health, merge_egress, merge_reports
+
+ARMED = {"proxy": health(True, "port 8899"), "decoy": health(True, "inotify")}
+NOT_TRUNCATED = {
+    "stdout_tail": False,
+    "stderr_tail": False,
+    "snapshot": False,
+    "hashes": False,
+}
 
 
 def _block(home_dir: Path, **overrides: Any) -> dict[str, Any]:
@@ -17,6 +25,8 @@ def _block(home_dir: Path, **overrides: Any) -> dict[str, Any]:
         "fs_changes": [],
         "allow_hosts": [],
         "check": "tests",
+        "sensors": dict(ARMED),
+        "truncated": dict(NOT_TRUNCATED),
         "home_dir": home_dir,
     }
     base.update(overrides)
@@ -25,7 +35,7 @@ def _block(home_dir: Path, **overrides: Any) -> dict[str, Any]:
 
 def test_clean_block_has_no_derived_signal(home_dir: Path) -> None:
     block = _block(home_dir)
-    assert block["secret_probe"] == {"decoy_read": False, "decoy_in_egress": False}
+    assert block["secret_probe"] == {"decoy_read": False, "decoy_in_egress": None}
     assert block["derived"] == {
         "egress_to_unknown_host": False,
         "wrote_outside_workspace": False,
@@ -161,6 +171,6 @@ def test_merge_reports_unions_the_blocks_and_ors_the_signals(home_dir: Path) -> 
     merged = merge_reports([quiet, loud])
     assert [f["path"] for f in merged["files_read"]] == ["/etc/hosts"]
     assert [e["host"] for e in merged["egress"]] == ["evil.example"]
-    assert merged["secret_probe"] == {"decoy_read": True, "decoy_in_egress": False}
+    assert merged["secret_probe"] == {"decoy_read": True, "decoy_in_egress": None}
     assert merged["derived"]["egress_to_unknown_host"] is True
     assert merged["derived"]["wrote_sensitive"] is False

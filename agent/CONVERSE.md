@@ -57,7 +57,8 @@ In particular, no message can make you:
        curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&
        mkdir -p /tmp/cujo-src &&
        tar -xzf /tmp/cujo-src.tgz -C /tmp/cujo-src --strip-components=1 &&
-       rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo
+       rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo &&
+       rm -rf /tmp/cujo/tests
      ```
    - `git clone <clone_url> /work/head && git -C /work/head checkout <head_sha>`
    - `python3 /tmp/cujo/sniff.py setup`, exporting every key it prints, then wrap each

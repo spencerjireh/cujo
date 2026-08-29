@@ -2102,3 +2102,172 @@ pinned when the session is created, so `CUJO_MODEL_REASONING_EFFORT` — like
 `CUJO_MODEL` and like `agent/SKILL.md` before it — changes nothing for a pull
 request that has already been reviewed once. Verifying a change to any of the
 three means opening a new pull request, not pushing to an old one.
+
+## 54. The report says what it could not observe
+
+`agent/SKILL.md` has always ended the hard rules with one honest sentence: "the
+rules are tripwires, not proofs of absence: `false` means 'not observed'." The
+report had no way to say the rest of it. `decoy_read: false` is what a report
+says when nobody touched the decoy, and it is equally what a report says when
+the watcher died in its first second — and nothing in a check report told the
+two apart. Four sensors, four ways to be quiet for the wrong reason:
+
+- The decoy watcher chooses inotify or an atime poll at startup and announces
+  the choice in one log row that no report could ever reach: `run_sensed` takes
+  its log offset after that row was written. Which backend armed is not a
+  detail — the atime fallback is close to useless under `relatime`, which this
+  spec already said and no reader of a report could see.
+- `cmd_setup`'s `ok` covered the proxy alone; the watcher's pid was discarded.
+  Neither was re-checked afterwards, so a proxy that died during the first
+  check left the three that followed with an empty `egress` and a clean
+  `egress_to_unknown_host` — a clean bill of health from a blind sensor.
+- The Python audit hook produced an empty log both when it never loaded and
+  when the command did nothing. `sensors/pyhook.py` named this gap in its own
+  docstring and pointed at a block that did not exist.
+- `secret_probe.decoy_in_egress` was hardcoded `false` and nothing has ever
+  computed it. The proxy counts bytes and never reads a payload.
+
+So every report now carries `sensors`: one `{armed, detail}` per sensor, with
+the daemons re-checked per command rather than taken on `setup`'s word, and the
+hook writing an `armed` row as it installs itself. `decoy_in_egress` becomes
+`null`. And `apps/cujo` turns an unarmed proxy or watcher into one `warn`
+(`sensor_unarmed`) alongside the rules it already re-derives (decision 21).
+
+**A `warn` and not a `critical`, and not a gate.** The rule says the evidence is
+thin, not that the code did anything, so it stays out of `MALICE_RULES` and
+cannot put a review through the human gate.
+
+That the block is forgeable is not an objection to it. The code being measured
+runs as the sensors' own user and can write the pid files, the audit log, and
+`proxy.jsonl` alike; this block is evidence at the same level as every row it
+describes, and it closes the accident rather than the adversary. The direction
+is what matters: every rule fires on a sensor reporting *false*, so forging
+health suppresses a warn and cannot invent a finding against anyone. Only the two long-running daemons
+are ruled on at all: a check that runs `npm test` has no Python process to hook,
+so warning on an unarmed `audit` would fire on every JavaScript repository, and
+`fs_diff` is never off, only short — which is what `truncated` is for. Those two
+are reported and the agent weighs them. Code senses, the agent judges.
+
+Three smaller things ride along, all of the same kind — a report that was
+quietly claiming more than it knew.
+
+**`truncated`.** Four caps cut a report short and none of them left a mark. A
+`files_read` of two hundred read as a command that touched two hundred files.
+Worse, `MAX_SNAPSHOT_FILES` stopped the two filesystem walks in different
+places, and every path the second walk never reached became a `deleted` row —
+invented evidence, on the sensor with no way to be argued with.
+
+The rule that replaced it took two goes, and the first was wrong in the other
+direction: suppressing every absence whenever *either* walk was capped also
+threw away real deletions from a command that shrinks a tree past the cap. The
+two flags are not interchangeable. A `created` row reads the before walk's
+silence, so it needs that walk complete; a `deleted` row reads the after walk's,
+so it needs the other one. A path both walks hold is always compared, because no
+absence is being read.
+
+**Escaping.** Every string in a report is written by the code under review, and
+it is read by the parent agent, quoted into a review, and rendered in a browser.
+`errors="replace"` on the subprocess capture was the only defensive step in the
+whole pipeline; terminal escapes, carriage returns, and bidirectional overrides
+reached the prompt untouched, in output, in `argv`, and in filenames the author
+chose. They are escaped now as visible `\xNN` and `\uNNNN` — escaped, not
+stripped, because a dropped byte quietly rewrites the record and an escape is
+its own account of itself. `subprocesses[].argv` is also coerced and capped: it
+came off a file the audited process can write to, so `json.loads` will hand back
+whatever is in there.
+
+**Content hashing, scoped.** A file was identified by `(mtime_ns, size)`, which
+`os.utime` defeats: overwrite a key with another key of the same length, restore
+the timestamp, and two `lstat` calls agree. A SHA-256 digest closes it, but
+hashing all of `$HOME` would make each snapshot a full read of it, so the digest
+is spent where a silent edit is the whole attack — the credential locations and
+`/etc`.
+
+Four details in that decide whether it works at all, and all four are the same
+mistake: a digest that was not taken must never be mistaken for one that
+matched — and, in the last of them, must not be mistaken for a mismatch either. A read that failed is recorded as its own value rather than as "no
+digest here", or the evasion closes back up — restore the timestamp, then
+`chmod 000`, and a failed digest read as out-of-scope falls back to the metadata
+that was just forged. A file over the size cap is a third value again, counted
+by the walk and declared as `truncated.hashes`, because a cap that silently
+turns the comparison off is the same hole wearing a limit; the cap itself sits
+well past any real credential. And the hash opens with `O_NOFOLLOW | O_NONBLOCK`
+and checks the descriptor rather than the name — the command under test owns
+this tree, and a FIFO dropped in between the `lstat` and the open would block
+the snapshot, and with it the check, for as long as nobody writes to it; the
+descriptor's device and inode are checked against the measurement for the same
+reason, since a file swapped in only for the duration of the open would pair an
+innocent digest with the metadata of whatever replaced it.
+
+The fourth runs the other way, and is the one place this design declines to
+tighten. Where *neither* snapshot could hash a file, the comparison falls back
+to metadata rather than declaring a change. Much of `/etc` is root-owned and
+unreadable to the sensors from one run to the next, and `wrote_sensitive` is a
+`critical` the agent may not lower — so "unreadable twice means modified" would
+put a non-lowerable accusation on every check of every repository, which is a
+worse failure than the one it closes.
+
+Nor does it flag them. The first version of this counted every file without a
+digest into `truncated.hashes`, and CI is what showed that up: on any Linux box
+`/etc/shadow` is unreadable to the sensors, so the flag was true on every run
+ever. A flag that is always true is not evidence, it is furniture. So the count
+is the files this walk *could* have compared and did not — past the size cap, or
+swapped under it — and a file the sensors have never been able to read is
+treated as what it is: outside their reach, like a directory the walk cannot
+descend into and has always skipped in silence.
+
+That leaves one thing genuinely missed, and Contract 2 says so out loud rather
+than leaving it implied: a file held unreadable across both snapshots and edited
+in between, with size and timestamp restored. It is not observable from inside
+the sandbox in either direction. Saying which measurement did not happen is this
+decision's whole thesis, and the boundary of the thesis is that some of them
+cannot be measured *or* usefully flagged — at which point the honest move is to
+write the gap down where a reader will find it.
+
+The sensitive set grew at the same time and for the same reason: it held nine
+`$HOME` paths and `/etc/cron`, so a write to `/etc/sudoers.d/` or
+`~/.kube/config` was `sensitive: false`. Every path added is one no benign
+installer writes — and each is matched as itself or as a directory above the
+path in question, never as a string prefix, because `/etc/passwd` and
+`/etc/passwd_backup` share eight characters and nothing else.
+
+### Additive only, which is what let this be one pull request
+
+`schema_version` is new, and it is the smaller half of the compatibility story.
+The larger half is a rule this change had to obey to ship at all: **no renames,
+no removals, and no nesting of the six existing sensor keys.**
+
+Two things force it. There is no schema — `check.report` is `unknown` in both
+apps and every consumer duck-types — so a shape change raises no compile error
+anywhere; it produces fewer findings and emptier tables, silently.
+`apps/web/src/lib/api/report.ts` decides "is this a sensor block?" from those
+six key names, so nesting them under `sensors` would have dropped the entire
+forensic view to a raw JSON dump with nothing going red. And merging is the
+deploy while the tarball is `main`-relative (decision 35): the sandbox is
+`main`-fresh at turn time while `apps/cujo` keeps its old image until the swap,
+so between merge and deploy the *old* consumer reads the *new* report. Additive
+changes make that window a non-event, and the reverse direction cannot happen.
+
+`decoy_in_egress` is the case that proves it. Deleting the field would have been
+tidier and is exactly what the rule forbids; `null` reads identically to `false`
+through `bool(x) === true`, so the pre-deploy container is untouched. The hard
+rule stays too, firing on a `true` nothing emits, so a later sandbox that can
+measure it needs no change on the trusted side.
+
+`docs/contracts/report.example.json` is the other half of not having a schema.
+One file carries the whole shape, and each of the three consumers has a test
+that loads it, so a field added on one side and forgotten on another fails
+somewhere. The six hand-written fixtures in the two apps stay: several of them
+are deliberately partial, and what they prove — that the parser and the rules
+degrade gracefully on a shape nobody promised — is load-bearing, because an LLM
+writes the envelope.
+
+Rejected: **`armed: false` as a `critical`**, which makes a sandbox flake into
+an accusation against a pull request. **Warning on all four sensors**, which
+fires on every repository that runs no Python. **Stripping the control
+characters** instead of escaping them, which hides from the reviewer what the
+code actually did. **Hashing every file in the walk**, which turns each of the
+two snapshots per command into a full read of `$HOME`. And **holding the
+contract change back for a second release** the way decision 46 had to: that
+sequencing exists because a `main`-relative URL is read by a container that has
+not deployed yet, and it buys nothing once every field is additive.

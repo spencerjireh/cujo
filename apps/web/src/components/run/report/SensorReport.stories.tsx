@@ -55,3 +55,49 @@ export const Windowed: Story = {
     }),
   },
 };
+
+/**
+ * Nothing tripped, and one sensor was not watching. The point of the strip: the
+ * tables below are empty for a reason that has nothing to do with the code.
+ */
+export const SensorDown: Story = {
+  args: {
+    block: blockFrom({
+      egress: [],
+      files_read: [],
+      fs_changes: [],
+      subprocesses: [],
+      secret_probe: { decoy_read: false, decoy_in_egress: null },
+      sensors: {
+        proxy: { armed: false, detail: "started during setup, no longer running" },
+        decoy: { armed: true, detail: "inotify" },
+        audit: { armed: false, detail: "no Python process ran" },
+        fs_diff: { armed: true, detail: "3184 paths" },
+      },
+      truncated: { stdout_tail: false, stderr_tail: false, files_read: false, snapshot: false },
+      derived: {
+        egress_to_unknown_host: false,
+        wrote_outside_workspace: false,
+        wrote_sensitive: false,
+        spawned_subprocess: false,
+      },
+    }),
+  },
+};
+
+/** A cap cut the evidence. An empty group still renders, so as to say so. */
+export const Truncated: Story = {
+  args: {
+    block: blockFrom({
+      files_read: [{ path: "~/work/head/app.py", sensitive: false }],
+      fs_changes: [],
+      sensors: {
+        proxy: { armed: true, detail: "port 8899" },
+        decoy: { armed: true, detail: "atime" },
+        audit: { armed: true, detail: "9214 rows" },
+        fs_diff: { armed: true, detail: "200000 paths (capped)" },
+      },
+      truncated: { stdout_tail: true, stderr_tail: false, files_read: true, snapshot: true },
+    }),
+  },
+};

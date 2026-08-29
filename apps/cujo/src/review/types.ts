@@ -64,7 +64,12 @@ export type HardRule =
   | "decoy_in_egress"
   | "wrote_sensitive"
   | "egress_to_unknown_host"
-  | "check_missing";
+  | "check_missing"
+  // Not an accusation and not a defect: a sensor that was not watching, so the
+  // clean report it produced is worth less than it looks. `warn`, like
+  // `check_missing`, and for the same reason — it says the evidence is thin,
+  // not that the code did anything.
+  | "sensor_unarmed";
 
 /** One finding (Contract 3). `source` says which layer produced it. */
 export interface Finding {
