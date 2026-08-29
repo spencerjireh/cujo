@@ -349,6 +349,24 @@ work**, for three independent reasons, all verified against `docs/trueforge.md`:
    `startRun` (`start-run.ts:66`), not on this path, so N comments produce N
    GitHub reviews.
 
+### ⚠ hazard: an inline reply is a different event, and flow C needs it
+
+`issue_comment` covers pull request *conversation* comments and nothing else.
+A reply inside a review thread — the place Cujo's inline finding actually
+is — arrives as **`pull_request_review_comment`**, a separate subscription with
+its own payload. Design 2 needs only the first, because `/cujo confirm` answers
+the whole run and is naturally typed at the bottom of the pull request. Flow C
+below is the opposite: its entire premise is answering *this* finding, in the
+thread where the claim was made, and on `issue_comment` alone it never fires.
+
+So conversation subscribes to both, and the reply goes back to whichever
+surface the question came from: a conversation comment for `issue_comment`, and
+`POST /repos/{repo}/pulls/{n}/comments` with `in_reply_to` for a review thread,
+so the answer lands under the finding it is about. The parsing, the
+authorization and the rate limit are identical — only the payload shape and the
+reply's destination differ, and the App gains one more event checkbox beside
+the one Design 2 already needs.
+
 ### The shape that works
 
 **Conversation runs in its own TrueForge session, with a restricted agent, and
@@ -469,7 +487,9 @@ flow is what makes the gate in D credible.
 
 **C. "Prove it."** Cujo's inline comment says a smoke endpoint returned 500 on
 head and 200 on base. The maintainer replies in that thread asking for a seeded
-database. Cujo re-runs in a separate session and answers with the new reading.
+database — a `pull_request_review_comment`, not an `issue_comment`, which is
+why conversation subscribes to both. Cujo re-runs in a separate session and
+answers in that same thread with the new reading.
 
 **D. The accusation.** Detonation sees egress to an unknown host. The advisory
 posts with the observation as a `warn` plus the instruction line. Then
@@ -545,7 +565,7 @@ return before any GitHub read (`:217`).
 | File | What changes |
 |---|---|
 | `agent/SKILL.md` | `:6-8` the one-review-per-turn invariant; `:125-128` the three-tool selection rule and deny semantics; `:14` the untrusted-input rule must cover a second user message |
-| `docs/spec.md` C1 | a new event type on the HMAC-gated route |
+| `docs/spec.md` C1 | two new event types on the HMAC-gated route: `issue_comment` for the command, `pull_request_review_comment` for a reply inside a review thread |
 | `docs/spec.md` C3 | the malice/correctness distinction over the hard rules |
 | `docs/spec.md` C4 | three tools, the gated class, deny semantics |
 | `docs/spec.md` C5 | why two reviews on one head is not double-posting |
