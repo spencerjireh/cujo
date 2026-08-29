@@ -2812,12 +2812,24 @@ can still post a review for the very head the new run is about to review.
 `supersede` cancels the turn first, which is what the webhook path has always
 done for an older head and what this path was missing on its first pass.
 
-The one case that refuses is the one `supersede` itself declines to cancel. When
-a human's `/cujo confirm` is landing on that run, `claimDecision` has set
-`approver` while the status is still `blocked_pending`, and cancelling would
-kill the turn that decision started (`run.supersede.deferred`). Deleting the row
-underneath it is worse than making somebody type the command again, so the reply
-asks them to.
+**It refuses whenever the stop is not confirmed**, which is a wider set than it
+first looks. `supersede` swallows a failed `cancelTurn` on purpose — an
+unreachable harness is not worth failing a supersession over — so a resolved
+call is not evidence the turn stopped. It therefore reports the answer, and this
+path reads it. Three cases say no: the harness refused the cancel, a human's
+`/cujo confirm` is landing on the run (`claimDecision` has set `approver` while
+the status is still `blocked_pending`, and cancelling would kill the turn that
+decision started), or somebody else superseded it first and this call cannot see
+whether their cancel landed. In all three the row is left alone and the reply
+asks for the command again.
+
+**The old run is deleted by id, never by head.** Two concurrent `/cujo review`
+commands both snapshot the same run and both wait on its supersession; a delete
+that re-queried the head would have the slower one delete the *replacement* the
+faster one had just created, leaving that replacement's `startRun` working
+against a row that no longer exists. Deleting the snapshot is idempotent, and
+the `runs_head` unique index arbitrates the insert that follows: exactly one
+command wins and the other says a run for this commit is already starting.
 
 Rejected: **a mention** (`@cujo-guard review this again`), which decision 45
 already settled — a mention is a sentence, and a sentence can never carry a

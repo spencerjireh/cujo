@@ -821,3 +821,55 @@ describe("Runner retries a turn that posted nothing", () => {
     expect(store.runs.getRun(r.id)).toMatchObject({ status: "error" });
   });
 });
+
+describe("Runner.supersede reports whether the turn is confirmed stopped", () => {
+  // `/cujo review` deletes the run's row on the strength of this answer, and a
+  // live turn with no row can still post a review. A resolved promise is not
+  // the same as a cancelled turn.
+  function superseding(cancelTurn: () => Promise<void>) {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z")]),
+        cancelTurn,
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+    );
+    return { store, r, runner };
+  }
+
+  it("says yes when the harness cancels the turn", async () => {
+    const { store, r, runner } = superseding(async () => {});
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    expect(await runner.supersede(r.id)).toBe(true);
+  });
+
+  it("says no when the harness refuses, even though it still supersedes", async () => {
+    // The failure this exists for: `supersede` swallows the error on purpose —
+    // an unreachable harness is not worth failing a supersession over — so the
+    // caller has to be told rather than left to infer it from a resolved call.
+    const { store, r, runner } = superseding(async () => {
+      throw new Error("harness unreachable");
+    });
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    expect(await runner.supersede(r.id)).toBe(false);
+    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+  });
+
+  it("says yes for a run that never had a turn to cancel", async () => {
+    const cancelTurn = vi.fn(async () => {});
+    const { r, runner } = superseding(cancelTurn);
+    expect(await runner.supersede(r.id)).toBe(true);
+    expect(cancelTurn).not.toHaveBeenCalled();
+  });
+
+  it("says no on a second call, which cannot see whether the first cancel landed", async () => {
+    const { store, r, runner } = superseding(async () => {});
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    expect(await runner.supersede(r.id)).toBe(true);
+    expect(await runner.supersede(r.id)).toBe(false);
+  });
+});

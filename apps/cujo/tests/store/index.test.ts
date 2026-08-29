@@ -336,7 +336,7 @@ describe("store", () => {
   });
 });
 
-describe("reclaimRunForHead", () => {
+describe("deleting a run to claim its head again", () => {
   const claim = {
     repo: "o/r",
     prNumber: 1,
@@ -351,13 +351,14 @@ describe("reclaimRunForHead", () => {
   it("frees a finished head so it can be claimed again", () => {
     // `runs_head` is UNIQUE on (repo, pr_number, head_sha) and createRun's own
     // stale reclaim only takes error rows with no turn, so a finished run
-    // cannot be displaced by accident. `/cujo review` displaces it on purpose.
+    // cannot be displaced by accident. `/cujo review` displaces it on purpose,
+    // by id.
     const store = new Store(":memory:");
     const { run: first } = store.runs.createRun(claim);
     store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
     expect(store.runs.createRun(claim).created).toBe(false);
 
-    expect(store.runs.reclaimRunForHead("o/r", 1, "h")).toBe(true);
+    store.runs.deleteRun(first.id);
     const { run: second, created } = store.runs.createRun(claim);
     expect(created).toBe(true);
     expect(second.id).not.toBe(first.id);
@@ -367,21 +368,24 @@ describe("reclaimRunForHead", () => {
     expect(store.runs.getProjection(first.id)).toBeNull();
   });
 
-  it("deletes a run whatever its status, which is why the caller must settle it first", () => {
-    // The dangerous case, recorded here rather than left implicit: this method
-    // holds no harness and cannot cancel anything, so a caller that reclaims a
-    // running row leaves its turn alive with nothing to fold into.
-    // `startReview` supersedes first for exactly this reason.
+  it("lets the unique index arbitrate two commands racing for one head", () => {
+    // The shape `/cujo review` relies on. Both callers snapshot the same run
+    // and both delete it by id; the second insert loses and its caller refuses
+    // rather than starting a second turn on the same commit.
     const store = new Store(":memory:");
-    const { run } = store.runs.createRun(claim);
-    store.runs.updateRun(run.id, { turnIds: ["t1"] });
-    expect(store.runs.getRun(run.id)?.status).toBe("running");
-    expect(store.runs.reclaimRunForHead("o/r", 1, "h")).toBe(true);
-    expect(store.runs.getRun(run.id)).toBeNull();
+    const { run: first } = store.runs.createRun(claim);
+    store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
+
+    store.runs.deleteRun(first.id);
+    store.runs.deleteRun(first.id); // idempotent: the slower command's delete
+    const a = store.runs.createRun(claim);
+    const b = store.runs.createRun(claim);
+    expect([a.created, b.created].sort()).toEqual([false, true]);
+    expect(a.run.id).toBe(b.run.id);
   });
 
-  it("says there was nothing to reclaim for a head with no run", () => {
+  it("deleting a run that is gone is a no-op, not a throw", () => {
     const store = new Store(":memory:");
-    expect(store.runs.reclaimRunForHead("o/r", 1, "nope")).toBe(false);
+    expect(() => store.runs.deleteRun("nope")).not.toThrow();
   });
 });

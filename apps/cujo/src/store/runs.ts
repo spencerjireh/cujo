@@ -220,38 +220,6 @@ export class RunStore {
     return { run: toRecord(row), created: Number(result.changes) === 1 };
   }
 
-  /**
-   * Drop whatever run this head already has, so it can be claimed again.
-   *
-   * `/cujo review` asks for a second look at a head Cujo has usually already
-   * reviewed, and `createRun` cannot serve that on its own: `runs_head` is
-   * UNIQUE on `(repo, pr_number, head_sha)`, and the stale-reclaim inside
-   * `createRun` only takes rows that are `error` with no turn — deliberately,
-   * so a redelivery cannot displace a real run. A finished run is exactly what
-   * this verb needs to displace, so the caller says so explicitly.
-   *
-   * The old run goes completely: `deleteRun` takes its projection, its turn
-   * rows, its Discord messages and its PR metadata with it. So the previous
-   * board page stops resolving and a fresh Discord card is posted rather than
-   * the old one being edited. That is the cost of asking for a re-review, and
-   * `pr-command.service.ts` says so in its reply.
-   *
-   * **It does not stop anything.** A run that still owns a live turn on its
-   * session must be superseded before its row is deleted, or that turn keeps
-   * running: it folds into a row that no longer exists and can still post a
-   * review. This method cannot do that itself — it holds no harness — so the
-   * caller does it, and `index.ts`'s `startReview` is the one caller there is.
-   *
-   * Reports whether there was one, so a caller can tell a re-review from a
-   * first look.
-   */
-  reclaimRunForHead(repo: string, prNumber: number, headSha: string): boolean {
-    const existing = this.runForPrHead(repo, prNumber, headSha);
-    if (!existing) return false;
-    this.deleteRun(existing.id);
-    return true;
-  }
-
   deleteRun(id: string): void {
     this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM run_cujo_turns WHERE run_id = ?").run(id);

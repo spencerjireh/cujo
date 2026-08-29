@@ -618,6 +618,14 @@ export class Runner {
   /**
    * A newer head on the same PR replaced this run. The run stops following
    * its turn, no decision can be made on it (the decision claim requires
+   * Answers whether the turn is **confirmed** stopped: cancelled, already
+   * terminal, or never started. `false` means this call could not establish
+   * that — the harness refused the cancel, a decision is landing on the run, or
+   * somebody else superseded it first. The webhook path ignores the answer,
+   * because a stale run left running is merely wasteful there; `/cujo review`
+   * reads it, because it is about to delete the run's row and a live turn with
+   * no row can still post a review.
+   *
    * blocked_pending), and a turn still running on the harness is cancelled
    * so it cannot post a review for a stale head. Resolves once the cancel
    * has been sent, so the caller can start the newer head's turn after it.
@@ -626,9 +634,11 @@ export class Runner {
    * answered rather than merely cancelled, or the pull request becomes
    * unreviewable for good (decision 39).
    */
-  async supersede(runId: string): Promise<void> {
+  async supersede(runId: string): Promise<boolean> {
     const s = this.state(runId);
-    if (s.superseded) return;
+    // Already superseded by someone else, and this call cannot see whether
+    // their cancel landed. `false` means "not confirmed", never "still live".
+    if (s.superseded) return false;
     s.superseded = true;
     s.log.info("run.superseded", { reason: "newer_head" });
     this.stopPolling(runId);
@@ -639,14 +649,14 @@ export class Runner {
     // `fold` never clears `approval`, so it survives the refold; only the
     // status is overridden.
     const projection = this.refold(runId);
-    if (!run) return;
+    if (!run) return true;
     if (wasPending && projection.approval) {
       // Already in memory, so no round trip to find it. A deny that lands has
       // cancelled the turn it started and there is nothing else to stop.
       if (
         await this.denyStaleApproval(s.log, run.sessionId, projection.approval, "newer_head", runId)
       )
-        return;
+        return true;
       // It did not land, and the likeliest reason is that a human's decision
       // answered the approval first: `claimDecision` sets `approver` but leaves
       // the run `blocked_pending`, so a decision can be in flight and invisible
@@ -665,12 +675,13 @@ export class Runner {
         // observation half is public either way, and the new head gets its own
         // run that re-derives it.
         s.log.info("run.supersede.deferred", { reason: "decision_in_flight" });
-        return;
+        return false;
       }
     }
-    if (!live) return;
+    if (!live) return true;
     try {
       await this.harness.cancelTurn(run.sessionId);
+      return true;
     } catch (error) {
       // Already finished, or the harness is unreachable: nothing to cancel.
       s.log.warn("run.cancel.failed", {
@@ -678,6 +689,7 @@ export class Runner {
         reason: "supersede",
         ...errorFields(error),
       });
+      return false;
     }
   }
 
