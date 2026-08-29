@@ -310,8 +310,17 @@ the environment every later command must carry; `run --check NAME -- CMD...`
 wraps one command and prints its report with the sensor block; `detonate
 --dependency SPEC` is the detonation check; `teardown` stops the daemons and restores or removes the decoy. The
 agent fetches a source archive of this repo from `CUJO_SNIFF_TARBALL_URL`, a
-public URL, with no credential, and copies `sandbox/` out of it so `sniff.py`
-and the `cujo_sniff` package land side by side (decision 46).
+public URL, with no credential, and moves `sandbox/` out of it so `sniff.py`
+and the `cujo_sniff` package land side by side (decision 46). `sniff.py` is the
+entry point and nothing else: every one of those commands is implemented in the
+package, and the script exists so the rubric's spelling stays the same and so
+`sys.path[0]` finds the package with no install (decision 48).
+
+The commands keep their state in `CUJO_DIR`, which defaults to a directory
+*under* the extracted code rather than to the code directory itself, so logs,
+pid files, the decoy backup, and the sensed lock are not mixed in with the
+modules. The rubric never names that directory: every path it needs comes back
+in `setup`'s JSON.
 
 `decoy_in_egress` stays `false` until TLS interception can confirm the value
 left the box. The `derived` block holds the booleans the hard rules read.
