@@ -86,7 +86,7 @@ export interface DraftedReview {
 /**
  * `GET /runs` — deliberately narrower than the detail shape.
  *
- * There is one plane since decision 54, so every field here is one the board
+ * There is one plane since decision 57, so every field here is one the board
  * actually emits. `approver` and `decided_at` are gone entirely rather than
  * optional: `apps/cujo` withholds them by construction, so a type that still
  * mentioned them would describe a payload nothing produces.

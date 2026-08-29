@@ -54,7 +54,7 @@ describe("public run detail", () => {
     expect(body).not.toHaveProperty("approver");
     expect(body).not.toHaveProperty("decided_at");
     expect(body).not.toHaveProperty("approval");
-    // Published since decision 54, and asserted here so this route is known to
+    // Published since decision 57, and asserted here so this route is known to
     // carry them and not only the serializer.
     expect(body).toHaveProperty("session_id");
     expect(body).toHaveProperty("turn_ids");

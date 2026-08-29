@@ -151,7 +151,7 @@ export interface RunRecord {
    * The `X-GitHub-Delivery` of the webhook that claimed this run, or null for
    * a run claimed before the column existed. Every log line for the run
    * carries it as `ray`, which is what survives the request ending while the
-   * run does not (decision 37). Published on the board since decision 54: it
+   * run does not (decision 37). Published on the board since decision 57: it
    * is the id a reader needs to correlate what they are looking at with a log
    * line, and it authorizes nothing on its own.
    */

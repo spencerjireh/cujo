@@ -12,7 +12,7 @@ describe("runUrl", () => {
   });
 
   it("sends a private run nowhere", () => {
-    // There is no second, gated hostname to fall back to since decision 54,
+    // There is no second, gated hostname to fall back to since decision 57,
     // and the board serves public repos only — so a link would be a link into
     // a 404. The pull request is where that run is discussed.
     expect(runUrl(LINKS, PRIVATE_RUN)).toBeNull();

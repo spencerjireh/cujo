@@ -19,12 +19,12 @@ export interface Config {
   githubAppPrivateKey: string;
   /**
    * The compose service name `apps/web` addresses this process by, and since
-   * decision 54 the only name the read plane answers on.
+   * decision 57 the only name the read plane answers on.
    */
   internalHost: string;
   webhookHost: string;
   /**
-   * Origin of the anonymous board — the only origin there is (decision 54).
+   * Origin of the anonymous board — the only origin there is (decision 57).
    * A Discord card for a public run links here; a private run has no page, so
    * its card carries no link. Empty means no card carries one.
    */

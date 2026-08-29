@@ -49,7 +49,7 @@ export const MIGRATIONS: readonly string[] = [
   //     fact as an empty one.
   "ALTER TABLE runs ADD COLUMN delivery_id TEXT",
   // 4 — the operator override of Contract 8's authorization, deleted with the
-  //     plane that was its only write path (decision 54). A repo's own
+  //     plane that was its only write path (decision 57). A repo's own
   //     `.cujo.yml` is the authority now, so a table nothing reads would be a
   //     trap: the next person to find rows in it would conclude the override
   //     still works. Removing it from SCHEMA alone would not touch a deployed

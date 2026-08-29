@@ -26,7 +26,7 @@ export function refusalFields(path: string[], reason: ProxyRefusal): Fields {
  * breaking. Every other failure is an outage.
  *
  * This used to take the plane as well, because a `503` on the operator plane
- * was not the cap at all. There is one plane since decision 54, so the status
+ * was not the cap at all. There is one plane since decision 57, so the status
  * alone answers it.
  */
 export function streamOutcome(

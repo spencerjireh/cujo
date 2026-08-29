@@ -353,7 +353,7 @@ describe("buildPing", () => {
 
 /**
  * A card for a public run points at the board anyone can open (decision 34). A
- * private run has no page at all since decision 54, so its card carries no
+ * private run has no page at all since decision 57, so its card carries no
  * link — the key is absent rather than null, because Discord refuses a null
  * `url` and the title has to keep rendering either way.
  */
