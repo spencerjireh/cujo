@@ -2183,9 +2183,9 @@ hashing all of `$HOME` would make each snapshot a full read of it, so the digest
 is spent where a silent edit is the whole attack — the credential locations and
 `/etc`.
 
-Three details in that decide whether it works at all, and all three are the
-same mistake: a digest that was not taken must never be mistaken for one that
-matched. A read that failed is recorded as its own value rather than as "no
+Four details in that decide whether it works at all, and all four are the same
+mistake: a digest that was not taken must never be mistaken for one that
+matched — and, in the last of them, must not be mistaken for a mismatch either. A read that failed is recorded as its own value rather than as "no
 digest here", or the evasion closes back up — restore the timestamp, then
 `chmod 000`, and a failed digest read as out-of-scope falls back to the metadata
 that was just forged. A file over the size cap is a third value again, counted
@@ -2194,7 +2194,21 @@ turns the comparison off is the same hole wearing a limit; the cap itself sits
 well past any real credential. And the hash opens with `O_NOFOLLOW | O_NONBLOCK`
 and checks the descriptor rather than the name — the command under test owns
 this tree, and a FIFO dropped in between the `lstat` and the open would block
-the snapshot, and with it the check, for as long as nobody writes to it.
+the snapshot, and with it the check, for as long as nobody writes to it; the
+descriptor's device and inode are checked against the measurement for the same
+reason, since a file swapped in only for the duration of the open would pair an
+innocent digest with the metadata of whatever replaced it.
+
+The fourth runs the other way, and is the one place this design declines to
+tighten. Where *neither* snapshot could hash a file, the comparison falls back
+to metadata rather than declaring a change. Much of `/etc` is root-owned and
+unreadable to the sensors from one run to the next, and `wrote_sensitive` is a
+`critical` the agent may not lower — so "unreadable twice means modified" would
+put a non-lowerable accusation on every check of every repository, which is a
+worse failure than the one it closes. Whether an unreadable file changed is
+genuinely not observable from inside the sandbox. The walk counts those files
+and the report carries `truncated.hashes`, which is this decision's whole thesis
+applied to its own weakest point: say the measurement did not happen.
 
 The sensitive set grew at the same time and for the same reason: it held nine
 `$HOME` paths and `/etc/cron`, so a write to `/etc/sudoers.d/` or
