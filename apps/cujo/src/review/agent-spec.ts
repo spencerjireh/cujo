@@ -59,12 +59,26 @@ export function loadRubric(name = "SKILL.md"): string {
  * fields it needs rather than the whole `Config`, which turns a future
  * `...config` spread into a compile error instead of a leak.
  */
+/**
+ * The model both specs run under.
+ *
+ * `params` is left out entirely when no effort is configured, rather than sent
+ * as an empty string. Every key in `params` is forwarded to the provider as-is,
+ * and a model that does not reason answers an empty `reasoning_effort` with an
+ * error rather than a default — so "unset" has to mean absent.
+ */
+function modelRef(config: Pick<Config, "model" | "modelReasoningEffort">): TrueForgeApi.Model {
+  return config.modelReasoningEffort
+    ? { name: config.model, params: { reasoningEffort: config.modelReasoningEffort } }
+    : { name: config.model };
+}
+
 export function buildAgentSpec(
-  config: Pick<Config, "model" | "sniffTarballUrl">,
+  config: Pick<Config, "model" | "modelReasoningEffort" | "sniffTarballUrl">,
   rubric = loadRubric(),
 ): TrueForgeApi.AgentSpec {
   return {
-    model: { name: config.model },
+    model: modelRef(config),
     instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
     // The one gated tool, and the one line that decides what a human is asked
     // about. `post_blocking_review` is deliberately not here: blocking a merge
@@ -99,11 +113,11 @@ export function buildAgentSpec(
  * paraphrase the report it was handed.
  */
 export function buildConverseSpec(
-  config: Pick<Config, "model" | "sniffTarballUrl">,
+  config: Pick<Config, "model" | "modelReasoningEffort" | "sniffTarballUrl">,
   rubric = loadRubric("CONVERSE.md"),
 ): TrueForgeApi.AgentSpec {
   return {
-    model: { name: config.model },
+    model: modelRef(config),
     instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
     mcpServers: [],
     config: {
