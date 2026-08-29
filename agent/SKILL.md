@@ -55,7 +55,10 @@ Every sub-agent wraps each command it runs in
 `python3 /tmp/cujo/sniff.py run --check <name> --cwd <dir> -- <command...>`, which prints
 a check report: `check, argv, exit, duration_s, stdout_tail, stderr_tail` plus the sensor
 block (`egress[]`, `files_read[]`, `fs_changes[]`, `subprocesses[]`,
-`secret_probe{decoy_read, decoy_in_egress}`, `derived{...}`). The sub-agent ends its
+`secret_probe{decoy_read, decoy_in_egress}`, `derived{...}`). Only a wrapped command is
+sensed: one that merely carries the exported environment produces no report and no
+evidence. The sensors serve one wrapped command at a time, so a second `run` waits for
+the first to finish; that wait is expected and is not a hang. The sub-agent ends its
 final message with exactly one fenced ```json block and no prose after it: `{"check":
 <name>, "runs": [<every run or detonate report, in order>], "derived": {<the sensor
 booleans, true if true in any run>}, ...}` plus the fields below.

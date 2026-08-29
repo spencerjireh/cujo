@@ -222,7 +222,9 @@ The sensors, layered from language-agnostic to language-specific:
   `files_read` omits the reads the interpreter and package managers make on
   their own account (the interpreter's `lib/` tree, `site-packages`,
   `__pycache__` and `.pyc`, `.dist-info` metadata, `node_modules`, `/proc`,
-  `/sys`, `/dev`); a sensitive path is listed whatever it looks like. This is
+  `/sys`, `/dev`); a sensitive path is listed whatever it looks like, and so
+  is a read of Cujo's own state directory, which holds the real credentials
+  file the decoy displaced. This is
   a filter on what leaves the sandbox in the JSON report, not on what the
   hook records, and it exists because a single `pytest` run otherwise ships
   hundreds of bytecode rows into the agent's context.
@@ -230,6 +232,19 @@ The sensors, layered from language-agnostic to language-specific:
 The block also carries `subprocesses[]` (from the audit hook) and a
 `sensitive` flag on each `fs_changes` entry, so the `derived` booleans can be
 traced to the rows that set them.
+
+A path is classified sensitive on either its lexically normalised or its fully
+resolved form, so a `..` segment cannot walk into a credentials directory
+unnoticed and a symlink planted inside one is still sensitive.
+
+The proxy and the watcher write to logs shared by every check, so a report is
+the slice of those logs written while one command ran. `sniff.py run` and
+`detonate` therefore take an exclusive lock for the duration: one sensed
+command at a time, and a second waits (decision 41). The audit hook instead
+gets one log per sensed command, so which file a row landed in is what
+attributes it. Only a command wrapped in `run` or `detonate` is sensed — a
+command the agent runs with the exported environment but outside a wrapper
+writes to the shared audit log, which no report reads.
 
 `sniff.py` exposes the sensors as four commands the rubric (`agent/SKILL.md`)
 names: `setup` seeds the decoy, starts the proxy and the watcher, and prints
