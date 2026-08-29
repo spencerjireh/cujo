@@ -3,10 +3,11 @@ import {
   RUN_STATUSES,
   SEVERITIES,
   canDecide,
+  gatedReviewPosted,
   isLive,
   reviewPosted,
 } from "@/lib/api/types";
-import type { CheckState, Finding, Run } from "@/lib/api/types";
+import type { CheckState, Finding, ReviewTool, Run } from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
 import {
   PUBLIC_RUN_FIELDS,
@@ -116,7 +117,7 @@ describe("canDecide", () => {
 });
 
 describe("reviewPosted", () => {
-  const draft = (tool: "post_advisory_review" | "post_blocking_review") => ({
+  const draft = (tool: ReviewTool) => ({
     tool,
     toolCallId: "c1",
     body: "b",
@@ -147,18 +148,49 @@ describe("reviewPosted", () => {
     }
   });
 
-  it("treats a blocking review as posted only after approval", () => {
-    expect(
-      reviewPosted({
-        ...base,
-        status: "blocked_posted",
-        review: draft("post_blocking_review"),
-      } as Run),
-    ).toBe(true);
-    for (const status of ["running", "blocked_pending", "denied", "error", "superseded"] as const) {
+  it("treats a blocking review as posted too, because it is no longer gated", () => {
+    // `review` only ever holds an ungated call now: both tools that land there
+    // post during the turn. The accusation that waits is `gated_review`.
+    for (const status of ["blocked_unattended", "error", "superseded"] as const) {
       expect(reviewPosted({ ...base, status, review: draft("post_blocking_review") } as Run)).toBe(
-        false,
+        true,
       );
+    }
+    expect(
+      reviewPosted({ ...base, status: "running", review: draft("post_blocking_review") } as Run),
+    ).toBe(false);
+  });
+});
+
+describe("gatedReviewPosted", () => {
+  const gated = {
+    tool: "post_gated_review" as const,
+    toolCallId: "c2",
+    body: "b",
+    comments: [],
+    findings: [],
+  };
+
+  it("says no when nothing was held", () => {
+    expect(gatedReviewPosted({ ...base, status: "blocked_posted" } as Run)).toBe(false);
+  });
+
+  it("waits for the confirmation, and says no in every other state", () => {
+    expect(
+      gatedReviewPosted({ ...base, status: "blocked_posted", gated_review: gated } as Run),
+    ).toBe(true);
+    // `blocked_pending` is the one that matters: the accusation is drafted and
+    // is not on the pull request, and calling it posted would be a lie about
+    // something that harms a person if it is wrong.
+    for (const status of [
+      "running",
+      "blocked_pending",
+      "denied",
+      "error",
+      "superseded",
+      "blocked_unattended",
+    ] as const) {
+      expect(gatedReviewPosted({ ...base, status, gated_review: gated } as Run)).toBe(false);
     }
   });
 });

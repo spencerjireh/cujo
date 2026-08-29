@@ -224,6 +224,24 @@ describe("fold", () => {
 describe("hard rules in the fold", () => {
   const fenced = (report: unknown) => `\`\`\`json\n${JSON.stringify(report)}\n\`\`\``;
   const tripped = fenced({ check: "tests", base_pass_head_fail: ["t_x"] });
+  /** A malice rule, unlike `tripped`: an install called a host nobody allowed. */
+  const detonated = fenced({
+    check: "detonation",
+    derived: { egress_to_unknown_host: true },
+    egress: [{ host: "45.33.12.9", known: false }],
+  });
+  const accusation = {
+    ...review,
+    body: "the conclusion",
+    findings: [
+      {
+        check: "detonation",
+        severity: "critical",
+        title: "the dependency is malware",
+        evidence: "postinstall opened 45.33.12.9",
+      },
+    ],
+  };
   const withFindings = {
     ...review,
     findings: [
@@ -270,6 +288,115 @@ describe("hard rules in the fold", () => {
     expect(p.error).toContain("hard rule tripped");
     expect(p.error).toContain("advisory review");
     expect(p.findings[0]?.severity).toBe("critical");
+  });
+
+  it("blocks unattended on a correctness critical, without asking anyone", () => {
+    // The whole point of Design 1: a broken test is mechanical, so Cujo blocks
+    // the merge on its own authority. Before the gate moved, this run had no
+    // terminal state to land in and fell through to `clean` — a green board
+    // row for a pull request carrying REQUEST_CHANGES.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", tripped),
+      reviewCall("call-0", "post_blocking_review", withFindings),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("blocked_unattended");
+    expect(p.review?.tool).toBe("post_blocking_review");
+    expect(p.gatedReview).toBeNull();
+    expect(p.approval).toBeNull();
+  });
+
+  it("keeps the posted advisory and the held accusation in separate slots", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-det", "detonation"),
+      threadDone("th-det", detonated),
+      reviewCall("call-0", "post_advisory_review", { ...review, body: "the observation" }),
+      toolResponse("call-0"),
+      reviewCall("call-1", "post_gated_review", accusation),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("blocked_pending");
+    // The second call must not destroy the record of the first: the advisory
+    // is on the pull request and the operator has to be shown that.
+    expect(p.review).toMatchObject({ tool: "post_advisory_review", body: "the observation" });
+    expect(p.gatedReview).toMatchObject({ tool: "post_gated_review" });
+  });
+
+  it("holds the accusation's own findings back until it posts", () => {
+    const drafted = [
+      turnCreated("t1"),
+      threadCreated("th-det", "detonation"),
+      threadDone("th-det", detonated),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      reviewCall("call-1", "post_gated_review", accusation),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+    ];
+    const pending = fold(drafted);
+    // The hard-rule observation publishes — it is Cujo's own measurement — but
+    // the agent's accusation does not, because `findings` reaches the
+    // anonymous board and this is the thing the gate exists to hold back.
+    expect(pending.findings.some((f) => f.rule === "egress_to_unknown_host")).toBe(true);
+    expect(pending.findings.some((f) => f.title === "the dependency is malware")).toBe(false);
+
+    const confirmed = fold([
+      ...drafted,
+      turnCreated("t2", [
+        {
+          type: "user.tool_approval",
+          threadId: "main",
+          toolCallId: "call-1",
+          approval: { status: "allow" },
+        } as unknown as TrueForgeApi.TurnInputItem,
+      ]),
+      toolResponse("call-1"),
+      turnDone(),
+    ]);
+    expect(confirmed.status).toBe("blocked_posted");
+    expect(confirmed.findings.some((f) => f.title === "the dependency is malware")).toBe(true);
+
+    // A denied call is answered with a refusal `tool.response` of its own, so
+    // "a response arrived" cannot be what publishes. The accusation a human
+    // turned down must leave nothing behind — the observation still stands.
+    const denied = fold([
+      ...drafted,
+      turnCreated("t2", [
+        {
+          type: "user.tool_approval",
+          threadId: "main",
+          toolCallId: "call-1",
+          approval: { status: "deny" },
+        } as unknown as TrueForgeApi.TurnInputItem,
+      ]),
+      toolResponse("call-1"),
+      turnDone(),
+    ]);
+    expect(denied.status).toBe("denied");
+    expect(denied.findings.some((f) => f.title === "the dependency is malware")).toBe(false);
+    expect(denied.findings.some((f) => f.rule === "egress_to_unknown_host")).toBe(true);
+  });
+
+  it("reports under-gating: a malice rule tripped and nothing was held", () => {
+    // The one direction of model error the trusted side can detect. Cujo
+    // cannot know a gated review was unnecessary, but it always knows when one
+    // was necessary and absent (decision 21).
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-det", "detonation"),
+      threadDone("th-det", detonated),
+      reviewCall("call-0", "post_blocking_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("error");
+    expect(p.error).toContain("malice rule tripped");
+    expect(p.error).toContain("did not hold the accusation for a human");
   });
 
   it("marks an advisory review that carries the agent's own critical finding as an error", () => {

@@ -1,5 +1,11 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
-import { agentFindings, hardRuleFindings, mergeFindings, missingCheckFindings } from "./findings";
+import {
+  agentFindings,
+  hardRuleFindings,
+  isMaliceClaim,
+  mergeFindings,
+  missingCheckFindings,
+} from "./findings";
 import {
   CHECK_NAMES,
   type CheckName,
@@ -12,7 +18,41 @@ import {
 
 export type Event = TrueForgeApi.SessionEvent | TrueForgeApi.TurnStreamingEvent;
 
-const REVIEW_TOOLS = new Set(["post_advisory_review", "post_blocking_review"]);
+const REVIEW_TOOLS = new Set(["post_advisory_review", "post_blocking_review", "post_gated_review"]);
+
+/** The one review tool `agent-spec.ts` gates. Its call is a draft, not a post. */
+const GATED_TOOL = "post_gated_review";
+
+/**
+ * File a parsed review under what it is. The ungated tools post the moment the
+ * model calls them, so their call is the record of a posted review; the gated
+ * one is a draft until a human answers. Two slots and not one, because a run
+ * on the malice path holds both — the advisory observation is already public
+ * while the accusation waits — and a single field would have the second
+ * overwrite the record of the first.
+ */
+function recordReview(p: Projection, review: DraftedReview): void {
+  if (review.tool === GATED_TOOL) p.gatedReview = review;
+  else p.review = review;
+}
+
+/**
+ * The agent findings that may be published. The gated review's `findings[]` is
+ * its accusation in list form, and `p.findings` reaches the anonymous board, so
+ * it joins only once the review is on the pull request. The hard-rule hits are
+ * not held back: those are Cujo's own deterministic observation, which is the
+ * half of the design that always publishes.
+ *
+ * A response is not enough on its own. A **denied** approval also produces a
+ * `tool.response` — the refusal — so `gatedResponseSeen` alone would publish
+ * the accusation of every review a human turned down, which is the one outcome
+ * that must leave nothing behind. The decision is checked first, exactly as the
+ * terminal ladder checks it.
+ */
+function publishableAgentFindings(p: Projection): Finding[] {
+  const gatedPosted = p.gatedResponseSeen && p.decision !== "deny";
+  return [...agentFindings(p.review), ...(gatedPosted ? agentFindings(p.gatedReview) : [])];
+}
 
 export interface FoldOptions {
   /** Turn ids whose resume Cujo itself sent, so they are not "external". */
@@ -25,6 +65,7 @@ export function emptyProjection(): Projection {
     turnIds: [],
     checks: [],
     review: null,
+    gatedReview: null,
     hardRuleHits: [],
     findings: [],
     approval: null,
@@ -145,7 +186,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         if (event.threadId === "main") {
           for (const call of event.toolCalls ?? []) {
             const review = parseReview(call);
-            if (review) p.review = review;
+            if (review) recordReview(p, review);
           }
           const text = messageText(event);
           if (text && !(event.toolCalls?.length ?? 0)) p.summary = text;
@@ -179,7 +220,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           check.report = parseReport(messageText(event.state.output));
         }
         p.hardRuleHits = hardRuleFindings(p.checks);
-        p.findings = mergeFindings(p.hardRuleHits, agentFindings(p.review));
+        p.findings = mergeFindings(p.hardRuleHits, publishableAgentFindings(p));
         break;
       }
       case "tool.approval_required": {
@@ -202,7 +243,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         const sourceCall = source?.toolCalls?.find((c) => c.id === call.id);
         if (sourceCall) {
           const review = parseReview(sourceCall);
-          if (review) p.review = review;
+          if (review) recordReview(p, review);
         }
         if (p.status !== "error") p.status = "blocked_pending";
         break;
@@ -217,7 +258,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // The turn is over, so a check that never arrived is missing for good.
         p.findings = mergeFindings(
           [...p.hardRuleHits, ...missingCheckFindings(p.checks)],
-          agentFindings(p.review),
+          publishableAgentFindings(p),
         );
         if (p.status === "error") break;
         if (event.state.status === "error") {
@@ -239,11 +280,33 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
             p.status = "error";
             p.error = "approval allowed but the review tool never responded";
           } else p.status = "blocked_pending";
-        } else if (p.review && p.findings.some((f) => f.severity === "critical")) {
-          // Any critical finding, from a hard rule or the agent's own list,
-          // belongs on the blocking path. The advisory review has already
-          // posted (it is not gated), so the contradiction is recorded rather
-          // than hidden behind `clean`.
+        } else if (p.hardRuleHits.some(isMaliceClaim) && !p.gatedReview) {
+          // Under-gating: a rule accused the code and the agent published that
+          // conclusion on its own authority, or not at all. This is the one
+          // direction of model error the trusted side can detect — Cujo cannot
+          // tell whether a `post_gated_review` was needed, but it can always
+          // tell when one was — and it is why the rules are re-derived here
+          // (decision 21). Nothing can be prevented: the review is already on
+          // the pull request under the bot's name by the time this runs.
+          const titles = (list: readonly Finding[]) => list.map((f) => f.title).join("; ");
+          p.status = "error";
+          p.error = `malice rule tripped (${titles(
+            p.hardRuleHits.filter(isMaliceClaim),
+          )}) but the agent did not hold the accusation for a human`;
+        } else if (p.review?.tool === "post_blocking_review") {
+          // Cujo blocked the merge on its own authority: a correctness
+          // critical, which nobody was asked about. No approval was ever
+          // raised, so `blocked_posted` cannot be reached from here and
+          // `clean` would be a lie about a REQUEST_CHANGES that posted.
+          p.status = "blocked_unattended";
+        } else if (
+          p.review?.tool === "post_advisory_review" &&
+          !p.gatedReview &&
+          p.findings.some((f) => f.severity === "critical")
+        ) {
+          // Posted an advisory and nothing else, despite a critical. The
+          // advisory has already posted (it is not gated), so the
+          // contradiction is recorded rather than hidden behind `clean`.
           const titles = (list: readonly Finding[]) => list.map((f) => f.title).join("; ");
           p.status = "error";
           p.error =
@@ -252,6 +315,13 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
               : `critical finding (${titles(
                   p.findings.filter((f) => f.severity === "critical"),
                 )}) but the agent posted an advisory review`;
+        } else if (p.gatedReview) {
+          // A gated call that never raised `tool.approval_required` means the
+          // tool is not in `require_approval_for_tools` on this session, so the
+          // accusation posted unattended. Calling that clean would hide a
+          // broken registration, exactly as the no-review case below does.
+          p.status = "error";
+          p.error = "the agent drafted a gated review but no approval was requested";
         } else if (p.review) {
           p.status = "clean";
         } else {

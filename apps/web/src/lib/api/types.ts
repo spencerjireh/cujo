@@ -10,6 +10,7 @@ export const RUN_STATUSES = [
   "running",
   "clean",
   "blocked_pending",
+  "blocked_unattended",
   "blocked_posted",
   "denied",
   "error",
@@ -67,8 +68,15 @@ export interface ReviewComment {
  * them out, since one is a harness handle and the other is the agent's own
  * unvalidated tool-call payload (decision 34).
  */
+export const REVIEW_TOOLS = [
+  "post_advisory_review",
+  "post_blocking_review",
+  "post_gated_review",
+] as const;
+export type ReviewTool = (typeof REVIEW_TOOLS)[number];
+
 export interface DraftedReview {
-  tool: "post_advisory_review" | "post_blocking_review";
+  tool: ReviewTool;
   toolCallId?: string;
   body: string;
   comments: ReviewComment[];
@@ -118,6 +126,13 @@ export interface Run extends RunSummary {
   hard_rule_hits: Finding[];
   review: DraftedReview | null;
   /**
+   * The accusation held for a human. Present on the operator plane whenever
+   * one was drafted; on the public plane only once it posted, because before
+   * that publishing it is exactly what the gate prevents. Absent entirely on a
+   * run that predates the gated tool.
+   */
+  gated_review?: DraftedReview | null;
+  /**
    * Non-null only while status is `blocked_pending` (the operator serializer
    * nulls it otherwise), and never present on the public plane — which is why
    * `canDecide` is false there and no decision is ever offered.
@@ -144,15 +159,18 @@ export function canDecide(run: Run): boolean {
 }
 
 /**
- * Whether the review is already on the pull request.
+ * Whether `review` is already on the pull request.
  *
- * An advisory review is ungated and posts during the turn (decision 6), so it
- * is live on GitHub as soon as the run stops running — calling it a draft on a
- * `clean` run is wrong. A blocking review is held for a human and only reaches
- * GitHub once the run is `blocked_posted`.
+ * It always is, once the turn stops running: `review` only ever holds an
+ * ungated call, and both ungated tools post during the turn (decision 6), so
+ * calling it a draft on a `clean` or `blocked_unattended` run is wrong. The
+ * held accusation lives in `gated_review` and has its own predicate.
  */
 export function reviewPosted(run: Run): boolean {
-  if (!run.review) return false;
-  if (run.review.tool === "post_advisory_review") return !isLive(run.status);
-  return run.status === "blocked_posted";
+  return !!run.review && !isLive(run.status);
+}
+
+/** Whether the accusation was confirmed and posted, rather than still waiting. */
+export function gatedReviewPosted(run: Run): boolean {
+  return !!run.gated_review && run.status === "blocked_posted";
 }

@@ -294,6 +294,28 @@ Two layers decide severity, in order.
 - `derived.egress_to_unknown_host` on the `detonation` check — an install
   called a host that is neither a package index nor allowlisted.
 
+**The five rules are not interchangeable, and the axis is not the obvious one.**
+The tempting split is "the author's code versus a third party's", and it is
+wrong: three of the four rules below fire on *any* check, `tests` and `smoke`
+included, and only `egress_to_unknown_host` is scoped to `detonation`. The real
+split is the **claim**:
+
+| Rule | Claim |
+|------|-------|
+| `tests.base_pass_head_fail` | **correctness** — the pull request broke something |
+| `secret_probe.decoy_read` | **malice** — code read a credential it was not given |
+| `secret_probe.decoy_in_egress` | **malice** — a secret left the box |
+| `derived.wrote_sensitive` | **malice** — code wrote outside the workspace |
+| `derived.egress_to_unknown_host` | **malice** — a dependency phoned home |
+
+"Your tests fail" is mechanical, verifiable by the author in thirty seconds, and
+nobody sensible answers "no" to it. "This code tried to steal a credential" is an
+accusation that harms someone if it is wrong, and it is the one place in this
+pipeline where a human holds information the sandbox cannot observe: they know
+the host, or the package, or the fixture that touches a fake credentials file on
+purpose. Each rule carries its identity on the finding as `rule`, so the split is
+matched on an id and never on the wording of a title.
+
 The hard rules are tripwires, not proofs of absence. Each fires only on
 positive evidence a sensor recorded, so a sensor gap (a direct socket the
 proxy did not see) can produce a missed `critical`, never a false one. A
@@ -438,6 +460,26 @@ that repo, done later).
   reviewed the current head SHA. So a retried webhook or a re-run never
   produces a duplicate review, and `github-mcp` stays write-only (it posts; it
   does not read PR state).
+- **One turn may post two reviews, and that is not double-posting.** A run whose
+  finding is an accusation posts the observation as an advisory review and holds
+  the conclusion for a human, so the pull request carries a COMMENT review and,
+  once confirmed, a REQUEST_CHANGES one. The rule this contract protects is that
+  a head SHA gets one *run* and one verdict, not that it gets one HTTP call:
+  double-posting means two runs reviewing the same commit, which the idempotency
+  check above still prevents. The two reviews are one verdict in two parts, and
+  the second half never posts unless a human says so.
+
+  The projection holds them apart for the same reason. `review` is what reached
+  the pull request; `gated_review` is what is waiting. One field for both would
+  have the accusation overwrite the record of the posted observation, and every
+  surface would then show a human the un-posted text as though it were live.
+
+  **A denied accusation leaves nothing behind.** `findings` publishes the
+  gated review's own findings only once that review actually posted, which
+  means an approval that was *allowed*. A denied call is answered with a
+  refusal `tool.response` like any other, so "a response arrived" is not the
+  test; the decision is. What survives a denial is the observation — the hard
+  rule Cujo derived itself, which never waited on anybody.
 
 ## Contract 6 — the run record and the operator API
 
@@ -459,7 +501,7 @@ list in order.
 | `repo`, `pr_number`, `head_sha` | The PR event that started it. |
 | `session_id` | The TrueForge session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
-| `status` | One of the seven states below. |
+| `status` | One of the eight states below. |
 | `approver`, `decided_at` | Who decided and when. The email from the Access JWT for a decision made through `POST /runs/:id/approve`; the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
@@ -472,6 +514,7 @@ Status moves on events from the session's turn streams, with one exception
 |--------|----------|
 | `running` | The run was claimed; the first turn is being started. |
 | `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted. |
+| `blocked_unattended` | `turn.done` on an ungated `post_blocking_review`: Cujo blocked the merge on its own authority, for a correctness critical, and no human was asked. `approver` is null and stays null. |
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
@@ -625,6 +668,7 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 | `running` | blurple | Review running. | `Head`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
 | `clean` | green | No critical finding; the advisory review posted. | `Checks`, `Findings` (counts by severity), `Summary`. |
 | `blocked_pending` | yellow | Blocked, waiting for a human. | Up to three critical findings with their anchor and a clipped line of evidence, then `Checks`. Also sends the ping below. |
+| `blocked_unattended` | red | The blocking review posted. A correctness finding: nobody was asked. | Critical findings, `Checks`. |
 | `blocked_posted` | red | The blocking review posted, and who decided. | Critical findings, `Checks`. |
 | `denied` | grey | The block was rejected; nothing was posted. | Critical findings, `Checks`. |
 | `error` | orange | The run ended in error. | `Error`. |
@@ -938,6 +982,7 @@ log.
 | `running` | 👀 | Still reading. |
 | `blocked_pending` | 👀 🚀 | Still reading, and now waiting on a human. |
 | `clean` | 🎉 | No critical finding. |
+| `blocked_unattended` | 👎 | The blocking review posted. Shared with `blocked_posted` on purpose: the reactions describe what happened to the pull request, and a REQUEST_CHANGES is on it either way. |
 | `blocked_posted` | 👎 | The blocking review posted. |
 | `denied` | 👍 | A human cleared the pull request to proceed. |
 | `error` | 😕 | Cujo broke. Shared with no other state. |

@@ -31,6 +31,7 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "findings",
   "hardRuleHits",
   "review",
+  "gatedReview",
   "error",
   "summary",
 ];
@@ -68,6 +69,7 @@ export const PUBLIC_RUN_FIELDS = [
   "findings",
   "hard_rule_hits",
   "review",
+  "gated_review",
   "error",
   "summary",
 ] as const;
@@ -131,6 +133,12 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     findings: projection.findings,
     hard_rule_hits: projection.hardRuleHits,
     review: publicReview(projection.review),
+    // The accusation, published only once it is on the pull request. Before
+    // that this board would be publishing the exact thing the gate exists to
+    // hold back, to an audience with no way to have allowed it. Keyed on
+    // `status`, which is already public, rather than on `gatedResponseSeen`,
+    // which this module deliberately does not read.
+    gated_review: run.status === "blocked_posted" ? publicReview(projection.gatedReview) : null,
     error: projection.error,
     summary: projection.summary,
   };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentFindings,
   hardRuleFindings,
+  isMaliceClaim,
   mergeFindings,
   missingCheckFindings,
 } from "../../src/review/findings";
@@ -101,6 +102,46 @@ describe("hardRuleFindings", () => {
     ]);
     expect(found).toHaveLength(5);
     expect(found.every((f) => f.severity === "critical")).toBe(true);
+  });
+});
+
+describe("isMaliceClaim", () => {
+  const of = (checks: CheckState[]) => hardRuleFindings(checks).map(isMaliceClaim);
+
+  it("separates the accusation from the report of a broken test", () => {
+    // The split is the claim, not whose code it is: three of the four malice
+    // rules fire on any check, `tests` included.
+    expect(of([check("tests", { base_pass_head_fail: ["t_x"] })])).toEqual([false]);
+    expect(of([check("tests", { secret_probe: { decoy_read: true } })])).toEqual([true]);
+    expect(of([check("smoke", { derived: { wrote_sensitive: true } })])).toEqual([true]);
+    expect(of([check("detonation", { derived: { egress_to_unknown_host: true } })])).toEqual([
+      true,
+    ]);
+  });
+
+  it("says no for a missing check and for anything the agent claimed", () => {
+    // A check that never reported is Cujo's own bookkeeping, and an agent
+    // finding is not evidence the trusted side derived (decision 21).
+    expect(missingCheckFindings([]).every(isMaliceClaim)).toBe(false);
+    const agent: Finding = {
+      source: "agent",
+      check: "detonation",
+      severity: "critical",
+      title: "this package is malware",
+      evidence: "it looks wrong",
+    };
+    expect(isMaliceClaim(agent)).toBe(false);
+  });
+
+  it("says no when the finding predates the rule field", () => {
+    // A projection stored before `rule` existed rehydrates without it, and the
+    // safe answer is "not an accusation": the tripwire it feeds ends a run in
+    // error, and a replayed old run must not start failing.
+    const { rule, ...legacy } = hardRuleFindings([
+      check("detonation", { derived: { egress_to_unknown_host: true } }),
+    ])[0] as Finding;
+    expect(rule).toBe("egress_to_unknown_host");
+    expect(isMaliceClaim(legacy as Finding)).toBe(false);
   });
 });
 
