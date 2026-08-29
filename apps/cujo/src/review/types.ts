@@ -39,6 +39,25 @@ export interface CheckState {
    */
   startedAt: string | null;
   endedAt: string | null;
+  /**
+   * Why the sub-agent's final message ended, as the provider reported it —
+   * `stop`, `length`, `tool_calls`, `content_filter`. Without it a report cut
+   * off at the model's output limit is indistinguishable from one that was
+   * never written: both parse to `null` and both land as `check_missing`, and
+   * only one of them is a cap somebody should raise.
+   *
+   * Optional, and it must stay optional: `apps/web` mirrors this type by hand
+   * and assigns its copy into this one, so a new required field here breaks a
+   * build in another app. Absent on a projection stored before it existed.
+   */
+  finishReason?: string | null;
+  /**
+   * Whether the model returned a refusal instead of a report. A boolean and not
+   * the text: the finding it produces is published, and a refusal can quote the
+   * pull request it was reading — which would put model-chosen prose on a public
+   * page by a route that never passed the sandbox's escaping.
+   */
+  refused?: boolean;
 }
 
 export interface ReviewComment {

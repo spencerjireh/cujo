@@ -212,6 +212,14 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         const check = p.checks.find((c) => c.threadId === event.threadId);
         if (!check) break;
         check.endedAt = event.createdAt ?? null;
+        // Why the final message ended, kept beside what it said. A report that
+        // did not parse and a report that was never written are the same
+        // `check_missing` without this: `finish_reason: "length"` means the
+        // model hit its output cap mid-JSON, which is a cap to raise, and a
+        // refusal means it declined, which is neither. `messageText` drops the
+        // refusal by design, so it has to be read off the event itself.
+        check.finishReason = event.state.output?.finishReason ?? null;
+        check.refused = Boolean(event.state.output?.refusal);
         if (event.state.status === "done") {
           check.status = "done";
           check.report = parseReport(messageText(event.state.output));
