@@ -12,6 +12,7 @@ import { DiscordNotifier } from "./notify/notifier.service";
 import { PrReactor } from "./notify/reactions.service";
 import { buildAgentSpec } from "./review/agent-spec";
 import { publicRunId } from "./review/links";
+import { PrCommandService } from "./review/pr-command.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
 import type { RunRecord } from "./review/types";
 import { VisibilityService } from "./review/visibility.service";
@@ -89,6 +90,20 @@ async function main(): Promise<void> {
   } else {
     log.warn("service.started", { reason: "pr_reactions_off" });
   }
+
+  // Design 2. `/cujo confirm` on the pull request is the human gate, so it is
+  // composed here with the same GitHub client the reviews read through and the
+  // same runner the operator route resumes. It reuses the reactor's write
+  // client for the acknowledgement, and goes without one when reactions are
+  // off — the reply is the answer, and the reaction is decoration.
+  const prCommands = new PrCommandService({
+    runs: store.runs,
+    runner,
+    github,
+    reactions: config.prReactions
+      ? new GitHubReactions(config.githubAppId, config.githubAppPrivateKey, fetch, log)
+      : null,
+  });
 
   // Contract 8. The slash commands need the application's public key as well
   // as the bot token; with either missing, notifications still work and the
@@ -170,6 +185,7 @@ async function main(): Promise<void> {
       ...(reactor ? { onClaimed: (run: RunRecord) => reactor.markClaimed(run) } : {}),
       createSession: () => harness.createSession(spec),
       isReady: () => harness.ready,
+      prCommands,
     },
     ...(interactions ? { interactions } : {}),
   });

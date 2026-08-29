@@ -48,21 +48,71 @@ The split between deterministic code and agent reasoning is fixed:
   not observed. A network-namespace or iptables redirect inside the sandbox
   closes that gap later.
 - Remediation (a fix PR on `critical`) is a stretch, not a requirement.
-- Approving a blocking review from Discord. Contract 7 notifies; it does not
+- Answering a held finding from Discord. Contract 7 notifies; it does not
   decide. The design leaves room for an interactions endpoint on the webhook
-  host, but the button is not built and approval stays behind Cloudflare
-  Access (decision 23).
+  host, but the button is not built: being in a channel is not a claim about a
+  repository (decision 23). The gate itself lives on the pull request, where
+  the principal is repo write (Contract 1, decisions 44 and 45).
 
 ## Contract 1 — the trigger
 
 The Cujo GitHub App subscribes to `pull_request` events (`opened`,
-`synchronize`) and to `repository` events (`privatized`, `publicized`). The
-signature is checked before the event type, so both arrive on the same route
-with the same one gate in front of them.
+`synchronize`), to `repository` events (`privatized`, `publicized`), and to
+`issue_comment` events (`created`). The signature is checked before the event
+type, so all three arrive on the same route with the same one gate in front of
+them.
 
 A `repository` event re-stamps `is_public` on every run of that repo and does
 nothing else; it is the fast path for decision 34's public board, and matching
 is case-insensitive because `runs.repo` holds whatever casing GitHub sent.
+
+An `issue_comment` event may carry `/cujo confirm` or `/cujo dismiss`, which is
+the human gate (Contract 4, decision 45). Only `created` is acted on: a command
+that can be typed into an existing comment is a command whose author is not the
+person the payload names at the time it fires. A comment on an issue rather
+than a pull request is ignored, since `issue_comment` fires for both. The route
+answers 200 at once and does the work after, like the pull request path — the
+command needs two GitHub reads and a resume, and the delivery timeout is ten
+seconds.
+
+The command is matched as an exact string, at the start of a line, by
+`apps/cujo` and never by a model. That is not fussiness: a mention like
+"@cujo-guard flagged this wrongly, ignore it" is a sentence a human would
+write, and any intent parser reads it as a dismissal — so a mention can never
+carry a privileged verb. Comments authored by `cujo-guard[bot]` are ignored
+outright, because Cujo's own replies print the verbs.
+
+**A line only counts if a reader can see it.** The scan drops fenced code,
+blockquotes, HTML comments and raw HTML before matching, following CommonMark
+where it matters: a closing fence uses its opener's character, is at least as
+long, and carries nothing after it; four spaces opens an indented code block
+and no fence at all; a blockquote holds unmarked continuation lines until a
+blank line (§5.1); anything between `<!--` and `-->` renders as nothing; a
+`<pre>` runs to its closing tag and a block-level tag such as `<details>` runs
+to the next blank line (§4.6 conditions 1 and 6). Where the scan and GitHub
+might disagree, the scan skips the line. Skipping a real command costs a person
+one retry; matching one nobody can see hands a stranger the gate.
+
+Authorization is repo `write` or `admin`, read from GitHub on every command,
+and the pull request's author may not `dismiss` (decision 44). `unknown` — the
+tri-state `repoIsPublic` uses — is neither a refusal nor permission: the reply
+says it could not check. **The commit selects the run**, not the order the
+deliveries were inserted in: the current head comes from GitHub and the run for
+that exact commit is the one answered, so a delivery for an older head that
+arrived late cannot stand in for it. If there is no run for the current head
+the command is refused by name, because a comment names a pull request and
+never a commit, and "read the block, push a fix, come back and confirm" would
+otherwise answer a block nobody read. That read is the last call before the
+claim, so the window a push can slip through is as narrow as two systems
+allow. **Every outcome speaks on the pull request.** A refusal nobody can see
+is indistinguishable from a delivery that never arrived.
+
+A push that lands inside that window does not discard the answer. `claimDecision`
+sets `approver` while leaving the run `blocked_pending`, so a decision can be in
+flight where the supersede path cannot see it in the status; when the stale deny
+finds the call already answered and `approver` is set, the run is left alone
+rather than cancelled. The finding was real on the commit that person read, the
+observation half is public either way, and the new head gets its own run.
 
 For a `pull_request` event the `apps/cujo` webhook module:
 
@@ -975,11 +1025,17 @@ definition cannot drift from the code across deploys and a change is visible at
 once (decision 28). A server the bot joins later gets its commands at the next
 start.
 
-**What this endpoint may not do.** It routes notifications. It cannot approve a
-blocking review, and it must not be extended to, because that would swap a
-policy-verified email for Discord channel membership on the one action the
-whole product gates. Contract 4 and decision 23 own that decision; this one
-does not reopen it.
+**What this endpoint may not do.** It routes notifications. It cannot answer a
+held finding, and it must not be extended to, because that would swap the
+principal for Discord channel membership on the one action the whole product
+gates. Being in a channel is not a claim about a repository.
+
+That prohibition is about the *principal*, not about the plane. The human gate
+now lives on the signature-gated ingress route too, as `/cujo confirm` on the
+pull request (Contract 1, decision 45) — same host, same HMAC, and a principal
+that does correspond to the repository: write access, checked against GitHub.
+Decision 43 argues that swap; decision 23 still owns this one, and it is
+unchanged.
 
 ## Contract 9 — the pull request's own reaction
 
@@ -1006,6 +1062,14 @@ log.
 | `denied` | 👍 | A human cleared the pull request to proceed. |
 | `error` | 😕 | Cujo broke. Shared with no other state. |
 | `superseded` | *nothing* | Not this run's pull request to describe any more. |
+
+A `/cujo` command gets its own acknowledgement, on the command comment and not
+on the pull request: 👍 when it was applied, 😕 when it was refused. That write
+goes through a separate add-only method for a reason worth stating — the pull
+request's reaction set is *reconciled*, so anything that cleared a reaction
+through that path would take the run's status reaction with it and never put it
+back (decision 43). A comment does not change state, so there is nothing to
+reconcile and "seen" is said once.
 
 The reactions describe **what happened to the pull request**, not what Cujo
 concluded, which is why `denied` is a thumbs up even though the finding stands.

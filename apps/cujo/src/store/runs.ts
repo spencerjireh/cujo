@@ -225,6 +225,52 @@ export class RunStore {
     return rows.map((r) => r.repo);
   }
 
+  /**
+   * The newest run for a pull request, whatever state it is in.
+   *
+   * There was no lookup by pull request: the existing composition is
+   * `getSession` then `listRunsForSession`, which returns every run on the pull
+   * request including terminal ones and leaves the caller to sort them. A
+   * comment names a pull request and nothing else, so this is the shape that
+   * question actually has.
+   *
+   * `COLLATE NOCASE` because `runs.repo` holds whatever casing GitHub sent and
+   * a webhook is not guaranteed to send the same casing twice —
+   * `setRepoVisibility` already compares this way, and `listUnfinishedRuns`
+   * below does not, which is a difference nobody chose.
+   */
+  latestRunForPr(repo: string, prNumber: number): RunRecord | null {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM runs WHERE repo = ? COLLATE NOCASE AND pr_number = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      )
+      .get(repo, prNumber) as RunRow | undefined;
+    return row ? toRecord(row) : null;
+  }
+
+  /**
+   * The run for one exact commit on a pull request.
+   *
+   * This, and not `latestRunForPr`, is what a command resolves against. Local
+   * insertion order is not commit order: a delivery for an older head that
+   * arrived late is the newest row here while being the oldest commit there,
+   * and answering it would refuse a command aimed at the run a person is
+   * actually reading. The head comes from GitHub, so the commit decides.
+   *
+   * `runs_head` is unique on `(repo, pr_number, head_sha)`, so there is at most
+   * one row per casing; the ordering is only for a repo that arrived spelled
+   * two ways.
+   */
+  runForPrHead(repo: string, prNumber: number, headSha: string): RunRecord | null {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM runs WHERE repo = ? COLLATE NOCASE AND pr_number = ? AND head_sha = ? " +
+          "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      )
+      .get(repo, prNumber, headSha) as RunRow | undefined;
+    return row ? toRecord(row) : null;
+  }
+
   listUnfinishedRuns(scope?: { repo: string; prNumber: number }): RunRecord[] {
     // A SQL string, so the type system cannot check it and a missing status is
     // silent: a run in one nobody added here is never rehydrated on restart and

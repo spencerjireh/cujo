@@ -507,11 +507,26 @@ export class Runner {
         await this.denyStaleApproval(s.log, run.sessionId, projection.approval, "newer_head", runId)
       )
         return;
-      // It did not land, and the likeliest reason is that an operator's
-      // decision answered the approval first: `claimDecision` leaves the run
-      // `blocked_pending`, so a decision can be in flight and invisible here.
-      // Fall through to the cancel — that decision's turn is reviewing a
-      // commit nobody is looking at, and it must not post.
+      // It did not land, and the likeliest reason is that a human's decision
+      // answered the approval first: `claimDecision` sets `approver` but leaves
+      // the run `blocked_pending`, so a decision can be in flight and invisible
+      // to the status check above.
+      //
+      // Re-read rather than trusting `run`. That snapshot predates both the
+      // refold and the await just above, and the whole point of this branch is
+      // a decision that lands during exactly that window — the stale copy would
+      // still say `approver` is null and cancel the turn anyway.
+      if (this.store.getRun(runId)?.approver) {
+        // Leave it alone. The cancel would kill the turn that decision started,
+        // while the row — and the reply already on the pull request — record
+        // the person as having decided. Silently discarding an answer somebody
+        // gave is worse than posting a verdict about a commit that has since
+        // been pushed past: the finding was real on the commit they read, the
+        // observation half is public either way, and the new head gets its own
+        // run that re-derives it.
+        s.log.info("run.supersede.deferred", { reason: "decision_in_flight" });
+        return;
+      }
     }
     if (!live) return;
     try {
