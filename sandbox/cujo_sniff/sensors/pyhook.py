@@ -3,6 +3,19 @@
 Installed on PYTHONPATH so every Python process a check spawns (pip running a
 setup.py included) reports opens, connects, and subprocesses. Guarded against
 re-entry because writing the log is itself an `open` event.
+
+Both `except Exception` blocks below are deliberate and load-bearing. This code
+runs inside the process being measured, so an exception that escapes it does
+not fail the sensor -- it fails the command under test, and the check then
+reports a crash caused by Cujo as evidence against the pull request. A false
+`critical` is a worse outcome than a missing row. The two channels a diagnostic
+could use are both closed for the same reason: stdout and stderr belong to the
+audited program, and the log is the thing that just failed.
+
+Which leaves a real gap, and it is not this file's to close: a hook that never
+armed and a run that did nothing produce the same clean report. The parent can
+tell them apart because it knows whether any row arrived at all, so the signal
+belongs in the sensor-health block on the report (docs/spec.md Contract 2).
 """
 
 from __future__ import annotations
@@ -25,6 +38,9 @@ def _write(row):
         with open(_LOG, "a") as fh:
             fh.write(json.dumps(row) + "\n")
     except Exception:
+        # The log is unwritable. Nowhere to report that from inside the
+        # audited process: stdout and stderr are its own, and the log is what
+        # failed. The parent notices a hook that produced no rows.
         pass
     finally:
         _local.busy = False
@@ -51,6 +67,9 @@ def _hook(event, args):
             if isinstance(argv, (list, tuple)):
                 _write({"event": "subprocess", "argv": [os.fsdecode(a) for a in argv]})
     except Exception:
+        # An audit hook that raises kills the process it is watching, and the
+        # check would report that crash as evidence against the pull request.
+        # Losing one row is the lesser wrong; see this module's docstring.
         pass
 
 

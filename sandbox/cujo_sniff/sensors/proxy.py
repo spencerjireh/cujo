@@ -109,6 +109,10 @@ def _relay(a: socket.socket, b: socket.socket) -> tuple[int, int]:
                 try:
                     peer[s].shutdown(socket.SHUT_WR)
                 except OSError:
+                    # Both ends closed at once, so the half-close this was
+                    # asking for has already happened. That is an ordinary end
+                    # to a relay, not a failure: there is nothing left to shut
+                    # down and nothing a report would want to know.
                     pass
                 continue
             counts[s] += len(data)

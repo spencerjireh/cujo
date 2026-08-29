@@ -11,6 +11,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -83,19 +84,32 @@ def pid_alive(pid: int) -> bool:
 
 
 def stop_daemons(ctx: Context) -> list[int]:
-    """SIGTERM the daemons named by the pid files; forget the files."""
+    """SIGTERM the daemons named by the pid files; forget the files.
+
+    Returns the pids this call signalled. A daemon that was already gone is
+    not in that list — teardown wants it gone and it is, but it was not
+    stopped here. A pid file that does not hold a pid is a different thing
+    and says so on stderr: nothing can find that daemon now, and a teardown
+    that reported success would be claiming otherwise. Never on stdout, which
+    carries the command's one JSON object.
+    """
     stopped: list[int] = []
     for key in ("proxy_pid", "watcher_pid"):
         pid_file = state_paths(ctx)[key]
         if not pid_file.exists():
             continue
-        try:
-            pid = int(pid_file.read_text())
-            os.kill(pid, signal.SIGTERM)
-            stopped.append(pid)
-        except (ValueError, ProcessLookupError):
-            pass
+        raw = pid_file.read_text().strip()
         pid_file.unlink(missing_ok=True)
+        try:
+            pid = int(raw)
+        except ValueError:
+            print(f"sniff: {pid_file} held {raw!r}, not a pid", file=sys.stderr)
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        stopped.append(pid)
     for pid in stopped:
         deadline = time.monotonic() + 2.0
         while pid_alive(pid) and time.monotonic() < deadline:
