@@ -57,6 +57,13 @@ export interface Config {
   operatorToken: string;
   dbPath: string;
   model: string;
+  /**
+   * How hard the model is asked to think, passed straight through to the
+   * provider as `model.params.reasoningEffort`. Empty means "say nothing", so
+   * the provider's own default stands — which is the right default, because a
+   * model that does not reason at all rejects the key outright.
+   */
+  modelReasoningEffort: string;
   githubMcpUrl: string;
   /** Superseded by `sniffTarballUrl` and no longer read; deleted once every
    * deployed container fetches the tarball (decision 46). */
@@ -194,6 +201,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     operatorToken,
     dbPath: env.CUJO_DB_PATH ?? "/data/cujo.db",
     model: required(env, "CUJO_MODEL"),
+    modelReasoningEffort: (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim(),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
     sniffUrl:
       env.CUJO_SNIFF_URL ??
