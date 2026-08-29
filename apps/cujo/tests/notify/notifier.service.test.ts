@@ -210,17 +210,14 @@ describe("DiscordNotifier", () => {
   });
 
   it("does not mention another server's role when a repo is re-bound mid-run", async () => {
-    const { store, client, notifier, emit } = build({ roleId: "111111111111111111" });
+    const { store, client, github, notifier, emit } = build({ roleId: "111111111111111111" });
     emit();
     await notifier.flush();
-    // Re-bound by an operator to a different server: that server's role means
-    // nothing in the channel this run's card already lives in.
-    store.notifications.authorizeGuildRepo({
-      guildId: "g2",
-      repo: "o/r",
-      guildName: null,
-      authorizedBy: "op@example.com",
-    });
+    // Re-bound to a different server, which is now the one the repo declares —
+    // the only way to move a repo since decision 52 deleted the operator
+    // override. Its role still means nothing in the channel this run's card
+    // already lives in.
+    github.declaredGuild.mockResolvedValue("g2");
     store.notifications.putDiscordChannel({
       repo: "o/r",
       channelId: "c2",
@@ -312,19 +309,6 @@ describe("DiscordNotifier", () => {
     await built.notifier.flush();
     expect(built.client.createMessage).not.toHaveBeenCalled();
     expect(built.store.notifications.getDiscordChannel("o/r")).toBeNull();
-  });
-
-  it("keeps an operator's binding even when the repo declares nothing", async () => {
-    const built = build({ declaredGuild: null });
-    built.store.notifications.authorizeGuildRepo({
-      guildId: "g1",
-      repo: "o/r",
-      guildName: null,
-      authorizedBy: "op@example.com",
-    });
-    built.emit();
-    await built.notifier.flush();
-    expect(built.client.createMessage).toHaveBeenCalledOnce();
   });
 
   it("delivers to the default server for a repo that declares nothing", async () => {

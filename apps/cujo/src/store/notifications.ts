@@ -9,11 +9,7 @@
  * fact about the types rather than a rule someone has to remember.
  */
 
-import type {
-  DiscordChannelRecord,
-  GuildRepoAuthorization,
-  RunDiscordMessage,
-} from "../notify/types";
+import type { DiscordChannelRecord, RunDiscordMessage } from "../notify/types";
 import type { RunStatus } from "../review/types";
 import { type Db, normalizeRepo } from "./db";
 
@@ -101,78 +97,6 @@ export class NotificationStore {
       .prepare("DELETE FROM discord_channels WHERE repo = ?")
       .run(normalizeRepo(repo));
     return Number(result.changes) === 1;
-  }
-
-  /** True when this server has been authorized for this repo (Contract 8). */
-  isGuildAuthorized(guildId: string, repo: string): boolean {
-    const row = this.db
-      .prepare("SELECT 1 AS ok FROM discord_guild_repos WHERE guild_id = ? AND repo = ?")
-      .get(guildId, normalizeRepo(repo)) as { ok: number } | undefined;
-    return row !== undefined;
-  }
-
-  /** Every authorization, or just one server's when `guildId` is given. */
-  listGuildRepos(guildId?: string): GuildRepoAuthorization[] {
-    const rows = (
-      guildId
-        ? this.db
-            .prepare("SELECT * FROM discord_guild_repos WHERE guild_id = ? ORDER BY repo")
-            .all(guildId)
-        : this.db.prepare("SELECT * FROM discord_guild_repos ORDER BY guild_id, repo").all()
-    ) as {
-      guild_id: string;
-      repo: string;
-      guild_name: string | null;
-      authorized_by: string;
-      authorized_at: string;
-    }[];
-    return rows.map((row) => ({
-      guildId: row.guild_id,
-      repo: row.repo,
-      guildName: row.guild_name,
-      authorizedBy: row.authorized_by,
-      authorizedAt: row.authorized_at,
-    }));
-  }
-
-  authorizeGuildRepo(input: {
-    guildId: string;
-    repo: string;
-    guildName: string | null;
-    authorizedBy: string;
-  }): GuildRepoAuthorization {
-    const now = new Date().toISOString();
-    const repo = normalizeRepo(input.repo);
-    this.db
-      .prepare(
-        "INSERT INTO discord_guild_repos " +
-          "(guild_id, repo, guild_name, authorized_by, authorized_at) VALUES (?, ?, ?, ?, ?) " +
-          "ON CONFLICT (guild_id, repo) DO UPDATE SET guild_name = excluded.guild_name, " +
-          "authorized_by = excluded.authorized_by, authorized_at = excluded.authorized_at",
-      )
-      .run(input.guildId, repo, input.guildName, input.authorizedBy, now);
-    return {
-      guildId: input.guildId,
-      repo,
-      guildName: input.guildName,
-      authorizedBy: input.authorizedBy,
-      authorizedAt: now,
-    };
-  }
-
-  /**
-   * Revoke, and drop the binding it permitted: leaving the channel bound would
-   * keep a server receiving reviews it is no longer authorized for.
-   */
-  revokeGuildRepo(guildId: string, repo: string): boolean {
-    const normalized = normalizeRepo(repo);
-    const result = this.db
-      .prepare("DELETE FROM discord_guild_repos WHERE guild_id = ? AND repo = ?")
-      .run(guildId, normalized);
-    if (Number(result.changes) !== 1) return false;
-    const binding = this.getDiscordChannel(normalized);
-    if (binding && binding.guildId === guildId) this.deleteDiscordChannel(normalized);
-    return true;
   }
 
   getRunDiscordMessage(runId: string): RunDiscordMessage | null {

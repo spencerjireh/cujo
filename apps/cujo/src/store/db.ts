@@ -48,9 +48,16 @@ export const MIGRATIONS: readonly string[] = [
   //     this column existed genuinely has no delivery, which is not the same
   //     fact as an empty one.
   "ALTER TABLE runs ADD COLUMN delivery_id TEXT",
+  // 4 — the operator override of Contract 8's authorization, deleted with the
+  //     plane that was its only write path (decision 52). A repo's own
+  //     `.cujo.yml` is the authority now, so a table nothing reads would be a
+  //     trap: the next person to find rows in it would conclude the override
+  //     still works. Removing it from SCHEMA alone would not touch a deployed
+  //     database, because every statement there is IF NOT EXISTS.
+  "DROP TABLE IF EXISTS discord_guild_repos",
 ];
 
-const SCHEMA = `
+export const SCHEMA = `
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS sessions (
     repo TEXT NOT NULL,
@@ -126,18 +133,6 @@ const SCHEMA = `
   -- interactions endpoint will need, enforced now while it is free.
   CREATE UNIQUE INDEX IF NOT EXISTS run_discord_message_id
     ON run_discord_messages (message_id) WHERE message_id IS NOT NULL;
-  -- Contract 8. Which Discord server may manage which repo's
-  -- notifications. Written only over the Access-gated API, so the reach of
-  -- a server is always a decision an operator's email is attached to
-  -- (decision 28).
-  CREATE TABLE IF NOT EXISTS discord_guild_repos (
-    guild_id TEXT NOT NULL,
-    repo TEXT NOT NULL,
-    guild_name TEXT,
-    authorized_by TEXT NOT NULL,
-    authorized_at TEXT NOT NULL,
-    PRIMARY KEY (guild_id, repo)
-  );
   -- The PR title for the card. RunRecord has no title and the webhook is
   -- the only place it is ever read.
   CREATE TABLE IF NOT EXISTS run_pr_meta (
