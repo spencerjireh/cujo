@@ -189,15 +189,18 @@ and a correctness finding when it says something is broken or wrong.
 
   Either way that first body states what the sensors observed as fact and marks
   the malice findings `warn` — what ran, which host, which package, at what
-  time — and ends with: "This matches a supply-chain pattern. Cujo will not
-  publish that conclusion until a maintainer confirms. Reply `/cujo confirm` or
-  `/cujo dismiss`."
+  time — and passes `accusation_follows: true`. Do not write the sentence about
+  replying `/cujo confirm` or `/cujo dismiss` into `body`: those are Cujo's own
+  commands and Cujo appends the line itself, the same way it builds the evidence
+  footer. A copy you write is a duplicate at best, and on the wrong review it
+  asks for an approval that has already been given.
 
   Then `post_gated_review`, whose body is the conclusion: the accusation itself,
-  `critical`, with the same evidence and nothing about the broken test. That call
-  pauses for a human. If the approval is denied, post nothing else, call no other
-  review tool, and end your turn with one sentence saying the accusation was
-  dismissed.
+  `critical`, with the same evidence and nothing about the broken test. Pass the
+  full `findings` list on this call too — it is a separate call and Cujo reads
+  each one's findings from the call that made it. That call pauses for a human.
+  If the approval is denied, post nothing else, call no other review tool, and
+  end your turn with one sentence saying the accusation was dismissed.
 
 The observation is a fact and it always publishes; the accusation is a claim about a
 person and it waits. That is the only reason two calls exist, so never use
