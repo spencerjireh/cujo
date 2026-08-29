@@ -1,69 +1,82 @@
 "use client";
 
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useEffect, useState } from "react";
+import { DarkIcon, LightIcon, SystemIcon } from "@/components/icons/ThemeIcons";
+import { THEME_CHOICES, type ThemeChoice, applyTheme, choiceFromAttribute } from "@/lib/theme";
+import { useEffect, useId, useState } from "react";
 
-/**
- * Three states, matching brand/tokens.css exactly: no attribute follows the
- * system, `light` and `dark` force one. The inline script in layout.tsx applies
- * a stored choice before paint, so this only has to keep the two in step.
- */
-export type ThemeChoice = "system" | "light" | "dark";
-
-export const THEME_STORAGE_KEY = "cujo-theme";
-
-function apply(choice: ThemeChoice) {
-  const root = document.documentElement;
-  if (choice === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", choice);
-  try {
-    if (choice === "system") localStorage.removeItem(THEME_STORAGE_KEY);
-    else localStorage.setItem(THEME_STORAGE_KEY, choice);
-  } catch {
-    // A blocked storage API is not a reason to refuse the theme change.
-  }
-}
-
-const LABELS: Record<ThemeChoice, string> = {
-  system: "Match system",
-  light: "Light",
-  dark: "Dark",
+const CELLS: Record<ThemeChoice, { label: string; Icon: typeof LightIcon }> = {
+  light: { label: "Light", Icon: LightIcon },
+  system: { label: "Match system", Icon: SystemIcon },
+  dark: { label: "Dark", Icon: DarkIcon },
 };
 
+const THUMB = "absolute top-0.5 left-0.5 h-7 w-7 rounded-sm bg-bg-raised";
+
+/**
+ * Three mutually exclusive states on one light-to-dark axis, which is a radio
+ * group and not a menu. Native radios carry the grouping, the arrow keys and
+ * the focus, so there is no key handling here and no primitive behind it; the
+ * vocabulary itself lives in `lib/theme.ts`.
+ *
+ * The selected glyph takes the accent, which puts exactly one amber eye in the
+ * header at a time — the rule brand/brand.md gives the mark two elements to its
+ * left, applied to the chrome.
+ */
 export function ThemeToggle() {
   const [choice, setChoice] = useState<ThemeChoice>("system");
+  // The thumb sits where the server put it until the stored choice is read
+  // back, so the first correction must not animate: a stored dark would
+  // otherwise slide the thumb across the track on every load.
+  const [mounted, setMounted] = useState(false);
+  const name = useId();
 
   useEffect(() => {
-    const stored = document.documentElement.getAttribute("data-theme");
-    if (stored === "light" || stored === "dark") setChoice(stored);
+    setChoice(choiceFromAttribute(document.documentElement.getAttribute("data-theme")));
+    setMounted(true);
   }, []);
 
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="rounded-md border border-line px-3 py-1.5 text-sm text-fg-muted transition-colors hover:text-fg hover:border-fg-muted">
-        Theme: {LABELS[choice].toLowerCase()}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={6}
-          className="z-50 min-w-40 rounded-md border border-line bg-bg-raised p-1 text-sm shadow-lg"
-        >
-          {(Object.keys(LABELS) as ThemeChoice[]).map((option) => (
-            <DropdownMenu.Item
-              key={option}
-              onSelect={() => {
-                apply(option);
+    <div
+      role="radiogroup"
+      aria-label="Theme"
+      className="relative flex items-center rounded-md border border-line p-0.5"
+    >
+      <span
+        aria-hidden="true"
+        className={mounted ? `${THUMB} transition-transform duration-150` : THUMB}
+        style={{ transform: `translateX(${THEME_CHOICES.indexOf(choice) * 100}%)` }}
+      />
+      {THEME_CHOICES.map((option) => {
+        const { label, Icon } = CELLS[option];
+        const selected = choice === option;
+        return (
+          <label
+            key={option}
+            title={label}
+            className="group relative flex cursor-pointer items-center justify-center"
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option}
+              checked={selected}
+              aria-label={label}
+              onChange={() => {
+                applyTheme(option);
                 setChoice(option);
               }}
-              className="cursor-pointer rounded-sm px-3 py-1.5 outline-none data-highlighted:bg-bg data-highlighted:text-fg"
-            >
-              {LABELS[option]}
-              {choice === option ? <span className="ml-2 text-accent">•</span> : null}
-            </DropdownMenu.Item>
-          ))}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+              className="peer sr-only"
+            />
+            <span className="flex h-7 w-7 items-center justify-center rounded-sm peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+              <Icon
+                className={`h-4.5 w-4.5 transition-colors ${
+                  selected ? "text-accent-fill" : "text-fg-muted group-hover:text-fg"
+                }`}
+              />
+            </span>
+          </label>
+        );
+      })}
+    </div>
   );
 }
