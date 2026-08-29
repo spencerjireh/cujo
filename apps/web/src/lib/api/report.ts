@@ -72,6 +72,12 @@ export interface Truncated {
   stderr_tail?: boolean;
   files_read?: boolean;
   snapshot?: boolean;
+  /**
+   * Some in-scope file was too large to hash, so it was compared by
+   * `(mtime, size)` alone — which is exactly what a restored timestamp
+   * defeats. The filesystem comparison ran; it did not run on everything.
+   */
+  hashes?: boolean;
 }
 
 /** One sensor block, plus whatever identifying fields sat beside it. */
@@ -180,6 +186,7 @@ function truncated(value: unknown): Truncated | null {
     stderr_tail: bool(value.stderr_tail),
     files_read: bool(value.files_read),
     snapshot: bool(value.snapshot),
+    hashes: bool(value.hashes),
   };
 }
 

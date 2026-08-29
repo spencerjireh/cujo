@@ -71,9 +71,9 @@ function Sensors({ block }: { block: SensorBlock }) {
 }
 
 /** Said where the list is, because a list that was cut is not a short list. */
-function Cut({ cut }: { cut?: boolean }) {
+function Cut({ cut, label = "truncated" }: { cut?: boolean; label?: string }) {
   if (!cut) return null;
-  return <span className="ml-2 normal-case text-sev-high">truncated</span>;
+  return <span className="ml-2 normal-case text-sev-high">{label}</span>;
 }
 
 /**
@@ -99,16 +99,24 @@ function Group({
   title,
   count,
   cut,
+  note,
   children,
-}: { title: string; count: number; cut?: boolean; children: React.ReactNode }) {
+}: {
+  title: string;
+  count: number;
+  cut?: boolean;
+  note?: string;
+  children: React.ReactNode;
+}) {
   // A group that was cut still renders when it is empty: "0 of them, and the
   // list was truncated" is a different statement from "0 of them".
-  if (count === 0 && !cut) return null;
+  if (count === 0 && !cut && !note) return null;
   return (
     <div className="mt-4">
       <h4 className="mb-1 font-mono text-xs uppercase tracking-wider text-fg-muted">
         {title} <span className="normal-case">({count})</span>
         <Cut cut={cut} />
+        <Cut cut={Boolean(note)} label={note ?? ""} />
       </h4>
       {children}
     </div>
@@ -160,6 +168,9 @@ export function SensorReport({ block }: { block: SensorBlock }) {
         title="filesystem changes"
         count={block.fs_changes.length}
         cut={block.truncated?.snapshot}
+        note={
+          block.truncated?.hashes ? "some files compared by timestamp and size only" : undefined
+        }
       >
         <VirtualRows items={block.fs_changes}>
           {(entry) => (

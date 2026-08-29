@@ -10,7 +10,10 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from cujo_sniff.context import Context, state_paths
+from cujo_sniff.daemons import daemon_alive
 from cujo_sniff.report import build_sensor_block, health, merge_reports
 from cujo_sniff.runner import daemon_health, snapshot_health
 from cujo_sniff.sensors.fsdiff import Snapshot
@@ -229,3 +232,51 @@ def test_a_report_from_before_the_inode_was_recorded_is_not_called_blind(
     assert daemon_health(ctx, {"proxy_armed": True, "decoy_backend": "atime"})["decoy"] == health(
         True, "atime"
     )
+
+
+def test_a_pid_file_pointing_at_something_that_is_not_ours_is_not_a_daemon(
+    ctx: Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The audited command can write the pid file and leave a live pid behind.
+
+    Its own, or the runner's. Checking the command line raises that from
+    "write four digits" to "keep a process alive whose argv says cujo_sniff".
+    Not a proof -- the same code can rewrite `proxy.jsonl` directly -- but the
+    accidental case and the lazy one both stop here. On a platform with no
+    procfs the pid answering is all there is to go on, and that is the answer.
+    """
+    paths = state_paths(ctx)
+    ctx.state_dir.mkdir(parents=True, exist_ok=True)
+    paths["proxy_pid"].write_text(str(os.getpid()))
+    # This test process is alive and is not a sensor daemon.
+    if Path("/proc").is_dir():
+        assert daemon_alive(paths["proxy_pid"]) is False
+    else:
+        assert daemon_alive(paths["proxy_pid"]) is True
+
+    paths["proxy_pid"].write_text("4194303")
+    assert daemon_alive(paths["proxy_pid"]) is False
+    paths["proxy_pid"].write_text("not a pid")
+    assert daemon_alive(paths["proxy_pid"]) is False
+
+
+def test_an_armed_row_the_command_could_have_written_is_still_reported(
+    home_dir: Path,
+) -> None:
+    """The audit hook's proof of life is only as good as the log it writes to.
+
+    The command holds `CUJO_AUDIT_LOG`, so it can append the row itself -- as it
+    can append to every other sensor log. What bounds it is the direction: a
+    forged `armed` hides that the hook never loaded, and cannot invent a
+    finding. `apps/cujo` warns on `armed: false` and never on true.
+    """
+    forged = _block(home_dir, audit_rows=[{"event": "armed"}])
+    assert forged["sensors"]["audit"]["armed"] is True
+    # The report says what it saw. Nothing here is a `critical`, and the two
+    # sensors the trusted side rules on are the daemons, not this one.
+    assert forged["derived"] == {
+        "egress_to_unknown_host": False,
+        "wrote_outside_workspace": False,
+        "wrote_sensitive": False,
+        "spawned_subprocess": False,
+    }

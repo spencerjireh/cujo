@@ -127,6 +127,11 @@ def build_sensor_block(
         e["host"] = scrub(e["host"])
     unknown = any(not e["known"] for e in egress)
     is_install = check == "detonation"
+    # Said as what it is. The audited command holds `CUJO_AUDIT_LOG` and can
+    # append this row itself, so an armed hook and a command claiming one look
+    # identical from here -- as they do for every other sensor, all of which
+    # write to files that command can also write to. The lie only goes one way:
+    # it hides a gap and cannot invent a finding.
     audit_detail = f"{len(audit_rows)} rows" if audit_armed else "no Python process ran"
     return {
         "egress": egress,

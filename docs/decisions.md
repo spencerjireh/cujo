@@ -2135,7 +2135,14 @@ hook writing an `armed` row as it installs itself. `decoy_in_egress` becomes
 
 **A `warn` and not a `critical`, and not a gate.** The rule says the evidence is
 thin, not that the code did anything, so it stays out of `MALICE_RULES` and
-cannot put a review through the human gate. Only the two long-running daemons
+cannot put a review through the human gate.
+
+That the block is forgeable is not an objection to it. The code being measured
+runs as the sensors' own user and can write the pid files, the audit log, and
+`proxy.jsonl` alike; this block is evidence at the same level as every row it
+describes, and it closes the accident rather than the adversary. The direction
+is what matters: every rule fires on a sensor reporting *false*, so forging
+health suppresses a warn and cannot invent a finding against anyone. Only the two long-running daemons
 are ruled on at all: a check that runs `npm test` has no Python process to hook,
 so warning on an unarmed `audit` would fire on every JavaScript repository, and
 `fs_diff` is never off, only short — which is what `truncated` is for. Those two

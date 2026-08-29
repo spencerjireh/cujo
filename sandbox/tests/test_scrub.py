@@ -64,3 +64,32 @@ def test_argv_survives_anything_the_audit_log_can_hold() -> None:
     many = scrub_argv([str(i) for i in range(MAX_ARGV_ITEMS + 10)])
     assert len(many) == MAX_ARGV_ITEMS + 1
     assert many[-1] == "... 10 more arguments"
+
+
+def test_every_invisible_and_reordering_character_escapes_not_just_the_famous_ones() -> None:
+    """The first version of this was a list of code points, and it leaked.
+
+    U+061C ARABIC LETTER MARK is a bidirectional control like U+200E, does the
+    same job, and was not on it -- which is the argument against writing the
+    list at all. Escaping by Unicode category closes the class instead of the
+    instances: Cf is every format character, Cc the controls, Zl and Zp the two
+    separators that end a line in some parsers and not others.
+    """
+    for ch, name in (
+        ("\u061c", "arabic letter mark"),
+        ("\u200b", "zero width space"),
+        ("\u200e", "left-to-right mark"),
+        ("\u202e", "right-to-left override"),
+        ("\u2066", "left-to-right isolate"),
+        ("\ufeff", "byte order mark"),
+        ("\u00ad", "soft hyphen"),
+        ("\u2028", "line separator"),
+        ("\u2029", "paragraph separator"),
+        ("\u180e", "mongolian vowel separator"),
+    ):
+        assert scrub(ch) != ch, name
+        assert scrub(ch).startswith("\\"), name
+
+    # And nothing ordinary is caught by widening the net.
+    for ch in ("a", " ", "é", "→", "中", "\u00a0"):
+        assert scrub(ch) == ch, repr(ch)

@@ -108,7 +108,18 @@ def _digest(path: Path, st: os.stat_result) -> str | None:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 return UNREADABLE
             h = hashlib.sha256()
+            read = 0
             while chunk := os.read(fd, 65536):
+                read += len(chunk)
+                # The size that let this file through the cap came from an
+                # `lstat` taken before the open, and a background process is
+                # free to have grown the file since. Reading to EOF on that
+                # promise is an unbounded read of a file the command controls,
+                # which is the snapshot never finishing. The cap is enforced
+                # here, on what was actually read, and the file falls back to
+                # the metadata it would have had a size ago.
+                if read > HASH_MAX_BYTES:
+                    return UNHASHED
                 h.update(chunk)
             return h.hexdigest()
         finally:
@@ -148,7 +159,14 @@ def snapshot(
                 if digest == UNHASHED:
                     unhashed += 1
                 seen[str(p)] = (st.st_mtime_ns, st.st_size, digest)
-                if len(seen) >= MAX_SNAPSHOT_FILES:
+                # One past the cap, not at it. A tree holding exactly
+                # MAX_SNAPSHOT_FILES files was walked to the end, and calling
+                # that truncated made `diff_snapshots` disbelieve creations and
+                # deletions it could in fact prove. Finding an extra file is
+                # what proves there was more; that file is then dropped, so the
+                # cap still bounds what a snapshot costs.
+                if len(seen) > MAX_SNAPSHOT_FILES:
+                    del seen[str(p)]
                     return Snapshot(seen, truncated=True, unhashed=unhashed)
     return Snapshot(seen, truncated=False, unhashed=unhashed)
 
