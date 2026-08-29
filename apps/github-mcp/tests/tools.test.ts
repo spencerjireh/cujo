@@ -1,5 +1,5 @@
 /**
- * The two tools, and the audit line for the only outward write this system
+ * The three tools, and the audit line for the only outward write this system
  * makes (decision 37).
  *
  * `review.failed` is the one that matters: a failed file listing, a rejected
@@ -35,7 +35,7 @@ describe("review.posted", () => {
       listPullFiles: vi.fn(async () => []),
       createReview: vi.fn(async () => ({ id: 99, html_url: "https://gh/r/1" })),
     } as unknown as GitHubClient;
-    await postReview(github, "REQUEST_CHANGES", input, "", log);
+    await postReview(github, "REQUEST_CHANGES", "post_blocking_review", input, "", log);
     expect(of("review.posted")[0]).toMatchObject({
       repo: "o/r",
       pr_number: 7,
@@ -44,6 +44,23 @@ describe("review.posted", () => {
       posted_inline: 0,
       moved_to_body: 0,
     });
+  });
+
+  it("names the gated tool, which posts the same review as the blocking one", async () => {
+    const { log, of } = capture();
+    const github = {
+      listPullFiles: vi.fn(async () => []),
+      createReview: vi.fn(async () => ({ id: 100, html_url: "https://gh/r/2" })),
+    } as unknown as GitHubClient;
+    await postReview(github, "REQUEST_CHANGES", "post_gated_review", input, "", log);
+    // Both REQUEST_CHANGES tools reach GitHub identically, so the event can no
+    // longer say which one ran; only the name passed in can.
+    expect(github.createReview).toHaveBeenCalledWith(
+      "o/r",
+      7,
+      expect.objectContaining({ event: "REQUEST_CHANGES" }),
+    );
+    expect(of("review.posted")[0]).toMatchObject({ tool: "post_gated_review", review_id: "100" });
   });
 });
 
@@ -60,6 +77,7 @@ describe("review.anchor.moved", () => {
     await postReview(
       github,
       "COMMENT",
+      "post_advisory_review",
       {
         ...input,
         comments: [
@@ -90,7 +108,9 @@ describe("review.failed", () => {
       }),
       createReview: vi.fn(),
     } as unknown as GitHubClient;
-    await expect(postReview(github, "COMMENT", input, "", log)).rejects.toThrow();
+    await expect(
+      postReview(github, "COMMENT", "post_advisory_review", input, "", log),
+    ).rejects.toThrow();
     expect(of("review.failed")[0]).toMatchObject({
       repo: "o/r",
       pr_number: 7,
@@ -108,6 +128,8 @@ describe("review.failed", () => {
         throw new Error("422 unprocessable");
       }),
     } as unknown as GitHubClient;
-    await expect(postReview(github, "COMMENT", input, "", log)).rejects.toThrow("422");
+    await expect(
+      postReview(github, "COMMENT", "post_advisory_review", input, "", log),
+    ).rejects.toThrow("422");
   });
 });

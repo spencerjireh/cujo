@@ -1,7 +1,13 @@
 /**
- * The two review tools (docs/spec.md Contract 4). Same input, different
- * review event; only the blocking one is marked destructive, which is what
- * TrueForge's `@destructive` approval selector keys on.
+ * The three review tools (docs/spec.md Contract 4). Same input; two of them
+ * post the same REQUEST_CHANGES review, and the only difference between those
+ * two is which one `apps/cujo` names in `requireApprovalForTools`. So the
+ * server cannot tell them apart by what it does — the name has to be passed to
+ * `postReview` rather than derived from the review event — and this file is
+ * write-only by design (decision 5), with no access to the check reports, so
+ * it cannot tell a tests-fail body from an exfiltration body either. Which
+ * review is an accusation is decided in the rubric and re-derived in
+ * `apps/cujo`; here it is only a tool name.
  */
 
 import { type Logger, createLogger, errorFields } from "@cujo/log";
@@ -76,14 +82,17 @@ export interface ReviewResult {
   moved_to_body: number;
 }
 
+/** The tools that post a review. The name rides on the log line, so it is passed. */
+export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+
 export async function postReview(
   github: GitHubClient,
   event: "COMMENT" | "REQUEST_CHANGES",
+  tool: ReviewTool,
   input: ReviewInput,
   publicBaseUrl = "",
   log: Logger = createLogger({ service: "github-mcp" }),
 ): Promise<ReviewResult> {
-  const tool = event === "REQUEST_CHANGES" ? "post_blocking_review" : "post_advisory_review";
   try {
     return await post();
   } catch (error) {
@@ -168,7 +177,10 @@ export function registerReviewTools(
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async (args) => asToolResult(await postReview(github, "COMMENT", args, publicBaseUrl, log)),
+    async (args) =>
+      asToolResult(
+        await postReview(github, "COMMENT", "post_advisory_review", args, publicBaseUrl, log),
+      ),
   );
 
   server.registerTool(
@@ -181,6 +193,30 @@ export function registerReviewTools(
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     async (args) =>
-      asToolResult(await postReview(github, "REQUEST_CHANGES", args, publicBaseUrl, log)),
+      asToolResult(
+        await postReview(
+          github,
+          "REQUEST_CHANGES",
+          "post_blocking_review",
+          args,
+          publicBaseUrl,
+          log,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "post_gated_review",
+    {
+      title: "Post gated review",
+      description:
+        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], for a critical finding that accuses code of acting maliciously. Identical to post_blocking_review except that it is held until a human confirms it. Cujo's rubric says exactly when to use this; do not choose it on your own reading of the tool list.",
+      inputSchema: reviewInputShape,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    },
+    async (args) =>
+      asToolResult(
+        await postReview(github, "REQUEST_CHANGES", "post_gated_review", args, publicBaseUrl, log),
+      ),
   );
 }

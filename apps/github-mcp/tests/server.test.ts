@@ -42,19 +42,28 @@ describe("github-mcp", () => {
     expect(await res.json()).toEqual({ ok: true, service: "github-mcp" });
   });
 
-  it("lists both review tools with the blocking one marked destructive", async () => {
+  it("lists the three review tools, with only the advisory one not destructive", async () => {
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
     const { tools } = await client.listTools();
     await client.close();
 
     const byName = new Map(tools.map((t) => [t.name, t]));
-    expect([...byName.keys()].sort()).toEqual(["post_advisory_review", "post_blocking_review"]);
+    expect([...byName.keys()].sort()).toEqual([
+      "post_advisory_review",
+      "post_blocking_review",
+      "post_gated_review",
+    ]);
     expect(byName.get("post_advisory_review")?.annotations?.destructiveHint).toBe(false);
     expect(byName.get("post_blocking_review")?.annotations?.destructiveHint).toBe(true);
-    expect(byName.get("post_blocking_review")?.inputSchema.required).toEqual(
-      expect.arrayContaining(["repo", "pr_number", "head_sha", "body"]),
-    );
+    expect(byName.get("post_gated_review")?.annotations?.destructiveHint).toBe(true);
+    // Same input on all three: which one is gated is a choice `apps/cujo`
+    // makes about the name, not something the schema encodes.
+    for (const name of byName.keys()) {
+      expect(byName.get(name)?.inputSchema.required).toEqual(
+        expect.arrayContaining(["repo", "pr_number", "head_sha", "body"]),
+      );
+    }
   });
 
   it("posts a blocking review, keeping valid anchors inline and moving the rest", async () => {
