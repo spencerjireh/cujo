@@ -1316,3 +1316,58 @@ Known limit: the proxy rows are still bounded only by offsets. Under the lock
 that is correct, and outside it — after a timeout — the report may carry
 another command's hosts. The per-command log makes the audit rows exact in
 both cases.
+
+## 42. The projection holds two reviews, and a blocking review can end a run
+
+Decision 6 said reviews auto-post and the gate fires on a blocking review.
+Design 1 in [hitl.md](hitl.md) narrows that gate to the accusation, which needs
+two things the projection could not express.
+
+**Two slots, not one.** A run on the malice path posts its observation as an
+advisory review and holds its conclusion for a human, so it holds two reviews at
+once. `Projection.review` was a single field the folder overwrote on every review
+tool call, so the second call destroyed the record of the first: the operator UI
+and the public board would both have shown the un-posted accusation and not the
+advisory that was actually on the pull request. `review` now means *the ungated
+call, which posted*, and `gatedReview` means *the accusation, drafted*. The
+classification is by tool name, so it needs no `tool.response` bookkeeping and no
+new state, and it keeps `review` under its own name — which matters, because
+projections are read back with `JSON.parse` and no validation and a terminal run
+is never refolded, so renaming it would blank the review body on every historical
+row.
+
+The findings list splits the same way and for a sharper reason. `p.findings`
+reaches the anonymous board through `public/serialize.ts`, and the drafted
+review's own `findings[]` is the accusation in list form. So the agent's findings
+join only once `gatedResponseSeen` says the review is on the pull request. The
+hard-rule hits are not held back: those are Cujo's own measurement, and
+publishing the observation while the conclusion waits is the whole design.
+
+**`blocked_unattended`.** With the gate on `post_gated_review`, an ungated
+`post_blocking_review` raises no approval, so `gatedResponseSeen` is never set,
+`blocked_posted` is unreachable, and the run fell through to `clean` — a green
+board row, a 🎉 on the pull request and "No critical finding" on the Discord card
+for a pull request carrying REQUEST_CHANGES. Reusing `blocked_posted` was the
+other candidate and it fails differently: `approver` is null on that path, so an
+operator could not tell "a maintainer confirmed this accusation" from "nobody was
+ever asked", which is the exact distinction this whole change exists to draw.
+
+The status is terminal and it is not unfinished. It is deliberately absent from
+`listUnfinishedRuns`' SQL, from `isTerminal`'s live pair, from `claimDecision`'s
+`WHERE`, and from `canDecide` — a run in it is done, has nothing to approve, and
+must never be re-followed on restart or cancelled by a supersede. It shares 👎
+with `blocked_posted` because Contract 9's vocabulary is eight emoji and what
+happened to the pull request is identical.
+
+**Verification is one-directional, and after the fact.** Which review is an
+accusation is now a decision the model expresses by choosing a tool name, where
+before it was safe by construction because every REQUEST_CHANGES paused.
+`github-mcp` cannot catch a mistake — it is write-only by decision 5 and has no
+access to the check reports — and `apps/cujo` is not on the posting path. So the
+folder checks the one direction it can: a malice rule tripped and nothing was
+held is under-gating, and ends the run `error` naming the rule, the same shape as
+decision 21's existing tripwire. Over-gating is undetectable and costs only a
+question nobody needed to answer. Neither is preventable: the review is already
+public under the bot's name by the time the fold sees it. Accepted, because the
+alternative is keeping every REQUEST_CHANGES gated, which is the ceremony this
+change removes.
