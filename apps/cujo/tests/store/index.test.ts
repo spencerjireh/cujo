@@ -367,6 +367,19 @@ describe("reclaimRunForHead", () => {
     expect(store.runs.getProjection(first.id)).toBeNull();
   });
 
+  it("deletes a run whatever its status, which is why the caller must settle it first", () => {
+    // The dangerous case, recorded here rather than left implicit: this method
+    // holds no harness and cannot cancel anything, so a caller that reclaims a
+    // running row leaves its turn alive with nothing to fold into.
+    // `startReview` supersedes first for exactly this reason.
+    const store = new Store(":memory:");
+    const { run } = store.runs.createRun(claim);
+    store.runs.updateRun(run.id, { turnIds: ["t1"] });
+    expect(store.runs.getRun(run.id)?.status).toBe("running");
+    expect(store.runs.reclaimRunForHead("o/r", 1, "h")).toBe(true);
+    expect(store.runs.getRun(run.id)).toBeNull();
+  });
+
   it("says there was nothing to reclaim for a head with no run", () => {
     const store = new Store(":memory:");
     expect(store.runs.reclaimRunForHead("o/r", 1, "nope")).toBe(false);

@@ -50,6 +50,22 @@ const KEPT = new Set([
   "turn.done",
 ]);
 
+/**
+ * Is this thing off the wire one of the events the fold reads?
+ *
+ * A type guard rather than a cast, because everything after this point treats
+ * the value as a trusted `Event`: it is filtered on `.type`, written into a
+ * fixture that is committed, and folded. The API is our own TrueForge, so this
+ * is not a hostile boundary — but a malformed payload should be dropped with a
+ * count a person can see, not carried into a fixture that then encodes it as
+ * the expected shape forever.
+ */
+function isKeptEvent(value: unknown): value is Event {
+  if (typeof value !== "object" || value === null) return false;
+  const event = value as { type?: unknown; id?: unknown };
+  return typeof event.type === "string" && typeof event.id === "string" && KEPT.has(event.type);
+}
+
 /** Chain-of-thought is bulky, model-specific, and read by nothing here. */
 function stripReasoning<T>(event: T): T {
   const copy = structuredClone(event) as Record<string, unknown>;
@@ -71,12 +87,13 @@ async function main(): Promise<void> {
     baseUrl: process.env.TRUEFORGE_BASE_URL ?? "http://localhost:8790",
   });
   const page = await client.sessions.listEvents(sessionId, { limit: 100 });
-  const all: Event[] = [];
-  for await (const item of page) all.push(item.event as Event);
+  const raw: unknown[] = [];
+  for await (const item of page) raw.push(item.event);
   // The API lists newest first, exactly as `Harness.listEvents` handles it.
-  all.reverse();
+  raw.reverse();
 
-  const events = all.filter((e) => KEPT.has(e.type)).map(stripReasoning);
+  const events = raw.filter(isKeptEvent).map(stripReasoning);
+  const dropped = raw.length - events.length;
   const verdict = verdictOf(events);
 
   if (flags.includes("--verdict")) {
@@ -109,7 +126,7 @@ async function main(): Promise<void> {
 
   const path = join(import.meta.dirname, "cases", `${slug}.json`);
   writeFileSync(path, `${JSON.stringify(fixture, null, 2)}\n`);
-  console.log(`wrote ${path} (${events.length} events of ${all.length})`);
+  console.log(`wrote ${path} (${events.length} events kept, ${dropped} dropped)`);
   console.log("Now read `expected` and decide whether it is the verdict you want.");
 }
 

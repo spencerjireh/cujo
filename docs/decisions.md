@@ -2805,13 +2805,29 @@ gone; `reclaimRunForHead` deletes it, and `deleteRun` takes its projection, its
 board page and its Discord message rows with it. The old evidence page stops
 resolving and a fresh card is posted.
 
+**A run still in flight is superseded before its row is deleted, never
+alongside it.** Deleting the row does not stop the turn: the harness keeps
+running it, `refold` keeps folding it into a row that is no longer there, and it
+can still post a review for the very head the new run is about to review.
+`supersede` cancels the turn first, which is what the webhook path has always
+done for an older head and what this path was missing on its first pass.
+
+The one case that refuses is the one `supersede` itself declines to cancel. When
+a human's `/cujo confirm` is landing on that run, `claimDecision` has set
+`approver` while the status is still `blocked_pending`, and cancelling would
+kill the turn that decision started (`run.supersede.deferred`). Deleting the row
+underneath it is worse than making somebody type the command again, so the reply
+asks them to.
+
 Rejected: **a mention** (`@cujo-guard review this again`), which decision 45
 already settled — a mention is a sentence, and a sentence can never carry a
 privileged verb. **Letting anyone who can comment ask**, which puts the cost of
 a sandbox in the hands of whoever opened the pull request, the concern
-decisions 44 and 47 both weighed. **Refusing while a run is in flight**, which
+decisions 44 and 47 both weighed. **Refusing whenever a run is in flight**, which
 would leave a wedged run with no way to clear it, since clearing one is exactly
-what somebody would reach for this to do.
+what somebody would reach for this to do — cancelling it first gets the same
+safety without that cost, and only a decision already landing is worth refusing
+for.
 
 ## 64. Nothing says when a compaction happened, so Cujo does not
 
