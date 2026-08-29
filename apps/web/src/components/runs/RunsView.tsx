@@ -1,30 +1,85 @@
 "use client";
 
+import { Chamber } from "@/components/board/Chamber";
+import { ChamberFallback } from "@/components/board/ChamberFallback";
+import { HeroReadout } from "@/components/board/HeroReadout";
+import { ReadoutRack } from "@/components/board/ReadoutRack";
+import { Record } from "@/components/board/Record";
 import { runsListOptions } from "@/lib/api/queries";
+import { boardMetrics } from "@/lib/board/metrics";
+import { specimensFrom } from "@/lib/board/specimen";
 import { useQuery } from "@tanstack/react-query";
-import { RunsTable } from "./RunsTable";
+import { useMemo } from "react";
 
+/**
+ * The board: the chamber, the rack, the record.
+ *
+ * One query feeds all three (`runsListOptions`, polling at 5 s while anything
+ * is live and 30 s otherwise), and every number below is derived from it in the
+ * browser. There is no aggregate endpoint and the page does not want one — the
+ * whole list arrives in a single response.
+ */
 export function RunsView() {
   const { data, error, isPending } = useQuery(runsListOptions());
+  const runs = useMemo(() => data?.runs ?? [], [data]);
+  const metrics = useMemo(() => boardMetrics(runs), [runs]);
+  // Fewer than the scene draws: the margin strip is a hundred pixels wide and
+  // the whole record in it would be a column of dots.
+  const specimens = useMemo(() => specimensFrom(runs, 14), [runs]);
 
   if (error) {
     return (
-      <p className="text-sm text-sev-critical">
-        The run list could not be loaded. Check that the Cujo API is reachable, then reload.
-      </p>
+      <div className="px-4 py-16 md:px-6">
+        <p className="font-mono text-sm text-sev-critical">
+          The run list could not be loaded. Check that the Cujo API is reachable, then reload.
+        </p>
+      </div>
     );
   }
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl">Runs</h1>
-      <p className="mb-6 text-sm text-fg-muted">
-        Every public pull request Cujo has executed, newest first.
-      </p>
+      {/* The chamber is always dark and always full width: it is the
+          instrument's viewport, and the page is the panel around it. The scene
+          composes its record to the right of centre, so the readout sits in the
+          left half rather than on top of the specimens. */}
+      <section
+        aria-label="The chamber"
+        className="relative isolate overflow-hidden bg-[var(--chamber)]"
+      >
+        {/* Two forms of the same record, because it is a long thin thing and a
+            viewport is not always wide. Wide: the scene, with the record
+            running beside the headline, which is what the camera is framed for.
+            Narrow: the chain hangs down the right margin, because the same
+            drawing turned sideways scales to a sliver of dots. */}
+        <div className="absolute inset-0 hidden lg:block">
+          <Chamber runs={runs} />
+        </div>
+        <div className="absolute inset-y-0 right-0 w-20 sm:w-28 lg:hidden" aria-hidden="true">
+          <ChamberFallback specimens={specimens} orientation="vertical" />
+        </div>
+        {/* A ground for the type on the wide layout, where it sits over the
+            scene. No box, no panel — the type just gets somewhere to sit. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-y-0 left-0 hidden w-3/5 bg-gradient-to-r from-[var(--chamber)] from-40% to-transparent lg:block"
+        />
+        <div className="relative flex min-h-[28rem] items-center py-16 pr-24 pl-4 sm:pr-32 md:pl-8 lg:min-h-[40rem] lg:pr-12 lg:pl-12">
+          <HeroReadout metrics={metrics} />
+        </div>
+      </section>
+
       {isPending ? (
-        <p className="text-sm text-fg-muted">Loading runs…</p>
+        <p className="border-line border-t px-4 py-6 font-mono text-xs text-fg-muted md:px-6">
+          Loading the record…
+        </p>
       ) : (
-        <RunsTable runs={data?.runs ?? []} />
+        <>
+          <ReadoutRack metrics={metrics} />
+          <div className="border-line border-t">
+            <Record runs={runs} />
+          </div>
+        </>
       )}
     </div>
   );
