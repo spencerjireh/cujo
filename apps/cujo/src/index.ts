@@ -169,24 +169,34 @@ async function main(): Promise<void> {
     // session. Deleting its row would leave that turn running: it would keep
     // folding into a row that no longer exists, and it could still post a
     // review for the head this command is about to review again. `supersede`
-    // cancels the turn and settles the run first, which is what the webhook
-    // path does for an older head and what this path was missing.
+    // cancels the turn first, which is what the webhook path does for an older
+    // head and what this path was missing.
     const existing = store.runs.runForPrHead(input.repo, input.prNumber, input.headSha);
-    if (existing && inFlight(existing.status)) {
-      await runner.supersede(existing.id);
-      // `supersede` declines to cancel when a human's decision is landing on
-      // that same run (`run.supersede.deferred`), because cancelling would kill
-      // the turn that decision started. Deleting the row underneath it would be
-      // worse, so this refuses rather than racing the person.
-      const settled = store.runs.getRun(existing.id);
-      if (settled && inFlight(settled.status)) {
-        return {
-          ok: false,
-          detail: "A decision on this commit's review is still being applied. Try again shortly.",
-        };
+    if (existing) {
+      if (inFlight(existing.status)) {
+        // The answer matters, and a resolved promise is not it. `supersede`
+        // swallows a failed `cancelTurn` — the harness being unreachable is not
+        // worth failing a supersession over — so it reports whether the turn is
+        // *confirmed* stopped. It also declines to cancel when a human's
+        // decision is landing on that run, because cancelling would kill the
+        // turn that decision started. Either way, deleting the row while a turn
+        // may still be alive is the one thing this must not do.
+        const stopped = await runner.supersede(existing.id);
+        if (!stopped) {
+          return {
+            ok: false,
+            detail:
+              "I could not confirm the current run for this commit has stopped, so I have left it alone. Try again shortly.",
+          };
+        }
       }
+      // By id, and never "whatever owns this head now". Two concurrent
+      // `/cujo review` commands both snapshot this same run and both wait on
+      // its supersession; a delete that re-queried by head would have the
+      // slower one delete the *replacement* the faster one just created, and
+      // that replacement's `startRun` would carry on against a deleted row.
+      store.runs.deleteRun(existing.id);
     }
-    store.runs.reclaimRunForHead(input.repo, input.prNumber, input.headSha);
     const { run, created } = store.runs.createRun({
       repo: input.repo,
       prNumber: input.prNumber,
@@ -196,6 +206,9 @@ async function main(): Promise<void> {
       deliveryId: null,
       ...provenance,
     });
+    // The race's other half, and the database settles it: `runs_head` is UNIQUE
+    // on (repo, pr_number, head_sha), so of two concurrent commands exactly one
+    // insert wins and the loser says so rather than starting a second turn.
     if (!created) return { ok: false, detail: "A run for this commit is already starting." };
     log.info("run.claimed", {
       run_id: run.id,

@@ -393,6 +393,23 @@ describe("/cujo review", () => {
     expect(h.comments[0]).toContain("cannot start a review from a comment");
   });
 
+  it("passes an unconfirmed stop through as a refusal, and starts nothing", async () => {
+    // The composed callback refuses when it cannot confirm the current run's
+    // turn has stopped, because the next thing it would do is delete that
+    // run's row — and a live turn with no row can still post a review.
+    const h = harness({
+      startReview: {
+        ok: false,
+        detail:
+          "I could not confirm the current run for this commit has stopped, so I have left it alone. Try again shortly.",
+      },
+    });
+    await h.send("/cujo review");
+    expect(h.comments[0]).toContain("could not confirm");
+    expect(h.comments[0]).toContain("left it alone");
+    expect(h.reacted).toEqual(["confused"]);
+  });
+
   it("still refuses a comment giving two different verbs", async () => {
     const h = harness();
     await h.send("/cujo review\n/cujo confirm");
