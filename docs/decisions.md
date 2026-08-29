@@ -1513,15 +1513,17 @@ anyone in the thread can write it, including a pull request's own author.
 the verb makes it prose about a command rather than a command. A mention can
 never carry a privileged verb.
 
-**And only where a reader can see it.** The scan drops fenced code, blockquotes
-and HTML comments first, which is a harder problem than it looks: a shorter
-fence does not close a longer one, four spaces opens an indented code block and
-not a fence, a blockquote swallows unmarked continuation lines until a blank
-one, and `<!-- /cujo confirm -->` renders as nothing at all. Each of those, read
-naively, is a way to write a command a maintainer will never see in a comment
-they might otherwise approve of. The scan is deliberately more eager to skip
-than GitHub is to hide: a skipped command costs one retry, a matched invisible
-one is the gate handed to whoever wrote the comment.
+**And only where a reader can see it.** The scan drops fenced code, blockquotes,
+HTML comments and raw HTML first, which is a harder problem than it looks: a
+shorter fence does not close a longer one, four spaces opens an indented code
+block and not a fence, a blockquote swallows unmarked continuation lines until a
+blank one, `<!-- /cujo confirm -->` renders as nothing at all, and GitHub accepts
+raw HTML so `<pre>` and `<details>` are two more ways to write a line that is not
+an instruction. Each of those, read naively, is a way to write a command a
+maintainer will never see in a comment they might otherwise approve of. The scan
+is deliberately more eager to skip than GitHub is to hide: a skipped command
+costs one retry, a matched invisible one is the gate handed to whoever wrote the
+comment.
 
 **Cujo ignores its own comments.** The success reply prints the verbs and a
 review body can quote them, so without the `BOT_LOGIN` check a reply would

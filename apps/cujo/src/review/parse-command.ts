@@ -40,6 +40,23 @@ const QUOTE = /^ {0,3}>/;
 /** Nothing a reader would see. */
 const BLANK = /^[ \t]*$/;
 
+/**
+ * CommonMark §4.6 condition 1: these hold their contents verbatim until their
+ * own closing tag, blank lines included. `<pre>` is the one that matters —
+ * GitHub renders what is inside it as code.
+ */
+const RAW_OPEN = /^ {0,3}<(pre|script|style|textarea)([ \t>]|$)/i;
+const RAW_CLOSE = /<\/(pre|script|style|textarea)>/i;
+
+/**
+ * Condition 6: a block-level tag opens an HTML block that runs to the next
+ * blank line. The list is CommonMark's, so an autolink like `<https://…>` at
+ * the start of a line is left alone rather than swallowing everything after it.
+ */
+const HTML_BLOCK_TAGS =
+  "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+const HTML_BLOCK_OPEN = new RegExp(`^ {0,3}</?(${HTML_BLOCK_TAGS})([ \\t/>]|$)`, "i");
+
 interface Fence {
   char: string;
   length: number;
@@ -56,22 +73,36 @@ function fenceCloses(line: string, fence: Fence): boolean {
 
 /**
  * The lines of a comment that GitHub renders as ordinary visible text, with
- * fenced code, blockquotes and HTML comments removed.
+ * fenced code, blockquotes, HTML comments and raw HTML blocks removed.
  *
  * Blockquote state is held until a blank line rather than per marked line.
  * CommonMark's lazy continuation (§5.1) keeps an unmarked line inside the
  * quote, so `> they said\n/cujo dismiss` renders wholly as a quotation while a
  * per-line test would read the second line as a command.
+ *
+ * GitHub allows raw HTML, so `<pre>` and `<details>` are two more ways to write
+ * a line that reads as code or sits inside markup rather than as an instruction
+ * somebody gave. Both classes are dropped, and they terminate differently: a
+ * `<pre>` runs to its closing tag (§4.6 condition 1) and a block-level tag runs
+ * to the next blank line (condition 6).
  */
 export function renderedLines(body: string): string[] {
   const out: string[] = [];
   let fence: Fence | null = null;
   let inQuote = false;
   let inHtmlComment = false;
+  let inRaw = false;
+  let inHtmlBlock = false;
 
   for (const line of body.replace(/\r\n?/g, "\n").split("\n")) {
     if (inHtmlComment) {
       if (line.includes("-->")) inHtmlComment = false;
+      continue;
+    }
+    if (inRaw) {
+      // Blank lines do not end a `<pre>`; only its closing tag does, which is
+      // why this is tracked apart from the blank-line-terminated blocks below.
+      if (RAW_CLOSE.test(line)) inRaw = false;
       continue;
     }
     if (fence !== null) {
@@ -94,8 +125,20 @@ export function renderedLines(body: string): string[] {
       if (!line.includes("-->")) inHtmlComment = true;
       continue;
     }
+    if (RAW_OPEN.test(line)) {
+      // A one-line `<pre>…</pre>` opens and closes here; either way the line
+      // itself carries a tag, so it is not a bare command.
+      if (!RAW_CLOSE.test(line)) inRaw = true;
+      continue;
+    }
     if (BLANK.test(line)) {
       inQuote = false;
+      inHtmlBlock = false;
+      continue;
+    }
+    if (inHtmlBlock) continue;
+    if (HTML_BLOCK_OPEN.test(line)) {
+      inHtmlBlock = true;
       continue;
     }
     if (inQuote) continue;
