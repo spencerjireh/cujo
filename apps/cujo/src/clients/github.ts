@@ -297,6 +297,61 @@ export class GitHubReader {
     }
   }
 
+  /**
+   * What can this login do to this repo? The principal behind `/cujo confirm`
+   * (Design 2), so it is the one read that decides whether a stranger may
+   * publish an accusation under the bot's name.
+   *
+   * Five answers, and `unknown` is the reason there are five. It is not a
+   * refusal — GitHub being unreachable says nothing about who someone is — but
+   * it is not permission either, and the caller has to say "I could not check,
+   * try again" rather than either "you may not" or nothing at all. Same shape
+   * as `repoIsPublic` above, and for the same reason.
+   *
+   * `none` and `unknown` are kept apart because only one of them is worth
+   * retrying. A 404 here is `none`: the endpoint answers 200 with
+   * `permission: "none"` for a non-collaborator on a repo it can see, so a 404
+   * means the repo or the user is not visible at all, and the safe reading of
+   * an invisible principal is that they are not one.
+   *
+   * Reachable with the App's existing `metadata: read`, checked live against
+   * the installation rather than read off the docs, which document no
+   * permission requirement for this endpoint whatsoever (decision 43).
+   */
+  async permissionFor(
+    repo: string,
+    login: string,
+  ): Promise<"admin" | "write" | "read" | "none" | "unknown"> {
+    try {
+      const path = `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`;
+      const res = await this.fetchImpl(`${API}${path}`, {
+        headers: {
+          authorization: `Bearer ${await this.token(repo)}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "cujo",
+        },
+      });
+      if (res.status === 404) return "none";
+      if (!res.ok) return "unknown";
+      const body = (await res.json()) as { permission?: string };
+      // The legacy base roles, which is what this field carries. A custom role
+      // shows up in `user.role_name` and is deliberately not read: Cujo asks
+      // one question, "may this person push", and a name it does not know the
+      // meaning of is not an answer to it.
+      switch (body.permission) {
+        case "admin":
+        case "write":
+        case "read":
+        case "none":
+          return body.permission;
+        default:
+          return "unknown";
+      }
+    } catch {
+      return "unknown";
+    }
+  }
+
   /** A file's bytes at a ref, or null when it is not there. */
   private async rawFile(repo: string, path: string, ref: string): Promise<string | null> {
     // A branch name may hold `/`, `#` or `&`. Unencoded, `#` truncates the ref

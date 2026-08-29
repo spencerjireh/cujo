@@ -1424,3 +1424,49 @@ installation on `spencerjireh/orders-api` holds exactly `contents: read`,
 So no installation has to re-approve, which is the bar decision 38 set when it
 rejected a Check Run for needing `checks: write`. The script that established
 this is worth re-running if the App's permissions are ever narrowed.
+
+## 44. Repo write is the principal that may publish an accusation
+
+[hitl.md](hitl.md) ends by naming the question it does not answer: *who, exactly,
+is the principal that may publish a public accusation naming a third party, and
+is repo write access that principal?* Design 2 rests entirely on the answer. It
+is yes, with one exception.
+
+Repo write is **broader** than the policy-verified email decision 34 kept Access
+for, not narrower. It includes the pull request's author, every bot with write
+access, and everyone a repo admin has ever added. Decision 28 rejected a
+downward swap of principal once already — Discord channel membership for an
+Access email — so the swap needs an argument rather than a shrug.
+
+The argument is that this is a different swap. Decision 28's was *sideways into
+a different system*: being in a Discord channel says nothing about a repository,
+so the two principals were not comparable and the weaker one was being
+substituted for convenience. Repo write is the authority that actually
+corresponds to the thing being decided. The claim is about code in a repository,
+the consequence lands on that repository's pull request, and the people who
+carry that consequence are the people who can merge to it. It is also
+self-serve, auditable in GitHub's own audit log, and revoked by removing
+someone — where an Access email is revoked by finding whoever holds a Cujo login.
+That is decision 31's argument for `.cujo.yml`, applied to a decision rather than
+a declaration.
+
+**The author exception is not optional.** The scenario this product exists for is
+hostile code in a pull request, and repo write includes whoever opened it. A
+denied gate posts nothing (`SKILL.md`), so `dismiss` is the direction that buries
+an accusation against one's own change, and the author is refused it by name.
+`confirm` by the author is allowed: acting against your own interest needs no
+guard.
+
+Three answers, and `unknown` is why there are more than two. GitHub being
+unreachable says nothing about who someone is, so it is not a refusal — but it is
+not permission either, and the caller says "I could not check, try again" rather
+than either "you may not" or nothing at all. The same tri-state
+`GitHubReader.repoIsPublic` and `notify/authorization.ts` already use, and for
+the same reason. `none` is kept apart from `unknown` because only one of them is
+worth retrying.
+
+What this does **not** claim: that repo write is as strong an identity as an
+email that passed a policy. It is not. What it claims is that it is the *right*
+identity for this decision, and that the audit trail it leaves — a GitHub login
+in `approver`, next to a comment in the pull request's own timeline — is more
+legible to the people affected than an email in a database they cannot read.
