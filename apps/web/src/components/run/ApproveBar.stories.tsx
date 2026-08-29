@@ -38,16 +38,16 @@ export const AdvisoryPending: Story = {
 };
 
 export const AlreadyApproved: Story = {
-  args: { run: run({ status: "blocked_posted", approver: "op@example.com", approval: null }) },
+  args: { run: run({ status: "blocked_posted" }) },
 };
 
 export const Denied: Story = {
-  args: { run: run({ status: "denied", approver: "op@example.com", approval: null }) },
+  args: { run: run({ status: "denied" }) },
 };
 
 /** A newer commit replaced this run, so the decision belongs on another page. */
 export const Superseded: Story = {
-  args: { run: run({ status: "superseded", approval: null }) },
+  args: { run: run({ status: "superseded" }) },
 };
 
 /**
@@ -55,7 +55,7 @@ export const Superseded: Story = {
  * paused with no approval recorded and must never offer a button.
  */
 export const TripwirePaused: Story = {
-  args: { run: run({ status: "blocked_pending", approval: null }) },
+  args: { run: run({ status: "blocked_pending" }) },
 };
 
 /** Resumed from the harness console rather than here. */
@@ -63,13 +63,11 @@ export const ResumedExternally: Story = {
   args: {
     run: run({
       status: "blocked_posted",
-      approver: "external",
-      approval: null,
       external_resume: true,
     }),
   },
 };
 
 export const StillRunning: Story = {
-  args: { run: run({ status: "running", approval: null, review: null }) },
+  args: { run: run({ status: "running", review: null }) },
 };

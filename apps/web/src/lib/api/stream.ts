@@ -41,18 +41,13 @@ export function reduceList(previous: RunList | undefined, snapshot: Run): RunLis
   if (index === -1) return previous;
   const row = previous.runs[index];
   if (!row) return previous;
-  if (
-    row.status === snapshot.status &&
-    row.updated_at === snapshot.updated_at &&
-    row.approver === snapshot.approver
-  ) {
+  if (row.status === snapshot.status && row.updated_at === snapshot.updated_at) {
     return previous;
   }
   const runs = previous.runs.slice();
   runs[index] = {
     ...row,
     status: snapshot.status,
-    approver: snapshot.approver,
     updated_at: snapshot.updated_at,
   };
   return { runs };
