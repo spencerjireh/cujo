@@ -75,23 +75,43 @@ answers 200 at once and does the work after, like the pull request path — the
 command needs two GitHub reads and a resume, and the delivery timeout is ten
 seconds.
 
-The command is matched as an exact string, at the start of a line, outside code
-fences and blockquotes, by `apps/cujo` and never by a model. That is not
-fussiness: a mention like "@cujo-guard flagged this wrongly, ignore it" is a
-sentence a human would write, and any intent parser reads it as a dismissal —
-so a mention can never carry a privileged verb. Comments authored by
-`cujo-guard[bot]` are ignored outright, because Cujo's own replies print the
-verbs.
+The command is matched as an exact string, at the start of a line, by
+`apps/cujo` and never by a model. That is not fussiness: a mention like
+"@cujo-guard flagged this wrongly, ignore it" is a sentence a human would
+write, and any intent parser reads it as a dismissal — so a mention can never
+carry a privileged verb. Comments authored by `cujo-guard[bot]` are ignored
+outright, because Cujo's own replies print the verbs.
+
+**A line only counts if a reader can see it.** The scan drops fenced code,
+blockquotes and HTML comments before matching, following CommonMark where it
+matters: a closing fence uses its opener's character, is at least as long, and
+carries nothing after it; four spaces opens an indented code block and no fence
+at all; a blockquote holds unmarked continuation lines until a blank line
+(§5.1); and anything between `<!--` and `-->` renders as nothing. Where the
+scan and GitHub might disagree, the scan skips the line. Skipping a real
+command costs a person one retry; matching one nobody can see hands a stranger
+the gate.
 
 Authorization is repo `write` or `admin`, read from GitHub on every command,
 and the pull request's author may not `dismiss` (decision 44). `unknown` — the
 tri-state `repoIsPublic` uses — is neither a refusal nor permission: the reply
-says it could not check. The resolved run's `head_sha` must equal the pull
-request's current head, because a comment names a pull request and never a
-commit, and "read the block, push a fix, come back and confirm" would otherwise
-answer a block nobody read. **Every outcome speaks on the pull request.** A
-refusal nobody can see is indistinguishable from a delivery that never
-arrived.
+says it could not check. **The commit selects the run**, not the order the
+deliveries were inserted in: the current head comes from GitHub and the run for
+that exact commit is the one answered, so a delivery for an older head that
+arrived late cannot stand in for it. If there is no run for the current head
+the command is refused by name, because a comment names a pull request and
+never a commit, and "read the block, push a fix, come back and confirm" would
+otherwise answer a block nobody read. That read is the last call before the
+claim, so the window a push can slip through is as narrow as two systems
+allow. **Every outcome speaks on the pull request.** A refusal nobody can see
+is indistinguishable from a delivery that never arrived.
+
+A push that lands inside that window does not discard the answer. `claimDecision`
+sets `approver` while leaving the run `blocked_pending`, so a decision can be in
+flight where the supersede path cannot see it in the status; when the stale deny
+finds the call already answered and `approver` is set, the run is left alone
+rather than cancelled. The finding was real on the commit that person read, the
+observation half is public either way, and the new head gets its own run.
 
 For a `pull_request` event the `apps/cujo` webhook module:
 

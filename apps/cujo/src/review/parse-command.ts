@@ -10,7 +10,12 @@
  *
  * Everything below is about not matching text that only looks like a command:
  * a comment quoting one, a review body echoing one back, a code block showing
- * someone how to use it.
+ * someone how to use it, an HTML comment nobody can see at all.
+ *
+ * The rule the whole file serves: **a line only counts if a reader can see
+ * it.** Where GitHub's markdown and this scanner might disagree, the scanner
+ * skips the line. Skipping a real command costs a person one retry; matching
+ * an invisible one hands a stranger the gate.
  */
 
 import type { CommandVerb } from "./command-authorization";
@@ -23,10 +28,85 @@ export type CommandParse =
 
 /** `/cujo <verb>`, alone on its line. Nothing after it, so a sentence is not a command. */
 const COMMAND = /^\/cujo[ \t]+(confirm|dismiss)[ \t]*$/;
-/** ``` or ~~~, any length from three. */
-const FENCE = /^\s*(`{3,}|~{3,})/;
-/** A quoted line, which is someone repeating a command rather than giving one. */
-const QUOTE = /^\s*>/;
+
+/**
+ * A fence opener: up to three leading spaces, then three or more backticks or
+ * tildes. Four spaces is an indented code block and opens nothing — CommonMark
+ * §4.5. The rest of the line is the info string.
+ */
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+/** A blockquote marker, under the same three-space allowance. */
+const QUOTE = /^ {0,3}>/;
+/** Nothing a reader would see. */
+const BLANK = /^[ \t]*$/;
+
+interface Fence {
+  char: string;
+  length: number;
+}
+
+function fenceCloses(line: string, fence: Fence): boolean {
+  const match = FENCE_OPEN.exec(line);
+  const marker = match?.[1];
+  if (!marker || marker[0] !== fence.char) return false;
+  // A closing fence is at least as long as the opener and carries nothing else
+  // (CommonMark §4.5), so ``` does not close ````` and ```js never closes.
+  return marker.length >= fence.length && /^[ \t]*$/.test(match?.[2] ?? "");
+}
+
+/**
+ * The lines of a comment that GitHub renders as ordinary visible text, with
+ * fenced code, blockquotes and HTML comments removed.
+ *
+ * Blockquote state is held until a blank line rather than per marked line.
+ * CommonMark's lazy continuation (§5.1) keeps an unmarked line inside the
+ * quote, so `> they said\n/cujo dismiss` renders wholly as a quotation while a
+ * per-line test would read the second line as a command.
+ */
+export function renderedLines(body: string): string[] {
+  const out: string[] = [];
+  let fence: Fence | null = null;
+  let inQuote = false;
+  let inHtmlComment = false;
+
+  for (const line of body.replace(/\r\n?/g, "\n").split("\n")) {
+    if (inHtmlComment) {
+      if (line.includes("-->")) inHtmlComment = false;
+      continue;
+    }
+    if (fence !== null) {
+      if (fenceCloses(line, fence)) fence = null;
+      continue;
+    }
+    const opener = FENCE_OPEN.exec(line);
+    if (opener?.[1]) {
+      // A backtick fence's info string may not contain a backtick, which is
+      // what keeps `` `a` `` from being read as a fence.
+      if (opener[1][0] === "~" || !(opener[2] ?? "").includes("`")) {
+        fence = { char: opener[1][0] ?? "", length: opener[1].length };
+        continue;
+      }
+    }
+    if (line.includes("<!--")) {
+      // A line carrying an HTML comment is skipped whether or not the comment
+      // closes on it: a command has to be the whole line, so a line with room
+      // for both is not one.
+      if (!line.includes("-->")) inHtmlComment = true;
+      continue;
+    }
+    if (BLANK.test(line)) {
+      inQuote = false;
+      continue;
+    }
+    if (inQuote) continue;
+    if (QUOTE.test(line)) {
+      inQuote = true;
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
 
 /**
  * The verb this comment gives, if any.
@@ -37,21 +117,8 @@ const QUOTE = /^\s*>/;
  */
 export function parseCommand(body: string): CommandParse {
   const verbs = new Set<CommandVerb>();
-  let fence: string | null = null;
-
-  for (const raw of body.replace(/\r\n?/g, "\n").split("\n")) {
-    const fenceMatch = FENCE.exec(raw);
-    if (fenceMatch?.[1]) {
-      const marker = fenceMatch[1][0] ?? "";
-      // A fence closes only on its own character, so ``` inside a ~~~ block
-      // does not end it.
-      if (fence === null) fence = marker;
-      else if (fence === marker) fence = null;
-      continue;
-    }
-    if (fence !== null) continue;
-    if (QUOTE.test(raw)) continue;
-    const match = COMMAND.exec(raw);
+  for (const line of renderedLines(body)) {
+    const match = COMMAND.exec(line);
     if (match?.[1]) verbs.add(match[1] as CommandVerb);
   }
 

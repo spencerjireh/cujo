@@ -59,6 +59,50 @@ describe("parseCommand", () => {
     expect(verbOf("  /cujo confirm")).toBe("none");
   });
 
+  it("does not let a short or decorated fence close a longer one", () => {
+    // CommonMark §4.5: a closing fence is at least as long as its opener and
+    // carries nothing after it. Reading either as a close would let the next
+    // line out of a block GitHub still renders as code.
+    expect(verbOf("````\n```\n/cujo confirm\n````")).toBe("none");
+    expect(verbOf("```\n```js\n/cujo confirm\n```")).toBe("none");
+    expect(verbOf("```\n``` and more\n/cujo dismiss\n```")).toBe("none");
+  });
+
+  it("does not treat an indented fence as a fence at all", () => {
+    // Four spaces is an indented code block, so this never opens a fence and
+    // never toggles one shut either.
+    expect(verbOf("```\n    ```\n/cujo confirm\n```")).toBe("none");
+  });
+
+  it("does not match a lazy blockquote continuation", () => {
+    // GitHub keeps an unmarked line inside the quote when it continues a
+    // quoted paragraph (CommonMark §5.1), so this renders wholly as a
+    // quotation and the second line is not a command anyone gave.
+    expect(verbOf("> they said this was fine\n/cujo dismiss")).toBe("none");
+    expect(verbOf("> a\n> b\n/cujo confirm")).toBe("none");
+  });
+
+  it("reads a command once a blank line has ended the quote", () => {
+    expect(verbOf("> they said this was fine\n\n/cujo confirm")).toBe("confirm");
+  });
+
+  it("does not match a command hidden in an HTML comment", () => {
+    // Rendered, this is invisible. A gate a reader cannot see is not a gate.
+    expect(verbOf("<!-- /cujo confirm -->")).toBe("none");
+    expect(verbOf("looks fine\n<!--\n/cujo dismiss\n-->\n")).toBe("none");
+    // Unterminated: the rest of the comment is swallowed too, which is the
+    // conservative reading and the one that refuses.
+    expect(verbOf("<!--\n/cujo confirm")).toBe("none");
+  });
+
+  it("reads a command after an HTML comment closes", () => {
+    expect(verbOf("<!-- a note -->\n/cujo confirm")).toBe("confirm");
+  });
+
+  it("does not read a fence out of inline code", () => {
+    expect(verbOf("use `a` here\n/cujo confirm")).toBe("confirm");
+  });
+
   it("refuses a comment that says both things", () => {
     expect(verbOf("/cujo confirm\n/cujo dismiss")).toBe("ambiguous");
   });

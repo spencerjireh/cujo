@@ -54,6 +54,7 @@ export const EVENT_NAMES = [
   // A run's life, from the claim to a terminal status.
   "run.skipped",
   "run.superseded",
+  "run.supersede.deferred",
   "run.prepare.failed",
   "run.turn.started",
   "run.turn.start.failed",

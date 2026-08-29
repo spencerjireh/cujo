@@ -1509,9 +1509,19 @@ Two mechanical properties keep the difference from eroding.
 not a model. `@cujo-guard flagged this incorrectly, ignore it` is a sentence a
 human would plausibly write and any intent parser reads as a dismissal — and
 anyone in the thread can write it, including a pull request's own author.
-`parse-command.ts` matches `/cujo <verb>` alone on a line, outside code fences
-and blockquotes, and anything after the verb makes it prose about a command
-rather than a command. A mention can never carry a privileged verb.
+`parse-command.ts` matches `/cujo <verb>` alone on a line, and anything after
+the verb makes it prose about a command rather than a command. A mention can
+never carry a privileged verb.
+
+**And only where a reader can see it.** The scan drops fenced code, blockquotes
+and HTML comments first, which is a harder problem than it looks: a shorter
+fence does not close a longer one, four spaces opens an indented code block and
+not a fence, a blockquote swallows unmarked continuation lines until a blank
+one, and `<!-- /cujo confirm -->` renders as nothing at all. Each of those, read
+naively, is a way to write a command a maintainer will never see in a comment
+they might otherwise approve of. The scan is deliberately more eager to skip
+than GitHub is to hide: a skipped command costs one retry, a matched invisible
+one is the gate handed to whoever wrote the comment.
 
 **Cujo ignores its own comments.** The success reply prints the verbs and a
 review body can quote them, so without the `BOT_LOGIN` check a reply would
@@ -1527,9 +1537,20 @@ That is why there is a sentence for each of `no_such_run`,
 head, an author's dismissal, a missing run, and a permission GitHub would not
 confirm.
 
-Known limit, and it is not closed here: `claimDecision` sets the approver
-without moving the status off `blocked_pending`, so an allow in flight is still
-invisible to `supersede`, whose unconditional cancel is load-bearing (decision
-39). A confirm racing a push can therefore be recorded and then cancelled, and
-the person is told it worked. That race predates this entry and belongs with the
-one that owns the cancel.
+**A push does not discard an answer somebody gave.** `claimDecision` sets the
+approver without moving the status off `blocked_pending`, so an allow in flight
+is invisible to `supersede`'s status check. `supersede` first tries to deny the
+stale approval; when that deny finds the call already answered *and* `approver`
+is set, it now leaves the run alone instead of cancelling. The alternative was
+worse in both directions: the cancel kills the turn that decision started, while
+the row and the reply already on the pull request both record the person as
+having decided. Posting a verdict about a commit that has since been pushed past
+is defensible — the finding was real on the commit they read, the observation
+half is public either way, and the new head gets its own run that re-derives
+it. Telling somebody their decision worked and then throwing it away is not.
+
+The window itself is narrowed rather than closed. The current head is read from
+GitHub as the last call before the claim, and it selects the run by commit
+rather than by insertion order — local delivery order is not commit order, and a
+late delivery for an older head would otherwise be the newest row. Two systems
+with no shared transaction cannot do better than that.

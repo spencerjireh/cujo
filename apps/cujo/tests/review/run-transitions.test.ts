@@ -524,4 +524,46 @@ describe("healing a wedged session", () => {
     });
     runner.stopAll();
   });
+
+  it("does not cancel a turn a person's decision already started", async () => {
+    // `claimDecision` sets `approver` but leaves the run `blocked_pending`, so
+    // a decision can be in flight while a push arrives. Cancelling then kills
+    // the turn that decision started while the row — and the reply already on
+    // the pull request — record the person as having decided.
+    const store = new Store(":memory:");
+    const { log, logged } = sink();
+    let cancelled = 0;
+    const runner = new Runner(
+      store.runs,
+      {
+        // The stale deny cannot land: the call it would answer is already
+        // answered, which is exactly how this race presents.
+        resume: async () => {
+          throw new Error("approval already answered");
+        },
+        cancelTurn: async () => {
+          cancelled += 1;
+        },
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    const { run } = store.runs.createRun(claim());
+    await runner.consume(
+      run.id,
+      streamOf([turnCreated("t1"), approvalRequired("c1"), turnDone("t1")]),
+    );
+    expect(store.runs.claimDecision(run.id, "github:maintainer", new Date().toISOString())).toBe(
+      true,
+    );
+
+    await runner.supersede(run.id);
+
+    expect(cancelled).toBe(0);
+    expect(logged("run.supersede.deferred")[0]).toMatchObject({
+      reason: "decision_in_flight",
+      run_id: run.id,
+    });
+    runner.stopAll();
+  });
 });

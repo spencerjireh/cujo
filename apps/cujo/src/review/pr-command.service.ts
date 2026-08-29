@@ -131,20 +131,27 @@ export class PrCommandService {
     }
     const { verb } = parsed;
 
-    const run = this.deps.runs.latestRunForPr(command.repo, command.prNumber);
-    if (!run) {
+    // Cheap and local: a comment on a pull request Cujo never touched is the
+    // common case on a busy repo, and it costs no GitHub call to say so.
+    const known = this.deps.runs.latestRunForPr(command.repo, command.prNumber);
+    if (!known) {
       return refuse(
         "no_run",
         "I have not reviewed this pull request, so there is nothing to answer.",
       );
     }
 
+    const permission = await this.deps.github.permissionFor(command.repo, command.actor);
+
+    // Read last of the two, so this is the final `await` before the claim. A
+    // comment names a pull request, never a commit, and a push between the
+    // reading and the deciding is the whole hazard; nothing shortens the gap
+    // further without a transaction spanning two systems.
     const head = await this.deps.github.pullRequestHead(command.repo, command.prNumber);
     if (!head) {
       return refuse("pr_unreadable", "I could not read this pull request just now. Try again.");
     }
 
-    const permission = await this.deps.github.permissionFor(command.repo, command.actor);
     const auth = authorizeCommand({
       verb,
       permission,
@@ -153,13 +160,14 @@ export class PrCommandService {
     });
     if (!auth.allowed) return refuse(auth.reason, AUTHORIZATION_TEXT[auth.reason]);
 
-    // A comment names a pull request, never a commit. Read the block, push a
-    // fix, come back and confirm, and without this the confirm lands on the new
-    // head's block — which nobody has read.
-    if (run.headSha !== head.headSha) {
+    // The commit decides which run this answers, not the order the deliveries
+    // happened to be inserted in. Read the block, push a fix, come back and
+    // confirm, and the run for the old commit is refused by name.
+    const run = this.deps.runs.runForPrHead(command.repo, command.prNumber, head.headSha);
+    if (!run) {
       return refuse(
         "stale_head",
-        `This pull request moved on since that review: it was \`${SHORT(run.headSha)}\`, it is now \`${SHORT(head.headSha)}\`. I am not answering an old commit's finding. The newest run is the one to decide.`,
+        `This pull request moved on since I last reviewed it: I have a run for \`${SHORT(known.headSha)}\`, and it is now on \`${SHORT(head.headSha)}\`. I am not answering an old commit's finding — decide on the run for the current commit once it finishes.`,
       );
     }
 

@@ -66,6 +66,50 @@ interface IssueCommentEvent {
   comment: { id: number; body: string; user: { login: string } | null };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The payload, or null if it is not the shape GitHub documents.
+ *
+ * A cast is a claim about a stranger's JSON, and this is the one route that
+ * turns a stranger's JSON into a decision on a review. Every field the handler
+ * or the command service reads is checked here, once, so nothing downstream
+ * touches a property of something that might be a number. `user` is nullable
+ * for real — a deleted account — and stays that way.
+ */
+function parseIssueComment(body: string): IssueCommentEvent | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!isRecord(raw)) return null;
+  const { action, repository, issue, comment } = raw;
+  if (typeof action !== "string") return null;
+  if (!isRecord(repository) || typeof repository.full_name !== "string") return null;
+  if (!isRecord(issue) || typeof issue.number !== "number") return null;
+  if (!isRecord(comment) || typeof comment.id !== "number" || typeof comment.body !== "string") {
+    return null;
+  }
+  const user = comment.user;
+  if (user !== null && user !== undefined && !(isRecord(user) && typeof user.login === "string")) {
+    return null;
+  }
+  return {
+    action,
+    repository: { full_name: repository.full_name },
+    issue: { number: issue.number, pull_request: issue.pull_request },
+    comment: {
+      id: comment.id,
+      body: comment.body,
+      user: isRecord(user) && typeof user.login === "string" ? { login: user.login } : null,
+    },
+  };
+}
+
 /**
  * A comment on a pull request, which may be a `/cujo` command (Design 2).
  *
@@ -83,7 +127,11 @@ function handleIssueComment(
   body: string,
   log: Logger,
 ): Response {
-  const event = JSON.parse(body) as IssueCommentEvent;
+  const event = parseIssueComment(body);
+  if (!event) {
+    log.debug("webhook.ignored", { event_type: "issue_comment", reason: "malformed" });
+    return c.json({ ok: true, ignored: "malformed" }, 200);
+  }
   // `edited` and `deleted` are deliberately not acted on. A command that can be
   // typed into an existing comment is a command whose author is not the person
   // the payload names at the time it fires.
@@ -104,14 +152,26 @@ function handleIssueComment(
     return c.json({ ok: true, ignored: "not_configured" }, 200);
   }
 
-  void deps.prCommands.handle({
-    repo: event.repository.full_name,
-    prNumber: event.issue.number,
-    commentId: event.comment.id,
-    actor: event.comment.user?.login ?? "",
-    body: event.comment.body,
-    log,
-  });
+  // `handle` is built never to throw — every outcome speaks on the pull
+  // request — but the delivery is already answered by the time it runs, so an
+  // unhandled rejection here would be a person waiting on a reply that never
+  // comes, with nothing in the log to say why.
+  void deps.prCommands
+    .handle({
+      repo: event.repository.full_name,
+      prNumber: event.issue.number,
+      commentId: event.comment.id,
+      actor: event.comment.user?.login ?? "",
+      body: event.comment.body,
+      log,
+    })
+    .catch((error: unknown) => {
+      log.error("comment.command.failed", {
+        repo: event.repository.full_name,
+        pr_number: event.issue.number,
+        error_kind: error instanceof Error ? error.name : "unknown",
+      });
+    });
   return c.json({ ok: true, accepted: "comment" }, 200);
 }
 

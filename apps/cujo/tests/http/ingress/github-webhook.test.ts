@@ -275,6 +275,35 @@ describe("webhook", () => {
       expect(handled).toEqual([]);
     });
 
+    it("answers 200 and does nothing on a payload that is not the documented shape", async () => {
+      // A signed delivery is trustworthy about its origin, not about its
+      // shape. This is the one route that turns a stranger's JSON into a
+      // decision on a review, so every field it reads is checked before
+      // anything reads one.
+      const bad = [
+        "not json at all",
+        JSON.stringify([1, 2, 3]),
+        commentEvent({ repository: { full_name: 42 } }),
+        commentEvent({ issue: { number: "7", pull_request: {} } }),
+        commentEvent({ comment: { id: 55, body: null, user: { login: "m" } } }),
+        commentEvent({ comment: { id: 55, body: "/cujo confirm", user: { login: 7 } } }),
+      ];
+      for (const body of bad) {
+        const { app, handled } = withCommands();
+        const res = await send(app, body);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({ ignored: "malformed" });
+        expect(handled).toEqual([]);
+      }
+    });
+
+    it("accepts a comment whose author was deleted, naming nobody", async () => {
+      const { app, handled } = withCommands();
+      const res = await send(app, commentEvent({ comment: { id: 55, body: "hi", user: null } }));
+      expect(res.status).toBe(200);
+      expect(handled[0]).toMatchObject({ actor: "" });
+    });
+
     it("ignores a comment on an issue, which is not a pull request", async () => {
       const { app, handled } = withCommands();
       const res = await send(app, commentEvent({ issue: { number: 7 } }));
