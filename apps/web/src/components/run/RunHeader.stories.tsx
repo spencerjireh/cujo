@@ -16,14 +16,13 @@ export const Clean: Story = {
   args: {
     run: run({
       status: "clean",
-      approval: null,
       summary: "Four checks ran. Nothing tripped.",
     }),
   },
 };
 
 export const Decided: Story = {
-  args: { run: run({ status: "blocked_posted", approver: "op@example.com", approval: null }) },
+  args: { run: run({ status: "blocked_posted" }) },
 };
 
 /**
@@ -34,7 +33,6 @@ export const Errored: Story = {
   args: {
     run: run({
       status: "error",
-      approval: null,
       error:
         "advisory review posted while a hard rule had tripped: an install contacted an unknown host",
     }),
@@ -42,7 +40,7 @@ export const Errored: Story = {
 };
 
 export const NoSummaryYet: Story = {
-  args: { run: run({ status: "running", approval: null, summary: null, review: null }) },
+  args: { run: run({ status: "running", summary: null, review: null }) },
 };
 
 /**

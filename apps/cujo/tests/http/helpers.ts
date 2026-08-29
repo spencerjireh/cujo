@@ -1,8 +1,8 @@
 /**
  * The composed app, built the way index.ts builds it. Shared by the router
  * test and the webhook test, because both assert on behaviour that only exists
- * once the host dispatch, the Access gate and the ingress routes are wired
- * together — mounting a sub-router on its own would not reproduce any of it.
+ * once the host dispatch and the ingress routes are wired together — mounting
+ * a sub-router on its own would not reproduce any of it.
  */
 
 import { type Level, createLogger } from "@cujo/log";
@@ -12,8 +12,8 @@ import { createApp } from "../../src/http/router";
 import type { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
 
-export const UI = "cujo.test";
 export const HOOK = "cujo-ingress.test";
+/** The only name the read plane answers on, since decision 57. */
 export const INTERNAL = "cujo-internal.test";
 
 /** A fake runner that records the store transitions the real one would make. */
@@ -86,18 +86,8 @@ export function build(
     } as unknown as GitHubReader);
   const app = createApp({
     log,
-    uiHost: UI,
     internalHost: INTERNAL,
     webhookHost: HOOK,
-    api: {
-      runs: store.runs,
-      notifications: store.notifications,
-      runner,
-      verify: async (t) =>
-        t === "good"
-          ? { operator: "operator", reason: null }
-          : { operator: null, reason: "no_assertion" as const },
-    },
     public: {
       runs: store.runs,
       runner,
@@ -125,10 +115,7 @@ export function build(
             store: store.notifications,
             discord: {} as never,
             github,
-            links: {
-              uiBaseUrl: "https://cujo-admin.example.com",
-              publicBaseUrl: "https://cujo.example.com",
-            },
+            links: { publicBaseUrl: "https://cujo.example.com" },
             defaultGuild: null,
           },
         }

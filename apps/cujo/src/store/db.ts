@@ -57,9 +57,20 @@ export const MIGRATIONS: readonly string[] = [
   //     than one, because SQLite's ALTER TABLE adds a single column.
   "ALTER TABLE run_pr_meta ADD COLUMN author_login TEXT",
   "ALTER TABLE run_pr_meta ADD COLUMN author_id INTEGER",
+  // 6 — the operator override of Contract 8's authorization, deleted with the
+  //     plane that was its only write path (decision 57). A repo's own
+  //     `.cujo.yml` is the authority now, so a table nothing reads would be a
+  //     trap: the next person to find rows in it would conclude the override
+  //     still works. Removing it from SCHEMA alone would not touch a deployed
+  //     database, because every statement there is IF NOT EXISTS.
+  //
+  //     Last, and that is not cosmetic. `migrate()` walks `user_version`
+  //     forward, so a database that already ran the two above would never see
+  //     this one if it were inserted before them.
+  "DROP TABLE IF EXISTS discord_guild_repos",
 ];
 
-const SCHEMA = `
+export const SCHEMA = `
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS sessions (
     repo TEXT NOT NULL,
@@ -135,18 +146,6 @@ const SCHEMA = `
   -- interactions endpoint will need, enforced now while it is free.
   CREATE UNIQUE INDEX IF NOT EXISTS run_discord_message_id
     ON run_discord_messages (message_id) WHERE message_id IS NOT NULL;
-  -- Contract 8. Which Discord server may manage which repo's
-  -- notifications. Written only over the Access-gated API, so the reach of
-  -- a server is always a decision an operator's email is attached to
-  -- (decision 28).
-  CREATE TABLE IF NOT EXISTS discord_guild_repos (
-    guild_id TEXT NOT NULL,
-    repo TEXT NOT NULL,
-    guild_name TEXT,
-    authorized_by TEXT NOT NULL,
-    authorized_at TEXT NOT NULL,
-    PRIMARY KEY (guild_id, repo)
-  );
   -- What the pull request itself says: its title, and who opened it. The
   -- webhook is the only place either is read. Kept at its original shape
   -- here, like every other table above; the author columns arrive through

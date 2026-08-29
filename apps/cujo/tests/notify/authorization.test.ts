@@ -80,15 +80,16 @@ describe("authorizationFor", () => {
     });
   });
 
-  it("still answers from the operator table without reading GitHub", async () => {
-    const { store, deps: d } = deps(null, OURS);
-    store.authorizeGuildRepo({
-      guildId: THEIRS,
-      repo: REPO,
-      guildName: null,
-      authorizedBy: "operator@example.com",
+  it("has no override to answer from, so it always asks the repo", async () => {
+    // The operator table used to short-circuit this and was the only way a
+    // server could be allowed without the repo saying so. Decision 57 deleted
+    // it, so repo write access is the whole authority now (decision 31) and
+    // `.cujo.yml` is read on every question.
+    const { deps: d } = deps(null, OURS);
+    expect(await authorizationFor(d, THEIRS, REPO)).toEqual({
+      allowed: false,
+      reason: "not_declared",
     });
-    expect(await authorizationFor(d, THEIRS, REPO)).toEqual({ allowed: true, source: "operator" });
-    expect(d.github.declaredGuild).not.toHaveBeenCalled();
+    expect(d.github.declaredGuild).toHaveBeenCalled();
   });
 });

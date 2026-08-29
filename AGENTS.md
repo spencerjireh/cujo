@@ -41,16 +41,13 @@ Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/web`, `@cujo/gh-app-au
 
 Local stack (`make up-local` = `docker compose -f docker-compose.yml -f
 docker-compose.local.yml up --build`): the UI on :3000, TrueForge console/API
-on :8790, `cujo` on :8080 (dispatches on `Host`: `cujo-admin.localhost` and the
-internal name `cujo` = API, `cujo-ingress.localhost` = webhook), `github-mcp`
-on :8081. The UI serves two planes off one port, told apart by `Host`: open
-http://cujo.localhost:3000 for the public read-only board and
-http://cujo-admin.localhost:3000 for the operator view (decision 34). Plain
-http://localhost:3000 matches neither, so it falls back to the operator plane,
-which is the safe direction and is open locally anyway because
-`CUJO_DEV_NO_ACCESS=1`. `make clean` drops the database volume. The deploy uses
-`docker-compose.yml` alone; never make the base file depend on the overlay or
-the Makefile.
+on :8790, `cujo` on :8080 (dispatches on `Host`: the internal name `cujo` =
+the read API, `cujo-ingress.localhost` = webhook and Discord), `github-mcp` on
+:8081. Curl the API with `-H 'Host: cujo'`, which is what every production
+request carries too; anything outside `/public` is 404 there, and there is no
+credential to present (decision 57). Open http://localhost:3000 for the board.
+`make clean` drops the database volume. The deploy uses `docker-compose.yml`
+alone; never make the base file depend on the overlay or the Makefile.
 
 ## Architecture
 
@@ -75,7 +72,6 @@ src/
   http/
     router.ts       the host split, in one place
     ingress/        INTERNET. A signature is the only gate. Cannot approve.
-    operator/       a bearer token. Reads and Discord bindings; decides no review.
     public/         INTERNET, no gate. Read-only, public repos, no operator named.
   review/           a PR becomes a run: start, follow, fold, hard rules
   converse/         @cujo-guard: its own session, no write tool, never Runner
@@ -85,15 +81,15 @@ src/
 tests/              mirrors src/ exactly
 ```
 
-Two hostnames and two planes, one process: the webhook host carries the
-signature-gated ingress routes, and the UI host carries both the token-gated
-API and the ungated `/public` group. Enforced in `http/router.ts` and not only
-at the edge — the gated plane is a separate Hono instance the UI host delegates
-to, so its `app.use("*")` gate cannot compose with the public handlers. The
-public split is a path and not a third hostname because this process never
-receives the public name (decision 34); `http/public/serialize.ts` is an
-allowlist, and adding a field to `Projection` or `RunRecord` fails its test
-until classified.
+Two hostnames and two planes, one process, and **no authenticated route at
+all** (decision 57): the webhook host carries the signature-gated ingress
+routes, and the internal compose name carries the ungated `/public` group.
+Enforced in `http/router.ts` and not only at the edge. Outside `/public` the
+answer is 404 and not 401 — there is no credential to present, so a 401 would
+be a route somebody could still reach with the right header. The read plane
+answers on the internal name because this process never receives a published
+one (decision 34); `http/public/serialize.ts` is an allowlist, and adding a
+field to `Projection` or `RunRecord` fails its test until classified.
 
 `apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the
 MCP server whose one destructive tool is the entire human gate; `agent/SKILL.md`

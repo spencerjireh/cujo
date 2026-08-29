@@ -10,7 +10,10 @@
  * have it and was largely vacuous.** A sentinel is only evidence if the app is
  * really holding it, so this covers exactly the two secrets the composed test
  * app is configured with — the webhook HMAC secret, injected for real, and the
- * Access assertion, which arrives on the request. The App private key, the
+ * Access assertion, which arrives on the request. The assertion no longer
+ * names a gate (decision 57 deleted the last one), but a client can still send
+ * the header, and a credential-shaped value on an anonymous request is exactly
+ * the thing that must not end up in a line. The App private key, the
  * Discord token and the provider keys are held by clients this harness fakes,
  * so asserting they do not leak here would be asserting nothing. Those are
  * covered by the field allowlist and the scalar-only value type, which is why
@@ -23,7 +26,7 @@
 
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { HOOK, UI, build, req } from "./helpers";
+import { HOOK, INTERNAL, build, req } from "./helpers";
 
 /** The HMAC secret the app is actually configured with, below. */
 const WEBHOOK_SECRET = "SENTINEL_githubWebhookSecret";
@@ -81,9 +84,12 @@ describe("no configured secret reaches a log line", () => {
       }),
     );
 
-    // A refused read. On a failed verification nothing in that token has been
-    // checked, so no claim from it — and not the token itself — may be logged.
-    await app.fetch(req(UI, "/runs", { headers: { "cf-access-jwt-assertion": ASSERTION } }));
+    // An anonymous read carrying a credential-shaped header nobody asked for.
+    // Nothing verifies it any more, which is precisely why nothing may log it:
+    // an unverified token is attacker-supplied text on a public request.
+    await app.fetch(
+      req(INTERNAL, "/public/runs", { headers: { "cf-access-jwt-assertion": ASSERTION } }),
+    );
 
     // And a request nobody routed, which is the one most likely to be queried.
     await app.fetch(req("stranger.test", "/runs"));
@@ -117,7 +123,13 @@ describe("no configured secret reaches a log line", () => {
       delivery_id: "d-witness",
       repo: "o/r",
     });
-    await app.fetch(req(UI, "/runs", { headers: { "cf-access-jwt-assertion": ASSERTION } }));
-    expect(logged("access.denied")[0]).toMatchObject({ path: "/runs" });
+    await app.fetch(
+      req(INTERNAL, "/public/runs", { headers: { "cf-access-jwt-assertion": ASSERTION } }),
+    );
+    expect(logged("http.request").at(-1)).toMatchObject({
+      plane: "public",
+      path: "/public/runs",
+      http_status: 200,
+    });
   });
 });

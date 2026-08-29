@@ -77,10 +77,15 @@ function build(
   } = {},
 ) {
   const store = new Store(":memory:");
+  // Repos whose `.cujo.yml` names this server. Mutable so a test can declare
+  // one with `authorize`, or revert one mid-command.
+  const declared = new Set<string>();
   const discord = fakeDiscord(options.discord);
   const github = {
     installedRepos: vi.fn(async () => options.repos ?? ["spencerjireh/orders-api"]),
-    declaredGuild: vi.fn(async () => options.declaredGuild ?? null),
+    declaredGuild: vi.fn(async (repo: string) =>
+      declared.has(repo.toLowerCase()) ? GUILD : (options.declaredGuild ?? null),
+    ),
   };
   const settled: ((name: string) => void)[] = [];
   const nextSettled = () => new Promise<string>((resolve) => settled.push(resolve));
@@ -90,14 +95,11 @@ function build(
     store: store.notifications,
     discord: discord as unknown as DiscordClient,
     github: github as unknown as GitHubReader,
-    links: {
-      uiBaseUrl: "https://cujo-admin.example.com",
-      publicBaseUrl: "https://cujo.example.com",
-    },
+    links: { publicBaseUrl: "https://cujo.example.com" },
     defaultGuild: options.defaultGuild ?? null,
     onSettled: (name) => settled.shift()?.(name),
   });
-  return { app, store, discord, github, nextSettled };
+  return { app, store, discord, github, declared, nextSettled };
 }
 
 function post(
@@ -138,13 +140,13 @@ async function reply(built: ReturnType<typeof build>, payload: unknown): Promise
   return call?.[2].content ?? "";
 }
 
-function authorize(store: Store, repo = "spencerjireh/orders-api") {
-  store.notifications.authorizeGuildRepo({
-    guildId: GUILD,
-    repo,
-    guildName: "My Server",
-    authorizedBy: "op@example.com",
-  });
+/**
+ * Make this server allowed for a repo, the only way there is since decision 57:
+ * the repo's own `.cujo.yml` names it. The operator override this used to write
+ * was deleted with its plane.
+ */
+function authorize(built: { declared: Set<string> }, repo = "spencerjireh/orders-api") {
+  built.declared.add(repo.toLowerCase());
 }
 
 describe("verifyInteraction", () => {
@@ -196,7 +198,7 @@ describe("interactions endpoint", () => {
 
   it("defers, then fills in the reply", async () => {
     const built = build();
-    authorize(built.store);
+    authorize(built);
     const content = await reply(
       built,
       command("watch", [
@@ -229,8 +231,9 @@ describe("interactions endpoint", () => {
     expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
       GUILD,
     );
-    // Nothing was written to the operator table to make this work.
-    expect(built.store.notifications.listGuildRepos()).toHaveLength(0);
+    // The declaration alone did it: no operator, and nothing written anywhere
+    // but the binding itself.
+    expect(built.store.notifications.listDiscordChannels()).toHaveLength(1);
   });
 
   it("watches with no declaration at all when this is the deploy's own server", async () => {
@@ -247,7 +250,7 @@ describe("interactions endpoint", () => {
     expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
       GUILD,
     );
-    expect(built.store.notifications.listGuildRepos()).toHaveLength(0);
+    expect(built.store.notifications.listDiscordChannels()).toHaveLength(1);
   });
 
   it("tells a server that has not been named exactly what to add, and where", async () => {
@@ -280,7 +283,7 @@ describe("interactions endpoint", () => {
 
   it("still honours an operator's allowance when the repo declares nothing", async () => {
     const built = build();
-    authorize(built.store);
+    authorize(built);
     const content = await reply(
       built,
       command("watch", [
@@ -293,7 +296,7 @@ describe("interactions endpoint", () => {
 
   it("checks Manage Server itself, not only through Discord's own gate", async () => {
     const built = build();
-    authorize(built.store);
+    authorize(built);
     const content = await reply(
       built,
       command(
@@ -321,7 +324,7 @@ describe("interactions endpoint", () => {
         })),
       },
     });
-    authorize(built.store);
+    authorize(built);
     const content = await reply(
       built,
       command("watch", [
@@ -345,7 +348,7 @@ describe("interactions endpoint", () => {
         })),
       },
     });
-    authorize(built.store);
+    authorize(built);
     const content = await reply(
       built,
       command("watch", [
@@ -359,7 +362,7 @@ describe("interactions endpoint", () => {
 
   it("unwatches, and says so when there was nothing to unwatch", async () => {
     const built = build();
-    authorize(built.store);
+    authorize(built);
     built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
@@ -380,10 +383,13 @@ describe("interactions endpoint", () => {
     expect(second).toContain("not being sent");
   });
 
-  it("reports what this server watches, and what it merely may watch", async () => {
+  it("reports what this server is being sent, and nothing it is not", async () => {
     const built = build();
-    authorize(built.store);
-    authorize(built.store, "spencerjireh/other-repo");
+    authorize(built);
+    // Declared but never bound. There is no "allowed, not sent" state to
+    // report any more: the operator override that produced one was deleted
+    // with its plane (decision 57), and a declaration alone is not a binding.
+    authorize(built, "spencerjireh/other-repo");
     built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
@@ -394,13 +400,13 @@ describe("interactions endpoint", () => {
     const content = await reply(built, command("status"));
     expect(content).toContain(`spencerjireh/orders-api\` → <#${CHANNEL}>`);
     expect(content).toContain(`<@&${ROLE}>`);
-    expect(content).toContain("other-repo` — allowed, not being sent anywhere");
+    expect(content).not.toContain("other-repo");
     // It cannot list every repo that named this server without reading each
     // one's .cujo.yml, so it says how to add one instead.
     expect(content).toContain(`discord_guild: "${GUILD}"`);
   });
 
-  it("lists a repo watched here even when no operator allowed it", async () => {
+  it("lists a repo watched here from its binding alone", async () => {
     const built = build({ declaredGuild: GUILD });
     built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
@@ -415,7 +421,7 @@ describe("interactions endpoint", () => {
 
   it("posts a sample card, and reports a channel it cannot post to", async () => {
     const built = build();
-    authorize(built.store);
+    authorize(built);
     built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
       channelId: CHANNEL,
@@ -482,9 +488,19 @@ describe("interactions endpoint", () => {
     expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
   });
 
-  it("falls back to what it knows when GitHub cannot be reached", async () => {
+  it("falls back to what this server already has bound when GitHub cannot be reached", async () => {
+    // The fallback used to be the operator authorization table. With that gone
+    // (decision 57) the nearest local answer is the bindings, which are the
+    // repo names the person typing already knows.
     const built = build();
-    authorize(built.store);
+    authorize(built);
+    built.store.notifications.putDiscordChannel({
+      repo: "spencerjireh/orders-api",
+      channelId: CHANNEL,
+      guildId: GUILD,
+      channelName: "reviews",
+      notifyRoleId: null,
+    });
     built.github.installedRepos.mockRejectedValueOnce(new Error("github is down"));
     const res = await post(built.app, {
       type: 4,
@@ -506,41 +522,101 @@ describe("interactions endpoint", () => {
     expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
   });
 
-  it("will not take a repo another authorized server already claimed", async () => {
-    const built = build();
-    authorize(built.store);
-    built.store.notifications.putDiscordChannel({
-      repo: "spencerjireh/orders-api",
-      channelId: "888888888888888888",
-      guildId: "999999999999999999",
-      channelName: "theirs",
-      notifyRoleId: null,
+  /**
+   * Moving a repo between servers, which used to be the operator override's
+   * job and is now the declaration's (decision 57).
+   *
+   * The holder's claim is only as good as the declaration behind it. Without
+   * this, deleting the override would have left a repo stuck in whichever
+   * server named it first — `unwatch` lets only the holder release a binding,
+   * so a server that had gone quiet could keep a repo forever.
+   */
+  describe("moving a repo to another server", () => {
+    const THEIRS = "999999999999999999";
+
+    const bindToThem = (built: ReturnType<typeof build>) =>
+      built.store.notifications.putDiscordChannel({
+        repo: "spencerjireh/orders-api",
+        channelId: "888888888888888888",
+        guildId: THEIRS,
+        channelName: "theirs",
+        notifyRoleId: null,
+      });
+
+    const watchHere = (built: ReturnType<typeof build>) =>
+      reply(
+        built,
+        command("watch", [
+          { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+          { name: "channel", type: 7, value: CHANNEL },
+        ]),
+      );
+
+    it("takes over when the repo no longer names the server holding it", async () => {
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      const content = await watchHere(built);
+      expect(content).toContain(`<#${CHANNEL}>`);
+      const binding = built.store.notifications.getDiscordChannel("spencerjireh/orders-api");
+      expect(binding?.guildId).toBe(GUILD);
+      expect(binding?.channelId).toBe(CHANNEL);
     });
-    const watched = await reply(
-      built,
-      command("watch", [
-        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
-        { name: "channel", type: 7, value: CHANNEL },
-      ]),
-    );
-    expect(watched).toContain("another server");
-    // And it cannot silence them either.
-    const unwatched = await reply(
-      built,
-      command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
-    );
-    expect(unwatched).toContain("another server");
-    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.channelId).toBe(
-      "888888888888888888",
-    );
+
+    it("refuses when the repo still names the server holding it", async () => {
+      // The race the fresh read exists for: dispatch authorized this server
+      // from what the declaration said a moment ago, and by the time the
+      // holder is checked it says the holder again.
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      built.github.declaredGuild.mockResolvedValueOnce(GUILD).mockResolvedValue(THEIRS);
+      const content = await watchHere(built);
+      expect(content).toContain("still names it");
+      expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+        THEIRS,
+      );
+    });
+
+    it("refuses when GitHub cannot say, rather than guessing", async () => {
+      // Fail closed. Taking a binding from another server on a guess is the
+      // one mistake here that does not correct itself.
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      built.github.declaredGuild
+        .mockResolvedValueOnce(GUILD)
+        .mockRejectedValue(new Error("github is down"));
+      const content = await watchHere(built);
+      expect(content).toContain("Try again in a moment");
+      expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+        THEIRS,
+      );
+    });
+
+    it("still refuses to silence a repo this server does not hold", async () => {
+      // `unwatch` is deliberately reachable without authorization, so it must
+      // not become the way one server takes a repo down in another.
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      const content = await reply(
+        built,
+        command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+      );
+      expect(content).toContain("another server");
+      expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+        THEIRS,
+      );
+    });
   });
 
   it("re-checks authorization after the Discord round trips, not only before", async () => {
     const built = build();
-    authorize(built.store);
-    // Revoked while `watch` was awaiting Discord.
+    authorize(built);
+    // The declaration was reverted while `watch` was awaiting Discord.
     built.discord.listRoles.mockImplementationOnce(async () => {
-      built.store.notifications.revokeGuildRepo(GUILD, "spencerjireh/orders-api");
+      built.declared.delete("spencerjireh/orders-api");
       return [{ id: GUILD, name: "@everyone", permissions: CAN_POST }];
     });
     const content = await reply(
@@ -574,7 +650,7 @@ describe("interactions endpoint", () => {
 
   it("refuses a repo the GitHub App is not installed on", async () => {
     const built = build({ repos: ["spencerjireh/something-else"] });
-    authorize(built.store);
+    authorize(built);
     const content = await reply(
       built,
       command("watch", [
@@ -588,7 +664,7 @@ describe("interactions endpoint", () => {
 
   it("still binds when GitHub cannot be reached", async () => {
     const built = build();
-    authorize(built.store);
+    authorize(built);
     built.github.installedRepos.mockRejectedValueOnce(new Error("github is down"));
     const content = await reply(
       built,
@@ -602,7 +678,15 @@ describe("interactions endpoint", () => {
 
   it("keeps a long status reply under Discord's message limit", async () => {
     const built = build();
-    for (let i = 0; i < 200; i++) authorize(built.store, `spencerjireh/repo-${i}`);
+    for (let i = 0; i < 200; i++) {
+      built.store.notifications.putDiscordChannel({
+        repo: `spencerjireh/repo-${i}`,
+        channelId: CHANNEL,
+        guildId: GUILD,
+        channelName: "reviews",
+        notifyRoleId: null,
+      });
+    }
     const content = await reply(built, command("status"));
     expect(content.length).toBeLessThanOrEqual(2000);
     expect(content).toContain("more");
@@ -611,8 +695,8 @@ describe("interactions endpoint", () => {
   it("never offers a repo name Discord would refuse as a choice", async () => {
     const long = `spencerjireh/${"x".repeat(120)}`;
     const built = build({ repos: ["spencerjireh/orders-api", long] });
-    authorize(built.store);
-    authorize(built.store, long);
+    authorize(built);
+    authorize(built, long);
     const res = await post(built.app, {
       type: 4,
       application_id: "app1",
