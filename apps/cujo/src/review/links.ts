@@ -7,7 +7,7 @@
  * review asked "is there a page a stranger could open", and the answer was
  * sometimes nothing at all.
  *
- * Since decision 54 there is no gated UI, so both questions have the same
+ * Since decision 57 there is no gated UI, so both questions have the same
  * answer and the functions differ only in whether they know the host.
  * `publicRunId` deliberately still does not consult `publicBaseUrl`: whether a
  * board exists is `github-mcp`'s half of the question (decision 36), and each
@@ -15,7 +15,7 @@
  * person who needs a run link cannot quietly give one of them the other's rule.
  */
 
-/** The one origin there is, since decision 54. Empty means no link anywhere. */
+/** The one origin there is, since decision 57. Empty means no link anywhere. */
 export interface UiLinks {
   /** The anonymous board. Empty when none is configured. */
   publicBaseUrl: string;
@@ -23,7 +23,7 @@ export interface UiLinks {
 
 /**
  * A card links to the board when the run is public, and to nothing when it is
- * not (decision 54).
+ * not (decision 57).
  *
  * A private run has no page: the board serves public repos only, and there is
  * no second, gated hostname to fall back to any more. A card whose title is not

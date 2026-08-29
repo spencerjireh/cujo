@@ -34,7 +34,7 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "gatedReview",
   "error",
   "summary",
-  // Handles into TrueForge and GitHub, published deliberately (decision 54).
+  // Handles into TrueForge and GitHub, published deliberately (decision 57).
   // They authorize nothing: the console they name keeps its own Access
   // application, which is the thing standing between a reader and a session.
   "sessionId",

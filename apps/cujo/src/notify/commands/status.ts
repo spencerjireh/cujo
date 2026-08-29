@@ -7,7 +7,7 @@ import { fitLines } from "./text";
  * the closing line says how to add one instead.
  *
  * There is no longer an "allowed but not bound" state to report. The operator
- * override that produced it was deleted with its plane (decision 54), so a
+ * override that produced it was deleted with its plane (decision 57), so a
  * repo either has a binding here or it does not.
  */
 export function status(deps: CommandDeps, guildId: string): string {

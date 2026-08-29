@@ -141,7 +141,7 @@ async function reply(built: ReturnType<typeof build>, payload: unknown): Promise
 }
 
 /**
- * Make this server allowed for a repo, the only way there is since decision 54:
+ * Make this server allowed for a repo, the only way there is since decision 57:
  * the repo's own `.cujo.yml` names it. The operator override this used to write
  * was deleted with its plane.
  */
@@ -388,7 +388,7 @@ describe("interactions endpoint", () => {
     authorize(built);
     // Declared but never bound. There is no "allowed, not sent" state to
     // report any more: the operator override that produced one was deleted
-    // with its plane (decision 54), and a declaration alone is not a binding.
+    // with its plane (decision 57), and a declaration alone is not a binding.
     authorize(built, "spencerjireh/other-repo");
     built.store.notifications.putDiscordChannel({
       repo: "spencerjireh/orders-api",
@@ -490,7 +490,7 @@ describe("interactions endpoint", () => {
 
   it("falls back to what this server already has bound when GitHub cannot be reached", async () => {
     // The fallback used to be the operator authorization table. With that gone
-    // (decision 54) the nearest local answer is the bindings, which are the
+    // (decision 57) the nearest local answer is the bindings, which are the
     // repo names the person typing already knows.
     const built = build();
     authorize(built);
@@ -524,7 +524,7 @@ describe("interactions endpoint", () => {
 
   /**
    * Moving a repo between servers, which used to be the operator override's
-   * job and is now the declaration's (decision 54).
+   * job and is now the declaration's (decision 57).
    *
    * The holder's claim is only as good as the declaration behind it. Without
    * this, deleting the override would have left a repo stuck in whichever

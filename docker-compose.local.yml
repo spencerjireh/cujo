@@ -32,7 +32,7 @@ services:
       # Host dispatch (spec Contract 6). The read plane answers on the compose
       # service name and nothing else, which is what every production request
       # carries too, so curl it with -H 'Host: cujo'. Everything outside
-      # /public is 404 there; there is no credential to present (decision 54).
+      # /public is 404 there; there is no credential to present (decision 57).
       CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: cujo-ingress.localhost
       # Only here, never in the base file: the deploy runs at the default
@@ -41,7 +41,7 @@ services:
       # they are not worth their volume in production (decision 37).
       CUJO_LOG_LEVEL: ${CUJO_LOG_LEVEL:-info}
       # Run links in a Discord card. A public run points at the board; a
-      # private one has no page, so its card carries no link (decision 54).
+      # private one has no page, so its card carries no link (decision 57).
       CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-http://cujo.localhost:3000}
       # The dev App posts as a different bot; this makes the idempotency
       # check and stale-review dismissal match the right login.
@@ -51,7 +51,7 @@ services:
 
   # One container, one plane. http://localhost:3000 and
   # http://cujo.localhost:3000 are the same anonymous board — there is nothing
-  # else to be since decision 54, so no Host tells them apart. Most systems
+  # else to be since decision 57, so no Host tells them apart. Most systems
   # resolve any *.localhost name to loopback; add them to /etc/hosts if yours
   # does not.
   web:

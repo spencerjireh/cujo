@@ -13,7 +13,7 @@ import type { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
 
 export const HOOK = "cujo-ingress.test";
-/** The only name the read plane answers on, since decision 54. */
+/** The only name the read plane answers on, since decision 57. */
 export const INTERNAL = "cujo-internal.test";
 
 /** A fake runner that records the store transitions the real one would make. */

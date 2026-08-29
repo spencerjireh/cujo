@@ -38,7 +38,7 @@ const THEME_SCRIPT = `try{var t=localStorage.getItem("cujo-theme");if(t==="light
 
 /**
  * One hostname, one plane. This used to read the request's own `Host` to decide
- * which of two planes it was rendering (decision 34); decision 54 deleted the
+ * which of two planes it was rendering (decision 34); decision 57 deleted the
  * other one, so the layout is static again.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {

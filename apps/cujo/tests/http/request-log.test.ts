@@ -47,7 +47,7 @@ describe("one line per request", () => {
     const { app, logged } = build();
     await app.fetch(req(INTERNAL, "/public/runs"));
     await app.fetch(req(HOOK, "/webhook", { method: "POST" }));
-    // Not `/public`, so not the read plane — and since decision 54 there is no
+    // Not `/public`, so not the read plane — and since decision 57 there is no
     // third plane for it to be, which is what "unknown" says here.
     await app.fetch(req(INTERNAL, "/runs"));
     expect(logged("http.request").map((l) => l.plane)).toEqual(["public", "ingress", "unknown"]);

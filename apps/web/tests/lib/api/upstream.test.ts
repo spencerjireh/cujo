@@ -36,7 +36,7 @@ describe("streamOutcome", () => {
 
   it("calls everything else a failure", () => {
     // This used to take the plane too, because a 503 on the operator plane was
-    // not the cap at all. One plane since decision 54, so the status answers it.
+    // not the cap at all. One plane since decision 57, so the status answers it.
     for (const status of [404, 500, 502]) {
       expect(streamOutcome(status, false).event).toBe("proxy.stream.failed");
     }

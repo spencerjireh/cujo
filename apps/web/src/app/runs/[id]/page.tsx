@@ -14,7 +14,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   // Awaited, unlike the list: this page is nothing without the run, and a 404
   // from the API has to become a 404 here rather than an empty shell. That same
   // 404 is what a private run looks like, so it needs no handling of its own
-  // (decision 34) — and since decision 54 there is no other page for a private
+  // (decision 34) — and since decision 57 there is no other page for a private
   // run to be on, so 404 is the whole answer.
   try {
     await queryClient.fetchQuery(runOptions(id));

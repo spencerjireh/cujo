@@ -44,7 +44,7 @@ export async function watch(
   // gone stale, which is what moving a repo between servers now looks like.
   //
   // The operator override used to be the move path, and deleting it with the
-  // rest of the plane (decision 54) would otherwise have left a repo stuck in
+  // rest of the plane (decision 57) would otherwise have left a repo stuck in
   // whichever server it named first: `unwatch` only lets the *holder* release
   // a binding, so a server that has gone quiet or lost interest could hold a
   // repo hostage forever. The declaration is the authority, so a holder the

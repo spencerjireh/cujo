@@ -254,7 +254,7 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
     // Ours, never derived. No projection string may reach a URL field, or a
     // hostile PR chooses where the card's title points. The key is omitted
     // rather than set to null when there is no page — a private run has none
-    // (decision 54), and Discord refuses a null `url`. The title still renders,
+    // (decision 57), and Discord refuses a null `url`. The title still renders,
     // just not as a hyperlink.
     ...(url ? { url } : {}),
     description: truncate(description, LIMITS.description),
@@ -280,7 +280,7 @@ export interface PingInput {
  * structural: the repo was validated when the channel was bound, the number is
  * a number, and the link is ours. Nothing untrusted reaches it.
  *
- * A private run has no page (decision 54), so its ping names the pull request
+ * A private run has no page (decision 57), so its ping names the pull request
  * and carries no link. That is where the answer is anyway: the decision is
  * `/cujo confirm` on the pull request, not a button on a board.
  *

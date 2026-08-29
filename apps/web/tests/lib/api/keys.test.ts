@@ -4,7 +4,7 @@
  * The mode used to be part of every key, because `reduceRun` returns the
  * *previous* cached object when a snapshot repeats and an entry filled on the
  * operator plane — approver and all — could otherwise be handed to a public
- * render (decision 34). Decision 54 deleted that plane, so what is left worth
+ * render (decision 34). Decision 57 deleted that plane, so what is left worth
  * pinning is the shape: everything stays under `all`, so one invalidation
  * still reaches the list and every detail.
  */
@@ -29,7 +29,7 @@ describe("runKeys", () => {
 describe("runStreamUrl", () => {
   /**
    * A fixed path rather than a `?mode=` parameter. There is nothing else to
-   * ask for since decision 54, but the rule is kept: a query string is
+   * ask for since decision 57, but the rule is kept: a query string is
    * something the browser controls, and the stream URL is not.
    */
   it("points at the one proxy route", () => {

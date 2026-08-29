@@ -16,7 +16,7 @@ describe("loadConfig", () => {
   });
 
   it("starts with no credential configured, because none exists", () => {
-    // Decision 54 deleted the last gate, so the variables that used to be
+    // Decision 57 deleted the last gate, so the variables that used to be
     // conditionally required are gone. A deploy that still sets them starts
     // exactly the same way — they are read by nothing.
     const stale = loadConfig({

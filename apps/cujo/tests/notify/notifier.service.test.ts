@@ -214,7 +214,7 @@ describe("DiscordNotifier", () => {
     emit();
     await notifier.flush();
     // Re-bound to a different server, which is now the one the repo declares —
-    // the only way to move a repo since decision 54 deleted the operator
+    // the only way to move a repo since decision 57 deleted the operator
     // override. Its role still means nothing in the channel this run's card
     // already lives in.
     github.declaredGuild.mockResolvedValue("g2");
