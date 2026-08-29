@@ -255,14 +255,7 @@ export function unarmed(block: SensorBlock): string[] {
   return WATCHED_SENSORS.filter((name) => block.sensors?.[name]?.armed === false);
 }
 
-/**
- * The flags worth surfacing above the tables, in severity order.
- *
- * A sensor that was off belongs here even though nothing happened: it is the
- * one case where the tables below are empty for a reason that has nothing to do
- * with the pull request, and a reader who does not open the card would take
- * them at face value.
- */
+/** The flags worth surfacing above the tables, in severity order. */
 export function alarms(block: SensorBlock): string[] {
   const out: string[] = [];
   if (block.secret_probe?.decoy_in_egress) out.push("decoy secret left the sandbox");
@@ -270,6 +263,21 @@ export function alarms(block: SensorBlock): string[] {
   if (block.derived?.egress_to_unknown_host) out.push("egress to an unknown host");
   if (block.derived?.wrote_sensitive) out.push("wrote to a sensitive path");
   if (block.derived?.wrote_outside_workspace) out.push("wrote outside the workspace");
-  for (const name of unarmed(block)) out.push(`the ${name} sensor was not watching`);
   return out;
+}
+
+/**
+ * Whether this check is worth opening without being asked.
+ *
+ * A sensor that was off qualifies even though nothing tripped: it is the one
+ * case where the tables are empty for a reason that has nothing to do with the
+ * pull request, and a reader who leaves the card shut would take them at face
+ * value. It is deliberately not one of `alarms`, though. A report renders one
+ * card for the roll-up and one per run, and the roll-up is the pessimistic
+ * summary of the runs -- so a single blind interval would raise the same chip
+ * twice, counting one gap as two. The health strip says it once per card, and
+ * says which run it was.
+ */
+export function needsAttention(block: SensorBlock): boolean {
+  return alarms(block).length > 0 || unarmed(block).length > 0;
 }

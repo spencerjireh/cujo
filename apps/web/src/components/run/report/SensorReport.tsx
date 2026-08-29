@@ -76,6 +76,25 @@ function Cut({ cut }: { cut?: boolean }) {
   return <span className="ml-2 normal-case text-sev-high">truncated</span>;
 }
 
+/**
+ * The two caps with no table of their own. `stdout_tail` and `stderr_tail` are
+ * not rendered by this component at all -- they are read in the raw view -- so
+ * without this line the fact that they were cut would be parsed and then shown
+ * nowhere, which is the failure this whole block exists to stop.
+ */
+function CutOutput({ block }: { block: SensorBlock }) {
+  const cut = [
+    block.truncated?.stdout_tail ? "stdout" : null,
+    block.truncated?.stderr_tail ? "stderr" : null,
+  ].filter(Boolean);
+  if (cut.length === 0) return null;
+  return (
+    <p className="mb-3 font-mono text-xs text-sev-high">
+      {cut.join(" and ")} was cut at the tail limit; the raw report holds what survived
+    </p>
+  );
+}
+
 function Group({
   title,
   count,
@@ -104,6 +123,7 @@ export function SensorReport({ block }: { block: SensorBlock }) {
       {block.label ? <p className="mb-2 font-mono text-sm">{block.label}</p> : null}
       <Alarms block={block} />
       <Sensors block={block} />
+      <CutOutput block={block} />
 
       <Group title="egress" count={block.egress.length}>
         <VirtualRows items={block.egress}>

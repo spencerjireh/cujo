@@ -25,8 +25,15 @@ from cujo_sniff.paths import canonical, display_path, home, in_any
 from cujo_sniff.policy import HASH_MAX_BYTES, MAX_SNAPSHOT_FILES, is_sensitive, should_hash
 from cujo_sniff.scrub import scrub
 
+# A file that is in scope for hashing but could not be read. Distinct from
+# `None`, which means the file was never in scope, because the two must not
+# compare equal: overwrite a credential with something the same length, restore
+# the timestamp, then `chmod 000` it, and treating the failed digest as
+# out-of-scope would let the metadata comparison call it unchanged.
+UNREADABLE = "unreadable"
+
 # (mtime_ns, size, digest). The digest is None where the file was not in scope
-# for hashing, was too large, or could not be read.
+# for hashing, and UNREADABLE where it was but could not be read.
 Entry = tuple[int, int, str | None]
 
 
@@ -63,27 +70,42 @@ def _snapshot_roots(workspace_roots: list[Path], home_dir: Path | None = None) -
 
 
 def _digest(path: Path, st: os.stat_result) -> str | None:
-    """A content digest, or None when there is not one worth having.
+    """A content digest, UNREADABLE if it could not be taken, None if unwanted.
 
     A symlink is digested by its target rather than by the file it points at:
     `lstat` already describes the link itself, and repointing a link somewhere
     new is a change the snapshot should see. Following it would instead hash
     whatever it aims at, which the walk records separately anyway.
+
+    The open is deliberately awkward. `lstat` said this was a regular file, but
+    the command under test owns this tree and can swap the name for a FIFO
+    before the open happens -- and a FIFO with no writer blocks forever, which
+    would hang the snapshot and with it the whole check. `O_NOFOLLOW` refuses a
+    symlink put in the way, `O_NONBLOCK` makes the FIFO case return instead of
+    wait, and the `fstat` afterwards is on the descriptor actually opened, so
+    what is hashed is what was checked.
     """
     try:
         if stat.S_ISLNK(st.st_mode):
             return hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
-        if not stat.S_ISREG(st.st_mode) or st.st_size > HASH_MAX_BYTES:
+        if not stat.S_ISREG(st.st_mode):
             return None
-        h = hashlib.sha256()
-        with path.open("rb") as fh:
-            for chunk in iter(lambda: fh.read(65536), b""):
+        if st.st_size > HASH_MAX_BYTES:
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return UNREADABLE
+            h = hashlib.sha256()
+            while chunk := os.read(fd, 65536):
                 h.update(chunk)
-        return h.hexdigest()
+            return h.hexdigest()
+        finally:
+            os.close(fd)
     except OSError:
-        # Unreadable is not evidence of anything; the entry falls back to
-        # metadata, which is what it had before there were digests at all.
-        return None
+        # In scope and not readable, which is its own fact: a file that hashed
+        # before and does not now has changed, whatever its metadata says.
+        return UNREADABLE
 
 
 def snapshot(
@@ -118,7 +140,14 @@ def snapshot(
 
 
 def _unchanged(before: Entry, after: Entry) -> bool:
-    """Same metadata, and the same content wherever both sides have a digest."""
+    """Same metadata, and the same content wherever both sides have a digest.
+
+    `None` on either side means the path was never in hashing scope, so there is
+    nothing to compare and metadata is the whole answer -- which is what it was
+    before there were digests at all. UNREADABLE is not that: it is a digest
+    that was wanted and failed, so it compares unequal to a real one. A file
+    that hashed before and cannot be read now has changed.
+    """
     if before[:2] != after[:2]:
         return False
     if before[2] is None or after[2] is None:
@@ -138,31 +167,41 @@ def diff_snapshots(
     as interesting as creating one, so before-only paths get a `deleted` row
     with the same workspace and sensitivity classification.
 
-    Unless a walk was truncated. The cap stops mid-tree, and two walks of a tree
-    that is being written to do not stop in the same place, so a path the second
-    walk never reached is absent for a reason that has nothing to do with the
-    command. Reporting those as deletions invented evidence; the truncation flag
-    on the report is what says why the deletions are missing instead.
+    Which of the two walks was truncated decides which absences can be believed,
+    and they are not interchangeable. A path only the *after* walk holds is
+    `created` if the before walk was complete -- a complete walk would have seen
+    it already, so its absence is real -- and says nothing if the before walk
+    stopped early, because it may simply be a path that walk never reached.
+    A path only the *before* walk holds is `deleted` on the same argument, run
+    the other way round, so it needs the after walk to be the complete one.
+    Getting this wrong in either direction invents evidence, and `wrote_sensitive`
+    is a `critical` the agent may not lower.
+
+    A change to a path both walks hold is always reported: no absence is being
+    read, only two readings of the same file.
 
     The workspace roots are canonicalised once, here, rather than per row: the
     snapshot walks canonical roots, so a caller that passes an unresolved root
     would otherwise see every one of its own files as outside the workspace.
     """
     roots = [canonical(r) for r in workspace_roots]
-    trust_deletions = not (before.truncated or after.truncated)
+    trust_creations = not before.truncated
+    trust_deletions = not after.truncated
     changes: list[dict[str, Any]] = []
     for path in sorted(before.entries.keys() | after.entries.keys()):
         in_before, in_after = path in before.entries, path in after.entries
-        if in_before and in_after and _unchanged(before.entries[path], after.entries[path]):
-            continue
-        if not in_after:
+        if in_before and in_after:
+            if _unchanged(before.entries[path], after.entries[path]):
+                continue
+            kind = "modified"
+        elif in_after:
+            if not trust_creations:
+                continue
+            kind = "created"
+        else:
             if not trust_deletions:
                 continue
             kind = "deleted"
-        elif in_before:
-            kind = "modified"
-        else:
-            kind = "created"
         p = Path(path)
         changes.append(
             {

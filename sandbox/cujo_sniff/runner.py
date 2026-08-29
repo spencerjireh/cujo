@@ -22,7 +22,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from cujo_sniff.context import Context, load_config, state_paths
+from cujo_sniff.context import Context, decoy_path, load_config, state_paths
 from cujo_sniff.daemons import daemon_alive
 from cujo_sniff.jsonl import file_size, read_jsonl
 from cujo_sniff.policy import (
@@ -88,9 +88,28 @@ def daemon_health(ctx: Context, config: dict[str, Any]) -> dict[str, dict[str, A
         decoy = health(False, "no watcher armed during setup")
     elif not daemon_alive(paths["watcher_pid"]):
         decoy = health(False, f"{backend}, no longer running")
+    elif not decoy_intact(ctx, config):
+        # A live pid is not proof the watcher can still see anything. inotify
+        # follows an inode, so a command that deletes the decoy or renames a
+        # file over it moves the watch off the path it was asked about; the
+        # daemon re-arms where it can, and this is the case where it could not.
+        # Either way the decoy that was seeded is gone, so there is nothing left
+        # to read and a quiet `decoy_read` says nothing.
+        decoy = health(False, f"{backend}, but the decoy it was seeded on is gone")
     else:
         decoy = health(True, str(backend))
     return {"proxy": proxy, "decoy": decoy}
+
+
+def decoy_intact(ctx: Context, config: dict[str, Any]) -> bool:
+    """Whether the file the watcher armed on is still the file at that path."""
+    seeded = config.get("decoy_inode")
+    if seeded is None:
+        return True
+    try:
+        return Path(config.get("decoy", decoy_path(ctx))).stat().st_ino == seeded
+    except OSError:
+        return False
 
 
 def snapshot_health(before: Snapshot, after: Snapshot) -> dict[str, Any]:

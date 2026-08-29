@@ -75,6 +75,9 @@ def cmd_setup(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     # `run` reads this back rather than re-deriving anything.
     config["proxy_armed"] = wait_port(port) and pid_alive(proxy_pid)
     config["decoy_backend"] = watched_backend(paths["decoy_log"], decoy_log_end)
+    # Which file the watcher armed on, not just which path. inotify follows an
+    # inode: replace the file at that path and the watch goes with the old one.
+    config["decoy_inode"] = decoy.stat().st_ino
     paths["config"].write_text(json.dumps(config))
     return {
         "schema_version": SCHEMA_VERSION,
