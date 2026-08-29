@@ -8,8 +8,12 @@ commands, each printing exactly one JSON object on stdout:
         write the Python audit hook. Prints the env the checks must export.
     python3 sniff.py run --check NAME [--cwd DIR] -- CMD...
         Run one command under the sensors and print its report.
-    python3 sniff.py detonate --dependency SPEC [--source pypi|npm|auto]
+    python3 sniff.py detonate --dependency SPEC [--source pypi|npm|go|cargo|php|conan|auto]
         Install one dependency in a fresh environment and print its report.
+        SPEC carries the ecosystem when auto cannot tell: `go:<module>[@ref]`,
+        `cargo:git+<url>[@branch]` or `cargo:<name>[@version]`,
+        `php:<vendor/name>=git+<url>[@branch]` or `php:<vendor/name>[@version]`,
+        `conan:git+<url>[@branch]` or `conan:<name>/<version>`, `npm:<spec>`.
 
 `teardown` stops the daemons and restores or removes the decoy. The report
 shapes and the sensor design are in docs/spec.md, Contract 2. Standard library
@@ -56,7 +60,10 @@ MAX_SNAPSHOT_FILES = 200_000
 SENSED_LOCK_TIMEOUT_S = 900.0
 
 # Hosts an install legitimately talks to. Anything else, and not allowlisted,
-# is `egress_to_unknown_host`.
+# is `egress_to_unknown_host`. The toolchain hosts are here because a repo in a
+# language the sandbox image does not ship installs its toolchain per turn
+# (nodejs.org, go.dev/dl.google.com, static.rust-lang.org, deb.debian.org), and
+# every ecosystem's package index belongs beside pypi.org.
 KNOWN_INDEX_HOSTS = frozenset(
     {
         "pypi.org",
@@ -69,6 +76,17 @@ KNOWN_INDEX_HOSTS = frozenset(
         "static.crates.io",
         "proxy.golang.org",
         "sum.golang.org",
+        "repo.packagist.org",
+        "getcomposer.org",
+        "center.conan.io",
+        "api.conan.io",
+        "nodejs.org",
+        "go.dev",
+        "dl.google.com",
+        "static.rust-lang.org",
+        "sh.rustup.rs",
+        "deb.debian.org",
+        "security.debian.org",
     }
 )
 
@@ -931,56 +949,184 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     return {"check": args.check, **report}
 
 
+DETONATE_SOURCES = ("pypi", "npm", "go", "cargo", "php", "conan")
+
+# One detonation step: run argv in cwd. A step list is the whole install (or
+# install-plus-build) for one dependency, in order, stopping at first failure.
+DetonateStep = tuple[Path, list[str]]
+
+
 def detect_source(spec: str) -> str:
-    if spec.startswith("npm:"):
-        return "npm"
-    if re.match(r"^(@[\w.-]+/)?[\w.-]+@[^=]", spec):
+    for source in DETONATE_SOURCES:
+        if spec.startswith(f"{source}:"):
+            return source
+    if spec.startswith("npm:") or re.match(r"^(@[\w.-]+/)?[\w.-]+@[^=]", spec):
         return "npm"
     return "pypi"
 
 
-def _pypi_install_cmds(env_dir: Path, spec: str) -> list[list[str]]:
+def _det_env_dirs(env_dir: Path, keys: list[str]) -> None:
+    """Point a toolchain's caches at the detonation workspace.
+
+    go, cargo, composer, and conan all write state under $HOME by default, and
+    those writes are the report's business only when they leave the workspace.
+    Inside it, an install stays an install and the rows stay about the payload.
+    """
+    for key in keys:
+        target = env_dir / f".{key.lower()}"
+        target.mkdir(parents=True, exist_ok=True)
+        os.environ[key] = str(target)
+
+
+def _split_git_ref(body: str) -> tuple[str, str]:
+    """`<url>@<branch>` -> (url, branch); a bare URL gets no branch."""
+    url, _, ref = body.rpartition("@")
+    if not url or "://" not in url:
+        return body, ""
+    return url, ref
+
+
+def _git_url_name(url: str) -> str:
+    return re.sub(r"\.git$", "", url.rstrip("/").rsplit("/", 1)[-1])
+
+
+def _plan_pypi(env_dir: Path, spec: str) -> tuple[list[DetonateStep], list[str]]:
     """Prefer venv+pip; use uv when the interpreter ships without pip."""
     python = env_dir / "bin" / "python"
     pip_ok = subprocess.run(
         [sys.executable, "-c", "import ensurepip"], capture_output=True
     ).returncode
     if pip_ok == 0:
-        return [
-            [sys.executable, "-m", "venv", str(env_dir)],
-            [str(python), "-m", "pip", "install", "--no-input", spec],
+        steps: list[DetonateStep] = [
+            (env_dir, [sys.executable, "-m", "venv", str(env_dir)]),
+            (env_dir, [str(python), "-m", "pip", "install", "--no-input", spec]),
         ]
+        return steps, []
     uv = shutil.which("uv")
     if uv is None:
         raise SystemExit("detonate: neither ensurepip nor uv is available")
-    return [
-        [uv, "venv", str(env_dir)],
-        [uv, "pip", "install", "--python", str(python), spec],
+    steps = [
+        (env_dir, [uv, "venv", str(env_dir)]),
+        (env_dir, [uv, "pip", "install", "--python", str(python), spec]),
     ]
+    return steps, []
+
+
+def _plan_npm(env_dir: Path, spec: str) -> tuple[list[DetonateStep], list[str]]:
+    step = (env_dir, ["npm", "install", "--prefix", str(env_dir), "--no-audit", "--no-fund", spec])
+    return [step], []
+
+
+def _plan_go(env_dir: Path, spec: str) -> tuple[list[DetonateStep], list[str]]:
+    """Fetch the module, then build and run a stub that imports it.
+
+    Go runs no code at fetch time; a dependency's payload lives in `init()` and
+    fires when a program that imports it is built and run, so the detonation
+    does what a developer machine does: get, build, run.
+    """
+    module, _, ref = spec.partition("@")
+    (env_dir / "go.mod").write_text("module stub\n\ngo 1.22\n")
+    (env_dir / "main.go").write_text(
+        f"package main\n\nimport _ {json.dumps(module)}\n\nfunc main() {{}}\n"
+    )
+    target = f"{module}@{ref}" if ref else module
+    steps = [
+        (env_dir, ["go", "get", target]),
+        (env_dir, ["go", "run", "."]),
+    ]
+    return steps, ["GOCACHE", "GOMODCACHE"]
+
+
+def _plan_cargo(env_dir: Path, spec: str) -> tuple[list[DetonateStep], list[str]]:
+    """Build a stub crate that depends on the specifier.
+
+    Cargo runs no code at resolve time either; a Rust dependency's payload is
+    `build.rs`, which fires when a dependent crate is built.
+    """
+    if spec.startswith(("git+", "http://", "https://")):
+        url, branch = _split_git_ref(spec.removeprefix("git+"))
+        name = _git_url_name(url)
+        dep = f'{name} = {{ git = "{url}"' + (f', branch = "{branch}"' if branch else "") + " }"
+    else:
+        name, _, version = spec.partition("@")
+        dep = f'{name} = "{version or "*"}"'
+    (env_dir / "Cargo.toml").write_text(
+        f'[package]\nname = "stub"\nversion = "0.0.0"\nedition = "2021"\n\n[dependencies]\n{dep}\n'
+    )
+    (env_dir / "src").mkdir()
+    (env_dir / "src" / "main.rs").write_text("fn main() {}\n")
+    return [(env_dir, ["cargo", "build"])], ["CARGO_HOME"]
+
+
+def _plan_php(env_dir: Path, spec: str) -> tuple[list[DetonateStep], list[str]]:
+    """Composer install in a stub project. Install-time only: a Composer
+    package's code runs when the application requires it, so the payload of an
+    evil PHP dependency shows up in `smoke`, not here."""
+    if "=" in spec and "git+" in spec:
+        name, _, rest = spec.partition("=")
+        url, branch = _split_git_ref(rest.removeprefix("git+"))
+        composer: dict[str, Any] = {
+            "repositories": [{"type": "vcs", "url": url}],
+            "require": {name: f"dev-{branch or 'main'}"},
+        }
+    else:
+        name, _, version = spec.partition("@")
+        composer = {"require": {name: version or "*"}}
+    (env_dir / "composer.json").write_text(json.dumps(composer, indent=2) + "\n")
+    step = (env_dir, ["composer", "install", "--no-interaction", "--no-progress"])
+    return [step], ["COMPOSER_HOME"]
+
+
+def _plan_conan(env_dir: Path, spec: str) -> tuple[list[DetonateStep], list[str]]:
+    """Conan Center binaries just download; a recipe from git is built by
+    `conan create`, which executes the recipe's Python — the conan analog of
+    pip building a git sdist."""
+    steps: list[DetonateStep] = [(env_dir, ["conan", "profile", "detect", "--force"])]
+    if spec.startswith(("git+", "http://", "https://")):
+        url, branch = _split_git_ref(spec.removeprefix("git+"))
+        clone = env_dir / "recipe"
+        clone_cmd = ["git", "clone", "--depth", "1"]
+        if branch:
+            clone_cmd += ["--branch", branch]
+        steps.append((env_dir, clone_cmd + [url, str(clone)]))
+        steps.append((clone, ["conan", "create", ".", "-b", "missing"]))
+    else:
+        steps.append((env_dir, ["conan", "install", f"--requires={spec}"]))
+    return steps, ["CONAN_HOME"]
+
+
+_DETONATE_PLANS: dict[str, Any] = {
+    "pypi": _plan_pypi,
+    "npm": _plan_npm,
+    "go": _plan_go,
+    "cargo": _plan_cargo,
+    "php": _plan_php,
+    "conan": _plan_conan,
+}
 
 
 def cmd_detonate(args: argparse.Namespace) -> dict[str, Any]:
     spec = args.dependency
     source = args.source if args.source != "auto" else detect_source(spec)
-    spec_clean = spec.removeprefix("npm:")
+    body = spec[len(source) + 1 :] if spec.startswith(f"{source}:") else spec
     env_dir = state_paths()["envs"] / hashlib.sha1(spec.encode()).hexdigest()[:12]
     shutil.rmtree(env_dir, ignore_errors=True)
     env_dir.mkdir(parents=True)
-    if source == "npm":
-        cmds = [["npm", "install", "--prefix", str(env_dir), "--no-audit", "--no-fund", spec_clean]]
-    else:
-        cmds = _pypi_install_cmds(env_dir, spec_clean)
+    plan = _DETONATE_PLANS[source]
+    steps, env_keys = plan(env_dir, body)
+    if env_keys:
+        _det_env_dirs(env_dir, env_keys)
     started = time.monotonic()
     reports: list[dict[str, Any]] = []
-    for cmd in cmds:
-        r = run_sensed(cmd, check="detonation", workspace_roots=[env_dir], cwd=env_dir)
+    for cwd, cmd in steps:
+        r = run_sensed(cmd, check="detonation", workspace_roots=[env_dir], cwd=cwd)
         reports.append(r)
         if r["exit"] != 0:
             break
     last = reports[-1]
     sensors = _merge_reports(reports)
     return {
-        "dependency": spec_clean,
+        "dependency": body,
         "source": source,
         "install_ok": all(r["exit"] == 0 for r in reports),
         "duration_s": round(time.monotonic() - started, 2),
@@ -1034,7 +1180,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     det = sub.add_parser("detonate", help="install one dependency under the sensors")
     det.add_argument("--dependency", required=True)
-    det.add_argument("--source", choices=["pypi", "npm", "auto"], default="auto")
+    det.add_argument("--source", choices=[*DETONATE_SOURCES, "auto"], default="auto")
     det.set_defaults(func=cmd_detonate)
 
     down = sub.add_parser("teardown", help="stop the sensor daemons")

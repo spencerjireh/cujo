@@ -162,6 +162,98 @@ def test_detect_source() -> None:
     assert sniff.detect_source("left-pad@1.3.0") == "npm"
     assert sniff.detect_source("@scope/pkg@2.0.0") == "npm"
     assert sniff.detect_source("npm:lodash") == "npm"
+    assert sniff.detect_source("npm:github:u/evil-package#js") == "npm"
+    assert sniff.detect_source("go:github.com/u/evil-package@go") == "go"
+    assert sniff.detect_source("cargo:serde@1.0") == "cargo"
+    assert sniff.detect_source("php:monolog/monolog@2.9") == "php"
+    assert sniff.detect_source("conan:zlib/1.3.1") == "conan"
+
+
+def test_toolchain_and_ecosystem_hosts_are_known(home_dir: Path) -> None:
+    """A per-turn toolchain install or registry fetch is not unknown egress."""
+    hosts = [
+        "nodejs.org",
+        "go.dev",
+        "dl.google.com",
+        "static.rust-lang.org",
+        "sh.rustup.rs",
+        "deb.debian.org",
+        "repo.packagist.org",
+        "getcomposer.org",
+        "center.conan.io",
+    ]
+    block = _block(
+        home_dir,
+        proxy_rows=[{"host": h, "port": 443, "bytes": 1} for h in hosts],
+        check="detonation",
+    )
+    assert block["derived"]["egress_to_unknown_host"] is False
+
+
+def test_plan_go_writes_stub_importer(tmp_path: Path) -> None:
+    steps, env_keys = sniff._plan_go(tmp_path, "github.com/u/evil-package@go")
+    assert steps == [
+        (tmp_path, ["go", "get", "github.com/u/evil-package@go"]),
+        (tmp_path, ["go", "run", "."]),
+    ]
+    assert env_keys == ["GOCACHE", "GOMODCACHE"]
+    assert 'import _ "github.com/u/evil-package"' in (tmp_path / "main.go").read_text()
+    assert (tmp_path / "go.mod").read_text().startswith("module stub")
+
+
+def test_plan_cargo_git_dep_and_registry_dep(tmp_path: Path) -> None:
+    steps, env_keys = sniff._plan_cargo(tmp_path, "git+https://github.com/u/evil-package@rust")
+    assert steps == [(tmp_path, ["cargo", "build"])]
+    assert env_keys == ["CARGO_HOME"]
+    toml = (tmp_path / "Cargo.toml").read_text()
+    assert 'evil-package = { git = "https://github.com/u/evil-package", branch = "rust" }' in toml
+    assert (tmp_path / "src" / "main.rs").exists()
+
+    other = tmp_path / "registry"
+    other.mkdir()
+    sniff._plan_cargo(other, "serde@1.0.210")
+    assert 'serde = "1.0.210"' in (other / "Cargo.toml").read_text()
+
+
+def test_plan_php_packagist_and_git(tmp_path: Path) -> None:
+    steps, env_keys = sniff._plan_php(tmp_path, "monolog/monolog@2.9.3")
+    assert steps == [(tmp_path, ["composer", "install", "--no-interaction", "--no-progress"])]
+    assert env_keys == ["COMPOSER_HOME"]
+    composer = json.loads((tmp_path / "composer.json").read_text())
+    assert composer == {"require": {"monolog/monolog": "2.9.3"}}
+
+    other = tmp_path / "git"
+    other.mkdir()
+    sniff._plan_php(other, "evil/telemetry=git+https://github.com/u/evil-package@php")
+    composer = json.loads((other / "composer.json").read_text())
+    assert composer["repositories"] == [{"type": "vcs", "url": "https://github.com/u/evil-package"}]
+    assert composer["require"] == {"evil/telemetry": "dev-php"}
+
+
+def test_plan_conan_center_and_git_recipe(tmp_path: Path) -> None:
+    steps, env_keys = sniff._plan_conan(tmp_path, "zlib/1.3.1")
+    assert env_keys == ["CONAN_HOME"]
+    assert steps[0] == (tmp_path, ["conan", "profile", "detect", "--force"])
+    assert steps[1] == (tmp_path, ["conan", "install", "--requires=zlib/1.3.1"])
+
+    other = tmp_path / "git"
+    other.mkdir()
+    steps, _ = sniff._plan_conan(other, "git+https://github.com/u/evil-package@cpp")
+    clone = steps[1]
+    assert clone == (
+        other,
+        [
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            "cpp",
+            "https://github.com/u/evil-package",
+            str(other / "recipe"),
+        ],
+    )
+    assert steps[2] == (other / "recipe", ["conan", "create", ".", "-b", "missing"])
 
 
 def _run(args: list[str], env: dict[str, str]) -> dict:

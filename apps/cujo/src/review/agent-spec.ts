@@ -17,6 +17,9 @@ const MANIFESTS = [
   /(^|\/)Cargo\.(toml|lock)$/,
   /(^|\/)go\.(mod|sum)$/,
   /(^|\/)Gemfile(\.lock)?$/,
+  /(^|\/)composer\.(json|lock)$/,
+  /(^|\/)conanfile\.(txt|py)$/,
+  /(^|\/)vcpkg\.json$/,
 ];
 
 export function manifestChanged(files: readonly string[]): boolean {

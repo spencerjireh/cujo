@@ -28,6 +28,11 @@ describe("manifestChanged", () => {
       "go.sum",
       "Gemfile",
       "Gemfile.lock",
+      "services/orders-php/composer.json",
+      "composer.lock",
+      "services/orders-cpp/conanfile.txt",
+      "conanfile.py",
+      "vcpkg.json",
     ]) {
       expect(manifestChanged([f]), f).toBe(true);
     }
@@ -41,6 +46,8 @@ describe("manifestChanged", () => {
       "src/setup.pyi",
       "notes/Cargo.txt",
       "go.mod.orig",
+      "docs/composer.md",
+      "vcpkg.json.example",
     ]) {
       expect(manifestChanged([f]), f).toBe(false);
     }

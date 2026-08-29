@@ -145,9 +145,10 @@ report returns to the parent.
 - **`detonation`** — runs only when the changed-file list includes a
   dependency manifest (`requirements*.txt`, `pyproject.toml`, `setup.py`,
   `setup.cfg`, `Pipfile`, `uv.lock`, `package.json`, `package-lock.json`,
-  `pnpm-lock.yaml`, `yarn.lock`, `Cargo.toml`, `go.mod`, and the like). The
-  subagent diffs the manifest at base and head to the specifiers that are added
-  or version-changed and runs `sniff.py` once per specifier. `sniff.py`
+  `pnpm-lock.yaml`, `yarn.lock`, `Cargo.toml`, `go.mod`, `composer.json`,
+  `conanfile.txt`, `vcpkg.json`, `Gemfile`, and the like). The subagent diffs
+  the manifest at base and head to the specifiers that are added or
+  version-changed and runs `sniff.py` once per specifier. `sniff.py`
   installs one dependency in a fresh environment behind the proxy and prints
   one JSON object:
 
@@ -164,7 +165,23 @@ report returns to the parent.
   }
   ```
 
-  plus the shared sensor block below.
+  plus the shared sensor block below. What "install" means is per ecosystem,
+  and each one detonates at the point a developer machine would first execute
+  the dependency's code: pip and npm execute at install; Go executes nothing
+  at fetch, so its detonation fetches the module and then builds and runs a
+  stub that imports it (an `init()` payload fires); Cargo executes nothing at
+  resolve, so its detonation builds a stub crate that depends on the specifier
+  (a `build.rs` payload fires); Conan Center binaries only download, so a git
+  recipe is detonated with `conan create`, which runs the recipe's Python;
+  Composer installs only, so an evil PHP dependency's payload surfaces in
+  `smoke` instead. The specifier spec carries the ecosystem when it cannot be
+  inferred: `go:<module>[@ref]`, `cargo:git+<url>[@branch]` or
+  `cargo:<name>[@version]`, `php:<vendor/name>=git+<url>[@branch]` or
+  `php:<vendor/name>[@version]`, `conan:git+<url>[@branch]` or
+  `conan:<name>/<version>`, `npm:<spec>`. A language the sandbox image does
+  not ship has its toolchain installed inside the turn, so the hosts that
+  serve toolchains and the ecosystems' package indexes are known index hosts,
+  not unknown egress.
 
 ### The sensor block
 

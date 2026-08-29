@@ -1316,3 +1316,53 @@ Known limit: the proxy rows are still bounded only by offsets. Under the lock
 that is correct, and outside it — after a timeout — the report may carry
 another command's hosts. The per-command log makes the audit rows exact in
 both cases.
+
+## 42. Detonation is per ecosystem, and the toolchain is installed inside the turn
+
+The demo target grew from one FastAPI service into a polyglot monorepo
+(Python, Node, Go, Rust, C++, PHP), and detonation had to follow. Two choices
+carry the weight.
+
+**What "install" detonates is per ecosystem.** pip and npm execute code at
+install, and `sniff.py` detonated there and only there. Go runs nothing at
+fetch time and Rust runs nothing at resolve time — their payloads are `init()`
+and `build.rs`, which fire at build — so a detonation that stops at install
+reports `install_ok: true` for a dependency whose payload never ran. The go
+and cargo detonations therefore build and run a stub importer (a `main.go`
+with a blank import; a stub crate with the specifier as a dependency), which
+is also the first thing a developer machine executes. Conan Center ships
+binaries, so a git recipe is detonated with `conan create`, which runs the
+recipe's Python — the conan analog of pip building a git sdist. Composer
+installs only; an evil PHP dependency's payload fires when the application
+requires it, so it belongs to `smoke`'s report, and the php detonation makes
+no claim to have executed anything. Each of those stub builds points the
+toolchain's caches (`GOCACHE`, `GOMODCACHE`, `CARGO_HOME`, `COMPOSER_HOME`,
+`CONAN_HOME`) inside the detonation workspace, so the report's filesystem rows
+are about the payload and not about where a toolchain keeps its state.
+
+Chosen over **install-only detonation for every ecosystem**, which is uniform
+and blind: for Go, Rust, and Conan-from-git it cannot fire, so the check
+reports success on exactly the dependencies whose attack surface is the build.
+Over **running the imported code only for the demo packages**, which would be
+a rule keyed on the sample and not on the ecosystem's semantics.
+
+**The toolchain is installed inside the turn, not baked into the sandbox.**
+TrueForge builds and pins its own sandbox image (`python:3.13-slim-bookworm`
+plus git, curl, and the harness's daemons) and clones every sandbox from a
+snapshot of it; the image reference is release-owned, so changing its contents
+means forking the harness, which this project does not do. A target repo in a
+language the image does not ship therefore installs that toolchain during the
+turn — Node from nodejs.org, Go from go.dev, Rust from rustup, PHP and the C++
+toolchain from apt — with the per-service CI workflows in the target repo as
+the inference source the rubric already reads. The cost is minutes per turn,
+paid against the 30-minute budget, and the hosts that serve toolchains and the
+added ecosystems' package indexes (`nodejs.org`, `go.dev`, `dl.google.com`,
+`static.rust-lang.org`, `deb.debian.org`, `repo.packagist.org`,
+`center.conan.io`, and the rest) are known index hosts: they are package
+indexes and toolchain downloads, which is what that constant names, and
+leaving them unknown would flag every clean install of a non-Python service.
+
+Chosen over **a custom sandbox image**, which needs a fork or a patched
+release of the harness and reverses the stock-unforked rule. Over **keeping
+the target single-language**, which no longer tests detonation outside pip
+and npm at all.

@@ -73,8 +73,14 @@ booleans, true if true in any run>}, ...}` plus the fields below.
   `{request, base_status, head_status, head_tail}` and `log_tail`.
 - `detonation`: diff the manifest between base and head to the specifiers that are added
   or version-changed. For each, run
-  `python3 /tmp/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|auto>`
-  and put its JSON in `runs[]`.
+  `python3 /tmp/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|go|cargo|php|conan>`
+  and put its JSON in `runs[]`. The spec carries the ecosystem when the bare specifier
+  does not: `go:<module>[@ref]`, `cargo:git+<url>[@branch]` or `cargo:<name>[@version]`,
+  `php:<vendor/name>=git+<url>[@branch]` or `php:<vendor/name>[@version]`,
+  `conan:git+<url>[@branch]` or `conan:<name>/<version>`. Go and cargo detonations build
+  and run a stub importer, because those ecosystems execute no dependency code at fetch
+  or resolve time; composer installs only, so a PHP payload that runs at require time
+  belongs to `smoke`'s report, not detonation's.
 
 When every check is done, the parent runs `python3 /tmp/cujo/sniff.py teardown`, which
 stops the sensors and removes the decoy.
