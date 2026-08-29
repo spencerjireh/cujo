@@ -132,13 +132,20 @@ const HOUR = 3_600_000;
  */
 const BUCKET_LADDER = [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, 24 * HOUR, 7 * 24 * HOUR];
 
-/** How many buckets the strip wants: enough to have a shape, few enough to see. */
+/**
+ * A bucket size that keeps the strip under `maxBuckets`: enough buckets to have
+ * a shape, few enough to see.
+ *
+ * The ladder is for legibility — hours and days are units a caption can name.
+ * When the window outgrows even the widest rung the answer is computed rather
+ * than falling back to it, because falling back to a fixed seven days silently
+ * breaks the bound: a two-year record would draw a hundred and five buckets
+ * against a cap of sixty.
+ */
 export function bucketSize(spanMs: number, maxBuckets: number): number {
-  return (
-    BUCKET_LADDER.find((size) => spanMs / size + 1 <= maxBuckets) ??
-    BUCKET_LADDER[BUCKET_LADDER.length - 1] ??
-    HOUR
-  );
+  const fits = BUCKET_LADDER.find((size) => spanMs / size + 1 <= maxBuckets);
+  if (fits) return fits;
+  return Math.max(HOUR, Math.ceil(spanMs / Math.max(maxBuckets - 1, 1)));
 }
 
 /**

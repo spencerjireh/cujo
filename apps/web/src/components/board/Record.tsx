@@ -170,37 +170,48 @@ export function Record({ runs }: { runs: RunSummary[] }) {
             <thead>
               {table.getHeaderGroups().map((group) => (
                 <tr key={group.id}>
-                  {group.headers.map((header) => (
-                    <th
-                      key={header.id}
-                      scope="col"
-                      // The arrow glyph is decoration; this is the state a
-                      // screen reader reads.
-                      aria-sort={
-                        header.column.getIsSorted() === "asc"
-                          ? "ascending"
-                          : header.column.getIsSorted() === "desc"
-                            ? "descending"
-                            : "none"
-                      }
-                      className="border-line border-b py-2 pr-4 text-left font-mono text-xs font-medium uppercase tracking-wider text-fg-muted"
-                    >
-                      {header.isPlaceholder ? null : (
-                        <button
-                          type="button"
-                          onClick={() => header.column.toggleSorting()}
-                          className="transition-colors hover:text-fg"
-                        >
+                  {group.headers.map((header) => {
+                    // `checks` is a display column with no value to order by,
+                    // so it gets no button. A focusable control that promises
+                    // sorting and does nothing is worse than a plain label —
+                    // and `aria-sort` belongs only on a column that can sort.
+                    const sortable = header.column.getCanSort();
+                    return (
+                      <th
+                        key={header.id}
+                        scope="col"
+                        // The arrow glyph is decoration; this is the state a
+                        // screen reader reads.
+                        aria-sort={
+                          !sortable
+                            ? undefined
+                            : header.column.getIsSorted() === "asc"
+                              ? "ascending"
+                              : header.column.getIsSorted() === "desc"
+                                ? "descending"
+                                : "none"
+                        }
+                        className="border-line border-b py-2 pr-4 text-left font-mono text-xs font-medium uppercase tracking-wider text-fg-muted"
+                      >
+                        {header.isPlaceholder ? null : sortable ? (
+                          <button
+                            type="button"
+                            onClick={() => header.column.toggleSorting()}
+                            className="transition-colors hover:text-fg"
+                          >
+                            <table.FlexRender header={header} />
+                            {header.column.getIsSorted() === "asc"
+                              ? " ↑"
+                              : header.column.getIsSorted() === "desc"
+                                ? " ↓"
+                                : ""}
+                          </button>
+                        ) : (
                           <table.FlexRender header={header} />
-                          {header.column.getIsSorted() === "asc"
-                            ? " ↑"
-                            : header.column.getIsSorted() === "desc"
-                              ? " ↓"
-                              : ""}
-                        </button>
-                      )}
-                    </th>
-                  ))}
+                        )}
+                      </th>
+                    );
+                  })}
                 </tr>
               ))}
             </thead>
