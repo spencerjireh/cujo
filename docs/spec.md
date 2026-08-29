@@ -320,6 +320,18 @@ would make each snapshot a full read of `$HOME`, so it is spent only there. A
 symlink is digested by its target string, so a link repointed with its timestamp
 preserved is still a change.
 
+The seeded decoy is the one sensitive path never digested. A digest means an
+open, the watcher is armed on that inode for exactly that event, and it cannot
+tell the snapshot's read from the read it exists to catch — so hashing it set
+`decoy_read` on every command of every check, base control included, and a hard
+rule reads that field (decision 58). Nothing is lost by the exclusion: the entry
+still carries metadata, `decoy` health follows the inode, and a command that
+overwrites the decoy has to open it, which is the same event by another route.
+It excludes the watched file and not every name that reaches it — a symlink is
+digested by `readlink`, which opens nothing, so a link resolving to the decoy is
+hashed like any other and a retarget with the timestamp restored is still a
+change.
+
 A digest that was wanted and could not be taken is recorded as its own value,
 distinct from one that was never wanted. A file with a digest on one side and
 none on the other has changed — readable before and not now, hashed before and

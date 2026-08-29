@@ -55,6 +55,36 @@ def test_setup_then_run_sees_decoy_read(cli: Cli, home_dir: Path) -> None:
         cli(["teardown"])
 
 
+def test_setup_then_run_leaves_a_quiet_command_quiet(cli: Cli, home_dir: Path) -> None:
+    """The negative case, which is every clean pull request, and it was missing.
+
+    Its positive twin above is the one everybody wrote. Nothing asserted that a
+    command touching nothing reports nothing, and the sensors stopped being
+    silent: the filesystem snapshot hashes sensitive paths, the decoy is one, so
+    every sensed window opened it twice and the watch armed on that inode logged
+    it. `decoy_read` is a hard rule, so Cujo called every pull request a
+    supply-chain attack -- including on the unmodified base commit, which cannot
+    have read anything.
+
+    The armed assertions are load-bearing: a report from sensors that never
+    started is quiet for the wrong reason and would pass this on its own.
+    """
+    setup = cli(["setup", "--proxy-port", "0"])
+    try:
+        assert setup["ok"] is True
+        report = cli(
+            ["run", "--check", "tests", "--cwd", str(home_dir), "--", sys.executable, "-c", "pass"]
+        )
+        assert report["exit"] == 0
+        assert report["sensors"]["decoy"]["armed"] is True
+        assert report["sensors"]["audit"]["armed"] is True
+        assert report["secret_probe"]["decoy_read"] is False
+        assert report["derived"]["wrote_sensitive"] is False
+        assert [f for f in report["files_read"] if f["sensitive"]] == []
+    finally:
+        cli(["teardown"])
+
+
 def test_run_reads_only_its_own_audit_log(cli: Cli, ctx: Context, home_dir: Path) -> None:
     cli(["setup", "--proxy-port", "0"])
     try:
