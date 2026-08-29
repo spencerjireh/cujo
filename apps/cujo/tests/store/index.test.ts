@@ -167,7 +167,7 @@ describe("store", () => {
     const shut = store.runs.createRun({ ...head, repo: "o/secret", isPublic: false }).run;
     expect(store.runs.getRun(open.id)?.isPublic).toBe(true);
     expect(store.runs.getRun(shut.id)?.isPublic).toBe(false);
-    expect(store.runs.listPublicRuns().map((r) => r.id)).toEqual([open.id]);
+    expect(store.runs.listPublicRuns().map((r) => r.run.id)).toEqual([open.id]);
     expect(
       store.runs
         .listRuns()

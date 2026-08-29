@@ -6,7 +6,7 @@ import {
   isLive,
   reviewPosted,
 } from "@/lib/api/types";
-import type { CheckState, Finding, ReviewTool, Run } from "@/lib/api/types";
+import type { CheckState, Finding, ReviewTool, Run, RunDigest, RunSummary } from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
 import {
   PUBLIC_RUN_FIELDS,
@@ -16,6 +16,7 @@ import { CHECK_NAMES as CUJO_CHECK_NAMES } from "../../../../cujo/src/review/typ
 import type {
   CheckState as CujoCheckState,
   Finding as CujoFinding,
+  RunDigest as CujoRunDigest,
 } from "../../../../cujo/src/review/types";
 
 /**
@@ -72,6 +73,18 @@ describe("wire types track apps/cujo", () => {
     expect(live).toEqual(["running", "blocked_pending"]);
   });
 });
+
+/** Every field a list row carries except `status`, which each case supplies. */
+const summaryBase: RunSummary = {
+  id: "r1",
+  repo: "o/r",
+  pr_number: 7,
+  head_sha: "abc1234",
+  status: "clean",
+  created_at: "2026-08-28T10:00:00Z",
+  updated_at: "2026-08-28T10:00:00Z",
+  pr_title: "Add a thing",
+};
 
 /** Every field a Run carries except `status`, which each case supplies. */
 const base = {
@@ -210,8 +223,41 @@ describe("the public wire shape tracks apps/cujo", () => {
     "pr_title",
   ];
 
+  /**
+   * On the list only (decision 65). The detail route serves `checks` and
+   * `findings` in full, so a reduction of them there would be a second copy of
+   * the same fact — and `checks` already means the array on that shape.
+   */
+  const SUMMARY_ONLY = ["digest"];
+
   it("keeps the summary shape to what a public list can carry", () => {
-    expect([...PUBLIC_SUMMARY_FIELDS].sort()).toEqual([...REQUIRED_ON_BOTH_PLANES].sort());
+    expect([...PUBLIC_SUMMARY_FIELDS].sort()).toEqual(
+      [...REQUIRED_ON_BOTH_PLANES, ...SUMMARY_ONLY].sort(),
+    );
+  });
+
+  it("reduces the checks for a list row, and never for a run page", () => {
+    expect(PUBLIC_SUMMARY_FIELDS).toContain("digest");
+    expect(PUBLIC_RUN_FIELDS).not.toContain("digest");
+  });
+
+  /**
+   * Layer 1 for the digest on this side: the mirror is hand-written, so a key
+   * renamed in `apps/cujo` has to stop this assignment compiling rather than
+   * quietly become `undefined` at runtime.
+   */
+  it("type-checks a digest as apps/cujo emits it", () => {
+    const digest: RunDigest = {
+      checks: { tests: { status: "done", ms: 41_230 }, detonation: { status: "error", ms: null } },
+      findings: { critical: 1, warn: 2, info: 0 },
+      durationMs: 132_400,
+    };
+    const asCujo: CujoRunDigest = digest;
+    expect(asCujo.checks.tests?.ms).toBe(41_230);
+    // A run claimed but never folded carries no digest at all, which every
+    // reader has to tell apart from four checks that reported nothing.
+    const unfolded: RunSummary = { ...summaryBase, digest: null };
+    expect(unfolded.digest).toBeNull();
   });
 
   it("never publishes a field that names a person or the state of the gate", () => {

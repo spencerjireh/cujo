@@ -123,6 +123,16 @@ export const SCHEMA = `
     run_id TEXT PRIMARY KEY REFERENCES runs (id),
     projection TEXT NOT NULL
   );
+  -- The same projection, reduced to per-check states and finding counts
+  -- (decision 65). A separate table and not a column on run_projections,
+  -- because a new table reaches a deployed database on open and a column
+  -- needs the migration ladder for no gain (decision 25). Written beside
+  -- every projection write, so the two cannot drift; a row missing here for
+  -- a run folded before the table existed is derived on read and backfilled.
+  CREATE TABLE IF NOT EXISTS run_digests (
+    run_id TEXT PRIMARY KEY REFERENCES runs (id),
+    digest TEXT NOT NULL
+  );
   -- Resume turns Cujo itself sent, so a restart still tells them apart
   -- from a resume an operator sent through the harness console.
   CREATE TABLE IF NOT EXISTS run_cujo_turns (

@@ -12,7 +12,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { Projection, RunRecord, RunStatus } from "../review/types";
+import { deriveDigest } from "../review/digest";
+import type { Projection, RunDigest, RunRecord, RunStatus } from "../review/types";
 import type { Db } from "./db";
 import type { NotificationStore } from "./notifications";
 
@@ -52,6 +53,24 @@ const RUN_SELECT =
   "SELECT runs.*, meta.title AS pr_title, meta.author_login AS pr_author_login, " +
   "meta.author_id AS pr_author_id FROM runs " +
   "LEFT JOIN run_pr_meta meta ON meta.run_id = runs.id";
+
+/**
+ * `RUN_SELECT` plus the digest (decision 65). Its own statement rather than a
+ * third join on `RUN_SELECT`, which every other read uses and none of them
+ * wants: the digest is a second JSON blob per row, and only the list parses it.
+ */
+const PUBLIC_RUN_SELECT =
+  "SELECT runs.*, meta.title AS pr_title, meta.author_login AS pr_author_login, " +
+  "meta.author_id AS pr_author_id, dig.digest AS digest FROM runs " +
+  "LEFT JOIN run_pr_meta meta ON meta.run_id = runs.id " +
+  "LEFT JOIN run_digests dig ON dig.run_id = runs.id";
+
+/** One row of the public list: the run, and what its checks reported. */
+export interface PublicRunRow {
+  run: RunRecord;
+  /** Null for a run claimed but never folded, so there is nothing to derive. */
+  digest: RunDigest | null;
+}
 
 function toRecord(row: RunRow): RunRecord {
   return {
@@ -222,6 +241,7 @@ export class RunStore {
 
   deleteRun(id: string): void {
     this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM run_digests WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM run_cujo_turns WHERE run_id = ?").run(id);
     this.notifications.deleteRunMessages(id);
     this.db.prepare("DELETE FROM run_pr_meta WHERE run_id = ?").run(id);
@@ -266,12 +286,37 @@ export class RunStore {
    * not in the caller: filtering `listRuns()` after its own LIMIT would return
    * fewer than `limit` rows and silently hide the tail, and a route that forgot
    * to filter would return everything.
+   *
+   * The digest rides along on a LEFT JOIN rather than being read per row
+   * (decision 65). A run folded before `run_digests` existed joins null, and
+   * a terminal run never folds again, so the null is derived from the stored
+   * projection here and written back — the board converges after one load
+   * instead of showing a blank sensor strip forever. Bounded by `limit`, and
+   * paid once per run.
    */
-  listPublicRuns(limit = 100): RunRecord[] {
+  listPublicRuns(limit = 100): PublicRunRow[] {
     const rows = this.db
-      .prepare(`${RUN_SELECT} WHERE runs.is_public = 1 ORDER BY runs.created_at DESC LIMIT ?`)
-      .all(limit) as RunRow[];
-    return rows.map(toRecord);
+      .prepare(
+        `${PUBLIC_RUN_SELECT} WHERE runs.is_public = 1 ORDER BY runs.created_at DESC LIMIT ?`,
+      )
+      .all(limit) as (RunRow & { digest: string | null })[];
+    return rows.map((row) => ({
+      run: toRecord(row),
+      digest: row.digest ? (JSON.parse(row.digest) as RunDigest) : this.backfillDigest(row.id),
+    }));
+  }
+
+  /**
+   * Derive and store the digest of a run that has none. Null when the run has
+   * no projection either, which is a run claimed but never folded — there is
+   * nothing to derive and nothing to write, and a later fold will store one.
+   */
+  private backfillDigest(runId: string): RunDigest | null {
+    const projection = this.getProjection(runId);
+    if (!projection) return null;
+    const digest = deriveDigest(projection);
+    this.putDigest(runId, digest);
+    return digest;
   }
 
   /**
@@ -403,6 +448,11 @@ export class RunStore {
       .run(new Date().toISOString(), id);
   }
 
+  /**
+   * The projection and its digest, written together (decision 65). One method
+   * and not two, so the digest cannot be forgotten at a call site and cannot
+   * describe a projection other than the one stored on the same line.
+   */
   putProjection(runId: string, projection: Projection): void {
     this.db
       .prepare(
@@ -410,6 +460,16 @@ export class RunStore {
           "ON CONFLICT (run_id) DO UPDATE SET projection = excluded.projection",
       )
       .run(runId, JSON.stringify(projection));
+    this.putDigest(runId, deriveDigest(projection));
+  }
+
+  private putDigest(runId: string, digest: RunDigest): void {
+    this.db
+      .prepare(
+        "INSERT INTO run_digests (run_id, digest) VALUES (?, ?) " +
+          "ON CONFLICT (run_id) DO UPDATE SET digest = excluded.digest",
+      )
+      .run(runId, JSON.stringify(digest));
   }
 
   getProjection(runId: string): Projection | null {

@@ -17,6 +17,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  PUBLIC_DIGEST_FIELDS,
   PUBLIC_RUN_FIELDS,
   PUBLIC_SOURCE_FIELDS,
   PUBLIC_SUMMARY_FIELDS,
@@ -24,8 +25,9 @@ import {
   serializePublicRun,
   serializePublicSummary,
 } from "../../../src/http/public/serialize";
+import { deriveDigest } from "../../../src/review/digest";
 import { emptyProjection } from "../../../src/review/fold";
-import type { Projection, RunRecord } from "../../../src/review/types";
+import type { Projection, RunDigest, RunRecord } from "../../../src/review/types";
 
 // Layer 1. Add a field to either type and this stops compiling.
 const EVERY_RUN_FIELD: Record<keyof RunRecord, true> = {
@@ -66,6 +68,18 @@ const EVERY_PROJECTION_FIELD: Record<keyof Projection, true> = {
   usage: true,
 };
 
+/**
+ * Layer 1 for the third source type (decision 65). Its own record rather than
+ * a third arm of `SourceField`, because `checks` and `findings` are also keys
+ * of `Projection` and the no-duplicate assertion below could not then be
+ * stated. Adding a field to `RunDigest` still stops this file compiling.
+ */
+const EVERY_DIGEST_FIELD: Record<keyof RunDigest, true> = {
+  checks: true,
+  findings: true,
+  durationMs: true,
+};
+
 const sorted = (values: readonly string[]) => [...new Set(values)].sort();
 
 describe("the public field allowlist", () => {
@@ -104,6 +118,17 @@ describe("the public field allowlist", () => {
     expect(PUBLIC_SOURCE_FIELDS).toContain("prTitle");
     expect(PUBLIC_SOURCE_FIELDS).toContain("prAuthorLogin");
     expect(PUBLIC_SOURCE_FIELDS).toContain("prAuthorId");
+  });
+
+  /**
+   * The digest publishes every one of its keys, and it may: each is a count or
+   * a duration over `checks` and `findings`, which this plane already serves in
+   * full on the detail route. A key added to `RunDigest` that is *not* such a
+   * reduction has to fail here, and it does — the record above stops compiling
+   * and this list stops matching it.
+   */
+  it("classifies every field of the digest, and publishes all of them", () => {
+    expect(sorted(PUBLIC_DIGEST_FIELDS)).toEqual(sorted(Object.keys(EVERY_DIGEST_FIELD)));
   });
 });
 
@@ -265,22 +290,58 @@ describe("serializePublicRun", () => {
   });
 });
 
+/** The sentinel run, with the digest the sentinel projection actually derives. */
+function sentinelRow(): { run: RunRecord; digest: RunDigest | null } {
+  const view = sentinelView();
+  return { run: view.run, digest: deriveDigest(view.projection) };
+}
+
 describe("serializePublicSummary", () => {
   it("emits exactly the public summary field list", () => {
-    const body = serializePublicSummary(sentinelView().run);
+    const body = serializePublicSummary(sentinelRow());
     expect(Object.keys(body).sort()).toEqual([...PUBLIC_SUMMARY_FIELDS].sort());
   });
 
   it("names no Cujo operator", () => {
-    const json = JSON.stringify(serializePublicSummary(sentinelView().run));
+    const json = JSON.stringify(serializePublicSummary(sentinelRow()));
     expect(json).not.toContain("SENTINEL_approver");
     expect(json).not.toContain("SENTINEL_decidedAt");
   });
 
   it("carries the title but not the author, which belongs to the run page", () => {
-    const body = serializePublicSummary(sentinelView().run);
+    const body = serializePublicSummary(sentinelRow());
     expect(body.pr_title).toBe("SENTINEL_prTitle");
     expect(JSON.stringify(body)).not.toContain("SENTINEL_prAuthorLogin");
+  });
+
+  /**
+   * The digest is a reduction, so nothing a check *said* may ride out on it —
+   * a row is not a place to publish a sensor report, and the sentinel check
+   * carries one.
+   */
+  it("carries what the checks measured, not what they reported", () => {
+    const body = serializePublicSummary(sentinelRow());
+    expect(body.digest).toEqual({
+      // `ms` and `durationMs` are null because the sentinel stamps are tokens
+      // rather than dates — the same degradation a projection written by an
+      // older fold gets.
+      checks: { tests: { status: "done", ms: null } },
+      findings: { critical: 1, warn: 0, info: 0 },
+      durationMs: null,
+    });
+    const json = JSON.stringify(body);
+    for (const leaked of ["SENTINEL_report", "SENTINEL_evidence", "SENTINEL_threadId"]) {
+      expect(json).not.toContain(leaked);
+    }
+  });
+
+  /**
+   * A run claimed but never folded. Null rather than four zeroed checks: no
+   * check ran, which the board must not draw as four that passed.
+   */
+  it("says nothing about the checks of a run that has no digest", () => {
+    const body = serializePublicSummary({ run: sentinelView().run, digest: null });
+    expect(body.digest).toBeNull();
   });
 });
 
