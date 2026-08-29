@@ -110,7 +110,11 @@ function PointAtOperator({ run, adminBaseUrl }: { run: Run; adminBaseUrl: string
         <span className="h-8 w-1 shrink-0 rounded-sm bg-accent-fill" aria-hidden="true" />
         <p className="min-w-48 flex-1 text-sm">
           This review is blocked and waiting on a human decision.{" "}
-          <span className="text-fg-muted">Nothing reaches the pull request until then.</span>
+          <span className="text-fg-muted">
+            {run.review
+              ? "The observation is already on the pull request; only the accusation waits."
+              : "Nothing reaches the pull request until then."}
+          </span>
         </p>
         {href ? (
           <a
@@ -137,7 +141,15 @@ function ExplainWhyNot({ run }: { run: Run }) {
           : run.status === "blocked_posted"
             ? `Approved${run.approver ? ` by ${run.approver}` : ""}. The blocking review is on the pull request.`
             : run.status === "denied"
-              ? `Denied${run.approver ? ` by ${run.approver}` : ""}. No review was posted.`
+              ? // A denied run no longer means an untouched pull request. On the
+                // malice path the advisory posted before the gate, and "no
+                // review was posted" would send a reader looking for something
+                // that is plainly there.
+                `Denied${run.approver ? ` by ${run.approver}` : ""}. ${
+                  run.review
+                    ? "The accusation was not posted; the observation already on the pull request stands."
+                    : "No review was posted."
+                }`
               : run.status === "running"
                 ? "Still running. Nothing to decide yet."
                 : null;

@@ -360,6 +360,26 @@ describe("hard rules in the fold", () => {
     ]);
     expect(confirmed.status).toBe("blocked_posted");
     expect(confirmed.findings.some((f) => f.title === "the dependency is malware")).toBe(true);
+
+    // A denied call is answered with a refusal `tool.response` of its own, so
+    // "a response arrived" cannot be what publishes. The accusation a human
+    // turned down must leave nothing behind — the observation still stands.
+    const denied = fold([
+      ...drafted,
+      turnCreated("t2", [
+        {
+          type: "user.tool_approval",
+          threadId: "main",
+          toolCallId: "call-1",
+          approval: { status: "deny" },
+        } as unknown as TrueForgeApi.TurnInputItem,
+      ]),
+      toolResponse("call-1"),
+      turnDone(),
+    ]);
+    expect(denied.status).toBe("denied");
+    expect(denied.findings.some((f) => f.title === "the dependency is malware")).toBe(false);
+    expect(denied.findings.some((f) => f.rule === "egress_to_unknown_host")).toBe(true);
   });
 
   it("reports under-gating: a malice rule tripped and nothing was held", () => {

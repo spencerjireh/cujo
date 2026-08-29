@@ -474,6 +474,13 @@ that repo, done later).
   have the accusation overwrite the record of the posted observation, and every
   surface would then show a human the un-posted text as though it were live.
 
+  **A denied accusation leaves nothing behind.** `findings` publishes the
+  gated review's own findings only once that review actually posted, which
+  means an approval that was *allowed*. A denied call is answered with a
+  refusal `tool.response` like any other, so "a response arrived" is not the
+  test; the decision is. What survives a denial is the observation — the hard
+  rule Cujo derived itself, which never waited on anybody.
+
 ## Contract 6 — the run record and the operator API
 
 `apps/cujo` keeps one record per PR event it acted on, called a run. It is a

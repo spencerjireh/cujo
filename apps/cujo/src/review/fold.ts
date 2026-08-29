@@ -42,9 +42,16 @@ function recordReview(p: Projection, review: DraftedReview): void {
  * it joins only once the review is on the pull request. The hard-rule hits are
  * not held back: those are Cujo's own deterministic observation, which is the
  * half of the design that always publishes.
+ *
+ * A response is not enough on its own. A **denied** approval also produces a
+ * `tool.response` — the refusal — so `gatedResponseSeen` alone would publish
+ * the accusation of every review a human turned down, which is the one outcome
+ * that must leave nothing behind. The decision is checked first, exactly as the
+ * terminal ladder checks it.
  */
 function publishableAgentFindings(p: Projection): Finding[] {
-  return [...agentFindings(p.review), ...(p.gatedResponseSeen ? agentFindings(p.gatedReview) : [])];
+  const gatedPosted = p.gatedResponseSeen && p.decision !== "deny";
+  return [...agentFindings(p.review), ...(gatedPosted ? agentFindings(p.gatedReview) : [])];
 }
 
 export interface FoldOptions {
