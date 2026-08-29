@@ -160,9 +160,19 @@ sequenceDiagram
 ```
 
 On Reject, the resume sends `deny`; the agent posts nothing further and the run
-ends `denied` — the advisory observation posted before the pause and stands
-either way, so a denial and a timeout both leave the evidence on the pull
-request and drop only the claim about a person. With no `critical` finding the
+ends `denied` — the advisory observation posted before the pause and stands, so
+a denial leaves the evidence on the pull request and drops only the claim about
+a person.
+
+**A held approval has no deadline.** The thirty-minute watchdog bounds a turn
+that is still streaming and is cleared the moment `turn.done` arrives, which is
+exactly what the pause produces, so nothing expires an unanswered accusation. It
+waits on `blocked_pending` until a new head supersedes it or a `/cujo` command
+decides it, and it stays in the set that rehydrates on restart. The direction is
+the safe one — the merge is not blocked and the observation is already
+public — but it is a wait, not an expiry, and no code says otherwise.
+
+With no `critical` finding the
 agent calls `post_advisory_review` alone; with a `critical` that says the pull
 request is broken rather than malicious it calls `post_blocking_review` alone,
 which is not gated and ends the run `blocked_unattended`. Neither pauses
