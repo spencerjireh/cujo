@@ -109,6 +109,12 @@ services:
       # xhigh, max. Unset leaves the provider's default, which is what a model
       # that does not reason at all needs (decision 53).
       CUJO_MODEL_REASONING_EFFORT: ${CUJO_MODEL_REASONING_EFFORT:-}
+      # Sampling, and both are off unless you set them. Every key here reaches
+      # the provider verbatim, and some reasoning models reject `temperature`
+      # outright — which fails the way decision 56 describes: healthy process,
+      # 502 on every pull request. Set them once you know yours accepts them.
+      CUJO_MODEL_TEMPERATURE: ${CUJO_MODEL_TEMPERATURE:-}
+      CUJO_MODEL_MAX_TOKENS: ${CUJO_MODEL_MAX_TOKENS:-}
       CUJO_SNIFF_TARBALL_URL: ${CUJO_SNIFF_TARBALL_URL:-https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main}
       # Optional Discord notifications (spec Contract 7). Unset means the
       # service runs without them; the repo-to-channel map lives in the store.
@@ -137,6 +143,10 @@ services:
       CUJO_PR_REACTIONS: ${CUJO_PR_REACTIONS:-1}
       # One turn, stream retries included; the Daytona idle stop is derived from it.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}
+      # Where TrueForge summarises the review agent's older history. Well above
+      # the harness default of 50,000: the parent holds four full check reports
+      # before it writes the review body from them.
+      CUJO_COMPACTION_THRESHOLD_TOKENS: ${CUJO_COMPACTION_THRESHOLD_TOKENS:-200000}
       # Optional one-time bootstrap of the harness (model + sandbox providers).
       # Leave unset to configure them in the operator console instead.
       MODEL_PROVIDER_NAME: ${MODEL_PROVIDER_NAME:-}

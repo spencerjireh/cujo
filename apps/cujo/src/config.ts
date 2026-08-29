@@ -53,6 +53,16 @@ export interface Config {
    * model that does not reason at all rejects the key outright.
    */
   modelReasoningEffort: string;
+  /**
+   * Sampling, when a deploy asks for it. `null` means the key is not sent, and
+   * that is the default: see `sampling()` for why "unset" cannot mean "a
+   * sensible value". Pinning `modelTemperature` is what makes two runs of the
+   * same head comparable; `modelMaxTokens` is the cap that decides whether a
+   * sub-agent's report gets cut off mid-JSON, which the fold now reports as
+   * `finish_reason: length` rather than as a missing check.
+   */
+  modelTemperature: number | null;
+  modelMaxTokens: number | null;
   githubMcpUrl: string;
   /** Where the agent fetches the source archive holding `sandbox/`. */
   sniffTarballUrl: string;
@@ -138,6 +148,30 @@ function effort(raw: string, name: string): TrueForgeApi.ReasoningEffort {
     );
   }
   return raw as TrueForgeApi.ReasoningEffort;
+}
+
+/**
+ * A sampling parameter, or `null` for "do not send this key at all".
+ *
+ * The null matters more than the number. Every key in `model.params` is
+ * forwarded to the provider verbatim, and that is precisely how
+ * `CUJO_MODEL_REASONING_EFFORT` took every review down: the process booted,
+ * `/readyz` stayed green, and each webhook answered 502 (decision 56). Some
+ * reasoning models reject `temperature` outright or accept only `1`, so a
+ * hard-pinned value here would be the same outage with a different key.
+ *
+ * Unset therefore means absent rather than a default, so a deploy that sets
+ * neither of these sends the request it sent before they existed. An operator
+ * turns each on once they know their provider takes it.
+ */
+function sampling(raw: string | undefined, name: string): number | null {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} has ${JSON.stringify(raw)}, which is not a non-negative number.`);
+  }
+  return value;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -245,6 +279,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dbPath: env.CUJO_DB_PATH ?? "/data/cujo.db",
     model: required(env, "CUJO_MODEL"),
     modelReasoningEffort,
+    modelTemperature: sampling(env.CUJO_MODEL_TEMPERATURE, "CUJO_MODEL_TEMPERATURE"),
+    modelMaxTokens: sampling(env.CUJO_MODEL_MAX_TOKENS, "CUJO_MODEL_MAX_TOKENS"),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
     // `||`, not `??`: an unset compose optional arrives as the empty string,
     // and an empty URL would reach the sandbox as a `curl` with no argument.

@@ -80,21 +80,42 @@ export function specFingerprint(spec: TrueForgeApi.AgentSpec): string {
 /**
  * The model both specs run under.
  *
- * `params` is left out entirely when no effort is configured, rather than sent
- * as an empty string. Every key in `params` is forwarded to the provider as-is,
- * and a model that does not reason answers an empty `reasoning_effort` with an
- * error rather than a default — so "unset" has to mean absent.
+ * **Every key in `params` is forwarded to the provider as-is**, so an unset
+ * setting has to mean an absent key and never a default. A model that does not
+ * reason answers an empty `reasoning_effort` with an error rather than a
+ * default, and some reasoning models reject `temperature` outright or take only
+ * `1` — and the failure that produces is the invisible one decision 56 exists
+ * to prevent: the process boots, `/readyz` is green, and every webhook answers
+ * 502. Nothing in CI catches it, because the contract suite runs against a stub
+ * model provider.
+ *
+ * So `params` is omitted entirely when nothing is configured, and each key
+ * appears only when a deploy asked for it. Determinism is worth having, but it
+ * is worth having as something an operator turns on once they know their
+ * provider accepts it.
  */
-function modelRef(config: Pick<Config, "model" | "modelReasoningEffort">): TrueForgeApi.Model {
-  return config.modelReasoningEffort
-    ? { name: config.model, params: { reasoningEffort: config.modelReasoningEffort } }
-    : { name: config.model };
+function modelRef(
+  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
+): TrueForgeApi.Model {
+  const params: TrueForgeApi.ModelParams = {
+    ...(config.modelReasoningEffort ? { reasoningEffort: config.modelReasoningEffort } : {}),
+    // `!= null` and not a truthiness test: `temperature: 0` is the setting
+    // somebody reaching for this most likely wants, and `0` is falsy.
+    ...(config.modelTemperature != null ? { temperature: config.modelTemperature } : {}),
+    ...(config.modelMaxTokens != null ? { maxTokens: config.modelMaxTokens } : {}),
+  };
+  return Object.keys(params).length > 0 ? { name: config.model, params } : { name: config.model };
 }
 
 export function buildAgentSpec(
   config: Pick<
     Config,
-    "model" | "modelReasoningEffort" | "sniffTarballUrl" | "compactionThresholdTokens"
+    | "model"
+    | "modelReasoningEffort"
+    | "modelTemperature"
+    | "modelMaxTokens"
+    | "sniffTarballUrl"
+    | "compactionThresholdTokens"
   >,
   rubric = loadRubric(),
 ): TrueForgeApi.AgentSpec {
@@ -147,7 +168,10 @@ export function buildAgentSpec(
  * paraphrase the report it was handed.
  */
 export function buildConverseSpec(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "sniffTarballUrl">,
+  config: Pick<
+    Config,
+    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sniffTarballUrl"
+  >,
   rubric = loadRubric("CONVERSE.md"),
 ): TrueForgeApi.AgentSpec {
   return {

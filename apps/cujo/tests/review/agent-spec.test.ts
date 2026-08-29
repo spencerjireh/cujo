@@ -338,3 +338,48 @@ describe("the runtime config both specs run under", () => {
     ).toBe(60_000);
   });
 });
+
+describe("modelRef, through the specs", () => {
+  const bare = {
+    model: "vendor/m",
+    modelReasoningEffort: "",
+    modelTemperature: null,
+    modelMaxTokens: null,
+    sniffTarballUrl: "https://example.test/a.tgz",
+    compactionThresholdTokens: 200_000,
+  } as unknown as Config;
+
+  it("sends no params at all when nothing is configured", () => {
+    // A deploy that sets none of these must produce the request it produced
+    // before the settings existed. An empty `params: {}` is not that.
+    expect(buildAgentSpec(bare, "r").model).toEqual({ name: "vendor/m" });
+    expect(buildConverseSpec(bare, "r").model).toEqual({ name: "vendor/m" });
+  });
+
+  it("sends only the keys a deploy asked for", () => {
+    const withTemp = { ...bare, modelTemperature: 0 } as unknown as Config;
+    expect(buildAgentSpec(withTemp, "r").model.params).toEqual({ temperature: 0 });
+    const withMax = { ...bare, modelMaxTokens: 16_000 } as unknown as Config;
+    expect(buildAgentSpec(withMax, "r").model.params).toEqual({ maxTokens: 16_000 });
+  });
+
+  it("keeps a temperature of zero, which a truthiness test would drop", () => {
+    // `0` is the value somebody pinning a temperature most likely wants.
+    const zero = { ...bare, modelTemperature: 0 } as unknown as Config;
+    expect(buildAgentSpec(zero, "r").model.params?.temperature).toBe(0);
+  });
+
+  it("carries all three together when all three are set", () => {
+    const all = {
+      ...bare,
+      modelReasoningEffort: "low",
+      modelTemperature: 0.2,
+      modelMaxTokens: 8_000,
+    } as unknown as Config;
+    expect(buildAgentSpec(all, "r").model.params).toEqual({
+      reasoningEffort: "low",
+      temperature: 0.2,
+      maxTokens: 8_000,
+    });
+  });
+});
