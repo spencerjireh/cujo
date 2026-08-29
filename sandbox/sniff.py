@@ -104,6 +104,11 @@ def state_paths() -> dict[str, Path]:
         "proxy_log": CUJO_DIR / "proxy.jsonl",
         "decoy_log": CUJO_DIR / "decoy.jsonl",
         "audit_log": CUJO_DIR / "audit.jsonl",
+        # One audit log per sensed command, named for that command. Which file
+        # a row landed in is the attribution; nothing in the row has to be
+        # trusted for it. The shared `audit_log` above is where a process
+        # running outside a sensed window writes, and no report reads it.
+        "audit_dir": CUJO_DIR / "audit",
         "pyhook": CUJO_DIR / "pyhook",
         "config": CUJO_DIR / "config.json",
         "proxy_pid": CUJO_DIR / "proxy.pid",
@@ -204,15 +209,15 @@ def is_noise_read(path: str) -> bool:
     a module read from the workspace or anywhere else stays in the list, and
     a sensitive path is never noise, whatever it looks like.
 
-    Our own state directory counts as noise too. `run_sensed` reads the three
-    sensor logs to build the report, and it does that with the audit hook
-    installed in its own process, so without this the report lists
-    `proxy.jsonl` among the files the command under test read.
+    Cujo's own state directory is deliberately not on this list. `run_sensed`
+    reads the sensor logs with the audit hook installed in its own process,
+    but those rows go to the shared audit log and no report reads that one, so
+    they never needed filtering. Excluding the directory would instead hide a
+    command reading `decoy.backup`, which holds the real credentials file the
+    decoy displaced.
     """
     p = str(path)
     if p.startswith((f"{sys.prefix}/lib/", f"{sys.base_prefix}/lib/")):
-        return True
-    if _under(Path(p), CUJO_DIR):
         return True
     return (
         any(part in p for part in NOISE_READ_PARTS)
@@ -422,7 +427,6 @@ SITECUSTOMIZE = r"""
 import json, os, sys, threading
 
 _LOG = os.environ.get("CUJO_AUDIT_LOG")
-_RUN = os.environ.get("CUJO_RUN_ID")
 _local = threading.local()
 
 
@@ -432,7 +436,6 @@ def _write(row):
     _local.busy = True
     try:
         row["pid"] = os.getpid()
-        row["run"] = _RUN
         with open(_LOG, "a") as fh:
             fh.write(json.dumps(row) + "\n")
     except Exception:
@@ -654,30 +657,31 @@ def _merge_egress(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # Running a command under the sensors
 
 
-def sensor_env(config: dict[str, Any], run_id: str | None = None) -> dict[str, str]:
+def sensor_env(config: dict[str, Any], audit_log: Path | None = None) -> dict[str, str]:
+    """The environment a sensed command runs under.
+
+    `audit_log` is the log this command's audit rows go to. `run_sensed`
+    passes the one it is about to read; the env `setup` prints carries the
+    shared default, so a process started outside a sensed window still records
+    what it did, into a log no report claims.
+    """
     paths = state_paths()
     proxy = f"http://127.0.0.1:{config.get('proxy_port', DEFAULT_PROXY_PORT)}"
     pyhook = str(paths["pyhook"])
     existing = os.environ.get("PYTHONPATH")
     pythonpath = pyhook if not existing else f"{pyhook}{os.pathsep}{existing}"
-    env = {
+    return {
         "HTTP_PROXY": proxy,
         "HTTPS_PROXY": proxy,
         "http_proxy": proxy,
         "https_proxy": proxy,
         "NO_PROXY": "",
         "PYTHONPATH": pythonpath,
-        "CUJO_AUDIT_LOG": str(paths["audit_log"]),
+        "CUJO_AUDIT_LOG": str(audit_log or paths["audit_log"]),
         # Marks a sensed process as running inside Cujo's sandbox. The demo
         # sample (evil-package) keeps its payload inert unless this is set.
         "CUJO_SANDBOX": "1",
     }
-    # Only a command `run_sensed` is watching carries one. The env `setup`
-    # prints has none, so a process started outside a sensed window writes
-    # rows no report claims, rather than rows the next report claims wrongly.
-    if run_id is not None:
-        env["CUJO_RUN_ID"] = run_id
-    return env
 
 
 @contextlib.contextmanager
@@ -728,11 +732,16 @@ def run_sensed(
     """Run `argv` with the sensor env and return the report minus the header."""
     paths = state_paths()
     config = load_config()
-    run_id = os.urandom(6).hex()
+    # This command's own audit log. Attribution is which file a row landed in,
+    # so a child that strips the variable records nothing rather than
+    # laundering its rows into another command's report, and a process an
+    # earlier check left running keeps writing to that check's log.
+    audit_log = paths["audit_dir"] / f"{os.urandom(6).hex()}.jsonl"
+    audit_log.parent.mkdir(parents=True, exist_ok=True)
     with sensed_window():
-        offsets = {k: file_size(paths[k]) for k in ("proxy_log", "audit_log", "decoy_log")}
+        offsets = {k: file_size(paths[k]) for k in ("proxy_log", "decoy_log")}
         before = snapshot(workspace_roots)
-        env = {**os.environ, **sensor_env(config, run_id)}
+        env = {**os.environ, **sensor_env(config, audit_log)}
         started = time.monotonic()
         try:
             proc = subprocess.run(
@@ -745,14 +754,7 @@ def run_sensed(
         time.sleep(0.3)  # let the daemons flush the last events
         after = snapshot(workspace_roots)
         proxy_rows = read_jsonl(paths["proxy_log"], offsets["proxy_log"])
-        # The offsets bound the window; the run id says whose rows these are.
-        # A process the command left running keeps writing into the next
-        # command's window, and only the id tells the two apart.
-        audit_rows = [
-            r
-            for r in read_jsonl(paths["audit_log"], offsets["audit_log"])
-            if r.get("run") == run_id
-        ]
+        audit_rows = read_jsonl(audit_log)
         decoy_rows = read_jsonl(paths["decoy_log"], offsets["decoy_log"])
     sensors = build_sensor_block(
         proxy_rows=proxy_rows,
@@ -790,7 +792,6 @@ def _daemon_env() -> dict[str, str]:
     """
     strip = {
         "CUJO_AUDIT_LOG",
-        "CUJO_RUN_ID",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "http_proxy",
