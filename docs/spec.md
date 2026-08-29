@@ -316,11 +316,11 @@ entry point and nothing else: every one of those commands is implemented in the
 package, and the script exists so the rubric's spelling stays the same and so
 `sys.path[0]` finds the package with no install (decision 48).
 
-The commands keep their state in `CUJO_DIR`, which defaults to a directory
-*under* the extracted code rather than to the code directory itself, so logs,
-pid files, the decoy backup, and the sensed lock are not mixed in with the
-modules. The rubric never names that directory: every path it needs comes back
-in `setup`'s JSON.
+The commands keep their state in `CUJO_DIR`, which defaults *beside* the
+extracted code and never inside it, so logs, pid files, the decoy backup, and
+the sensed lock are neither mixed in with the modules nor destroyed by the
+fetch, which replaces the code directory wholesale (decision 47). The rubric
+never names that directory: every path it needs comes back in `setup`'s JSON.
 
 `decoy_in_egress` stays `false` until TLS interception can confirm the value
 left the box. The `derived` block holds the booleans the hard rules read.

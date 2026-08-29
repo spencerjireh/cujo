@@ -14,16 +14,33 @@ from cujo_sniff.context import Context, state_paths
 from tests.conftest import CODE_DIR
 
 
-def test_state_lives_under_the_code_directory_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_state_lives_beside_the_code_directory_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CUJO_DIR", raising=False)
     monkeypatch.delenv("CUJO_ENVS_DIR", raising=False)
     ctx = Context.from_env()
-    assert ctx.state_dir == Path("/tmp/cujo/state")
+    assert ctx.state_dir == Path("/tmp/cujo-state")
     # Beside the state dir, not inside it: the snapshot prunes the state dir
     # but has to see what an install writes into its environment.
-    assert ctx.envs_dir == Path("/tmp/cujo/state-envs")
-    # /tmp/cujo itself stays the code directory the rubric extracts into.
-    assert ctx.state_dir.parent == Path("/tmp/cujo")
+    assert ctx.envs_dir == Path("/tmp/cujo-state-envs")
+
+
+def test_nothing_written_at_runtime_is_inside_the_extracted_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rubric's fetch is `rm -rf /tmp/cujo && mv ... /tmp/cujo`.
+
+    Anything the commands write under that path is destroyed by a refetch
+    while what it describes survives it: a pid file without its daemon, and a
+    `decoy.backup` that was the only copy of the real credentials. So no
+    default may put runtime state there.
+    """
+    monkeypatch.delenv("CUJO_DIR", raising=False)
+    monkeypatch.delenv("CUJO_ENVS_DIR", raising=False)
+    ctx = Context.from_env()
+    code = Path("/tmp/cujo")
+    for name, path in state_paths(ctx).items():
+        assert code not in path.parents, f"{name} is inside the replaced code directory"
+        assert path != code, f"{name} is the replaced code directory"
 
 
 def test_envs_dir_follows_a_moved_state_dir(monkeypatch: pytest.MonkeyPatch) -> None:
