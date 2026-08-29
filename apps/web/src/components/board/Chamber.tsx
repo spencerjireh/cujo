@@ -2,7 +2,7 @@
 
 import type { RunSummary } from "@/lib/api/types";
 import { specimensFrom } from "@/lib/board/specimen";
-import { setFocusedRun, useFocusedRun } from "@/lib/board/store";
+import { focusStore, setFocusedRun, useFocusedRun } from "@/lib/board/store";
 import { STATUS_LABELS } from "@/lib/board/tone";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -58,6 +58,11 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
     let handle: ChamberHandle | null = null;
     const reducedMotion = prefersReducedMotion();
 
+    // The whole startup, import included, is inside the promise chain: a
+    // rejected `import()` is the same outcome as a refused WebGL context — no
+    // scene, and the fallback already on screen stays there. Without the
+    // terminal `.catch()` it would instead be an unhandled rejection, since
+    // the `try` below begins after the await.
     void (async () => {
       const { createChamber } = await import("./chamber/scene");
       if (disposed) return;
@@ -76,10 +81,16 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
       }
       handleRef.current = handle;
       handle.setSpecimens(specimensRef.current);
+      // The store may already hold a focused run: a row can be hovered or
+      // focused while the import is in flight, and that effect cannot replay,
+      // because assigning a ref does not re-run one.
+      handle.setFocus(focusStore.state.runId);
       handle.resize(frame.clientWidth, frame.clientHeight);
       setLive(true);
       if (!reducedMotion) handle.start();
-    })();
+    })().catch(() => {
+      // Nothing to recover: the fallback is the design for exactly this.
+    });
 
     const resize = new ResizeObserver(([entry]) => {
       if (!entry) return;

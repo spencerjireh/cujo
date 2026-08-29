@@ -126,11 +126,21 @@ function Sensors({ rows }: { rows: SensorRow[] }) {
           <li key={row.name}>
             <div className="flex items-baseline justify-between gap-3 font-mono text-xs">
               <span className="text-fg">{row.name}</span>
+              {/* The sample size travels with the median, because the panel
+                  note above cannot carry it: that counts runs with no digest
+                  at all, and a check can also be present with no duration. A
+                  median over one run and one over twenty-six are different
+                  claims, and only this says which. */}
               <span className="text-fg-muted">
-                {row.medianMs === null
-                  ? "not timed"
-                  : (duration(new Date(0).toISOString(), new Date(row.medianMs).toISOString()) ??
-                    "not timed")}
+                {row.medianMs === null ? (
+                  "not timed"
+                ) : (
+                  <>
+                    {duration(new Date(0).toISOString(), new Date(row.medianMs).toISOString()) ??
+                      "not timed"}
+                    <span className="ml-2 opacity-70">n={row.measured}</span>
+                  </>
+                )}
               </span>
             </div>
             <div className="mt-1.5 flex h-1.5 w-full gap-px overflow-hidden">

@@ -200,7 +200,10 @@ describe("activity", () => {
   });
 
   it("never returns more buckets than the strip asked for", () => {
-    for (const hours of [1, 5, 24, 55, 24 * 9, 24 * 60, 24 * 400]) {
+    // Past the widest rung of the ladder the size is computed rather than
+    // pinned to it: a fixed seven-day fallback drew 105 buckets for a two-year
+    // record against a cap of 60, which is the bound this test exists for.
+    for (const hours of [1, 5, 24, 55, 24 * 9, 24 * 60, 24 * 400, 24 * 730, 24 * 3650]) {
       const buckets = activity(
         [
           row({ id: "a", status: "clean", created_at: at(0) }),
