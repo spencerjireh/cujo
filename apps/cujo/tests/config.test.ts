@@ -264,6 +264,32 @@ describe("loadConfig", () => {
       ).toBe(80_000);
     });
 
+    it("sends no sampling key unless a deploy asked for one", () => {
+      // The whole point. Every key in `model.params` reaches the provider
+      // verbatim, and that is how CUJO_MODEL_REASONING_EFFORT took every review
+      // down while /readyz stayed green (decision 56). Unset must mean absent.
+      expect(loadConfig(base).modelTemperature).toBeNull();
+      expect(loadConfig(base).modelMaxTokens).toBeNull();
+      for (const raw of ["", "   "]) {
+        expect(loadConfig({ ...base, CUJO_MODEL_TEMPERATURE: raw }).modelTemperature).toBeNull();
+      }
+    });
+
+    it("keeps a temperature of zero, which is the value somebody wants here", () => {
+      expect(loadConfig({ ...base, CUJO_MODEL_TEMPERATURE: "0" }).modelTemperature).toBe(0);
+      expect(loadConfig({ ...base, CUJO_MODEL_TEMPERATURE: "0.7" }).modelTemperature).toBe(0.7);
+      expect(loadConfig({ ...base, CUJO_MODEL_MAX_TOKENS: "16000" }).modelMaxTokens).toBe(16_000);
+    });
+
+    it("refuses a sampling value that is not a number, rather than sending it", () => {
+      expect(() => loadConfig({ ...base, CUJO_MODEL_TEMPERATURE: "hot" })).toThrow(
+        /CUJO_MODEL_TEMPERATURE/,
+      );
+      expect(() => loadConfig({ ...base, CUJO_MODEL_MAX_TOKENS: "-1" })).toThrow(
+        /non-negative number/,
+      );
+    });
+
     it("lets the visibility sweep be turned off with zero, but not by accident", () => {
       expect(loadConfig(base).visibilityRecheckMs).toBe(15 * 60 * 1000);
       expect(loadConfig({ ...base, CUJO_VISIBILITY_RECHECK_MS: "0" }).visibilityRecheckMs).toBe(0);
