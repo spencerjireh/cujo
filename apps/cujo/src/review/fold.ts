@@ -2,10 +2,12 @@ import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import {
   agentFindings,
   hardRuleFindings,
+  invalidReportFindings,
   isMaliceClaim,
   mergeFindings,
   missingCheckFindings,
 } from "./findings";
+import { checkTimings } from "./timings";
 import {
   CHECK_NAMES,
   type CheckName,
@@ -14,6 +16,7 @@ import {
   type PendingApproval,
   type Projection,
   type ReviewComment,
+  type UsageTotals,
 } from "./types";
 
 export type Event = TrueForgeApi.SessionEvent | TrueForgeApi.TurnStreamingEvent;
@@ -59,6 +62,51 @@ export interface FoldOptions {
   cujoResumeTurnIds?: ReadonlySet<string>;
 }
 
+export function emptyUsage(): UsageTotals {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    messages: 0,
+  };
+}
+
+/**
+ * Add one model message's usage to a running total.
+ *
+ * Mutates, because the fold owns both objects and copying one per message on a
+ * run with hundreds of them buys nothing.
+ */
+function addMessageUsage(total: UsageTotals, usage: TrueForgeApi.ModelMessageUsage): void {
+  total.inputTokens += usage.inputTokens ?? 0;
+  total.outputTokens += usage.outputTokens ?? 0;
+  total.cacheReadTokens += usage.cacheReadTokens ?? 0;
+  total.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+  total.messages += 1;
+}
+
+/**
+ * Fold one turn's metrics into the run's total.
+ *
+ * Every field on `TurnMetrics` is optional, so an absent one adds nothing
+ * rather than a zero — and `costUsd` and `reasoningTokens` stay absent until
+ * some turn reports them, because "no cost reported" and "cost zero" are not
+ * the same claim (decision 54's rule, applied to a different producer).
+ */
+function addTurnMetrics(total: UsageTotals, metrics: TrueForgeApi.TurnMetrics): void {
+  total.inputTokens += metrics.totalInputTokens ?? 0;
+  total.outputTokens += metrics.totalOutputTokens ?? 0;
+  total.cacheReadTokens += metrics.totalCacheReadTokens ?? 0;
+  total.cacheWriteTokens += metrics.totalCacheWriteTokens ?? 0;
+  if (metrics.totalReasoningTokens !== undefined) {
+    total.reasoningTokens = (total.reasoningTokens ?? 0) + metrics.totalReasoningTokens;
+  }
+  if (metrics.totalCostInUsd !== undefined) {
+    total.costUsd = (total.costUsd ?? 0) + metrics.totalCostInUsd;
+  }
+}
+
 export function emptyProjection(): Projection {
   return {
     status: "running",
@@ -74,6 +122,7 @@ export function emptyProjection(): Projection {
     gatedResponseSeen: false,
     error: null,
     summary: null,
+    usage: emptyUsage(),
   };
 }
 
@@ -182,6 +231,17 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         break;
       }
       case "model.message": {
+        // Counted before the map is written, so the same event arriving twice
+        // adds once. The runner dedupes by id and `hydrate` replaces by id, so
+        // today's input is already unique — but a sum that depends on a
+        // caller's invariant is a sum that silently doubles the day it changes.
+        if (!messages.has(event.id) && event.usage) {
+          const check = p.checks.find((c) => c.threadId === event.threadId);
+          if (check) {
+            check.usage ??= emptyUsage();
+            addMessageUsage(check.usage, event.usage);
+          }
+        }
         messages.set(event.id, event);
         if (event.threadId === "main") {
           for (const call of event.toolCalls ?? []) {
@@ -211,6 +271,14 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         const check = p.checks.find((c) => c.threadId === event.threadId);
         if (!check) break;
         check.endedAt = event.createdAt ?? null;
+        // Why the final message ended, kept beside what it said. A report that
+        // did not parse and a report that was never written are the same
+        // `check_missing` without this: `finish_reason: "length"` means the
+        // model hit its output cap mid-JSON, which is a cap to raise, and a
+        // refusal means it declined, which is neither. `messageText` drops the
+        // refusal by design, so it has to be read off the event itself.
+        check.finishReason = event.state.output?.finishReason ?? null;
+        check.refused = Boolean(event.state.output?.refusal);
         if (event.state.status === "done") {
           check.status = "done";
           check.report = parseReport(messageText(event.state.output));
@@ -219,7 +287,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           check.error = event.state.error;
           check.report = parseReport(messageText(event.state.output));
         }
-        p.hardRuleHits = hardRuleFindings(p.checks);
+        // Both inputs are in hand exactly here: the thread's two timestamps and
+        // the report holding the wrapped commands' own durations.
+        check.timings = checkTimings(check);
+        p.hardRuleHits = [...hardRuleFindings(p.checks), ...invalidReportFindings(p.checks)];
         p.findings = mergeFindings(p.hardRuleHits, publishableAgentFindings(p));
         break;
       }
@@ -255,6 +326,13 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         break;
       }
       case "turn.done": {
+        // Before the status ladder below, which `break`s out of this case in
+        // half a dozen places: what the turn cost is true whichever way it
+        // ended, and an error turn is exactly the one whose cost is worth
+        // seeing. Only a `done` turn carries metrics at all.
+        if (event.state.status === "done" && event.state.metrics) {
+          addTurnMetrics(p.usage, event.state.metrics);
+        }
         // The turn is over, so a check that never arrived is missing for good.
         p.findings = mergeFindings(
           [...p.hardRuleHits, ...missingCheckFindings(p.checks)],
@@ -337,6 +415,26 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
     }
   }
   return p;
+}
+
+/**
+ * How the last turn in this list ended, as the harness said it, or null when
+ * no turn has ended yet.
+ *
+ * `fold` cannot answer this either. It flattens `cancelled` into
+ * `status: "error"` with the reason written into `p.error` as prose, so a
+ * caller that needs to tell "stopped on purpose" from "failed" would have to
+ * match on that sentence — and the one caller that needs it, the turn retry,
+ * would start a new turn for a run somebody had just superseded or denied if
+ * the wording ever changed.
+ */
+export function lastTurnOutcome(events: readonly Event[]): "done" | "error" | "cancelled" | null {
+  let outcome: "done" | "error" | "cancelled" | null = null;
+  for (const event of events) {
+    if (event.type !== "turn.done") continue;
+    outcome = event.state.status;
+  }
+  return outcome;
 }
 
 /**

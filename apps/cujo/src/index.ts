@@ -11,10 +11,11 @@ import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { PrReactor } from "./notify/reactions.service";
-import { buildAgentSpec, buildConverseSpec } from "./review/agent-spec";
+import { buildAgentSpec, buildConverseSpec, specFingerprint } from "./review/agent-spec";
 import { publicRunId } from "./review/links";
 import { PrCommandService } from "./review/pr-command.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
+import { startRun } from "./review/start-run";
 import type { RunRecord } from "./review/types";
 import { VisibilityService } from "./review/visibility.service";
 import { Store } from "./store";
@@ -116,10 +117,130 @@ async function main(): Promise<void> {
   // same runner the operator route resumes. It reuses the reactor's write
   // client for the acknowledgement, and goes without one when reactions are
   // off — the reply is the answer, and the reaction is decoration.
+  // What every path that claims a run stamps on it. Read from the spec rather
+  // than from `config`, so the digest is of the string a session would actually
+  // be handed, tarball URL substituted and all.
+  const provenance = { model: config.model, rubricSha256: specFingerprint(spec) };
+
+  /**
+   * The two statuses that mean a run still owns a live turn on its session.
+   * `Runner.isTerminal` says the same thing and is private to it.
+   */
+  const inFlight = (status: RunRecord["status"]) =>
+    status === "running" || status === "blocked_pending";
+
+  /**
+   * `/cujo review` (decision 63): claim the current head and start a turn on it.
+   *
+   * The same pieces the webhook route uses, composed once here so
+   * `pr-command.service.ts` stays a policy module. Two differences from a
+   * webhook claim, and both are the point of the verb: the head's existing run
+   * is reclaimed, because `runs_head` is unique and a finished run is exactly
+   * what a re-review displaces; and `startRun` is forced past the
+   * already-reviewed guard, which exists to stop a redelivery reviewing the
+   * same commit twice and would otherwise refuse this every time.
+   */
+  const startReview = async (input: {
+    repo: string;
+    prNumber: number;
+    headSha: string;
+    actor: string;
+  }): Promise<{ ok: true } | { ok: false; detail: string }> => {
+    // A repo GitHub will not answer about is one this run cannot decide the
+    // visibility of, and `isPublic` decides whether the run gets a public page
+    // at all (decision 34). Refuse rather than guess private and quietly
+    // publish nothing.
+    const visibility = await github.repoIsPublic(input.repo);
+    if (visibility === "unknown") {
+      return {
+        ok: false,
+        detail: "I could not tell whether this repository is public. Try again.",
+      };
+    }
+    let sessionId = store.runs.getSession(input.repo, input.prNumber);
+    if (!sessionId) {
+      sessionId = store.runs.putSession(
+        input.repo,
+        input.prNumber,
+        await harness.createSession(spec),
+      );
+    }
+    // A run for this head that is still in flight owns a live turn on the
+    // session. Deleting its row would leave that turn running: it would keep
+    // folding into a row that no longer exists, and it could still post a
+    // review for the head this command is about to review again. `supersede`
+    // cancels the turn first, which is what the webhook path does for an older
+    // head and what this path was missing.
+    const existing = store.runs.runForPrHead(input.repo, input.prNumber, input.headSha);
+    if (existing) {
+      if (inFlight(existing.status)) {
+        // The answer matters, and a resolved promise is not it. `supersede`
+        // swallows a failed `cancelTurn` — the harness being unreachable is not
+        // worth failing a supersession over — so it reports whether the turn is
+        // *confirmed* stopped. It also declines to cancel when a human's
+        // decision is landing on that run, because cancelling would kill the
+        // turn that decision started. Either way, deleting the row while a turn
+        // may still be alive is the one thing this must not do.
+        const stopped = await runner.supersede(existing.id);
+        if (!stopped) {
+          return {
+            ok: false,
+            detail:
+              "I could not confirm the current run for this commit has stopped, so I have left it alone. Try again shortly.",
+          };
+        }
+      }
+      // By id, and never "whatever owns this head now". Two concurrent
+      // `/cujo review` commands both snapshot this same run and both wait on
+      // its supersession; a delete that re-queried by head would have the
+      // slower one delete the *replacement* the faster one just created, and
+      // that replacement's `startRun` would carry on against a deleted row.
+      store.runs.deleteRun(existing.id);
+    }
+    const { run, created } = store.runs.createRun({
+      repo: input.repo,
+      prNumber: input.prNumber,
+      headSha: input.headSha,
+      sessionId,
+      isPublic: visibility === "public",
+      deliveryId: null,
+      ...provenance,
+    });
+    // The race's other half, and the database settles it: `runs_head` is UNIQUE
+    // on (repo, pr_number, head_sha), so of two concurrent commands exactly one
+    // insert wins and the loser says so rather than starting a second turn.
+    if (!created) return { ok: false, detail: "A run for this commit is already starting." };
+    log.info("run.claimed", {
+      run_id: run.id,
+      repo: run.repo,
+      pr_number: run.prNumber,
+      head_sha: run.headSha,
+      reason: "pr_command",
+    });
+    reactor?.markClaimed(run);
+    // Fire and forget, with a terminal catch: `startRun` handles its own
+    // failures and marks the run, but an unhandled rejection here would take
+    // the process down rather than the run.
+    void startRun(
+      {
+        github,
+        store: store.runs,
+        runner,
+        reviewRunId: (r: RunRecord) => publicRunId(r),
+        log,
+        ...(reactor ? { onClaimed: (r: RunRecord) => reactor.markClaimed(r) } : {}),
+      },
+      run,
+      { force: true },
+    ).catch((error) => log.error("run.prepare.failed", { run_id: run.id, ...errorFields(error) }));
+    return { ok: true };
+  };
+
   const prCommands = new PrCommandService({
     runs: store.runs,
     runner,
     github,
+    startReview,
     reactions: config.prReactions
       ? new GitHubReactions(
           config.githubAppId,
@@ -217,6 +338,7 @@ async function main(): Promise<void> {
       reviewRunId: (run: RunRecord) => publicRunId(run),
       ...(reactor ? { onClaimed: (run: RunRecord) => reactor.markClaimed(run) } : {}),
       createSession: () => harness.createSession(spec),
+      provenance,
       isReady: () => harness.ready,
       prCommands,
       ...(converse ? { converse } : {}),

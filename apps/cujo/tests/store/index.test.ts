@@ -335,3 +335,57 @@ describe("store", () => {
     }
   });
 });
+
+describe("deleting a run to claim its head again", () => {
+  const claim = {
+    repo: "o/r",
+    prNumber: 1,
+    headSha: "h",
+    sessionId: "s",
+    isPublic: true,
+    deliveryId: null,
+    model: null,
+    rubricSha256: null,
+  };
+
+  it("frees a finished head so it can be claimed again", () => {
+    // `runs_head` is UNIQUE on (repo, pr_number, head_sha) and createRun's own
+    // stale reclaim only takes error rows with no turn, so a finished run
+    // cannot be displaced by accident. `/cujo review` displaces it on purpose,
+    // by id.
+    const store = new Store(":memory:");
+    const { run: first } = store.runs.createRun(claim);
+    store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
+    expect(store.runs.createRun(claim).created).toBe(false);
+
+    store.runs.deleteRun(first.id);
+    const { run: second, created } = store.runs.createRun(claim);
+    expect(created).toBe(true);
+    expect(second.id).not.toBe(first.id);
+    // The old run goes completely, which is what makes its board page stop
+    // resolving rather than showing a verdict nothing produced.
+    expect(store.runs.getRun(first.id)).toBeNull();
+    expect(store.runs.getProjection(first.id)).toBeNull();
+  });
+
+  it("lets the unique index arbitrate two commands racing for one head", () => {
+    // The shape `/cujo review` relies on. Both callers snapshot the same run
+    // and both delete it by id; the second insert loses and its caller refuses
+    // rather than starting a second turn on the same commit.
+    const store = new Store(":memory:");
+    const { run: first } = store.runs.createRun(claim);
+    store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
+
+    store.runs.deleteRun(first.id);
+    store.runs.deleteRun(first.id); // idempotent: the slower command's delete
+    const a = store.runs.createRun(claim);
+    const b = store.runs.createRun(claim);
+    expect([a.created, b.created].sort()).toEqual([false, true]);
+    expect(a.run.id).toBe(b.run.id);
+  });
+
+  it("deleting a run that is gone is a no-op, not a throw", () => {
+    const store = new Store(":memory:");
+    expect(() => store.runs.deleteRun("nope")).not.toThrow();
+  });
+});

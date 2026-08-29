@@ -10,6 +10,7 @@
 
 import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
+import { reviewMarker } from "../src/body";
 import type { GitHubClient } from "../src/github";
 import { postReview } from "../src/tools";
 
@@ -32,6 +33,7 @@ describe("the maintainer prompt", () => {
   function poster() {
     let posted = "";
     const github = {
+      listReviews: vi.fn(async () => []),
       listPullFiles: vi.fn(async () => []),
       createReview: vi.fn(async (_repo: string, _pr: number, req: { body: string }) => {
         posted = req.body;
@@ -79,6 +81,7 @@ describe("review.posted", () => {
   it("records the repo, the tool and what was actually posted", async () => {
     const { log, of } = capture();
     const github = {
+      listReviews: vi.fn(async () => []),
       listPullFiles: vi.fn(async () => []),
       createReview: vi.fn(async () => ({ id: 99, html_url: "https://gh/r/1" })),
     } as unknown as GitHubClient;
@@ -96,6 +99,7 @@ describe("review.posted", () => {
   it("names the gated tool, which posts the same review as the blocking one", async () => {
     const { log, of } = capture();
     const github = {
+      listReviews: vi.fn(async () => []),
       listPullFiles: vi.fn(async () => []),
       createReview: vi.fn(async () => ({ id: 100, html_url: "https://gh/r/2" })),
     } as unknown as GitHubClient;
@@ -116,6 +120,7 @@ describe("review.anchor.moved", () => {
     const { log, of } = capture();
     const github = {
       // Only a.py is in the diff, and only line 2 of it.
+      listReviews: vi.fn(async () => []),
       listPullFiles: vi.fn(async () => [
         { filename: "a.py", patch: "@@ -1,1 +1,2 @@\n context\n+added" },
       ]),
@@ -150,6 +155,7 @@ describe("review.failed", () => {
   it("names the repo and the pull request the transport catch cannot", async () => {
     const { log, of } = capture();
     const github = {
+      listReviews: vi.fn(async () => []),
       listPullFiles: vi.fn(async () => {
         throw Object.assign(new Error("GitHub /pulls/7/files failed"), { status: 502 });
       }),
@@ -170,6 +176,7 @@ describe("review.failed", () => {
   it("rethrows, so the tool still fails the way the caller expects", async () => {
     const { log } = capture();
     const github = {
+      listReviews: vi.fn(async () => []),
       listPullFiles: vi.fn(async () => []),
       createReview: vi.fn(async () => {
         throw new Error("422 unprocessable");
@@ -178,5 +185,190 @@ describe("review.failed", () => {
     await expect(
       postReview(github, "COMMENT", "post_advisory_review", input, "", log),
     ).rejects.toThrow("422");
+  });
+});
+
+describe("the duplicate review check", () => {
+  const RUN = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+  const input = (over: Record<string, unknown> = {}) => ({
+    repo: "o/r",
+    pr_number: 7,
+    head_sha: "abc1234",
+    body: "What ran.",
+    comments: [],
+    findings: [],
+    run_id: RUN,
+    ...over,
+  });
+
+  /** A client whose pull request already carries `reviews`. */
+  function clientWith(reviews: unknown[]) {
+    const createReview = vi.fn(async () => ({ id: 99, html_url: "https://gh/r/99" }));
+    const github = {
+      listReviews: vi.fn(async () => reviews),
+      listPullFiles: vi.fn(async () => []),
+      createReview,
+    } as unknown as GitHubClient;
+    return { github, createReview };
+  }
+
+  const botReview = (body: string) => ({
+    id: 42,
+    html_url: "https://gh/r/42",
+    body,
+    user: { login: "cujo-guard[bot]", type: "Bot" },
+  });
+
+  it("writes a marker into the review it posts", async () => {
+    const { log } = capture();
+    const { github } = clientWith([]);
+    await postReview(github, "COMMENT", "post_advisory_review", input(), "", log);
+    expect(github.createReview).toHaveBeenCalledWith(
+      "o/r",
+      7,
+      expect.objectContaining({
+        body: expect.stringContaining(reviewMarker("post_advisory_review", "abc1234", RUN)),
+      }),
+    );
+  });
+
+  it("refuses the identical second call and answers with the review already there", async () => {
+    const { log, of } = capture();
+    const marker = reviewMarker("post_advisory_review", "abc1234", RUN);
+    const { github, createReview } = clientWith([botReview(`What ran.\n\n${marker}\n`)]);
+    const second = await postReview(github, "COMMENT", "post_advisory_review", input(), "", log);
+    expect(createReview).not.toHaveBeenCalled();
+    // The review that is already there, not an error: a thrown tool error is
+    // something a model may work around or retry, and idempotent means the
+    // second call answers like the first.
+    expect(second).toMatchObject({ review_id: 42, html_url: "https://gh/r/42" });
+    expect(of("review.duplicate.skipped")).toHaveLength(1);
+  });
+
+  it("lets the malice path post both of its reviews on one head", async () => {
+    // The observation and the accusation. When a run has a broken thing too,
+    // both are REQUEST_CHANGES, so only the tool tells them apart.
+    const { log } = capture();
+    const blocking = reviewMarker("post_blocking_review", "abc1234", RUN);
+    const { github, createReview } = clientWith([botReview(`Body.\n\n${blocking}\n`)]);
+    await postReview(github, "REQUEST_CHANGES", "post_gated_review", input(), "", log);
+    expect(createReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a re-review of the same head post, because it is a new run", async () => {
+    const { log } = capture();
+    const older = reviewMarker("post_advisory_review", "abc1234", RUN);
+    const { github, createReview } = clientWith([botReview(`Body.\n\n${older}\n`)]);
+    const rerun = "3f2504e0-4f89-11d3-9a0c-0305e82c3302";
+    await postReview(github, "COMMENT", "post_advisory_review", input({ run_id: rerun }), "", log);
+    expect(createReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not suppressed by a marker somebody pasted into their own review", async () => {
+    // A marker is copyable. Without the account-type check a stranger could
+    // silence Cujo on a pull request by quoting one.
+    const { log } = capture();
+    const marker = reviewMarker("post_advisory_review", "abc1234", RUN);
+    const human = {
+      id: 7,
+      html_url: "https://gh/r/7",
+      body: `looks fine to me\n\n${marker}\n`,
+      user: { login: "someone", type: "User" },
+    };
+    const { github, createReview } = clientWith([human]);
+    await postReview(github, "COMMENT", "post_advisory_review", input(), "", log);
+    expect(createReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not even look when there is no run id to key on", async () => {
+    // A private repository. The server cannot tell a duplicate from a
+    // re-review there, so it does not guess and does not spend the API call.
+    const { log } = capture();
+    const { github, createReview } = clientWith([]);
+    await postReview(
+      github,
+      "COMMENT",
+      "post_advisory_review",
+      input({ run_id: undefined }),
+      "",
+      log,
+    );
+    expect(github.listReviews).not.toHaveBeenCalled();
+    expect(createReview).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the duplicate check runs again just before the write", () => {
+  const RUN = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+  const base = {
+    repo: "o/r",
+    pr_number: 7,
+    head_sha: "abc1234",
+    body: "What ran.",
+    comments: [],
+    findings: [],
+    run_id: RUN,
+  };
+
+  it("refuses a review that appeared while this call was reading", async () => {
+    // The window a single check leaves open: the file listing and the anchor
+    // validation sit between the check and the write. GitHub has no conditional
+    // create, so this cannot be made atomic — the second check makes the gap one
+    // API call wide instead of three.
+    const marker = reviewMarker("post_advisory_review", "abc1234", RUN);
+    const raced = {
+      id: 42,
+      html_url: "https://gh/r/42",
+      body: `What ran.\n\n${marker}\n`,
+      user: { login: "cujo-guard[bot]", type: "Bot" },
+    };
+    let call = 0;
+    const createReview = vi.fn(async () => ({ id: 99, html_url: "https://gh/r/99" }));
+    const github = {
+      // Empty on the early check, then carrying the other call's review by the
+      // time the late one runs.
+      listReviews: vi.fn(async () => (++call === 1 ? [] : [raced])),
+      listPullFiles: vi.fn(async () => []),
+      createReview,
+    } as unknown as GitHubClient;
+
+    const { log, of } = capture();
+    const result = await postReview(github, "COMMENT", "post_advisory_review", base, "", log);
+    expect(createReview).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ review_id: 42 });
+    expect(of("review.duplicate.skipped")).toHaveLength(1);
+  });
+
+  it("costs one read, not two, when the early check already finds it", async () => {
+    const marker = reviewMarker("post_advisory_review", "abc1234", RUN);
+    const github = {
+      listReviews: vi.fn(async () => [
+        {
+          id: 42,
+          html_url: "https://gh/r/42",
+          body: marker,
+          user: { login: "cujo-guard[bot]", type: "Bot" },
+        },
+      ]),
+      listPullFiles: vi.fn(async () => []),
+      createReview: vi.fn(),
+    } as unknown as GitHubClient;
+    const { log } = capture();
+    await postReview(github, "COMMENT", "post_advisory_review", base, "", log);
+    expect(github.listReviews).toHaveBeenCalledTimes(1);
+    expect(github.listPullFiles).not.toHaveBeenCalled();
+  });
+
+  it("spends no read at all without a run id to key on", async () => {
+    const github = {
+      listReviews: vi.fn(async () => []),
+      listPullFiles: vi.fn(async () => []),
+      createReview: vi.fn(async () => ({ id: 1, html_url: "https://gh/r/1" })),
+    } as unknown as GitHubClient;
+    const { log } = capture();
+    const { run_id: _run, ...noRun } = base;
+    await postReview(github, "COMMENT", "post_advisory_review", noRun, "", log);
+    expect(github.listReviews).not.toHaveBeenCalled();
+    expect(github.createReview).toHaveBeenCalledTimes(1);
   });
 });

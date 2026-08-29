@@ -8,8 +8,9 @@ import {
 } from "../clients/trueforge";
 import type { RunStore } from "../store";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
-import { fold, pendingApproval } from "./fold";
+import { fold, lastTurnOutcome, pendingApproval } from "./fold";
 import { runLogger } from "./start-run";
+import { checkTimings } from "./timings";
 import type { CheckState, PendingApproval, Projection, RunRecord } from "./types";
 
 type AnyEvent = SessionEvent | StreamEvent;
@@ -21,6 +22,22 @@ interface RunState {
   pollTimer: NodeJS.Timeout | null;
   /** Set once a newer head replaced this run; the fold then reports it. */
   superseded: boolean;
+  /**
+   * The message `start` was called with, so a retry can start the same turn
+   * again. `consume` does not otherwise have it, and rebuilding it would mean
+   * reading the pull request a second time.
+   */
+  turnMessage: string | null;
+  /** One retry per run, and this is how it is spent. */
+  retried: boolean;
+  /**
+   * Set when the terminal event was one Cujo synthesised rather than one the
+   * harness sent: a watchdog timeout, a lost stream, or a turn that never
+   * started. None of the three is worth retrying — the first already spent the
+   * turn timeout, and the other two say the harness is unreachable — and none
+   * can be told apart from a real `turn.done` once it is in the event list.
+   */
+  syntheticTerminal: boolean;
   /**
    * What the checks looked like the last time this process reported them, so
    * `refold` can emit a line per transition rather than one per event
@@ -46,16 +63,19 @@ export interface RunnerOptions {
 }
 
 /**
- * How long a check took, in the event clock rather than the wall clock.
+ * How long a check took, for the log line, in the event clock rather than the
+ * wall clock.
  *
- * Omitted rather than guessed when either endpoint is missing: a check whose
- * thread events did not carry a timestamp has no honest duration, and a zero
- * would read as an instantaneous check.
+ * The rule this used to state in full now lives in `checkTimings`, which
+ * computes the same wall time and two more numbers beside it: omitted rather
+ * than guessed when either endpoint is missing, because a check whose thread
+ * events carried no timestamp has no honest duration and a zero would read as
+ * an instantaneous check. The field stays `duration_ms` because
+ * `packages/log` declares that name and nothing else means the same thing.
  */
 function durationOf(check: CheckState): { duration_ms?: number } {
-  if (!check.startedAt || !check.endedAt) return {};
-  const ms = Date.parse(check.endedAt) - Date.parse(check.startedAt);
-  return Number.isFinite(ms) && ms >= 0 ? { duration_ms: ms } : {};
+  const { wallMs } = checkTimings(check);
+  return wallMs === undefined ? {} : { duration_ms: wallMs };
 }
 
 /**
@@ -158,6 +178,9 @@ export class Runner {
         subscribedTurnIds: new Set(),
         pollTimer: null,
         superseded: false,
+        turnMessage: null,
+        retried: false,
+        syntheticTerminal: false,
         reportedChecks: new Map(
           (stored?.checks ?? []).map((check) => [check.threadId, check.status]),
         ),
@@ -336,6 +359,7 @@ export class Runner {
     const deadline = setTimeout(() => {
       timedOut = true;
       this.state(runId).log.error("run.turn.timeout", { timeout_ms: this.options.turnTimeoutMs });
+      this.state(runId).syntheticTerminal = true;
       this.push(
         runId,
         errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
@@ -403,6 +427,7 @@ export class Runner {
         // because downstream this is indistinguishable from a turn that
         // genuinely failed on its merits.
         s.log.error("run.stream.lost", { attempts: this.retryDelaysMs.length });
+        s.syntheticTerminal = true;
         this.push(runId, errorTurnDone(`cujo-stream-lost-${Date.now()}`, "turn stream lost"));
         projection = this.refold(runId);
       }
@@ -410,6 +435,7 @@ export class Runner {
       clearTimeout(deadline);
     }
     if (!projection) projection = this.refold(runId);
+    if (await this.retryTurn(runId, projection)) return;
     if (projection.status === "blocked_pending") this.startPolling(runId);
     else if (this.isTerminal(projection.status)) {
       this.stopPolling(runId);
@@ -426,6 +452,56 @@ export class Runner {
         }
       }
     }
+  }
+
+  /**
+   * Start the turn over, once, when it ended in error having posted nothing.
+   *
+   * The stream had careful backoff and the turn had none: a provider 5xx, or a
+   * turn the harness gave up on, left the run in `error` with no review on the
+   * pull request and nothing that would ever try again.
+   *
+   * It hooks in **after** the refold rather than inside `drain`, and that is a
+   * trade made deliberately. Several of the errors worth retrying are ones the
+   * fold decides rather than the stream — a turn that ended without calling a
+   * review tool, one that drafted a gated review no approval was raised for —
+   * and none of those is visible from the raw `turn.done`. The cost is that
+   * `refold` has already persisted `error` and emitted, so the board, the
+   * Discord card and the pull request's reaction show the failure and then go
+   * back to running. That is honest: the turn really did fail.
+   *
+   * Returns whether it started one, so the caller can leave the terminal
+   * bookkeeping alone.
+   */
+  private async retryTurn(runId: string, projection: Projection): Promise<boolean> {
+    const s = this.state(runId);
+    if (projection.status !== "error") return false;
+    if (s.retried || s.superseded || s.syntheticTerminal) return false;
+    // Nothing that reached the pull request may be repeated. `review` is only
+    // ever an ungated call, so a recorded one is a posted one, and a drafted
+    // gated review means a human is or was involved.
+    if (projection.review || projection.gatedReview || projection.approval) return false;
+    // A cancelled turn was stopped on purpose — by `supersede`, by a deny, or
+    // by an operator. `fold` flattens that into `error` with the reason in
+    // prose, so ask the events rather than matching on that sentence.
+    if (lastTurnOutcome(s.events) === "cancelled") return false;
+    const run = this.store.getRun(runId);
+    const message = s.turnMessage;
+    if (!run || !message) return false;
+
+    s.retried = true;
+    s.log.warn("run.turn.retried", { reason: projection.error ?? "turn ended in error" });
+    // The event list has to go, and this is not tidiness. `fold`'s `turn.done`
+    // case opens with `if (p.status === "error") break`, so the first turn's
+    // failure would short-circuit the second turn's terminal event and the run
+    // would sit in `error` however well the retry went. `reportedChecks` goes
+    // with it, or the second attempt's checks are never announced.
+    s.events = [];
+    s.reportedChecks.clear();
+    this.store.updateRun(runId, { status: "running" });
+    this.refold(runId);
+    await this.start(run, message);
+    return true;
   }
 
   /**
@@ -542,6 +618,14 @@ export class Runner {
   /**
    * A newer head on the same PR replaced this run. The run stops following
    * its turn, no decision can be made on it (the decision claim requires
+   * Answers whether the turn is **confirmed** stopped: cancelled, already
+   * terminal, or never started. `false` means this call could not establish
+   * that — the harness refused the cancel, a decision is landing on the run, or
+   * somebody else superseded it first. The webhook path ignores the answer,
+   * because a stale run left running is merely wasteful there; `/cujo review`
+   * reads it, because it is about to delete the run's row and a live turn with
+   * no row can still post a review.
+   *
    * blocked_pending), and a turn still running on the harness is cancelled
    * so it cannot post a review for a stale head. Resolves once the cancel
    * has been sent, so the caller can start the newer head's turn after it.
@@ -550,9 +634,11 @@ export class Runner {
    * answered rather than merely cancelled, or the pull request becomes
    * unreviewable for good (decision 39).
    */
-  async supersede(runId: string): Promise<void> {
+  async supersede(runId: string): Promise<boolean> {
     const s = this.state(runId);
-    if (s.superseded) return;
+    // Already superseded by someone else, and this call cannot see whether
+    // their cancel landed. `false` means "not confirmed", never "still live".
+    if (s.superseded) return false;
     s.superseded = true;
     s.log.info("run.superseded", { reason: "newer_head" });
     this.stopPolling(runId);
@@ -563,14 +649,14 @@ export class Runner {
     // `fold` never clears `approval`, so it survives the refold; only the
     // status is overridden.
     const projection = this.refold(runId);
-    if (!run) return;
+    if (!run) return true;
     if (wasPending && projection.approval) {
       // Already in memory, so no round trip to find it. A deny that lands has
       // cancelled the turn it started and there is nothing else to stop.
       if (
         await this.denyStaleApproval(s.log, run.sessionId, projection.approval, "newer_head", runId)
       )
-        return;
+        return true;
       // It did not land, and the likeliest reason is that a human's decision
       // answered the approval first: `claimDecision` sets `approver` but leaves
       // the run `blocked_pending`, so a decision can be in flight and invisible
@@ -589,12 +675,13 @@ export class Runner {
         // observation half is public either way, and the new head gets its own
         // run that re-derives it.
         s.log.info("run.supersede.deferred", { reason: "decision_in_flight" });
-        return;
+        return false;
       }
     }
-    if (!live) return;
+    if (!live) return true;
     try {
       await this.harness.cancelTurn(run.sessionId);
+      return true;
     } catch (error) {
       // Already finished, or the harness is unreachable: nothing to cancel.
       s.log.warn("run.cancel.failed", {
@@ -602,6 +689,7 @@ export class Runner {
         reason: "supersede",
         ...errorFields(error),
       });
+      return false;
     }
   }
 
@@ -683,6 +771,9 @@ export class Runner {
    * ours, and `startTurn` failing at all is rare enough to afford one lookup.
    */
   async start(run: RunRecord, message: string): Promise<void> {
+    // Kept so a retry can start the same turn again without reading the pull
+    // request a second time.
+    this.state(run.id).turnMessage = message;
     if (this.store.getRun(run.id)?.status !== "running" || this.state(run.id).superseded) return;
     const log = this.state(run.id).log;
     let turnId: string;

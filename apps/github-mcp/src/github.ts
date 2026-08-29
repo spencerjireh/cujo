@@ -29,6 +29,17 @@ export interface CreatedReview {
 }
 
 /**
+ * An existing review on the pull request, as much of it as the duplicate check
+ * needs. `user` is nullable because GitHub returns null for a deleted account.
+ */
+export interface ExistingReview {
+  id: number;
+  html_url: string;
+  body: string | null;
+  user: { login: string; type?: string } | null;
+}
+
+/**
  * A GitHub call that did not return 2xx.
  *
  * Status and path are fields, not text inside the message, so `errorFields`
@@ -69,6 +80,8 @@ function detailFrom(body: string): string {
 
 export interface GitHubClient {
   listPullFiles(repo: string, prNumber: number): Promise<PullFile[]>;
+  /** Every review already on the pull request, for the duplicate check. */
+  listReviews(repo: string, prNumber: number): Promise<ExistingReview[]>;
   createReview(repo: string, prNumber: number, input: CreateReviewInput): Promise<CreatedReview>;
 }
 
@@ -142,6 +155,22 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         if (batch.length < 100) break;
       }
       return files;
+    },
+
+    async listReviews(repo, prNumber) {
+      const reviews: ExistingReview[] = [];
+      // Paginated exactly like `listPullFiles`: 100 is the API maximum, and a
+      // pull request with more than 3000 reviews is not one this server's
+      // duplicate check is the problem on.
+      for (let page = 1; page <= 30; page += 1) {
+        const batch = await call<ExistingReview[]>(
+          repo,
+          `/repos/${repo}/pulls/${prNumber}/reviews?per_page=100&page=${page}`,
+        );
+        reviews.push(...batch);
+        if (batch.length < 100) break;
+      }
+      return reviews;
     },
 
     async createReview(repo, prNumber, input) {

@@ -64,6 +64,7 @@ export const EVENT_NAMES = [
   "converse.redelivered",
   "converse.disabled",
   // A run's life, from the claim to a terminal status.
+  "run.claimed",
   "run.skipped",
   "run.superseded",
   "run.supersede.deferred",
@@ -72,6 +73,7 @@ export const EVENT_NAMES = [
   "run.turn.started",
   "run.turn.start.failed",
   "run.turn.timeout",
+  "run.turn.retried",
   "run.stream.dropped",
   "run.stream.resubscribe.failed",
   "run.stream.lost",
@@ -116,6 +118,7 @@ export const EVENT_NAMES = [
   "github.page_cap",
   // github-mcp: the only outward write in the system.
   "review.posted",
+  "review.duplicate.skipped",
   "review.failed",
   "review.anchor.moved",
   // Stale review dismissal (decision 52).
