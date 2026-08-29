@@ -90,10 +90,7 @@ function build(
     store: store.notifications,
     discord: discord as unknown as DiscordClient,
     github: github as unknown as GitHubReader,
-    links: {
-      uiBaseUrl: "https://cujo-admin.example.com",
-      publicBaseUrl: "https://cujo.example.com",
-    },
+    links: { publicBaseUrl: "https://cujo.example.com" },
     defaultGuild: options.defaultGuild ?? null,
     onSettled: (name) => settled.shift()?.(name),
   });

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Runner } from "../../src/review/runner.service";
-import { HOOK, INTERNAL, UI, build, req } from "./helpers";
+import { HOOK, INTERNAL, build, req } from "./helpers";
 
 describe("host dispatch", () => {
   it("serves healthz on both hosts", async () => {
     const { app } = build();
-    for (const host of [UI, HOOK]) {
+    for (const host of [INTERNAL, HOOK]) {
       const res = await app.fetch(req(host, "/healthz"));
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ ok: true, service: "cujo" });
@@ -15,12 +15,12 @@ describe("host dispatch", () => {
   it("answers 404 on an unknown host and on the wrong route per host", async () => {
     const { app } = build();
     expect((await app.fetch(req("other.test", "/healthz"))).status).toBe(404);
-    expect((await app.fetch(req(HOOK, "/runs"))).status).toBe(404);
-    expect((await app.fetch(req(UI, "/webhook", { method: "POST" }))).status).toBe(404);
-    // Signature-gated ingress belongs on the webhook host, never behind Access.
-    expect((await app.fetch(req(UI, "/discord/interactions", { method: "POST" }))).status).toBe(
-      404,
-    );
+    expect((await app.fetch(req(HOOK, "/public/runs"))).status).toBe(404);
+    expect((await app.fetch(req(INTERNAL, "/webhook", { method: "POST" }))).status).toBe(404);
+    // Signature-gated ingress belongs on the webhook host and nowhere else.
+    expect(
+      (await app.fetch(req(INTERNAL, "/discord/interactions", { method: "POST" }))).status,
+    ).toBe(404);
   });
 
   it("serves the Discord interactions route only when it is configured", async () => {
@@ -37,60 +37,69 @@ describe("host dispatch", () => {
     expect(res.status).toBe(401);
   });
 
-  it("requires an Access assertion on every UI route", async () => {
-    const { app } = build();
-    // The UI moved to apps/web, so this process serves no page: `/` is behind
-    // the Access check like everything else, and 404s once past it.
-    expect((await app.fetch(req(UI, "/"))).status).toBe(401);
-    const page = await app.fetch(req(UI, "/", { headers: { "cf-access-jwt-assertion": "good" } }));
-    expect(page.status).toBe(404);
-    expect((await app.fetch(req(UI, "/runs"))).status).toBe(401);
-    const ok = await app.fetch(
-      req(UI, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
-    );
-    expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ runs: [] });
-  });
-
-  it("serves the API on the internal host, still behind Access", async () => {
-    // apps/web reaches this process by its compose service name, because Node's
-    // fetch always sends the target's own authority as Host. The Access check
-    // is not relaxed for it, and the webhook stays unreachable.
-    const { app } = build();
-    expect((await app.fetch(req(INTERNAL, "/runs"))).status).toBe(401);
-    const ok = await app.fetch(
-      req(INTERNAL, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
-    );
-    expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ runs: [] });
-    expect((await app.fetch(req(INTERNAL, "/webhook", { method: "POST" }))).status).toBe(404);
-  });
-
   it("does not accept an internal host that was never configured", async () => {
     const { app } = build();
-    expect((await app.fetch(req("cujo", "/runs"))).status).toBe(404);
+    expect((await app.fetch(req("cujo", "/public/runs"))).status).toBe(404);
   });
 
   /**
-   * The mount point, which is the whole of decision 34's split. `/public/*`
-   * has to answer with no assertion while its sibling `/runs` still refuses
-   * one, on the same host and in the same process — and the webhook host must
-   * not gain a read plane it never had.
+   * The invariant that replaced the gate (decision 52).
+   *
+   * There is no credential to present any more, so "not `/public`" can no
+   * longer mean "behind the check" — it has to mean "not served". A 401 here
+   * would be a route somebody could still reach with the right header; a 404
+   * is the absence the deletion was supposed to produce. These paths are the
+   * ones that used to answer 401, so they are the ones worth pinning.
    */
-  describe("the public plane", () => {
-    it("answers without an Access assertion, on both UI-side hosts", async () => {
+  describe("nothing but the read plane", () => {
+    it("answers 404 to every path outside /public on the read host", async () => {
       const { app } = build();
-      for (const host of [UI, INTERNAL]) {
-        const res = await app.fetch(req(host, "/public/runs"));
-        expect(res.status).toBe(200);
-        expect(await res.json()).toEqual({ runs: [] });
+      for (const path of [
+        "/",
+        "/runs",
+        "/runs/r1",
+        "/runs/r1/events",
+        "/discord/channels",
+        "/discord/authorizations",
+        "/discord/guilds",
+      ]) {
+        const res = await app.fetch(req(INTERNAL, path));
+        expect(res.status, path).toBe(404);
       }
     });
 
-    it("leaves the gated routes gated", async () => {
+    it("does not accept a credential that used to work", async () => {
+      // Both gates decision 49 accepted. Neither names a route now, and a
+      // request carrying one must not be answered any differently from a
+      // request carrying none — otherwise the gate is still there, inverted.
       const { app } = build();
-      expect((await app.fetch(req(UI, "/runs"))).status).toBe(401);
-      expect((await app.fetch(req(UI, "/discord/channels"))).status).toBe(401);
+      const bearer = await app.fetch(
+        req(INTERNAL, "/runs", { headers: { authorization: "Bearer good" } }),
+      );
+      const assertion = await app.fetch(
+        req(INTERNAL, "/runs", { headers: { "cf-access-jwt-assertion": "good" } }),
+      );
+      const bare = await app.fetch(req(INTERNAL, "/runs"));
+      expect(bearer.status).toBe(404);
+      expect(assertion.status).toBe(404);
+      // Read once each: a Response body is single-use, so comparing against a
+      // re-read `bare` would fail for a reason that is not the point.
+      const bareBody = await bare.json();
+      expect(await bearer.json()).toEqual(bareBody);
+      expect(await assertion.json()).toEqual(bareBody);
+    });
+  });
+
+  /**
+   * The mount point. `/public/*` answers anonymously on the read host, and the
+   * webhook host must not gain a read plane it never had.
+   */
+  describe("the public plane", () => {
+    it("answers without any credential on the read host", async () => {
+      const { app } = build();
+      const res = await app.fetch(req(INTERNAL, "/public/runs"));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ runs: [] });
     });
 
     it("is not served on the webhook host", async () => {
@@ -98,10 +107,10 @@ describe("host dispatch", () => {
       expect((await app.fetch(req(HOOK, "/public/runs"))).status).toBe(404);
     });
 
-    it("has no write route, gated or otherwise", async () => {
+    it("has no write route", async () => {
       const { app } = build();
       const res = await app.fetch(
-        req(UI, "/public/runs/r1/approve", {
+        req(INTERNAL, "/public/runs/r1/approve", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ decision: "allow" }),
@@ -121,15 +130,16 @@ describe("the approve route, which is gone", () => {
     const approve = vi.fn();
     const runner = { view: () => null, start: vi.fn(), approve } as unknown as Runner;
     const { app } = build({ runner });
-    const headers = { "cf-access-jwt-assertion": "good", "content-type": "application/json" };
-    const res = await app.fetch(
-      req(UI, "/runs/r1/approve", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ decision: "allow" }),
-      }),
-    );
-    expect(res.status).toBe(404);
+    for (const host of [INTERNAL, HOOK]) {
+      const res = await app.fetch(
+        req(host, "/runs/r1/approve", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ decision: "allow" }),
+        }),
+      );
+      expect(res.status, host).toBe(404);
+    }
     expect(approve).not.toHaveBeenCalled();
   });
 });

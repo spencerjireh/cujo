@@ -6,7 +6,7 @@ import { verifySignature } from "../../../src/http/ingress/github-webhook";
 import { createApp } from "../../../src/http/router";
 import type { Runner } from "../../../src/review/runner.service";
 import { Store } from "../../../src/store";
-import { HOOK, UI, build, prOf, req } from "../helpers";
+import { HOOK, INTERNAL, build, prOf, req } from "../helpers";
 
 describe("webhook", () => {
   const sign = (body: string) => `sha256=${createHmac("sha256", "s3").update(body).digest("hex")}`;
@@ -30,14 +30,8 @@ describe("webhook", () => {
     const runner = { view: () => null, start: vi.fn() } as unknown as Runner;
     const app = createApp({
       log: createLogger({ service: "cujo", sink: () => {} }),
-      uiHost: UI,
+      internalHost: INTERNAL,
       webhookHost: HOOK,
-      api: {
-        runs: store.runs,
-        notifications: store.notifications,
-        runner,
-        verify: async () => ({ operator: null, reason: "no_assertion" as const }),
-      },
       public: { runs: store.runs, runner, streamLimit: 200 },
       webhook: {
         log: createLogger({ service: "cujo", sink: () => {} }),

@@ -9,9 +9,9 @@
  *
  * Names are `plane.thing.happened`, past tense, lowercase. The plane prefix is
  * the same split the file tree uses (decision 32), so `webhook.*` is
- * signature-gated ingress, `approve.*` is a human decision behind Access, and
- * `public.*` is anonymous — which means a query can ask about a trust plane
- * without knowing which file emitted the line.
+ * signature-gated ingress, `approve.*` is a human decision made on the pull
+ * request, and `public.*` is anonymous — which means a query can ask about a
+ * trust plane without knowing which file emitted the line.
  *
  * A guard test scans the source and fails on a name emitted but not declared
  * *and* on a name declared that nothing emits, because a vocabulary with dead
@@ -91,10 +91,7 @@ export const EVENT_NAMES = [
   "run.approval.clear.skipped",
   "check.started",
   "check.finished",
-  // The Access gate and the one route where a human decides.
-  "access.denied",
-  "access.disabled",
-  "access.retired",
+  // The one place a human decides: `/cujo confirm` on the pull request.
   "approve.applied",
   "approve.rejected",
   // The anonymous plane. All three are `debug` except the rejection.

@@ -10,14 +10,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { HOOK, INTERNAL, UI, build, req } from "./helpers";
+import { HOOK, INTERNAL, build, req } from "./helpers";
 
 const LOCAL = "127.0.0.1";
 
 describe("/healthz stays a liveness probe", () => {
   it("answers 200 with the same body even when the harness is not ready", async () => {
     const { app } = build({ isReady: () => false });
-    for (const host of [UI, HOOK, LOCAL]) {
+    for (const host of [INTERNAL, HOOK, LOCAL]) {
       const res = await app.fetch(req(host, "/healthz"));
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ ok: true, service: "cujo" });
@@ -28,7 +28,7 @@ describe("/healthz stays a liveness probe", () => {
 describe("/readyz", () => {
   it("answers on every host this process serves", async () => {
     const { app } = build();
-    for (const host of [UI, HOOK, INTERNAL, LOCAL]) {
+    for (const host of [INTERNAL, HOOK, LOCAL]) {
       expect((await app.fetch(req(host, "/readyz"))).status).toBe(200);
     }
   });
@@ -40,7 +40,7 @@ describe("/readyz", () => {
 
   it("reports ready when the harness has bootstrapped and the store answers", async () => {
     const { app } = build({ isReady: () => true });
-    const res = await app.fetch(req(UI, "/readyz"));
+    const res = await app.fetch(req(INTERNAL, "/readyz"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -55,7 +55,7 @@ describe("/readyz", () => {
   it("answers 503 while the harness is still bootstrapping", async () => {
     // The same flag the webhook itself gates on, so the two cannot disagree.
     const { app } = build({ isReady: () => false });
-    const res = await app.fetch(req(UI, "/readyz"));
+    const res = await app.fetch(req(INTERNAL, "/readyz"));
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({
       ok: false,
@@ -70,7 +70,7 @@ describe("/readyz", () => {
     // harness is. Closing the database is the cheapest real failure.
     const { app, store } = build({ isReady: () => true });
     store.close();
-    const res = await app.fetch(req(UI, "/readyz"));
+    const res = await app.fetch(req(INTERNAL, "/readyz"));
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({
       ready: false,
@@ -82,7 +82,7 @@ describe("/readyz", () => {
     // `active()` existed and was reachable from nothing: publicRoutes returned
     // it and router.ts used only `.app`.
     const { app } = build({ streamLimit: 7 });
-    const body = (await (await app.fetch(req(UI, "/readyz"))).json()) as {
+    const body = (await (await app.fetch(req(INTERNAL, "/readyz"))).json()) as {
       public_streams: { active: number; limit: number };
     };
     expect(body.public_streams).toEqual({ active: 0, limit: 7 });
@@ -90,7 +90,7 @@ describe("/readyz", () => {
 
   it("reports how many log lines were lost", async () => {
     const { app } = build();
-    const body = (await (await app.fetch(req(UI, "/readyz"))).json()) as {
+    const body = (await (await app.fetch(req(INTERNAL, "/readyz"))).json()) as {
       log_failures: { emit: number; stdout: number };
     };
     expect(typeof body.log_failures.emit).toBe("number");
@@ -102,7 +102,7 @@ describe("/readyz", () => {
     // booleans and counts. The webhook's own 503 already announces the same
     // fact to anyone who cares to look.
     const { app } = build({ isReady: () => false });
-    const body = JSON.stringify(await (await app.fetch(req(UI, "/readyz"))).json());
+    const body = JSON.stringify(await (await app.fetch(req(INTERNAL, "/readyz"))).json());
     expect(body).not.toContain("@");
   });
 });
@@ -112,7 +112,7 @@ describe("neither probe is logged", () => {
     // They run every few seconds for the life of the container and would drown
     // the signal the vocabulary exists to create.
     const { app, logged } = build({ level: "debug" });
-    await app.fetch(req(UI, "/healthz"));
+    await app.fetch(req(INTERNAL, "/healthz"));
     await app.fetch(req(HOOK, "/readyz"));
     expect(logged("http.request")).toEqual([]);
   });

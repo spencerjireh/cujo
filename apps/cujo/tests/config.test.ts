@@ -6,8 +6,6 @@ const base = {
   GITHUB_APP_ID: "1",
   GITHUB_APP_PRIVATE_KEY: "pem",
   CUJO_MODEL: "p/m",
-  CF_ACCESS_TEAM_DOMAIN: "t.cloudflareaccess.com",
-  CF_ACCESS_AUD: "aud",
 };
 
 describe("loadConfig", () => {
@@ -17,29 +15,18 @@ describe("loadConfig", () => {
     expect(() => loadConfig(withoutModel)).toThrow("CUJO_MODEL is required");
   });
 
-  it("requires the Access values unless dev or a token replaces them", () => {
-    const { CF_ACCESS_AUD: _aud, ...withoutAud } = base;
-    expect(() => loadConfig(withoutAud)).toThrow("CF_ACCESS_AUD is required");
-    const dev = loadConfig({ ...withoutAud, CUJO_DEV_NO_ACCESS: "1" });
-    expect(dev.devNoAccess).toBe(true);
-    expect(dev.cfAccessAud).toBe("");
-    // The other way out, and what makes the two gates orderable: a deploy that
-    // has set the token no longer has to keep the Access values around to
-    // start (decision 49).
-    const tokened = loadConfig({ ...withoutAud, CUJO_OPERATOR_TOKEN: "s3cret" });
-    expect(tokened.operatorToken).toBe("s3cret");
-    expect(tokened.cfAccessAud).toBe("");
-  });
-
-  it("trims the operator token, and treats whitespace as no token", () => {
-    // The login form trims what an operator pastes, so a secret normalised on
-    // one side only would disable the Access requirement while being
-    // impossible to present through the UI.
-    expect(loadConfig({ ...base, CUJO_OPERATOR_TOKEN: "  s3cret\n" }).operatorToken).toBe("s3cret");
-    const { CF_ACCESS_AUD: _aud, ...withoutAud } = base;
-    expect(() => loadConfig({ ...withoutAud, CUJO_OPERATOR_TOKEN: "   " })).toThrow(
-      "CF_ACCESS_AUD is required",
-    );
+  it("starts with no credential configured, because none exists", () => {
+    // Decision 52 deleted the last gate, so the variables that used to be
+    // conditionally required are gone. A deploy that still sets them starts
+    // exactly the same way — they are read by nothing.
+    const stale = loadConfig({
+      ...base,
+      CF_ACCESS_TEAM_DOMAIN: "t.cloudflareaccess.com",
+      CF_ACCESS_AUD: "aud",
+      CUJO_OPERATOR_TOKEN: "s3cret",
+      CUJO_DEV_NO_ACCESS: "1",
+    });
+    expect(stale).toEqual(loadConfig(base));
   });
 
   it("applies the compose-network defaults", () => {
@@ -47,12 +34,11 @@ describe("loadConfig", () => {
     expect(config).toMatchObject({
       port: 8080,
       trueforgeBaseUrl: "http://server:8790",
-      uiHost: "cujo.spencerjireh.com",
+      internalHost: "cujo",
       webhookHost: "cujo-ingress.spencerjireh.com",
       dbPath: "/data/cujo.db",
       githubMcpUrl: "http://github-mcp:8081/mcp",
       turnTimeoutMs: 30 * 60 * 1000,
-      devNoAccess: false,
       bootstrap: { modelProvider: null, daytonaApiKey: null },
     });
     // The whole path, not just the basename. `toContain("sniff.py")` stayed
@@ -130,14 +116,15 @@ describe("loadConfig", () => {
     );
   });
 
-  it("derives the UI base URL from the UI host, and lets it be overridden", () => {
-    expect(loadConfig(base).uiBaseUrl).toBe("https://cujo.spencerjireh.com");
-    expect(loadConfig({ ...base, CUJO_UI_BASE_URL: "" }).uiBaseUrl).toBe(
-      "https://cujo.spencerjireh.com",
-    );
-    expect(loadConfig({ ...base, CUJO_UI_BASE_URL: "http://cujo.localhost:8080/" }).uiBaseUrl).toBe(
-      "http://cujo.localhost:8080",
-    );
+  it("takes the board's origin as given, and defaults it to none", () => {
+    // No derivation from a hostname any more: there is one origin, it is the
+    // only place a card can link to, and an unset value means no card carries
+    // a link at all rather than one pointing somewhere nobody can open.
+    expect(loadConfig(base).publicBaseUrl).toBe("");
+    expect(loadConfig({ ...base, CUJO_PUBLIC_BASE_URL: "" }).publicBaseUrl).toBe("");
+    expect(
+      loadConfig({ ...base, CUJO_PUBLIC_BASE_URL: "https://cujo.spencerjireh.com/" }).publicBaseUrl,
+    ).toBe("https://cujo.spencerjireh.com");
   });
 
   it("parses the model provider list and registers it only with a URL and a key", () => {

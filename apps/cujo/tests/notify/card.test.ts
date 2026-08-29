@@ -17,9 +17,8 @@ import {
   type RunStatus,
 } from "../../src/review/types";
 
-const UI = "https://cujo-admin.example.com";
 const PUBLIC_UI = "https://cujo.example.com";
-const LINKS = { uiBaseUrl: UI, publicBaseUrl: PUBLIC_UI };
+const LINKS = { publicBaseUrl: PUBLIC_UI };
 
 function run(patch: Partial<RunRecord> = {}): RunRecord {
   return {
@@ -353,9 +352,10 @@ describe("buildPing", () => {
 });
 
 /**
- * A repo's Discord channel holds its team, not Cujo's operators, so a card for
- * a public run points at the board anyone can open (decision 34). A private
- * repo has no public page, so its cards have only the gated one.
+ * A card for a public run points at the board anyone can open (decision 34). A
+ * private run has no page at all since decision 52, so its card carries no
+ * link — the key is absent rather than null, because Discord refuses a null
+ * `url` and the title has to keep rendering either way.
  */
 describe("where a card links", () => {
   it("sends a public run to the public board", () => {
@@ -368,33 +368,50 @@ describe("where a card links", () => {
     expect(payload.embeds?.[0]?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
   });
 
-  it("sends a private run to the operator UI", () => {
+  it("gives a private run no link, and still a title", () => {
     const payload = buildRunCard({
       run: run({ isPublic: false }),
       projection: projection(),
       prTitle: null,
       links: LINKS,
     });
-    expect(payload.embeds?.[0]?.url).toBe(`${UI}/runs/${run().id}`);
+    const [embed] = payload.embeds ?? [];
+    expect(embed && "url" in embed).toBe(false);
+    expect(embed?.title).toBeTruthy();
   });
 
-  it("falls back to the operator UI when no public board is configured", () => {
+  it("links nowhere at all when no board is configured", () => {
     const payload = buildRunCard({
       run: run({ isPublic: true }),
       projection: projection(),
       prTitle: null,
-      links: { uiBaseUrl: UI, publicBaseUrl: "" },
+      links: { publicBaseUrl: "" },
     });
-    expect(payload.embeds?.[0]?.url).toBe(`${UI}/runs/${run().id}`);
+    expect(payload.embeds?.[0] && "url" in payload.embeds[0]).toBe(false);
   });
 
-  it("applies the same rule to the ping", () => {
+  it("applies the same rule to the ping, without a dangling space", () => {
     const blocked = { status: "blocked_pending" as const };
     expect(
       buildPing({ run: run({ ...blocked, isPublic: true }), links: LINKS, roleId: null }).content,
     ).toContain(PUBLIC_UI);
-    expect(
-      buildPing({ run: run({ ...blocked, isPublic: false }), links: LINKS, roleId: null }).content,
-    ).toContain(UI);
+    const private_ = buildPing({
+      run: run({ ...blocked, isPublic: false }),
+      links: LINKS,
+      roleId: null,
+    }).content;
+    expect(private_).not.toContain("://");
+    expect(private_).toBe(private_?.trimEnd());
+  });
+
+  it("names the pull request in a private run's resolved ping, and links nothing", () => {
+    const resolved = buildPing({
+      run: run({ status: "denied", isPublic: false }),
+      links: LINKS,
+      roleId: null,
+    }).content;
+    expect(resolved).toContain("o/r #7");
+    expect(resolved).not.toContain("://");
+    expect(resolved).toBe(resolved?.trimEnd());
   });
 });

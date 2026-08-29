@@ -80,7 +80,7 @@ export function withRay(request: Request, ray: string): Request {
 }
 
 /** Which plane answered, for a query that asks about a trust boundary. */
-export type Plane = "operator" | "public" | "ingress" | "unknown";
+export type Plane = "public" | "ingress" | "unknown";
 
 /**
  * `source: "edge"` for the outer router, which faces the internet and must

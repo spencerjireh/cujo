@@ -7,7 +7,6 @@ import { Harness } from "./clients/trueforge";
 import { loadConfig } from "./config";
 import { ConverseService } from "./converse/converse.service";
 import { ConverseRateLimit } from "./converse/rate-limit";
-import { type AccessVerifier, createAccessVerifier, devVerifier } from "./http/operator/access";
 import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
@@ -57,8 +56,9 @@ async function main(): Promise<void> {
   const github = new GitHubReader(config.githubAppId, config.githubAppPrivateKey, fetch, log);
   const spec = buildAgentSpec(config);
   // Where a Discord card points. A public run links to the board anyone can
-  // open; everything else links to the gated UI (decision 34).
-  const links = { uiBaseUrl: config.uiBaseUrl, publicBaseUrl: config.publicBaseUrl };
+  // open; a private one has no page at all, so its card carries no link
+  // (decision 52).
+  const links = { publicBaseUrl: config.publicBaseUrl };
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status
@@ -147,23 +147,6 @@ async function main(): Promise<void> {
     void registerCommands(discord, log);
   }
 
-  if (config.devNoAccess) {
-    log.warn("access.disabled");
-  }
-  // With a token configured and no Access team domain, the JWT verifier has
-  // nothing to verify against — so it is not built, and the gate refuses an
-  // assertion outright rather than reaching for a key set that does not exist.
-  const accessConfigured = Boolean(config.cfAccessTeamDomain && config.cfAccessAud);
-  const verify: AccessVerifier = config.devNoAccess
-    ? devVerifier
-    : accessConfigured
-      ? createAccessVerifier({
-          teamDomain: config.cfAccessTeamDomain,
-          audience: config.cfAccessAud,
-        })
-      : async () => ({ operator: null, reason: "no_token" });
-  if (!config.devNoAccess && !accessConfigured) log.info("access.retired");
-
   // The server may still be starting. The process listens right away so the
   // container is healthy, but the webhook answers 503 until this succeeds.
   void harness.bootstrapUntilReady();
@@ -188,18 +171,8 @@ async function main(): Promise<void> {
 
   const app = createApp({
     log,
-    uiHost: config.uiHost,
     internalHost: config.internalHost,
     webhookHost: config.webhookHost,
-    api: {
-      runs: store.runs,
-      notifications: store.notifications,
-      runner,
-      verify,
-      operatorToken: config.operatorToken,
-      github,
-      ...(discord ? { discord } : {}),
-    },
     public: {
       runs: store.runs,
       runner,
@@ -212,9 +185,9 @@ async function main(): Promise<void> {
       store: store.runs,
       runner,
       // What the review's footer names. A public run gets its id; anything
-      // else gets nothing, since a stranger reading the pull request cannot
-      // open the gated host. `github-mcp` turns the id into a link, so no
-      // hostname passes through the agent (decision 36).
+      // else gets nothing, since a private run has no page for a stranger
+      // reading the pull request to open. `github-mcp` turns the id into a
+      // link, so no hostname passes through the agent (decision 36).
       reviewRunId: (run: RunRecord) => publicRunId(run),
       ...(reactor ? { onClaimed: (run: RunRecord) => reactor.markClaimed(run) } : {}),
       createSession: () => harness.createSession(spec),
@@ -226,7 +199,7 @@ async function main(): Promise<void> {
   });
 
   const server = serve({ fetch: app.fetch, port: config.port }, () => {
-    log.info("service.started", { port: config.port, mode: config.devNoAccess ? "dev" : "prod" });
+    log.info("service.started", { port: config.port });
   });
   // A send still in flight holds the message id that stops the next boot from
   // posting a duplicate card, so the queue is drained before the database is
