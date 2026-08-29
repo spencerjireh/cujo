@@ -60,12 +60,12 @@ export function loadRubric(): string {
  * `...config` spread into a compile error instead of a leak.
  */
 export function buildAgentSpec(
-  config: Pick<Config, "model" | "sniffUrl">,
+  config: Pick<Config, "model" | "sniffTarballUrl">,
   rubric = loadRubric(),
 ): TrueForgeApi.AgentSpec {
   return {
     model: { name: config.model },
-    instructions: rubric.replaceAll("{{CUJO_SNIFF_URL}}", config.sniffUrl),
+    instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
     // The one gated tool, and the one line that decides what a human is asked
     // about. `post_blocking_review` is deliberately not here: blocking a merge
     // on a broken test is mechanical and reversible, and asking about it is

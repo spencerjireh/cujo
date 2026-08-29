@@ -301,8 +301,9 @@ names: `setup` seeds the decoy, starts the proxy and the watcher, and prints
 the environment every later command must carry; `run --check NAME -- CMD...`
 wraps one command and prints its report with the sensor block; `detonate
 --dependency SPEC` is the detonation check; `teardown` stops the daemons and restores or removes the decoy. The
-agent fetches the script from `CUJO_SNIFF_URL`, a public raw URL of this repo,
-with no credential.
+agent fetches a source archive of this repo from `CUJO_SNIFF_TARBALL_URL`, a
+public URL, with no credential, and copies `sandbox/` out of it so `sniff.py`
+and the `cujo_sniff` package land side by side (decision 46).
 
 `decoy_in_egress` stays `false` until TLS interception can confirm the value
 left the box. The `derived` block holds the booleans the hard rules read.

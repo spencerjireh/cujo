@@ -1556,3 +1556,60 @@ GitHub as the last call before the claim, and it selects the run by commit
 rather than by insertion order — local delivery order is not commit order, and a
 late delivery for an older head would otherwise be the newest row. Two systems
 with no shared transaction cannot do better than that.
+
+## 46. The sensors are a package, delivered as a source archive
+
+`sandbox/sniff.py` had grown to a thousand lines holding five sensors, four
+subcommands, two daemons, and the tables that decide what counts as malicious.
+It is the file every hard rule's evidence comes from and it was past the length
+anyone reads before changing. It is now `sandbox/cujo_sniff/`, a package of
+small modules on a one-way import chain: paths, then policy, then context, then
+the sensors, then the report, then the runner and the commands.
+
+Two properties of that split are load-bearing rather than cosmetic. **Nothing
+under `sensors/` imports the context**: a sensor takes the paths it writes to
+as arguments, which is what lets the proxy and the watcher run as bare daemons
+that read nothing from the environment. And **`Context` replaced the two
+import-time constants** `CUJO_DIR` and `ENVS_DIR`. Those could only be changed
+in a test by patching the module attribute, which patched the test process
+while the code under test ran in subprocesses that re-read the environment — so
+the tests and the thing they tested disagreed about where state lived.
+
+Delivery changed with it, because a package is not one `curl`. The rubric now
+fetches a source archive of this repo from `CUJO_SNIFF_TARBALL_URL`, strips the
+archive's top directory, and copies `sandbox/` into `/tmp/cujo`, so `sniff.py`
+and `cujo_sniff/` land as siblings. That is the whole import mechanism: running
+`python3 /tmp/cujo/sniff.py` puts `/tmp/cujo` on `sys.path[0]`, and the package
+is found with no install, no `PYTHONPATH`, and no third-party dependency. The
+daemons re-execute as `python3 -m cujo_sniff` with the working directory set to
+that same directory, for the same reason; re-executing `__file__` would put
+`cujo_sniff/` itself on the path and break every import.
+
+`--strip-components=1` and a `cp`, rather than `tar --wildcards`, because
+`--wildcards` is GNU-only and would make a local rehearsal on macOS need
+`gtar`. Stripping one component also means nothing has to know the archive's
+top directory is called `cujo-main`, which changes with the branch.
+
+This amends **decision 19**, which stands otherwise: the fetch is still one
+public, credential-free request, nothing on the server pushes anything in, and
+the trust boundary is where decision 4 puts it. Two corrections to 19 while it
+is being amended. Its claim that the fetch host "is on the known-host list
+anyway" was wrong — `KNOWN_INDEX_HOSTS` carries `codeload.github.com` but never
+carried `raw.githubusercontent.com`, so the new URL is the one that was always
+covered and the old one was the exception. And the URL is still `main`-relative
+rather than pinned to a commit, for the reason 19 gives.
+
+`CUJO_SNIFF_TARBALL_URL` is a **new key**, not a new value for the old one.
+Merging is the deploy and the running container keeps its environment until the
+swap (decision 35), so changing `CUJO_SNIFF_URL` would open a window in which
+some container fetched a path that did not exist on the side of the merge it
+was on. A new key with a repo default needs no Coolify change at all: the old
+key still answers for containers that predate the deploy, and the new one
+applies from the first container that follows. `sniffUrl` stays in the config,
+unread, and is deleted in a later release once nothing runs that reads it.
+
+Rejected: **vendoring the package into one generated file** at build time,
+which keeps the single `curl` but makes the artefact in the sandbox different
+from the source in the repo, so a stack trace names a line nobody can open.
+And **fetching each module with its own `curl`**, which is a list of filenames
+in the rubric that goes stale silently the first time a module is added.
