@@ -407,7 +407,11 @@ detonation mark (abstract, loses the name); pixel and single-line styles (fail
 at 16 px); red-orange as the accent (too close to critical). Five hand-authored
 candidates stay in `brand/logo/candidates/` with prompts for a raster route, so
 the mark can be swapped without redoing the system. The tagline is deliberately
-unset. Wiring the tokens and favicon into `apps/cujo` is a separate change.
+unset. Wiring the tokens and favicon into `apps/cujo` was deferred to a separate
+change; that operator plane is gone (decision 57), and the favicon now lives in
+`apps/web` as `src/app/icon.svg` with `icon.png` beside it, copied from
+`brand/logo/favicon.svg` and `favicon-32.png`. The PNG exists because Safari
+does not use SVG favicons in tabs.
 
 ## 23. Discord is notified by `apps/cujo`, not by the agent, and it notifies only
 
