@@ -522,33 +522,93 @@ describe("interactions endpoint", () => {
     expect(body.data.choices.map((c) => c.value)).toEqual(["spencerjireh/orders-api"]);
   });
 
-  it("will not take a repo another authorized server already claimed", async () => {
-    const built = build();
-    authorize(built);
-    built.store.notifications.putDiscordChannel({
-      repo: "spencerjireh/orders-api",
-      channelId: "888888888888888888",
-      guildId: "999999999999999999",
-      channelName: "theirs",
-      notifyRoleId: null,
+  /**
+   * Moving a repo between servers, which used to be the operator override's
+   * job and is now the declaration's (decision 54).
+   *
+   * The holder's claim is only as good as the declaration behind it. Without
+   * this, deleting the override would have left a repo stuck in whichever
+   * server named it first — `unwatch` lets only the holder release a binding,
+   * so a server that had gone quiet could keep a repo forever.
+   */
+  describe("moving a repo to another server", () => {
+    const THEIRS = "999999999999999999";
+
+    const bindToThem = (built: ReturnType<typeof build>) =>
+      built.store.notifications.putDiscordChannel({
+        repo: "spencerjireh/orders-api",
+        channelId: "888888888888888888",
+        guildId: THEIRS,
+        channelName: "theirs",
+        notifyRoleId: null,
+      });
+
+    const watchHere = (built: ReturnType<typeof build>) =>
+      reply(
+        built,
+        command("watch", [
+          { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+          { name: "channel", type: 7, value: CHANNEL },
+        ]),
+      );
+
+    it("takes over when the repo no longer names the server holding it", async () => {
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      const content = await watchHere(built);
+      expect(content).toContain(`<#${CHANNEL}>`);
+      const binding = built.store.notifications.getDiscordChannel("spencerjireh/orders-api");
+      expect(binding?.guildId).toBe(GUILD);
+      expect(binding?.channelId).toBe(CHANNEL);
     });
-    const watched = await reply(
-      built,
-      command("watch", [
-        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
-        { name: "channel", type: 7, value: CHANNEL },
-      ]),
-    );
-    expect(watched).toContain("another server");
-    // And it cannot silence them either.
-    const unwatched = await reply(
-      built,
-      command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
-    );
-    expect(unwatched).toContain("another server");
-    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.channelId).toBe(
-      "888888888888888888",
-    );
+
+    it("refuses when the repo still names the server holding it", async () => {
+      // The race the fresh read exists for: dispatch authorized this server
+      // from what the declaration said a moment ago, and by the time the
+      // holder is checked it says the holder again.
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      built.github.declaredGuild.mockResolvedValueOnce(GUILD).mockResolvedValue(THEIRS);
+      const content = await watchHere(built);
+      expect(content).toContain("still names it");
+      expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+        THEIRS,
+      );
+    });
+
+    it("refuses when GitHub cannot say, rather than guessing", async () => {
+      // Fail closed. Taking a binding from another server on a guess is the
+      // one mistake here that does not correct itself.
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      built.github.declaredGuild
+        .mockResolvedValueOnce(GUILD)
+        .mockRejectedValue(new Error("github is down"));
+      const content = await watchHere(built);
+      expect(content).toContain("Try again in a moment");
+      expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+        THEIRS,
+      );
+    });
+
+    it("still refuses to silence a repo this server does not hold", async () => {
+      // `unwatch` is deliberately reachable without authorization, so it must
+      // not become the way one server takes a repo down in another.
+      const built = build();
+      authorize(built);
+      bindToThem(built);
+      const content = await reply(
+        built,
+        command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+      );
+      expect(content).toContain("another server");
+      expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+        THEIRS,
+      );
+    });
   });
 
   it("re-checks authorization after the Discord round trips, not only before", async () => {

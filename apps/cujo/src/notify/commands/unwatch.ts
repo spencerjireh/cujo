@@ -13,7 +13,7 @@ export function unwatch(deps: CommandDeps, input: { guildId: string; repo: strin
   const existing = deps.store.getDiscordChannel(input.repo);
   if (!existing) return `\`${input.repo}\` was not being sent anywhere.`;
   if (existing.guildId !== input.guildId) {
-    return `\`${input.repo}\` is being sent to another server. Change \`discord_guild\` in its \`.cujo.yml\` to move it.`;
+    return `\`${input.repo}\` is being sent to another server. Point its \`discord_guild\` at this server, then run \`/cujo watch\` here to move it.`;
   }
   deps.store.deleteDiscordChannel(input.repo);
   return `Stopped sending \`${input.repo}\` review updates here.`;

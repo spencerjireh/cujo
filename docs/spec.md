@@ -997,11 +997,21 @@ reply says which one failed:
    immediately before it writes: the Discord round trips in between are awaits,
    and a declaration reverted during them must not end with a binding for a
    server that may no longer see the repo.
-5. For `watch` and `unwatch`: no **other** server already holds this repo. One
-   repo notifies one channel (Contract 7), so two servers allowed the same repo
-   would otherwise be able to redirect or silence each other's reviews. A repo
-   is moved between servers by changing `discord_guild` in its `.cujo.yml`,
-   which is the only authority there is (decision 54).
+5. For `unwatch`: no **other** server already holds this repo. One repo
+   notifies one channel (Contract 7), and `unwatch` is reachable without
+   authorization on purpose, so without this one server could silence
+   another's reviews.
+
+   For `watch` the rule is narrower, because this is also how a repo moves
+   between servers now that the operator override is gone (decision 54). An
+   existing binding held by another server is refused **unless that server's
+   claim has gone stale** — the holder's authorization is re-read `fresh`, and
+   only a holder the declaration no longer names loses the binding. A holder
+   that is still authorized keeps it, and a read that fails is refused rather
+   than guessed: taking a binding from another server on a guess is the one
+   mistake here that does not correct itself. So moving a repo is two steps
+   its own maintainers control — change `discord_guild` on the default branch,
+   then run `/cujo watch` in the new server.
 6. For `watch`: the channel is in **this** server, is a text or announcement
    channel, and the bot has View Channel, Send Messages and Embed Links there,
    resolved through the overwrites exactly as Contract 7's bind route does. The

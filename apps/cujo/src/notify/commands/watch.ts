@@ -39,11 +39,32 @@ export async function watch(
   const channelId = input.channelId;
   if (!channelId) return "Pick a channel.";
 
-  // One repo notifies one channel (Contract 7), so a repo another authorized
-  // server already claimed is not this server's to redirect.
+  // One repo notifies one channel (Contract 7), so a repo another server
+  // already claimed is not this server's to redirect — unless that claim has
+  // gone stale, which is what moving a repo between servers now looks like.
+  //
+  // The operator override used to be the move path, and deleting it with the
+  // rest of the plane (decision 54) would otherwise have left a repo stuck in
+  // whichever server it named first: `unwatch` only lets the *holder* release
+  // a binding, so a server that has gone quiet or lost interest could hold a
+  // repo hostage forever. The declaration is the authority, so a holder the
+  // declaration no longer names has no claim left.
+  //
+  // Read `fresh`, because this is the decisive fact and a cached answer from
+  // before the repo was moved would refuse the move that just happened.
   const existing = deps.store.getDiscordChannel(input.repo);
   if (existing?.guildId && existing.guildId !== input.guildId) {
-    return `\`${input.repo}\` is already being sent to another server. Change \`discord_guild\` in its \`.cujo.yml\` to move it.`;
+    const holder = await authorizationFor(deps, existing.guildId, input.repo, { fresh: true });
+    if (holder.allowed) {
+      return `\`${input.repo}\` is already being sent to another server, and still names it. Change \`discord_guild\` in its \`.cujo.yml\` to this server, then run this again.`;
+    }
+    // Fail closed on `unknown`: GitHub being unreachable says nothing about
+    // what the repo declares, and taking a binding from another server on a
+    // guess is the one mistake here that is not self-correcting.
+    if (holder.reason === "unknown") {
+      return `Cujo could not read \`${input.repo}\`'s \`.cujo.yml\` just now. Try again in a moment.`;
+    }
+    // Otherwise the holder's claim is stale and the write below replaces it.
   }
 
   // `expectGuildId`, because the option comes from this server's picker but a
