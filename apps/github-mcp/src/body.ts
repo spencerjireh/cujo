@@ -30,3 +30,19 @@ export function appendRunFooter(
   if (!publicBaseUrl || !runId || !RUN_ID.test(runId)) return body;
   return `${body.trimEnd()}\n\n---\n\nFull evidence: ${publicBaseUrl}/runs/${runId}\n`;
 }
+
+/**
+ * The prompt naming the two commands a maintainer can reply with.
+ *
+ * `/cujo confirm` and `/cujo dismiss` are this system's own commands, so the
+ * sentence describing them belongs to it for the same reason the run link does.
+ * The rubric used to quote it for the agent to reproduce, and the agent
+ * reproduced it twice — on the observation, where it is true, and on the
+ * accusation, where it asks for an approval that was granted before that call
+ * could run at all. `post_gated_review` has no `accusation_follows` parameter,
+ * so this cannot be reached from there.
+ */
+export function appendConfirmPrompt(body: string, accusationFollows: boolean): string {
+  if (!accusationFollows) return body;
+  return `${body.trimEnd()}\n\nThis matches a supply-chain pattern. Cujo will not publish that conclusion until a maintainer confirms. Reply \`/cujo confirm\` or \`/cujo dismiss\`.\n`;
+}

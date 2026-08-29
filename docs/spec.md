@@ -599,8 +599,9 @@ table says which rule makes which kind of claim.
 
 **A malice finding posts twice, in order: observation, then conclusion.** The
 first call goes always, stating what the sensors recorded as fact, marking the
-malice findings `warn`, and ending with the two commands a maintainer can reply
-with. Then the gated call drafts the accusation and the turn pauses. So a run
+malice findings `warn`, and setting `accusation_follows` so `github-mcp` ends
+the body with the two commands a maintainer can reply with. Then the gated call
+drafts the accusation and the turn pauses. So a run
 that nobody answers still leaves the evidence on the pull request, a denial
 drops the escalation while the observation stands, and the merge is never
 blocked by a claim no human confirmed. Contract 5 says why two reviews on one
@@ -650,6 +651,15 @@ repository, which has no page a reader of the pull request could open; and
 `github-mcp` appends nothing when it has no `CUJO_PUBLIC_BASE_URL`. Either
 missing means the review body is exactly what it would have been without this
 feature.
+
+The maintainer prompt is the second block `github-mcp` writes, on the same
+argument. `/cujo confirm` and `/cujo dismiss` are this system's own commands, so
+the sentence naming them is composed here rather than quoted for the agent to
+reproduce. Only `post_advisory_review` and `post_blocking_review` take
+`accusation_follows`; `post_gated_review` has no such parameter, so the prompt
+cannot reach the accusation — where it would ask for the very approval that let
+that call run (decision 60). It sits directly above `Full evidence: <url>`,
+which stays last.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.

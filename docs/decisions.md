@@ -2639,3 +2639,51 @@ slowest check, so starting it last is the worst possible order for it.
 **Raising `SENSED_LOCK_TIMEOUT_S`** in anticipation of contention: 900 seconds
 already exceeds any check by two orders of magnitude, and a timeout is not the
 thing to tune before there is a queue to measure.
+
+## 60. The prompt for a maintainer is written by the thing it instructs
+
+The first run to complete design 1 end to end published an accusation that ended
+by asking for a confirmation it had already received:
+
+> This matches a supply-chain pattern. Cujo will not publish that conclusion
+> until a maintainer confirms. Reply `/cujo confirm` or `/cujo dismiss`.
+
+On the observation that sentence is true and load-bearing. On the accusation it
+is false at the moment anybody reads it: `post_gated_review` is the only tool in
+`requireApprovalForTools`, so the approval is what let that call run at all. It
+went out on a public review, under the bot's name, naming a third party's
+package as malicious.
+
+The rubric had quoted the sentence for the agent to reproduce, and told it to
+end "that first body" with it. Nothing said the second body must not carry it
+too, and nothing tested for it — `grep "supply-chain pattern"` across this
+repository hit exactly one file, the rubric itself. Given a fixed string to
+reproduce, the model reproduced it twice.
+
+Decision 36 had already made this argument and won it, one function away.
+`body.ts` composes the `Full evidence:` footer precisely because "a model asked
+to end its body with a particular line can forget it, reword it, or put it above
+the Egress section". So the prompt joins it: `github-mcp` holds the wording, and
+the agent is told not to write it.
+
+**The flag exists on two tools and not the third, and that is the whole
+guarantee.** `post_advisory_review` and `post_blocking_review` take
+`accusation_follows`; `post_gated_review` is registered with the bare shape, so
+the prompt cannot be requested on the one call where it would be false. Zod
+strips a key it does not declare, so a model that sends it anyway is ignored.
+Nothing has to check the tool name at the point of use, which matters because
+`postReview` serves all three and decision 5 leaves this server unable to tell
+an accusation from a broken test on its own.
+
+It has to be a flag rather than an inference for that same reason: `github-mcp`
+is write-only, has no access to the check reports, and cannot see that a gated
+call follows. A model that forgets the flag leaves the prompt off an
+observation — the same "correct or absent" failure the run footer already
+accepts, and a much smaller one than the duplicate.
+
+Rejected: **a rule in the rubric** saying the gated body must not repeat the
+prompt, which is prose defending a property, in the place decision 41 already
+called the least reliable one for that. **Stripping the sentence from a gated
+body that contains it anyway**, which would reach the pull requests whose
+sessions are pinned to the old rubric, but only by string-matching model prose,
+and a paraphrase defeats it.
