@@ -532,6 +532,20 @@ retry if a turn cannot be started at all; the reason it sends says the commit
 was replaced, not that an operator rejected the block, and the run stays
 `superseded` with no approver (decision 39).
 
+**Stale review dismissal (decision 52).** A `REQUEST_CHANGES` review from an
+older commit stays on the pull request when a newer head replaces it. When a new
+run on the same PR completes `clean`, `apps/cujo` lists the bot's own reviews,
+finds any whose `commit_id` differs from the current head and whose state is
+`CHANGES_REQUESTED`, and dismisses them with a fixed message naming the new
+head. The trigger is the `clean` status — by definition, zero critical findings
+remain — and no other terminal status fires it. A run that ends `blocked_*` or
+`error` leaves stale reviews standing, since the original condition may not be
+resolved. Before listing reviews, the dismissal reads the PR's current head
+from GitHub; if the head has moved past this run's commit, the operation is
+skipped entirely to prevent dismissing a newer run's valid blocking review.
+The dismissal is a service-level action in `apps/cujo`, not a tool the agent
+calls, and `github-mcp` is unaffected.
+
 A REQUEST_CHANGES review only *blocks* a merge when the target repo's default
 branch has branch protection requiring PR review. Without it, the review still
 posts and shows as changes-requested, but does not gate the merge.
@@ -593,7 +607,7 @@ list in order.
 | `approver`, `decided_at` | Who decided and when. `github:<login>` for a decision made with `/cujo confirm` or `/cujo dismiss` on the pull request, which is the only way a held finding is answered (decisions 45 and 49); the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
-| `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 52). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
+| `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 54). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
 | `created_at`, `updated_at` | Timestamps. |
 
 Status moves on events from the session's turn streams, with one exception
@@ -773,7 +787,7 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 | `error` | orange | The run ended in error. | `Error`. |
 | `superseded` | dark grey | Replaced by a newer commit. | `Head` and `Opened by` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
 
-**The card names both parties** (decision 52). Cujo takes the embed's author
+**The card names both parties** (decision 54). Cujo takes the embed's author
 line — a fixed name and its own mark, served from this repository so Discord's
 media proxy can fetch it anonymously. The person who opened the pull request
 takes an `Opened by` field beside `Head` and the footer icon, because a field
@@ -835,7 +849,7 @@ request. So, without exception:
    400 that loses the card for the whole run, since every later edit then has
    no message id to edit.
 7. No derived string reaches an embed URL field unless it passed a strict
-   allowlist first (decision 52). There are exactly two, both about the pull
+   allowlist first (decision 54). There are exactly two, both about the pull
    request's author: the avatar is built from the numeric account id, and the
    profile link only from a login matching
    `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`. GitHub cannot issue a login outside

@@ -15,7 +15,7 @@ const sizes = [16, 32, 64, 512];
  * this repo fetches them by URL and cannot be pointed at `logo/png/`. Written
  * beside the SVG on every run, so changing the mark cannot leave one stale.
  *
- * `avatar-64.png` is the Discord embed's author icon (decision 52). It is
+ * `avatar-64.png` is the Discord embed's author icon (decision 54). It is
  * `avatar.svg` and not `mark.svg` because a Discord embed is read on either
  * theme: the avatar carries its own dark ground, while the mark is
  * `currentColor` on transparent and would vanish on one of them.

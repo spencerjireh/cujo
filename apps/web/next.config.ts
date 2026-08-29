@@ -19,7 +19,7 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   // The only remote images this app loads: a PR author's GitHub avatar
-  // (decision 52). Routed through `/_next/image` rather than loaded straight
+  // (decision 54). Routed through `/_next/image` rather than loaded straight
   // from the browser, so opening a run on the anonymous board does not make a
   // request to github.com carrying the visitor's address. The path is
   // `/u/<numeric id>` and nothing else, because the id is the only part of an

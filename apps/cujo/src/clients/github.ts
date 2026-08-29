@@ -22,13 +22,15 @@ export interface PullRequestInfo {
    *
    * The id is carried beside the login because it, and not the login, is what
    * an avatar URL is built from: a login is a string somebody else chose and
-   * the card may never derive a URL from one of those (decision 52).
+   * the card may never derive a URL from one of those (decision 54).
    */
   authorLogin: string | null;
   authorId: number | null;
 }
 
-/** The bot the App posts as. Shared with `github-reactions.ts`, so "ours" means one thing. */
+/** The bot the App posts as in production. Other consumers that do not yet
+ * receive the configurable value still import this; `GitHubReader` uses its
+ * own `botLogin` constructor arg so a dev App works in local E2E. */
 export const BOT_LOGIN = "cujo-guard[bot]";
 
 /**
@@ -78,10 +80,12 @@ export function parseDeclaredGuild(yaml: string): string | null {
 }
 
 /**
- * The read side of the GitHub App: PR metadata, changed files, and the
- * idempotency check on existing reviews. Posting a review stays in github-mcp;
- * the one write `apps/cujo` makes is the reaction in `github-reactions.ts`,
- * which carries no content (decision 38).
+ * The GitHub App client for `apps/cujo`: PR metadata, changed files, the
+ * idempotency check on existing reviews, and the writes the trusted plane
+ * makes on its own behalf — replies to pull request comments (decision 43),
+ * and stale review dismissal (decision 52). Posting the review itself stays
+ * in github-mcp; the content-free reaction lives in `github-reactions.ts`
+ * (decision 38).
  */
 /**
  * A GitHub call that did not return 2xx.
@@ -114,6 +118,7 @@ export class GitHubReader {
     privateKey: string,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly log: Logger = createLogger({ service: "cujo" }),
+    private readonly botLogin: string = BOT_LOGIN,
   ) {
     this.privateKey = normalisePrivateKey(privateKey);
   }
@@ -494,9 +499,59 @@ export class GitHubReader {
         repo,
         `/repos/${repo}/pulls/${prNumber}/reviews?per_page=100&page=${page}`,
       );
-      if (reviews.some((r) => r.user?.login === BOT_LOGIN && r.commit_id === headSha)) return true;
+      if (reviews.some((r) => r.user?.login === this.botLogin && r.commit_id === headSha))
+        return true;
       if (reviews.length < 100) break;
     }
     return false;
+  }
+
+  /**
+   * Every review the bot posted on this pull request, with enough fields to
+   * decide which ones are stale. Used by the dismiss-stale logic (decision 52)
+   * to find REQUEST_CHANGES reviews from older commits.
+   */
+  async listBotReviews(
+    repo: string,
+    prNumber: number,
+  ): Promise<{ id: number; commitId: string; state: string }[]> {
+    const out: { id: number; commitId: string; state: string }[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const reviews = await this.get<
+        { id: number; user: { login: string } | null; commit_id: string; state: string }[]
+      >(repo, `/repos/${repo}/pulls/${prNumber}/reviews?per_page=100&page=${page}`);
+      for (const r of reviews) {
+        if (r.user?.login === this.botLogin) {
+          out.push({ id: r.id, commitId: r.commit_id, state: r.state });
+        }
+      }
+      if (reviews.length < 100) break;
+    }
+    return out;
+  }
+
+  /**
+   * Dismiss a review the bot posted. The message is a fixed template, never
+   * agent prose — the caller is `apps/cujo` acting on its own evidence, not
+   * the model (decision 52).
+   */
+  async dismissReview(
+    repo: string,
+    prNumber: number,
+    reviewId: number,
+    message: string,
+  ): Promise<void> {
+    const path = `/repos/${repo}/pulls/${prNumber}/reviews/${reviewId}/dismissals`;
+    const res = await this.fetchImpl(`${API}${path}`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${await this.token(repo)}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "cujo",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok) throw new GitHubError(res.status, path);
   }
 }

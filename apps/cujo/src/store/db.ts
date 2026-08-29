@@ -48,7 +48,7 @@ export const MIGRATIONS: readonly string[] = [
   //     this column existed genuinely has no delivery, which is not the same
   //     fact as an empty one.
   "ALTER TABLE runs ADD COLUMN delivery_id TEXT",
-  // 4, 5 — who opened the pull request (decision 52). The login is what a card
+  // 4, 5 — who opened the pull request (decision 54). The login is what a card
   //     and a run page name; the id is what an avatar URL is built from,
   //     because a login is a string somebody else chose and no derived string
   //     may reach a URL without passing an allowlist first. Both nullable: a

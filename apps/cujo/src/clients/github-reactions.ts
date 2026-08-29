@@ -28,7 +28,7 @@ import {
   normalisePrivateKey,
 } from "@cujo/gh-app-auth";
 import { type Logger, createLogger } from "@cujo/log";
-import { BOT_LOGIN } from "./github";
+import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "./github";
 
 /**
  * GitHub's reaction set, which is closed: these eight and nothing else. There
@@ -56,6 +56,7 @@ export class GitHubReactions {
     privateKey: string,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly log: Logger = createLogger({ service: "cujo" }),
+    private readonly botLogin: string = DEFAULT_BOT_LOGIN,
   ) {
     this.privateKey = normalisePrivateKey(privateKey);
   }
@@ -153,7 +154,7 @@ export class GitHubReactions {
       const body = (await res.json()) as ReactionRow[];
       // The identity `alreadyReviewed` already trusts, so "ours" means the
       // same thing on both sides of the client.
-      for (const row of body) if (row.user?.login === BOT_LOGIN) rows.push(row);
+      for (const row of body) if (row.user?.login === this.botLogin) rows.push(row);
       if (body.length < 100) break;
       if (page === MAX_PAGES) this.log.warn("github.page_cap", { path });
     }

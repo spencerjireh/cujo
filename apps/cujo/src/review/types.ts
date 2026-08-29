@@ -157,7 +157,7 @@ export interface RunRecord {
   deliveryId: string | null;
   /**
    * What the pull request says about itself: its title, and who opened it
-   * (decision 52). Read from GitHub once when the run is claimed and joined
+   * (decision 54). Read from GitHub once when the run is claimed and joined
    * onto every run read, so a card and a run page name the same two parties
    * without either asking GitHub again.
    *

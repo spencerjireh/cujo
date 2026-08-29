@@ -57,7 +57,9 @@ that is reversed after it was built or shown is noted here rather than deleted
 49. [The operator plane swaps an email for a shared token, because it no longer decides anything](#49-the-operator-plane-swaps-an-email-for-a-shared-token-because-it-no-longer-decides-anything)
 50. [`issue_comment` costs the App a permission, and decision 43's check did not cover it](#50-issue_comment-costs-the-app-a-permission-and-decision-43s-check-did-not-cover-it)
 51. [A shipped design document is deleted, and the log carries its own reversals](#51-a-shipped-design-document-is-deleted-and-the-log-carries-its-own-reversals)
-52. [A card names both parties, and a login reaches a URL only through an allowlist](#52-a-card-names-both-parties-and-a-login-reaches-a-url-only-through-an-allowlist)
+52. [`apps/cujo` dismisses its own stale blocking reviews when a clean run supersedes them](#52-appscujo-dismisses-its-own-stale-blocking-reviews-when-a-clean-run-supersedes-them)
+53. [Reasoning effort is a deployment setting, not a constant](#53-reasoning-effort-is-a-deployment-setting-not-a-constant)
+54. [A card names both parties, and a login reaches a URL only through an allowlist](#54-a-card-names-both-parties-and-a-login-reaches-a-url-only-through-an-allowlist)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2013,8 +2015,98 @@ guarantees a third contradiction later. **Leaving the reversals unmarked and
 relying on "newest context wins"**, which is a rule about how to resolve a
 conflict, not a way to notice there is one.
 
+## 52. `apps/cujo` dismisses its own stale blocking reviews when a clean run supersedes them
 
-## 52. A card names both parties, and a login reaches a URL only through an allowlist
+A `REQUEST_CHANGES` review from an earlier commit stays on the pull request when
+the author pushes a fix and the new run completes clean. GitHub branch
+protection treats it as still blocking, so the author or a maintainer must
+dismiss it by hand — a manual step that the system has enough information to
+perform on its own.
+
+When a run reaches `clean`, `apps/cujo` now lists the bot's own reviews on the
+pull request, finds any `REQUEST_CHANGES` whose `commit_id` differs from the
+current head, and calls `PUT .../reviews/{id}/dismissals` with a fixed
+template: `"Superseded by a clean run on <sha>."` The text is never agent
+prose, never quotes a model, and never states a finding — it only removes an
+action the bot took earlier. Each dismissal is logged as
+`review.stale.dismissed`; a failure is `review.stale.dismiss.failed` and does
+not affect the run's own status.
+
+**Why `clean` is the only trigger.** A run that ends `blocked_*` or `error`
+has not demonstrated that the original findings are gone, so the old review is
+left standing. The evidence is the run's own result, not a diff of findings:
+the simplest proof that the blocking condition is resolved is that the new run
+found nothing to block.
+
+**Precedent for the write.** Decision 38 originally held that the one write
+`apps/cujo` makes to GitHub is content-free (the reaction). Decision 43 later
+added `createComment` and `replyToReviewComment` to `GitHubReader` for the
+conversation feature, establishing that the trusted plane may make
+content-bearing writes when answering a human-initiated action. This dismissal
+extends the same pattern: it removes the bot's own earlier block, it carries no
+finding, and it fires only when the run's evidence justifies it.
+
+**Head-freshness guard.** The dismissal runs asynchronously after the clean
+status is persisted. If the PR advances while the task is in flight, a newer
+run's blocking review must not be dismissed by the clean run that preceded it.
+Before listing reviews, `dismissStaleReviews` reads the PR's current head from
+GitHub; if it differs from the run's `headSha`, the dismissal is skipped and
+logged as `review.stale.skipped` with `reason: "head_moved"`. The remaining
+TOCTOU window between the head check and the dismiss call is negligible, and a
+newer clean run would re-attempt its own dismissals regardless.
+
+**Not in `github-mcp`.** The dismissal is a service-level action driven by the
+run projection, not a tool the agent calls. `github-mcp` stays write-only and
+PR-state-blind (decision 5). `apps/cujo` already reads review state for the
+idempotency check (Contract 5, `alreadyReviewed`), so listing reviews is an
+existing capability, and dismissing them is a narrow extension of it.
+
+The rejected alternative was **manual-only dismissal**, which `hitl.md` Design 2
+treated as acceptable because "anyone with write access dismisses a
+`REQUEST_CHANGES` in one click." That is true and remains available, but a
+system that blocks a merge and then requires a human to undo the block after the
+system itself confirmed the fix is a friction the system can remove.
+
+## 53. Reasoning effort is a deployment setting, not a constant
+
+`agent-spec.ts` sent `model: { name }` and nothing else, so every turn ran at
+whatever effort the provider defaults to. That was fine while the model was
+fixed. It stopped being fine the first time a review had to be moved to a
+different model to make it finish.
+
+The evidence: on `glm-flash`, a fresh session reviewing a pull request with a
+malice finding spent eleven minutes before spawning a single check, ran two of
+the four, spawned a thread that produced no report, and hit the thirty-minute
+turn timeout without calling any review tool. The sensors were not at fault —
+detonation installed the dependency, caught the decoy read, and the hard rule
+fired. The parent agent simply never got to the end.
+
+So `CUJO_MODEL_REASONING_EFFORT` joins `CUJO_MODEL` as a deployment setting,
+passed through as `model.params.reasoningEffort`. The values are the provider's:
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
+
+**Unset means the key is absent, not empty.** Every entry in `params` is
+forwarded to the provider as-is, so an empty string is a request to reason with
+no effort named, and a model that does not reason at all answers that with an
+error rather than a default. Absent is the only safe spelling of "do not ask".
+
+**One setting for both agents.** The reviewer and the `@cujo-guard`
+conversation share it, because a conversation that reasons less than the review
+it is explaining would contradict that review for no reason a reader could see —
+and `converse` re-runs the code, so it is answering from the same evidence.
+
+This does not make effort a per-run choice, and it deliberately stops short of
+that. A run that needs more thought than the deployment allows is a run whose
+rubric is too hard, and letting the agent raise its own effort would put the
+cost of a review in the hands of whoever opened the pull request.
+
+**It reaches an existing pull request only through a new one.** The spec is
+pinned when the session is created, so `CUJO_MODEL_REASONING_EFFORT` — like
+`CUJO_MODEL` and like `agent/SKILL.md` before it — changes nothing for a pull
+request that has already been reviewed once. Verifying a change to any of the
+three means opening a new pull request, not pushing to an old one.
+
+## 54. A card names both parties, and a login reaches a URL only through an allowlist
 
 A Discord card said `spencerjireh/orders-api #7 — Add refund endpoint` and
 nothing else identified either side of it. Cujo appeared only as the bot avatar
