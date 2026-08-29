@@ -44,6 +44,51 @@ describe("loadConfig", () => {
     expect(config.sniffUrl).toBe(
       "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
     );
+    expect(config.sniffTarballUrl).toBe(
+      "https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main",
+    );
+  });
+
+  it("falls back when the tarball URL is empty, and refuses a script URL", () => {
+    // The key that replaced CUJO_SNIFF_URL, so the mistake to expect is the old
+    // value pasted into the new name. Better a boot failure than a `tar` error
+    // inside a sandbox nobody reads the logs of (decision 46).
+    expect(loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "" }).sniffTarballUrl).toBe(
+      "https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main",
+    );
+    expect(
+      loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "https://x/y.tar.gz" }).sniffTarballUrl,
+    ).toBe("https://x/y.tar.gz");
+    expect(() =>
+      loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "https://x/sandbox/sniff.py" }),
+    ).toThrow(/must be a source archive/);
+  });
+
+  it("refuses a tarball URL the rubric's shell would not read as one word", () => {
+    // The rubric interpolates this into a double-quoted shell word, where `&`
+    // and `;` are safe but these four are not: such a value would change the
+    // command the sandbox runs rather than the URL it fetches. A signed URL
+    // with an `&` between query parameters stays legal, which is the case that
+    // has to keep working.
+    const ok = "https://x/archive.tar.gz?token=a&expires=1";
+    expect(loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: ok }).sniffTarballUrl).toBe(ok);
+    for (const bad of [
+      'https://x/a".tar.gz',
+      "https://x/a`id`.tar.gz",
+      "https://x/$HOME.tar.gz",
+      "https://x/a\\b.tar.gz",
+      "https://x/a b.tar.gz",
+    ]) {
+      expect(() => loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: bad }), bad).toThrow(
+        /quotes, backslashes/,
+      );
+    }
+    expect(() => loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "not-a-url" })).toThrow(
+      /absolute URL/,
+    );
+    expect(() => loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "file:///etc/passwd" })).toThrow(
+      /http or https/,
+    );
   });
 
   it("treats an empty Discord token as no token, which is what compose sends", () => {

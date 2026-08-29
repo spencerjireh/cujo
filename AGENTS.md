@@ -102,7 +102,7 @@ allowlist, and adding a field to `Projection` fails its test until classified.
 The flow: `http/ingress/github-webhook.ts` verifies the HMAC and claims the
 run; `review/start-run.ts` reads the PR through `clients/github.ts` and starts
 a turn on a session created with the spec from `review/agent-spec.ts`, which is
-`agent/SKILL.md` with `{{CUJO_SNIFF_URL}}` substituted.
+`agent/SKILL.md` with `{{CUJO_SNIFF_TARBALL_URL}}` substituted.
 `review/runner.service.ts` drives the turn and `review/fold.ts` folds its event
 stream (tagged by `thread_id`) into a projection. Unfinished runs rehydrate on
 restart. `notify/reactions.service.ts` moves a reaction on the pull request as
@@ -122,10 +122,13 @@ the App private key for both apps.
 
 `agent/SKILL.md` is the rubric: parent-agent setup, the four check subagents
 (`tests`, `probes`, `smoke`, `detonation`, each returning one JSON report), the
-hard rules that force `critical`, and the review format. `sandbox/sniff.py` is the
-in-sandbox sensor script (`setup`, `run`, `detonate`, `teardown`); it is fetched
-by URL into the sandbox, so it must stay standard-library only and runs with the
-sandbox's `python3`, not `uv`. Report shapes live in `docs/spec.md` Contract 2.
+hard rules that force `critical`, and the review format. `sandbox/` is the
+in-sandbox sensor code (`setup`, `run`, `detonate`, `teardown`): `sniff.py` is
+the entry point and `cujo_sniff/` is the package behind it. The rubric copies
+the whole of `sandbox/` into `/tmp/cujo`, so the two are siblings and
+`sys.path[0]` finds the package — there is no install step, nothing may import
+a third-party module, and it runs with the sandbox's `python3`, not `uv`
+(decision 46). Report shapes live in `docs/spec.md` Contract 2.
 
 ## Repo rules
 
