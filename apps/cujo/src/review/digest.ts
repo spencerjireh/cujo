@@ -64,25 +64,29 @@ export function deriveDigest(projection: Projection): RunDigest {
  * The checks run concurrently in one sandbox, so the run's wall clock is the
  * envelope around all four and not the sum of them.
  *
- * Null unless *every* check has both stamps. The pair has to be checked per
- * check and not by counting: `startedAt` and `endedAt` are recorded by
- * different event handlers in the fold, so a projection can hold a check with
- * only a start beside one with only an end. Two lists of equal length would
- * pass that, and the envelope would then run from one check's start to a
- * different check's end — a duration nothing measured, on a run that has not
- * finished.
+ * Null unless *every* check has a usable interval of its own, which is two
+ * conditions and both are per check rather than over the aggregate:
+ *
+ * - **Both stamps present.** `startedAt` and `endedAt` are recorded by
+ *   different event handlers in the fold, so a projection can hold a check with
+ *   only a start beside one with only an end. Counting two lists finds them
+ *   equal, and the envelope then runs from one check's start to a different
+ *   check's end — a duration nothing measured, on a run that has not finished.
+ * - **Ordered.** `checkMs` already refuses an interval that ends before it
+ *   starts, and the envelope has to refuse the same one: a check stamped
+ *   backwards, beside a check stamped forwards, gives a positive aggregate
+ *   span even though its own `ms` is correctly null.
+ *
+ * Both hold if and only if `checkMs` returns a number, so that is the test.
  */
 function spanMs(checks: CheckState[]): number | null {
   if (checks.length === 0) return null;
   let first = Number.POSITIVE_INFINITY;
   let last = Number.NEGATIVE_INFINITY;
   for (const check of checks) {
-    const started = stamp(check.startedAt);
-    const ended = stamp(check.endedAt);
-    if (!Number.isFinite(started) || !Number.isFinite(ended)) return null;
-    first = Math.min(first, started);
-    last = Math.max(last, ended);
+    if (checkMs(check) === null) return null;
+    first = Math.min(first, stamp(check.startedAt));
+    last = Math.max(last, stamp(check.endedAt));
   }
-  const span = last - first;
-  return span >= 0 ? span : null;
+  return last - first;
 }
