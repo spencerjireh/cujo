@@ -6,6 +6,7 @@
  * agent; an agent finding that duplicates one is discarded.
  */
 
+import { validateReport } from "./report-schema";
 import type { CheckState, DraftedReview, Finding, HardRule, Severity } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -216,6 +217,39 @@ const MALICE_RULES = new Set<HardRule>([
  */
 export function isMaliceClaim(finding: Finding): boolean {
   return finding.rule !== undefined && MALICE_RULES.has(finding.rule);
+}
+
+/**
+ * One `warn` per check whose report is not the shape a report is.
+ *
+ * Deliberately its own pass rather than a branch inside `hardRuleFindings`, and
+ * the separation is the design, not tidiness. **The validator may only add.**
+ * Treating a report that failed validation as no report at all would mean a
+ * sub-agent that got one roll-up wrong could turn a `decoy_read: true` sitting
+ * in plain sight inside `runs[]` into a `warn` about formatting — a strict loss
+ * against reading it leniently, which is what the rules above already do
+ * everywhere. Keeping the two passes apart is what makes that impossible to
+ * regress: `hardRuleFindings` never learns whether validation passed.
+ *
+ * A `null` report is skipped. That one is `check_missing`, reported below, and
+ * saying both about the same check would be saying the same thing twice.
+ */
+export function invalidReportFindings(checks: readonly CheckState[]): Finding[] {
+  const findings: Finding[] = [];
+  for (const check of checks) {
+    if (!check.isCheck || check.report === null) continue;
+    const result = validateReport(check.report);
+    if (result.ok) continue;
+    findings.push({
+      source: "hard_rule",
+      check: check.title,
+      severity: "warn",
+      rule: "report_invalid",
+      title: `the ${check.title} report does not match the report schema`,
+      evidence: `${result.problem}; the hard rules still read this report, so what they found is unaffected`,
+    });
+  }
+  return findings;
 }
 
 /** The checks every review must delegate; `detonation` depends on the PR. */

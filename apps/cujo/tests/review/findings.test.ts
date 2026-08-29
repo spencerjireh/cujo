@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentFindings,
   hardRuleFindings,
+  invalidReportFindings,
   isMaliceClaim,
   mergeFindings,
   missingCheckFindings,
@@ -17,6 +18,51 @@ const check = (title: string, report: unknown, isCheck = true): CheckState => ({
   status: "done",
   report,
   error: null,
+});
+
+describe("invalidReportFindings", () => {
+  const valid = {
+    check: "tests",
+    runs: [],
+    derived: {
+      egress_to_unknown_host: false,
+      wrote_outside_workspace: false,
+      wrote_sensitive: false,
+      spawned_subprocess: false,
+    },
+  };
+
+  it("says nothing about a report that is the shape of a report", () => {
+    expect(invalidReportFindings([check("tests", valid)])).toEqual([]);
+  });
+
+  it("says nothing about a report that never arrived, or a thread that is not a check", () => {
+    // A null report is `check_missing`; saying both would be saying it twice.
+    expect(invalidReportFindings([check("tests", null)])).toEqual([]);
+    expect(invalidReportFindings([check("helper", { nonsense: true }, false)])).toEqual([]);
+  });
+
+  it("warns, names the field, and never accuses", () => {
+    const { derived: _derived, ...noDerived } = valid;
+    const [f] = invalidReportFindings([check("tests", noDerived)]);
+    expect(f).toMatchObject({
+      source: "hard_rule",
+      check: "tests",
+      severity: "warn",
+      rule: "report_invalid",
+    });
+    expect(f?.evidence).toContain("derived");
+    expect(isMaliceClaim(f as Finding)).toBe(false);
+  });
+
+  it("leaves the rules that read the same report alone", () => {
+    // The property the split exists for: a report that fails validation still
+    // trips every rule its contents set off. Anything else would let a
+    // misplaced roll-up bury a decoy read.
+    const broken = { check: "tests", runs: "not an array", secret_probe: { decoy_read: true } };
+    expect(invalidReportFindings([check("tests", broken)])).toHaveLength(1);
+    expect(hardRuleFindings([check("tests", broken)]).map((f) => f.rule)).toContain("decoy_read");
+  });
 });
 
 describe("hardRuleFindings", () => {

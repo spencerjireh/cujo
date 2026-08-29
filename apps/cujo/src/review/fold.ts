@@ -2,6 +2,7 @@ import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import {
   agentFindings,
   hardRuleFindings,
+  invalidReportFindings,
   isMaliceClaim,
   mergeFindings,
   missingCheckFindings,
@@ -219,7 +220,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           check.error = event.state.error;
           check.report = parseReport(messageText(event.state.output));
         }
-        p.hardRuleHits = hardRuleFindings(p.checks);
+        p.hardRuleHits = [...hardRuleFindings(p.checks), ...invalidReportFindings(p.checks)];
         p.findings = mergeFindings(p.hardRuleHits, publishableAgentFindings(p));
         break;
       }
