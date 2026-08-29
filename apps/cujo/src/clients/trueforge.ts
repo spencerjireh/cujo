@@ -85,7 +85,18 @@ export class Harness {
             models: provider.models.map((m) => ({
               name: m.name,
               modelId: m.modelId,
-              properties: {},
+              // What each model will accept as `model.params.reasoningEffort`
+              // (decision 56). This was `{}`, which told the server the model
+              // supports no effort at all — and a session naming one is then
+              // refused, so every review 502s at the webhook while this process
+              // still reports healthy.
+              //
+              // Declared per model because that is the only place it can go:
+              // `CustomModelProvider` has no such field, and the catalog's
+              // `supportedReasoningEfforts` is read-only.
+              properties: provider.reasoningEfforts.length
+                ? { reasoningEfforts: provider.reasoningEfforts }
+                : {},
             })),
           },
         }),
