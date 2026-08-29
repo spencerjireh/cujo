@@ -153,6 +153,11 @@ services:
       MODEL_PROVIDER_BASE_URL: ${MODEL_PROVIDER_BASE_URL:-}
       MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}
       MODEL_PROVIDER_MODELS: ${MODEL_PROVIDER_MODELS:-}
+      # What those models accept as a reasoning effort, declared on every one of
+      # them (decision 56). CUJO_MODEL_REASONING_EFFORT must name a value from
+      # this list, or the process refuses to start -- an undeclared effort is
+      # refused when the session is created, which would stop every review.
+      MODEL_PROVIDER_REASONING_EFFORTS: ${MODEL_PROVIDER_REASONING_EFFORTS:-}
       DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
     volumes:
       - cujodata:/data
