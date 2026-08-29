@@ -1,5 +1,4 @@
 import { RunsView } from "@/components/runs/RunsView";
-import { serverMode } from "@/lib/api/mode";
 import { runsListOptions } from "@/lib/api/queries";
 import { getQueryClient } from "@/lib/query-client";
 import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
@@ -8,7 +7,6 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const queryClient = getQueryClient();
-  const mode = await serverMode();
 
   // Awaited. Leaving it pending and dehydrating the pending query streams the
   // shell sooner, but then the server renders the loading state while the
@@ -18,7 +16,7 @@ export default async function Page() {
   //
   // A failure here is not fatal: RunsView refetches in the browser and shows
   // its own error state, which also covers the API being briefly unreachable.
-  await queryClient.prefetchQuery(runsListOptions(mode));
+  await queryClient.prefetchQuery(runsListOptions());
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>

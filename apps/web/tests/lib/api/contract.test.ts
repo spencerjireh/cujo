@@ -2,7 +2,6 @@ import {
   CHECK_NAMES,
   RUN_STATUSES,
   SEVERITIES,
-  canDecide,
   gatedReviewPosted,
   isLive,
   reviewPosted,
@@ -82,39 +81,16 @@ const base = {
   head_sha: "abc1234",
   session_id: "s",
   turn_ids: [],
-  approver: null,
-  decided_at: null,
   created_at: "2026-08-28T10:00:00Z",
   updated_at: "2026-08-28T10:00:00Z",
   checks: [],
   findings: [],
   hard_rule_hits: [],
   review: null,
-  approval: null,
   external_resume: false,
   error: null,
   summary: null,
 };
-
-describe("canDecide", () => {
-  it("allows a decision only while paused on a recorded approval", () => {
-    const approval = { threadId: "main", toolCallId: "c1", sourceEventId: "e1" };
-    expect(canDecide({ ...base, status: "blocked_pending", approval } as Run)).toBe(true);
-  });
-
-  it("refuses when the approval was nulled by the Contract 6 tripwire", () => {
-    // An approval raised on a thread other than `main` leaves the run paused
-    // with no approval recorded, and must not offer a button.
-    expect(canDecide({ ...base, status: "blocked_pending", approval: null } as Run)).toBe(false);
-  });
-
-  it("refuses on superseded, decided, and running runs", () => {
-    const approval = { threadId: "main", toolCallId: "c1", sourceEventId: "e1" };
-    for (const status of ["superseded", "blocked_posted", "denied", "error", "running"] as const) {
-      expect(canDecide({ ...base, status, approval } as Run)).toBe(false);
-    }
-  });
-});
 
 describe("reviewPosted", () => {
   const draft = (tool: ReviewTool) => ({
@@ -212,9 +188,9 @@ describe("gatedReviewPosted", () => {
 /**
  * The public plane's wire shape, cross-checked the same way (decision 34).
  *
- * `apps/web` renders both planes with one set of components, so the fields the
- * public serializer withholds have to be exactly the ones this app treats as
- * optional. A field added on either side without the other fails here.
+ * One plane since decision 52, so this is stricter than it was: the fields the
+ * serializer withholds are absent from these types rather than optional on
+ * them. A field added on either side without the other fails here.
  */
 describe("the public wire shape tracks apps/cujo", () => {
   /** Keys a public payload always carries, so they must not be optional here. */
@@ -253,7 +229,7 @@ describe("the public wire shape tracks apps/cujo", () => {
    * components could not render it. This compiles only while every field the
    * public plane omits is optional in `types.ts`.
    */
-  it("type-checks a public payload as a Run, and offers no decision on it", () => {
+  it("type-checks a board payload as a Run", () => {
     const publicRun: Run = {
       id: "r1",
       repo: "o/r",
@@ -269,9 +245,11 @@ describe("the public wire shape tracks apps/cujo", () => {
       error: null,
       summary: null,
     };
-    expect(publicRun.approver).toBeUndefined();
-    // No approval on the public plane, so the decision surface never appears.
-    expect(canDecide(publicRun)).toBe(false);
+    // The stronger statement, now that there is nowhere else a payload could
+    // come from: the type has no key for the fields the serializer withholds,
+    // so a component cannot read one even by accident.
+    expect(Object.keys(publicRun)).not.toContain("approver");
+    expect("approval" in publicRun).toBe(false);
   });
 
   it("carries every emitted key the shared components read", () => {

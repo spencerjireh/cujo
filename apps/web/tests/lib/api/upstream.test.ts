@@ -10,53 +10,41 @@ import { describe, expect, it } from "vitest";
 
 describe("refusalFields", () => {
   it("names the path the caller asked for, not the one it was rewritten to", () => {
-    expect(refusalFields(["runs", "abc", "events"], "operator", "events_path")).toEqual({
+    expect(refusalFields(["runs", "abc", "events"], "events_path")).toEqual({
       path: "/runs/abc/events",
-      mode: "operator",
       reason: "events_path",
     });
   });
 
   it("distinguishes the two refusals, which have different causes", () => {
-    // One is a client using the wrong route for a stream; the other is the
-    // public plane refusing a gated path, which is a boundary being enforced.
-    expect(refusalFields(["runs"], "public", "public_plane").reason).toBe("public_plane");
+    // One is a client using the wrong route for a stream; the other is a path
+    // outside the board, which is the proxy's whole allowlist.
+    expect(refusalFields(["runs"], "public_plane").reason).toBe("public_plane");
   });
 });
 
 describe("streamOutcome", () => {
-  it("calls the public stream cap degraded, not failed", () => {
-    // apps/cujo answers 503 when it is already holding its cap of public
-    // streams and the client falls back to polling (decision 34). That is the
-    // cap doing its job, and paging on it would be paging on success.
-    expect(streamOutcome(503, false, "public")).toEqual({
+  it("calls the stream cap degraded, not failed", () => {
+    // apps/cujo answers 503 when it is already holding its cap of streams and
+    // the client falls back to polling (decision 34). That is the cap doing
+    // its job, and paging on it would be paging on success.
+    expect(streamOutcome(503, false)).toEqual({
       event: "proxy.stream.degraded",
       level: "warn",
     });
   });
 
-  it("calls the same status on the operator plane a real failure", () => {
-    // The cap counts public streams only — "an operator must never lose the
-    // approval page because the board is busy" — so a 503 here is not the cap
-    // at all. It is an outage on the one surface where a human is waiting to
-    // approve a block, and `degraded` would file it under the quietest name.
-    expect(streamOutcome(503, false, "operator")).toEqual({
-      event: "proxy.stream.failed",
-      level: "error",
-    });
-  });
-
-  it("calls everything else a failure, on either plane", () => {
-    for (const mode of ["public", "operator"] as const) {
-      for (const status of [404, 500, 502]) {
-        expect(streamOutcome(status, false, mode).event).toBe("proxy.stream.failed");
-      }
+  it("calls everything else a failure", () => {
+    // This used to take the plane too, because a 503 on the operator plane was
+    // not the cap at all. One plane since decision 52, so the status answers it.
+    for (const status of [404, 500, 502]) {
+      expect(streamOutcome(status, false).event).toBe("proxy.stream.failed");
     }
   });
 
   it("treats a 200 with no usable body as a failure", () => {
     // The upstream claimed success and sent nothing a client can consume.
-    expect(streamOutcome(200, true, "public").event).toBe("proxy.stream.failed");
+    expect(streamOutcome(200, true).event).toBe("proxy.stream.failed");
   });
 });
 

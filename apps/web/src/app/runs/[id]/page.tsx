@@ -1,6 +1,5 @@
 import { RunView } from "@/components/run/RunView";
 import { ApiError } from "@/lib/api/client";
-import { serverMode } from "@/lib/api/mode";
 import { runOptions } from "@/lib/api/queries";
 import { getQueryClient } from "@/lib/query-client";
 import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
@@ -11,20 +10,16 @@ export const dynamic = "force-dynamic";
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const queryClient = getQueryClient();
-  const mode = await serverMode();
 
   // Awaited, unlike the list: this page is nothing without the run, and a 404
-  // from the API has to become a 404 here rather than an empty shell. On the
-  // public plane that same 404 is also what a private run looks like, so it
-  // needs no handling of its own (decision 34).
+  // from the API has to become a 404 here rather than an empty shell. That same
+  // 404 is what a private run looks like, so it needs no handling of its own
+  // (decision 34) — and since decision 52 there is no other page for a private
+  // run to be on, so 404 is the whole answer.
   try {
-    await queryClient.fetchQuery(runOptions(mode, id));
+    await queryClient.fetchQuery(runOptions(id));
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
-    // 401 means the Access assertion never reached the API. Behind Cloudflare
-    // that cannot normally happen, so say what is wrong rather than showing a
-    // stack: the alternative is an unexplained 500 on the approval page.
-    if (error instanceof ApiError && error.status === 401) return <NotAuthorized />;
     throw error;
   }
 
@@ -32,22 +27,5 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     <HydrationBoundary state={dehydrate(queryClient)}>
       <RunView id={id} />
     </HydrationBoundary>
-  );
-}
-
-function NotAuthorized() {
-  return (
-    <div>
-      <h1 className="mb-2 text-2xl">Not signed in</h1>
-      <p className="max-w-[60ch] text-sm text-fg-muted">
-        The Cujo API refused this request because it carried no operator credential.{" "}
-        <a href="/login" className="underline">
-          Sign in
-        </a>{" "}
-        and reload. If you are running locally, start the stack with
-        <code className="mx-1 rounded-sm bg-bg-raised px-1.5 py-0.5">CUJO_DEV_NO_ACCESS=1</code>
-        set on the cujo service.
-      </p>
-    </div>
   );
 }

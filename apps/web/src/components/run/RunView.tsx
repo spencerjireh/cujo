@@ -1,6 +1,5 @@
 "use client";
 
-import { usePlane } from "@/app/providers";
 import { useRunStream } from "@/hooks/useRunStream";
 import { runOptions } from "@/lib/api/queries";
 import { gatedReviewPosted, reviewPosted } from "@/lib/api/types";
@@ -17,9 +16,8 @@ import { RunHeader } from "./RunHeader";
  * produced, then the review those findings justify, then the decision.
  */
 export function RunView({ id }: { id: string }) {
-  const { mode } = usePlane();
-  const { data: run, error } = useQuery(runOptions(mode, id));
-  const { streamFailed } = useRunStream(mode, id, run?.status);
+  const { data: run, error } = useQuery(runOptions(id));
+  const { streamFailed } = useRunStream(id, run?.status);
 
   if (error) {
     return (

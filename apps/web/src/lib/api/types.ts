@@ -83,20 +83,13 @@ export interface DraftedReview {
   findings?: unknown[];
 }
 
-export interface PendingApproval {
-  threadId: string;
-  toolCallId: string;
-  sourceEventId: string;
-}
-
 /**
  * `GET /runs` — deliberately narrower than the detail shape.
  *
- * The fields the public plane withholds are optional here rather than absent,
- * so one set of components renders both planes. Their optionality is never what
- * protects them: `apps/cujo` decides what it emits, and the mode in the query
- * key is what keeps an operator-sourced cache entry from reaching a public
- * render (decision 34).
+ * There is one plane since decision 52, so every field here is one the board
+ * actually emits. `approver` and `decided_at` are gone entirely rather than
+ * optional: `apps/cujo` withholds them by construction, so a type that still
+ * mentioned them would describe a payload nothing produces.
  */
 export interface RunSummary {
   id: string;
@@ -104,8 +97,6 @@ export interface RunSummary {
   pr_number: number;
   head_sha: string;
   status: RunStatus;
-  /** Operator plane only; undefined on the public plane. */
-  approver?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -116,44 +107,27 @@ export interface RunList {
 
 /** `GET /runs/:id` and every `run` event on the SSE stream. */
 export interface Run extends RunSummary {
-  /** Operator plane only, all four. */
+  /**
+   * Handles into TrueForge and the webhook delivery, published since decision
+   * 52. Optional because a `run` event on the stream and a run stored by an
+   * older release may predate them, not because a plane withholds them.
+   */
   session_id?: string;
   turn_ids?: string[];
-  decided_at?: string | null;
   external_resume?: boolean;
+  delivery_id?: string | null;
   checks: CheckState[];
   findings: Finding[];
   hard_rule_hits: Finding[];
   review: DraftedReview | null;
   /**
-   * The accusation held for a human. Present on the operator plane whenever
-   * one was drafted; on the public plane only once it posted, because before
-   * that publishing it is exactly what the gate prevents. Absent entirely on a
-   * run that predates the gated tool.
+   * The accusation held for a human, published only once it posted — before
+   * that, publishing it is exactly what the gate prevents. Absent entirely on
+   * a run that predates the gated tool.
    */
   gated_review?: DraftedReview | null;
-  /**
-   * Non-null only while status is `blocked_pending` (the operator serializer
-   * nulls it otherwise), and never present on the public plane — which is why
-   * `canDecide` is false there and no decision is ever offered.
-   */
-  approval?: PendingApproval | null;
   error: string | null;
   summary: string | null;
-}
-
-/**
- * Whether a run is waiting on a person.
- *
- * No longer "can this page decide it" — nothing here decides anything since
- * decision 49, and the answer is `/cujo confirm` on the pull request. It is
- * still exactly this predicate that says a decision is *outstanding*: paused on
- * an approval the fold actually recorded. `superseded`, `error`, and the
- * Contract 6 tripwire (an approval raised on a thread other than `main`, which
- * nulls `approval`) all fall out of it.
- */
-export function canDecide(run: Run): boolean {
-  return run.status === "blocked_pending" && !!run.approval;
 }
 
 /**

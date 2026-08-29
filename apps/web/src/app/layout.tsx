@@ -1,6 +1,5 @@
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Mark } from "@/components/brand/Mark";
-import { adminBaseUrl, serverMode } from "@/lib/api/mode";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
@@ -38,13 +37,11 @@ export const metadata: Metadata = {
 const THEME_SCRIPT = `try{var t=localStorage.getItem("cujo-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}`;
 
 /**
- * Both hostnames are served by this one app, and which plane a request is on is
- * decided per request from its `Host` (decision 34). Reading it here makes the
- * layout dynamic, which both pages already are.
+ * One hostname, one plane. This used to read the request's own `Host` to decide
+ * which of two planes it was rendering (decision 34); decision 52 deleted the
+ * other one, so the layout is static again.
  */
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const mode = await serverMode();
-  const admin = adminBaseUrl();
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     // The theme script below sets data-theme before React hydrates, so the
     // server markup and the hydrated DOM differ on this element by design.
@@ -54,7 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="min-h-screen bg-bg text-fg">
-        <Providers mode={mode} adminBaseUrl={admin}>
+        <Providers>
           <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4">
             <header className="flex items-center justify-between gap-4 border-b border-line py-4">
               <Link
@@ -69,16 +66,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               </Link>
               <ThemeToggle />
             </header>
-            {mode === "public" ? (
-              <p className="border-b border-line py-2 text-xs text-fg-muted">
-                A read-only view of Cujo&rsquo;s reviews of public pull requests.{" "}
-                {admin ? (
-                  <a href={admin} className="underline">
-                    Operators sign in here
-                  </a>
-                ) : null}
-              </p>
-            ) : null}
+            <p className="border-b border-line py-2 text-xs text-fg-muted">
+              A read-only view of Cujo&rsquo;s reviews of public pull requests.
+            </p>
             <main className="flex-1 py-8">{children}</main>
             <footer className="border-t border-line py-4 text-xs text-fg-muted">
               Reviews pull requests by running them. Built on TrueForge.

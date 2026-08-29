@@ -2,7 +2,6 @@
 
 import { runStreamUrl } from "@/lib/api/client";
 import { runKeys } from "@/lib/api/keys";
-import type { Mode } from "@/lib/api/mode";
 import { runOptions, runsListOptions } from "@/lib/api/queries";
 import { parseSnapshot, reduceList, reduceRun } from "@/lib/api/stream";
 import { type RunStatus, isLive } from "@/lib/api/types";
@@ -20,13 +19,13 @@ import { useEffect, useState } from "react";
  * is closed and reconciled with one refetch rather than left to auto-reconnect
  * and replay from the start.
  *
- * `streamFailed` exists because the public plane can refuse a stream outright
- * when the process is at its cap (decision 34). `EventSource` does not
+ * `streamFailed` exists because the board can refuse a stream outright when
+ * the process is at its cap (decision 34). `EventSource` does not
  * reconnect after a non-200, so without this the page would simply stop
  * updating with nothing said — silent staleness, which is worse on a public
  * page than a visible failure. The caller says so and falls back to polling.
  */
-export function useRunStream(mode: Mode, id: string, status: RunStatus | undefined) {
+export function useRunStream(id: string, status: RunStatus | undefined) {
   const queryClient = useQueryClient();
   const [streamFailed, setStreamFailed] = useState(false);
   const live = status !== undefined && isLive(status);
@@ -35,7 +34,7 @@ export function useRunStream(mode: Mode, id: string, status: RunStatus | undefin
     if (!live) return;
     setStreamFailed(false);
 
-    const source = new EventSource(runStreamUrl(mode, id));
+    const source = new EventSource(runStreamUrl(id));
     let closed = false;
     const close = () => {
       if (closed) return;
@@ -49,10 +48,10 @@ export function useRunStream(mode: Mode, id: string, status: RunStatus | undefin
 
       // The keys come from the shared queryOptions so the updater sees the
       // real cached type instead of `unknown`.
-      queryClient.setQueryData(runOptions(mode, id).queryKey, (previous) =>
+      queryClient.setQueryData(runOptions(id).queryKey, (previous) =>
         reduceRun(previous, snapshot),
       );
-      queryClient.setQueryData(runsListOptions(mode).queryKey, (previous) =>
+      queryClient.setQueryData(runsListOptions().queryKey, (previous) =>
         reduceList(previous, snapshot),
       );
 
@@ -64,11 +63,11 @@ export function useRunStream(mode: Mode, id: string, status: RunStatus | undefin
       // status code never reaches the page — so both fall back the same way.
       setStreamFailed(true);
       close();
-      void queryClient.invalidateQueries({ queryKey: runKeys.detail(mode, id) });
+      void queryClient.invalidateQueries({ queryKey: runKeys.detail(id) });
     };
 
     return close;
-  }, [id, live, mode, queryClient]);
+  }, [id, live, queryClient]);
 
   /**
    * The fallback. `runOptions` never polls because the stream is meant to be
@@ -79,10 +78,10 @@ export function useRunStream(mode: Mode, id: string, status: RunStatus | undefin
   useEffect(() => {
     if (!live || !streamFailed) return;
     const timer = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: runKeys.detail(mode, id) });
+      void queryClient.invalidateQueries({ queryKey: runKeys.detail(id) });
     }, 15_000);
     return () => clearInterval(timer);
-  }, [id, live, mode, queryClient, streamFailed]);
+  }, [id, live, queryClient, streamFailed]);
 
   return { streamFailed };
 }

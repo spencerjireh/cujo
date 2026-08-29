@@ -9,37 +9,31 @@
  */
 
 import type { Fields } from "@cujo/log";
-import type { Mode } from "./mode";
 
 /** Why the proxy refused a request before it reached `apps/cujo`. */
 export type ProxyRefusal = "events_path" | "public_plane";
 
-export function refusalFields(path: string[], mode: Mode, reason: ProxyRefusal): Fields {
-  return { path: `/${path.join("/")}`, mode, reason };
+export function refusalFields(path: string[], reason: ProxyRefusal): Fields {
+  return { path: `/${path.join("/")}`, reason };
 }
 
 /**
  * An upstream that answered, but not with a stream.
  *
- * The public route deliberately passes a `503` through untouched so the client
- * falls back to polling (decision 34), so that one is `degraded` rather than
- * `failed`: it is the cap doing its job, not the service breaking.
+ * The route deliberately passes a `503` through untouched so the client falls
+ * back to polling (decision 34), so that one is `degraded` rather than
+ * `failed`: it is `createStreamLimit`'s cap doing its job, not the service
+ * breaking. Every other failure is an outage.
  *
- * The plane is part of that judgement and not an afterthought. `createStreamLimit`
- * "counts public streams only. An operator must never lose the approval page
- * because the board is busy" — so a `503` on the operator plane is not the cap
- * at all, it is a real outage on the one surface where a human is waiting to
- * approve a block, and calling it `degraded` would file the loudest failure in
- * the system under the quietest name.
+ * This used to take the plane as well, because a `503` on the operator plane
+ * was not the cap at all. There is one plane since decision 52, so the status
+ * alone answers it.
  */
 export function streamOutcome(
   status: number,
   ok: boolean,
-  mode: Mode,
 ): { event: "proxy.stream.degraded" | "proxy.stream.failed"; level: "warn" | "error" } {
-  if (!ok && status === 503 && mode === "public") {
-    return { event: "proxy.stream.degraded", level: "warn" };
-  }
+  if (!ok && status === 503) return { event: "proxy.stream.degraded", level: "warn" };
   return { event: "proxy.stream.failed", level: "error" };
 }
 
