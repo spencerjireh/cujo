@@ -17,11 +17,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-from cujo_sniff.paths import canonical, display_path, home
+from cujo_sniff.paths import display_path
 from cujo_sniff.policy import (
-    DECOY_REL,
     KNOWN_INDEX_HOSTS,
     MAX_FILES_READ,
+    decoy_spellings,
+    is_decoy,
     is_noise_read,
     is_sensitive,
 )
@@ -43,10 +44,6 @@ def health(armed: bool, detail: str) -> dict[str, Any]:
     between here and there.
     """
     return {"armed": armed, "detail": detail}
-
-
-def _is_decoy(path: Path, decoy_paths: set[Path]) -> bool:
-    return path in decoy_paths or canonical(path) in decoy_paths
 
 
 def build_sensor_block(
@@ -75,10 +72,7 @@ def build_sensor_block(
     file-read cap dropped anything.
     """
     base = Path(cwd) if cwd is not None else Path.cwd()
-    # Both spellings of the decoy, because the audit hook records the path the
-    # program passed and that need not be the one `setup` seeded.
-    decoy = (home_dir or home()) / DECOY_REL
-    decoy_paths = {decoy, canonical(decoy)}
+    decoy_paths = decoy_spellings(home_dir)
     egress = merge_egress(proxy_rows)
     files_read: list[dict[str, Any]] = []
     subprocesses: list[dict[str, Any]] = []
@@ -92,7 +86,7 @@ def build_sensor_block(
             path = str(row.get("path", ""))
             if path and not os.path.isabs(path):
                 path = str(base / path)
-            if path and _is_decoy(Path(path), decoy_paths):
+            if path and is_decoy(path, decoy_paths):
                 decoy_read = True
             if any(ch in mode for ch in "wax+"):
                 continue

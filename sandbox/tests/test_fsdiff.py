@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 
 from cujo_sniff.context import Context, state_paths
+from cujo_sniff.policy import DECOY_REL
 from cujo_sniff.report import build_sensor_block
+from cujo_sniff.sensors.decoy import seed_decoy
 from cujo_sniff.sensors.fsdiff import (
     UNHASHED,
     UNREADABLE,
@@ -20,6 +22,12 @@ from cujo_sniff.sensors.fsdiff import (
     snapshot,
 )
 from tests.test_report import ARMED, NOT_TRUNCATED
+
+# A sensitive path that is not the seeded decoy. Every test below about what
+# the walk *hashes* has to use one: `should_hash` excludes the decoy, because
+# opening it is what the watcher armed on it is there to report. Anything else
+# under a credentials location behaves the way it always did.
+SENSITIVE = Path(".ssh") / "id_rsa"
 
 
 def walked(entries: dict[str, tuple[int, int, str | None]]) -> Snapshot:
@@ -124,9 +132,8 @@ def test_a_restored_mtime_does_not_hide_a_credential_edit(home_dir: Path, ctx: C
     same edit to an ordinary file in the workspace still reads as unchanged,
     which is the trade that keeps a snapshot from being a full read of HOME.
     """
-    aws = home_dir / ".aws"
-    aws.mkdir()
-    secret = aws / "credentials"
+    secret = home_dir / SENSITIVE
+    secret.parent.mkdir()
     secret.write_text("AKIAREALKEY000000001")
     dull = home_dir / "notes.txt"
     dull.write_text("AKIAREALKEY000000001")
@@ -140,16 +147,15 @@ def test_a_restored_mtime_does_not_hide_a_credential_edit(home_dir: Path, ctx: C
 
     after = snapshot([home_dir], **walk)
     changed = {c["path"] for c in diff_snapshots(before, after, [], home_dir)}
-    assert "~/.aws/credentials" in changed
+    assert f"~/{SENSITIVE}" in changed
     assert "~/notes.txt" not in changed
 
 
 def test_a_repointed_symlink_is_a_change(home_dir: Path, ctx: Context) -> None:
     # lstat describes the link, so a link that now aims at a different file has
     # the same metadata as before. The digest is taken over the target string.
-    aws = home_dir / ".aws"
-    aws.mkdir()
-    link = aws / "credentials"
+    link = home_dir / SENSITIVE
+    link.parent.mkdir()
     link.symlink_to(home_dir / "one")
     walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
     before = snapshot([home_dir], **walk)
@@ -159,7 +165,7 @@ def test_a_repointed_symlink_is_a_change(home_dir: Path, ctx: Context) -> None:
     os.utime(link, ns=(stamp.st_atime_ns, stamp.st_mtime_ns), follow_symlinks=False)
     after = snapshot([home_dir], **walk)
     changed = {c["path"] for c in diff_snapshots(before, after, [], home_dir)}
-    assert "~/.aws/credentials" in changed
+    assert f"~/{SENSITIVE}" in changed
 
 
 def test_which_walk_was_cut_decides_which_absences_can_be_believed(home_dir: Path) -> None:
@@ -222,6 +228,25 @@ def test_a_digest_that_could_not_be_taken_is_not_a_digest_nobody_wanted(home_dir
     assert diff_snapshots(out_of_scope, out_of_scope, [], home_dir) == []
 
 
+def test_the_walk_leaves_the_decoy_unopened(home_dir: Path, ctx: Context) -> None:
+    """The one sensitive file the snapshot must not read, seeded the real way.
+
+    `seed_decoy` and `should_hash` have to agree on which path that is, so the
+    decoy here is written by the same function `setup` calls rather than by a
+    literal repeated in a test.
+    """
+    decoy = seed_decoy(home_dir / DECOY_REL, ctx.state_dir / "decoy.backup")
+    other = home_dir / SENSITIVE
+    other.parent.mkdir()
+    other.write_text("AKIAREALKEY000000001")
+    walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
+
+    entries = snapshot([home_dir], **walk).entries
+    # Walked and recorded -- a write to it is still a change -- but not hashed.
+    assert entries[str(decoy)][2] is None
+    assert entries[str(other)][2] not in (None, UNHASHED, UNREADABLE)
+
+
 def test_a_fifo_swapped_in_after_the_stat_does_not_hang_the_snapshot(
     home_dir: Path, ctx: Context
 ) -> None:
@@ -262,9 +287,8 @@ def test_a_file_too_large_to_hash_says_so_rather_than_reading_as_checked(
     came back clean.
     """
     monkeypatch.setattr("cujo_sniff.sensors.fsdiff.HASH_MAX_BYTES", 8)
-    aws = home_dir / ".aws"
-    aws.mkdir()
-    big = aws / "credentials"
+    big = home_dir / SENSITIVE
+    big.parent.mkdir()
     big.write_text("x" * 64)
     walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
 
