@@ -337,14 +337,23 @@ the agent's judgment does real work.
 ## Contract 4 — reviews and the approval model
 
 Reviews mostly post automatically — that is the product's value. A human is
-pulled in only for the consequential action. Two tool paths on `github-mcp`:
+pulled in only for the consequential action. Three tool paths on `github-mcp`:
 
 | Tool | When | GitHub review | Gated? |
 |------|------|---------------|--------|
 | `post_advisory_review` | no `critical` finding | COMMENT | No — posts automatically |
 | `post_blocking_review` | any `critical` finding | REQUEST_CHANGES (blocks merge) | **Yes** — pauses for human approval |
+| `post_gated_review` | registered, not yet selected | REQUEST_CHANGES (blocks merge) | Not yet — see below |
 
-Both tools take the same input: a summary body and a `comments[]` array. The
+`post_gated_review` exists and posts, but nothing selects it: the rubric still
+routes every `critical` to `post_blocking_review`, and that is still the one
+name in `require_approval_for_tools`. It ships first and alone because a tool
+`apps/cujo` names in that list but `github-mcp` has not registered is a gate
+that silently never fires — the same "two releases, not two minutes" shape as
+decision 35, one container apart. The release that moves the gate onto it
+rewrites this table and the rubric together.
+
+All three tools take the same input: a summary body and a `comments[]` array. The
 summary body lists what ran (checks, commands, durations), the results, and the
 egress observed. Each entry in `comments[]` is one finding with a `path`,
 `line`, and `side`, posted as an inline review comment on that diff line.
