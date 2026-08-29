@@ -327,6 +327,10 @@ tell the snapshot's read from the read it exists to catch — so hashing it set
 rule reads that field (decision 58). Nothing is lost by the exclusion: the entry
 still carries metadata, `decoy` health follows the inode, and a command that
 overwrites the decoy has to open it, which is the same event by another route.
+It excludes the watched file and not every name that reaches it — a symlink is
+digested by `readlink`, which opens nothing, so a link resolving to the decoy is
+hashed like any other and a retarget with the timestamp restored is still a
+change.
 
 A digest that was wanted and could not be taken is recorded as its own value,
 distinct from one that was never wanted. A file with a digest on one side and

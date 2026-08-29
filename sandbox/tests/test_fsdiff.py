@@ -247,6 +247,33 @@ def test_the_walk_leaves_the_decoy_unopened(home_dir: Path, ctx: Context) -> Non
     assert entries[str(other)][2] not in (None, UNHASHED, UNREADABLE)
 
 
+def test_a_link_aimed_at_the_decoy_is_hashed_by_its_target(home_dir: Path, ctx: Context) -> None:
+    """The exclusion is the watched file, not everything that resolves to it.
+
+    A link is digested by `os.readlink`, which never opens what it points at, so
+    it trips nothing. Skipping it because it resolves to the decoy would hand
+    back the retargeted link: aim it somewhere else of the same length, put the
+    timestamp back, and `lstat` sees no change.
+    """
+    decoy = seed_decoy(home_dir / DECOY_REL, ctx.state_dir / "decoy.backup")
+    link = home_dir / SENSITIVE
+    link.parent.mkdir()
+    link.symlink_to(decoy)
+    walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
+
+    before = snapshot([home_dir], **walk)
+    assert before.entries[str(link)][2] not in (None, UNHASHED, UNREADABLE)
+
+    # A target of the same length, so `st_size` -- which for a link is the
+    # length of that string -- agrees too, and only the digest can tell.
+    stamp = link.lstat()
+    link.unlink()
+    link.symlink_to(str(decoy)[:-1] + "X")
+    os.utime(link, ns=(stamp.st_atime_ns, stamp.st_mtime_ns), follow_symlinks=False)
+    after = snapshot([home_dir], **walk)
+    assert f"~/{SENSITIVE}" in {c["path"] for c in diff_snapshots(before, after, [], home_dir)}
+
+
 def test_a_fifo_swapped_in_after_the_stat_does_not_hang_the_snapshot(
     home_dir: Path, ctx: Context
 ) -> None:
