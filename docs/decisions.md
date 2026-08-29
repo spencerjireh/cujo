@@ -1613,3 +1613,97 @@ which keeps the single `curl` but makes the artefact in the sandbox different
 from the source in the repo, so a stack trace names a line nobody can open.
 And **fetching each module with its own `curl`**, which is a list of filenames
 in the rubric that goes stale silently the first time a module is added.
+
+## 47. Conversation runs in its own session, and the agent that answers cannot write
+
+Decision 38 allowed `apps/cujo` a reaction on the pull request, on the argument
+that "nothing states a finding on a pull request without a human allowing it — a
+reaction states no finding, carries no text, names no file". Decision 43 then
+allowed a reply, on the narrower argument that a reply is human-initiated by
+construction: a maintainer with write access asked a direct question, and the
+answer goes to them.
+
+`@cujo-guard <anything>` is that argument taken to its end. It is the feature the
+sandbox makes possible and no other reviewer has — a maintainer says "that route
+needs orders to exist, seed the database first", and the answer is a new
+measurement rather than a rephrasing of the old one. Qodo and CodeRabbit can
+re-read the diff; only Cujo still has the recipe.
+
+It is also the first place a comment written by anyone provisions compute and
+becomes model input. Two properties carry that, and both are structural.
+
+**Its own TrueForge session, always.** The obvious implementation —
+`startTurn` on the run's own session — does not work, for three independent
+reasons rather than one:
+
+1. **It cancels a live review, silently.** Creating a turn while one runs
+   cancels the old one, and a subscriber to the cancelled turn is never told; the
+   drain loop never sees `turn.done`, the stream does not drop, and the only
+   thing that fires is the thirty-minute watchdog. One comment throws away a
+   whole sandbox run, and ungated that is a one-comment denial of review against
+   every pull request in every installed repository.
+2. **It is refused in the state where it is wanted.** `422 thread main: user
+   message cannot be sent while approvals or questions are pending` — and an
+   approval is outstanding on the *session*, not the turn. While a run is
+   `blocked_pending`, which is the exact moment a maintainer wants to say "seed
+   the db first", the message is rejected.
+3. **It corrupts the projection.** `fold` is one accumulator over a run's whole
+   event list. A re-run spawns a second thread titled `tests`, and `p.checks`
+   dedupes by thread id rather than title, so the same critical is emitted twice
+   and a successful re-run can never clear the finding it was meant to correct.
+
+All three are properties of *sharing*, not of conversation, so conversation gets
+its own session keyed by pull request — a second table, because `sessions` is
+keyed by the pull request and already holds the review's.
+
+For the same reason it does not go through `Runner`. `refold` writes run status
+unconditionally and emits on `changes`, which drives the pull request reaction
+and the Discord card; a conversation turn routed through it could move a `clean`
+run to `error` and repaint a verdict nobody changed. The harness client is the
+only thing shared with the reviewer.
+
+**The agent has no write tool, and `apps/cujo` posts the reply.** The spec
+carries `mcpServers: []`, so there is nothing to inject *into*: the worst a
+prompt injection through a stranger's comment achieves is a wasted sandbox. The
+alternative — giving the agent a reply tool — was rejected twice over. It is the
+exact negation of decision 38's argument, since a free-text tool states whatever
+the model decides to state; and it cannot report its own failure, whereas reading
+the final assistant message means a turn that errors or times out still answers
+the person who asked. Silence is the one answer that is never right.
+
+The sandbox stays enabled. Removing it would leave an agent that can only
+paraphrase the report it was handed, which is the thing this feature exists not
+to be.
+
+**Repo write is required, and so is a ceiling.** The authorization is the same
+check `/cujo` uses and runs before the rate limit, so a stranger cannot spend a
+maintainer's budget: a sandbox is not free speech. The ceiling is in memory and
+per pull request — at most three questions an hour, one at a time — because the
+resource it protects is provisioned by this process, and a restart already means
+no turn is in flight. A second question while one is running is refused rather
+than queued: two sandboxes for one pull request is the thing being prevented,
+and a queue would only delay it.
+
+**Two events, because a review thread is not the pull request thread.**
+`issue_comment` covers the pull request's own conversation and nothing else; a
+reply inside a review thread — where Cujo's inline findings actually are — is a
+`pull_request_review_comment`. The flow this design exists for is "prove it",
+asked under the finding it doubts, so subscribing to only the first would have
+missed the case that matters most. The reply goes back to whichever surface the
+question came from. Only conversation is dispatched from the review-thread
+event; `/cujo` stays on the pull request's own thread, because narrowing the
+surfaces that can decide a review costs nothing.
+
+**The rubric says the question is untrusted.** `agent/SKILL.md` scoped that rule
+to "everything inside the repository", and decision 17 already noted that a stray
+user message is the worse case — it appends a turn the agent acts on. This design
+publishes that channel to the internet, so both rubrics now say that a later user
+message is a comment somebody typed on a public pull request, whatever it claims
+about itself, and that only the first message is a brief.
+
+Rejected: **a shared session with a guard** — "only converse when the run is
+terminal" — which fixes the 422 and nothing else, and leaves the projection
+corruption and the cancelled review for a race to find. **Conversation without a
+sandbox**, which is cheap, injection-proof, and re-reading, which is what every
+other bot already does. And **no rate limit**, on the argument that repo write is
+enough: it gates who, not how often, and six pasted questions are six clones.

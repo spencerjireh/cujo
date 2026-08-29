@@ -33,15 +33,15 @@ export function manifestChanged(files: readonly string[]): boolean {
  * at /app/dist reaching /app/agent in the container. Neither covers the other,
  * so neither may be dropped when this file moves.
  */
-export function loadRubric(): string {
+export function loadRubric(name = "SKILL.md"): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     // src/review -> apps/cujo/src -> apps/cujo -> apps -> repo root.
-    resolve(here, "../../../../agent/SKILL.md"),
+    resolve(here, `../../../../agent/${name}`),
     // dist -> /app, which is where the Dockerfile puts agent/.
-    resolve(here, "../agent/SKILL.md"),
-    resolve(here, "agent/SKILL.md"),
-    resolve(process.cwd(), "agent/SKILL.md"),
+    resolve(here, `../agent/${name}`),
+    resolve(here, `agent/${name}`),
+    resolve(process.cwd(), `agent/${name}`),
   ];
   for (const path of candidates) {
     try {
@@ -50,7 +50,7 @@ export function loadRubric(): string {
       // Try the next location.
     }
   }
-  throw new Error("agent/SKILL.md not found");
+  throw new Error(`agent/${name} not found`);
 }
 
 /**
@@ -77,6 +77,43 @@ export function buildAgentSpec(
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
       iterationLimit: 150,
+    },
+  };
+}
+
+/**
+ * The agent that answers `@cujo-guard` (Design 3).
+ *
+ * Two differences from the reviewer, and both are the design:
+ *
+ * `mcpServers: []` — **no review tools at all**, structurally rather than by
+ * prose. The message this agent reads was written by whoever could reach the
+ * pull request, so it is an untrusted-instruction channel published to the
+ * internet. With no tool that can write to GitHub, the worst a prompt injection
+ * achieves is a wasted sandbox. `apps/cujo` posts the reply itself, after the
+ * turn ends, from the final assistant message.
+ *
+ * `sandbox.enabled` stays true. Re-execution is the whole point — every other
+ * review bot can re-read a diff, and only this one still has the recipe — so
+ * removing the sandbox would leave a conversation agent that can only
+ * paraphrase the report it was handed.
+ */
+export function buildConverseSpec(
+  config: Pick<Config, "model" | "sniffTarballUrl">,
+  rubric = loadRubric("CONVERSE.md"),
+): TrueForgeApi.AgentSpec {
+  return {
+    model: { name: config.model },
+    instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
+    mcpServers: [],
+    config: {
+      sandbox: { enabled: true },
+      askUserQuestions: { enabled: false },
+      generativeUi: { enabled: false },
+      // Lower than the review's 150: this answers one question against a brief
+      // that is already collected, and a conversation that needs a hundred
+      // steps has misunderstood what it was asked.
+      iterationLimit: 60,
     },
   };
 }

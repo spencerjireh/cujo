@@ -51,6 +51,18 @@ export const EVENT_NAMES = [
   "comment.command.failed",
   "comment.reply.failed",
   "comment.reaction.failed",
+  // A question asked with `@cujo-guard`, answered in its own session.
+  "converse.started",
+  "converse.answered",
+  "converse.refused",
+  "converse.failed",
+  "converse.turn.failed",
+  "converse.turn.timeout",
+  "converse.stream.dropped",
+  "converse.reply.failed",
+  "converse.cancel.failed",
+  "converse.redelivered",
+  "converse.disabled",
   // A run's life, from the claim to a terminal status.
   "run.skipped",
   "run.superseded",

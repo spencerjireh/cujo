@@ -93,6 +93,41 @@ export class RunStore {
   }
 
   /**
+   * The conversation session for a pull request, or null before anyone has
+   * asked anything.
+   *
+   * Separate from `getSession` above and never interchangeable with it: a turn
+   * on the review's session cancels a live review, is refused while its
+   * approval is pending, and corrupts the run's projection (decision 47). Two
+   * accessors that look alike is the point — the type system cannot tell these
+   * ids apart, so the names have to.
+   *
+   * `COLLATE NOCASE`, unlike the review pair, because `runs.repo` holds
+   * whatever casing GitHub sent and a comment delivery is not guaranteed to
+   * match the pull request delivery that created the review session.
+   */
+  getConversationSession(repo: string, prNumber: number): string | null {
+    const row = this.db
+      .prepare(
+        "SELECT session_id FROM conversation_sessions WHERE repo = ? COLLATE NOCASE AND pr_number = ?",
+      )
+      .get(repo, prNumber) as { session_id: string } | undefined;
+    return row?.session_id ?? null;
+  }
+
+  /** First writer wins, like `putSession`. Returns the id now stored. */
+  putConversationSession(repo: string, prNumber: number, sessionId: string): string {
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO conversation_sessions (repo, pr_number, session_id, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(repo, prNumber, sessionId, new Date().toISOString());
+    const stored = this.getConversationSession(repo, prNumber);
+    if (!stored) throw new Error("conversation session vanished after insert");
+    return stored;
+  }
+
+  /**
    * Atomic claim of the run for a PR head. `created` is false when a run for
    * that head already exists, in which case the existing run is returned.
    *

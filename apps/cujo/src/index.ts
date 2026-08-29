@@ -5,12 +5,14 @@ import { GitHubReader } from "./clients/github";
 import { GitHubReactions } from "./clients/github-reactions";
 import { Harness } from "./clients/trueforge";
 import { loadConfig } from "./config";
+import { ConverseService } from "./converse/converse.service";
+import { ConverseRateLimit } from "./converse/rate-limit";
 import { createAccessVerifier, devVerifier } from "./http/operator/access";
 import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { PrReactor } from "./notify/reactions.service";
-import { buildAgentSpec } from "./review/agent-spec";
+import { buildAgentSpec, buildConverseSpec } from "./review/agent-spec";
 import { publicRunId } from "./review/links";
 import { PrCommandService } from "./review/pr-command.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
@@ -105,6 +107,27 @@ async function main(): Promise<void> {
       : null,
   });
 
+  // Design 3, and the only service that shares the harness client with the
+  // reviewer without sharing anything else. Not built with `runner`: a
+  // conversation turn must never reach `refold`, which writes run status and
+  // repaints the pull request reaction (decision 47). `converseLimit: 0` turns
+  // the whole feature off and the webhook still answers 200.
+  const converse =
+    config.converseLimit > 0
+      ? new ConverseService({
+          runs: store.runs,
+          harness,
+          github,
+          spec: buildConverseSpec(config),
+          limit: new ConverseRateLimit({
+            limit: config.converseLimit,
+            windowMs: config.converseWindowMs,
+          }),
+          turnTimeoutMs: config.converseTimeoutMs,
+        })
+      : null;
+  if (!converse) log.warn("converse.disabled");
+
   // Contract 8. The slash commands need the application's public key as well
   // as the bot token; with either missing, notifications still work and the
   // interactions route is not mounted at all.
@@ -186,6 +209,7 @@ async function main(): Promise<void> {
       createSession: () => harness.createSession(spec),
       isReady: () => harness.ready,
       prCommands,
+      ...(converse ? { converse } : {}),
     },
     ...(interactions ? { interactions } : {}),
   });
