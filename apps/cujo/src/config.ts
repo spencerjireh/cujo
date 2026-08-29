@@ -39,6 +39,13 @@ export interface Config {
    * commands off; notifications still work without it (Contract 8).
    */
   discordPublicKey: string | null;
+  /**
+   * The one Discord server a repo that declares nothing belongs to
+   * (decision 40). Null keeps Contract 8's original rule, where an undeclared
+   * repo is nobody's. It never widens who may watch beyond this single id, so
+   * a server that invited the bot on its own is refused exactly as before.
+   */
+  defaultDiscordGuild: string | null;
   cfAccessTeamDomain: string;
   cfAccessAud: string;
   dbPath: string;
@@ -114,6 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     publicBaseUrl: (env.CUJO_PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
     discordBotToken: env.DISCORD_BOT_TOKEN || null,
     discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
+    defaultDiscordGuild: env.CUJO_DEFAULT_DISCORD_GUILD || null,
     // The Access check is skipped only in dev, so the values are required otherwise.
     cfAccessTeamDomain: devNoAccess
       ? (env.CF_ACCESS_TEAM_DOMAIN ?? "")

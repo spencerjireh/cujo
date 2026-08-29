@@ -1204,3 +1204,56 @@ unconditional cancel does not already cover.
 Known limit: if the deny itself fails, the session stays wedged exactly as it
 was. The next head retries it through `start`, so the wedge is no longer
 permanent, but that head's run still ends in `error` first.
+
+## 40. A single-server deploy may name its server, and skip the declaration
+
+Decision 31 made a repo name its Discord server in `.cujo.yml`, so the
+authority behind a binding is repo write access. That is right when a Cujo
+deploy serves repos and servers belonging to different people. It costs a
+commit and a merge per repo when the deploy serves exactly one server, and the
+person adding the line is also the person who runs the server and owns the
+repo. That is this deploy: one GitHub App installation over a hand-picked list
+of one account's repos, one Discord server.
+
+So `CUJO_DEFAULT_DISCORD_GUILD` names that server, and a repo that declares
+nothing belongs to it. Setup becomes an environment variable set once and
+`/cujo watch`, with nothing to merge.
+
+This is not decision 28's rejected "guild allowlist in the environment", which
+had to grow by a redeploy per server and could not express per-repo reach. It
+is **one id**, and it answers "is this my own server?" rather than "is this any
+server?". Public Bot is on and cannot be turned off without Discord's
+verification, so anyone can invite the bot into a server they control — and
+that server's id will not match, so it gets exactly the refusal it gets today.
+The narrowing is what makes the default safe, not an assumption about who holds
+the bot. That distinction is the whole entry: a list would be the rejected
+design.
+
+Neither half of decision 31's handshake is removed. `/cujo watch` still has to
+be run by someone with Manage Server, still checked twice. A repo that names a
+server still wins, including when it names a different one — the default is
+consulted only after the declaration is read and found absent, so it can fill a
+silence but never overrule a sentence.
+
+Nor does it become a permanent grant. The default is checked on the delivery
+path like a declaration, so unsetting the variable drops a binding it created,
+exactly as reverting the commit drops a declared one. Revocation stays true of
+delivery and not only of the bind.
+
+An unreadable `.cujo.yml` is still `unknown` and the default does not rescue
+it. The two callers want opposite things from that state — a command refuses
+and asks for a retry, delivery keeps going — and deciding it here would decide
+it for both. It also keeps the one case where the default could quietly
+overrule a repo that had named someone else.
+
+Rejected: **turning Public Bot off** and resting on "only servers the owner
+invited hold the bot", which is decision 28's own rejected reasoning and is not
+available anyway; **a channel webhook URL instead of the bot**, which is
+genuinely simpler — the URL is a capability for one channel, and two of
+decision 23's three reasons against it are wrong, since a webhook can edit its
+own messages and can be validated through `GET /webhooks/{id}/{token}` — but
+the URL is a secret, so configuring it goes back through the Access-gated API
+that decisions 28 and 31 spent two entries escaping, and it deletes `/cujo`
+along with Contract 8; **dropping the declaration entirely** for Manage Server
+plus the App's installation list, which is the alternative rejected twice and
+would be actively wrong while Public Bot is on.
