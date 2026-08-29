@@ -67,6 +67,8 @@ const claim = (headSha = "h") => ({
   sessionId: "s",
   isPublic: true,
   deliveryId: null,
+  model: null,
+  rubricSha256: null,
 });
 
 function run(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -81,6 +83,8 @@ function run(overrides: Partial<RunRecord> = {}): RunRecord {
     prTitle: null,
     prAuthorLogin: null,
     prAuthorId: null,
+    model: null,
+    rubricSha256: null,
     status: "running",
     approver: null,
     decidedAt: null,

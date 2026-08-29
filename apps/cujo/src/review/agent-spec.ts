@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,6 +52,23 @@ export function loadRubric(name = "SKILL.md"): string {
     }
   }
   throw new Error(`agent/${name} not found`);
+}
+
+/**
+ * A digest of the instructions a spec would hand a session.
+ *
+ * Of the substituted string, not of `agent/SKILL.md` on disk: the tarball URL
+ * is spliced in by `buildAgentSpec`, so two deploys pointing at different
+ * sensor code are two different rubrics and have to hash differently.
+ *
+ * Recorded on a run so a verdict can be traced to the wording that produced it.
+ * See `RunRecord.rubricSha256` for the caveat about which session that is
+ * actually true of.
+ */
+export function specFingerprint(spec: TrueForgeApi.AgentSpec): string {
+  return createHash("sha256")
+    .update(spec.instructions ?? "")
+    .digest("hex");
 }
 
 /**

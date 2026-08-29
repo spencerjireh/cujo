@@ -556,6 +556,100 @@ describe("hard rules in the fold", () => {
   });
 });
 
+describe("usage and timings in the fold", () => {
+  const usage = (inputTokens: number, outputTokens: number): TrueForgeApi.ModelMessageUsage =>
+    ({ inputTokens, outputTokens }) as TrueForgeApi.ModelMessageUsage;
+
+  const message = (
+    id: string,
+    threadId: string,
+    u: TrueForgeApi.ModelMessageUsage | undefined,
+  ): Ev => ({
+    type: "model.message",
+    id,
+    createdAt: at,
+    threadId,
+    content: "thinking",
+    ...(u ? { usage: u } : {}),
+  });
+
+  const doneWithMetrics = (metrics: TrueForgeApi.TurnMetrics): Ev =>
+    turnDone({ ...doneState(), metrics });
+
+  it("attributes a message's tokens to the check whose thread it came from", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      message("m1", "th-tests", usage(100, 10)),
+      message("m2", "th-tests", usage(50, 5)),
+      message("m3", "main", usage(999, 999)),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks[0]?.usage).toMatchObject({ inputTokens: 150, outputTokens: 15, messages: 2 });
+  });
+
+  it("counts a message once even if the same event arrives twice", () => {
+    // The runner dedupes by id today. A sum that relies on a caller's invariant
+    // is a sum that silently doubles the day that invariant changes.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      message("m1", "th-tests", usage(100, 10)),
+      message("m1", "th-tests", usage(100, 10)),
+      turnDone(),
+    ]);
+    expect(p.checks[0]?.usage).toMatchObject({ inputTokens: 100, messages: 1 });
+  });
+
+  it("takes the run total from the turn's own metrics, summed over turns", () => {
+    const p = fold([
+      turnCreated("t1"),
+      doneWithMetrics({ totalInputTokens: 1000, totalOutputTokens: 100, totalCostInUsd: 0.5 }),
+      turnCreated("t2"),
+      doneWithMetrics({ totalInputTokens: 200, totalOutputTokens: 20, totalCostInUsd: 0.25 }),
+    ]);
+    expect(p.usage).toMatchObject({ inputTokens: 1200, outputTokens: 120, costUsd: 0.75 });
+  });
+
+  it("leaves cost and reasoning tokens absent until a turn reports them", () => {
+    // "No cost reported" and "cost zero" are not the same claim.
+    const p = fold([turnCreated("t1"), doneWithMetrics({ totalInputTokens: 10 })]);
+    expect(p.usage.costUsd).toBeUndefined();
+    expect(p.usage.reasoningTokens).toBeUndefined();
+    expect(p.usage.inputTokens).toBe(10);
+  });
+
+  it("records the cost of a turn that ended in error too", () => {
+    // An error turn is exactly the one whose cost is worth seeing, and the
+    // status ladder below breaks out of the case in half a dozen places.
+    const p = fold([
+      turnCreated("t1"),
+      turnDone({ status: "error", message: "model down", completedAt: at }),
+    ]);
+    expect(p.status).toBe("error");
+    expect(p.usage.messages).toBe(0);
+  });
+
+  it("puts the timings on the check when its thread ends", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests", "2026-08-27T00:00:00Z"),
+      threadDone(
+        "th-tests",
+        '```json\n{"check":"tests","runs":[{"duration_s":30}]}\n```',
+        "2026-08-27T00:01:40Z",
+      ),
+    ]);
+    expect(p.checks[0]?.timings).toEqual({
+      wallMs: 100_000,
+      sandboxMs: 30_000,
+      modelMs: 70_000,
+    });
+  });
+});
+
 describe("parseReview", () => {
   const callTool = (id: string, args: unknown) =>
     ({
