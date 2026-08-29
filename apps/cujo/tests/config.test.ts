@@ -17,12 +17,29 @@ describe("loadConfig", () => {
     expect(() => loadConfig(withoutModel)).toThrow("CUJO_MODEL is required");
   });
 
-  it("requires the Access values unless CUJO_DEV_NO_ACCESS=1", () => {
+  it("requires the Access values unless dev or a token replaces them", () => {
     const { CF_ACCESS_AUD: _aud, ...withoutAud } = base;
     expect(() => loadConfig(withoutAud)).toThrow("CF_ACCESS_AUD is required");
     const dev = loadConfig({ ...withoutAud, CUJO_DEV_NO_ACCESS: "1" });
     expect(dev.devNoAccess).toBe(true);
     expect(dev.cfAccessAud).toBe("");
+    // The other way out, and what makes the two gates orderable: a deploy that
+    // has set the token no longer has to keep the Access values around to
+    // start (decision 49).
+    const tokened = loadConfig({ ...withoutAud, CUJO_OPERATOR_TOKEN: "s3cret" });
+    expect(tokened.operatorToken).toBe("s3cret");
+    expect(tokened.cfAccessAud).toBe("");
+  });
+
+  it("trims the operator token, and treats whitespace as no token", () => {
+    // The login form trims what an operator pastes, so a secret normalised on
+    // one side only would disable the Access requirement while being
+    // impossible to present through the UI.
+    expect(loadConfig({ ...base, CUJO_OPERATOR_TOKEN: "  s3cret\n" }).operatorToken).toBe("s3cret");
+    const { CF_ACCESS_AUD: _aud, ...withoutAud } = base;
+    expect(() => loadConfig({ ...withoutAud, CUJO_OPERATOR_TOKEN: "   " })).toThrow(
+      "CF_ACCESS_AUD is required",
+    );
   });
 
   it("applies the compose-network defaults", () => {

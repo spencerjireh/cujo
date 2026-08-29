@@ -1,52 +1,28 @@
 "use client";
 
 import { usePlane } from "@/app/providers";
-import { ApiError, approveRun } from "@/lib/api/client";
-import { runKeys } from "@/lib/api/keys";
 import { type Run, canDecide } from "@/lib/api/types";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /**
- * The decision surface.
+ * What a held review says, now that nothing here decides it.
  *
- * It is a persistent bar rather than a modal: a held review is a state the run
- * sits in, sometimes for a long time, and the page above it is the evidence the
- * operator is deciding on. Naming the exact consequence in the bar is the
- * confirmation step — a dialog on top of it would only add a click.
+ * The decision moved to the pull request (decision 49): `/cujo confirm` from
+ * somebody with repo write, recorded against their GitHub login. This panel is
+ * what is left — a held review is a state the run sits in, sometimes for a long
+ * time, and a reader looking at the evidence needs to know a person is being
+ * waited on and which two words answer it.
  *
- * There is no optimistic update. A 409 is a normal outcome here (the run was
- * superseded, someone resumed it from the harness console, a double click), and
- * the stream delivers the real status a moment later anyway.
- *
- * On the public plane there is no control at all. Hiding it is not what
- * protects anything — `apps/cujo` serves no approve route there (decision 34);
- * what this renders instead is where to go, since an anonymous visitor looking
- * at a held review otherwise has no way to know a decision is pending.
+ * It is deliberately not a link to a button somewhere else. There is no button
+ * anywhere: one gate, in one place, with one audit trail.
  */
 export function ApproveBar({ run }: { run: Run }) {
   const { mode, adminBaseUrl } = usePlane();
-  const queryClient = useQueryClient();
-  const decidable = canDecide(run);
-
-  // Every hook before any early return. The plane cannot change under a mounted
-  // tree — it is fixed per request by the hostname — but a conditional hook is
-  // wrong whether or not the condition ever moves, and the next person to add a
-  // branch above it would inherit a real bug.
-  const mutation = useMutation({
-    mutationFn: (decision: "allow" | "deny") => approveRun(run.id, decision),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: runKeys.detail("operator", run.id) });
-      void queryClient.invalidateQueries({ queryKey: runKeys.list("operator") });
-    },
-  });
-
   if (mode === "public") return <PointAtOperator run={run} adminBaseUrl={adminBaseUrl} />;
-  if (!decidable) return <ExplainWhyNot run={run} />;
+  if (!canDecide(run)) return <ExplainWhyNot run={run} />;
 
-  // Keyed on the held review, never on `run.review`. `run.review` is what
+  // Keyed on the held review, never on `run.review`: `run.review` is what
   // already posted, so reading the tool off it would describe the advisory
-  // while asking the human to confirm the accusation — a worse rubber stamp
-  // than an unexplained button.
+  // while a human is being asked about the accusation.
   const gated = !!run.gated_review;
   const target = `${run.repo} #${run.pr_number}`;
 
@@ -56,41 +32,19 @@ export function ApproveBar({ run }: { run: Run }) {
         <span className="h-8 w-1 shrink-0 rounded-sm bg-accent-fill" aria-hidden="true" />
         <p className="min-w-48 flex-1 text-sm">
           {gated
-            ? `Approving posts the held review on ${target} as REQUEST_CHANGES and holds the merge.`
-            : `Approving posts this review on ${target}.`}{" "}
+            ? `This run is waiting on a maintainer of ${target}. Confirming posts the held review as REQUEST_CHANGES and holds the merge.`
+            : `This run is waiting on a maintainer of ${target}.`}{" "}
           <span className="text-fg-muted">
             {gated && run.review
-              ? "The advisory review is already on the pull request; denying leaves it standing and posts nothing more."
-              : "Denying ends the run without posting it."}
+              ? "The advisory review is already on the pull request; dismissing leaves it standing and posts nothing more."
+              : "Dismissing ends the run without posting it."}
           </span>
         </p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={mutation.isPending}
-            onClick={() => mutation.mutate("deny")}
-            className="rounded-md border border-line px-4 py-1.5 text-sm transition-colors hover:border-fg-muted disabled:opacity-50"
-          >
-            Deny
-          </button>
-          <button
-            type="button"
-            disabled={mutation.isPending}
-            onClick={() => mutation.mutate("allow")}
-            className="rounded-md bg-accent-fill px-4 py-1.5 text-sm font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {mutation.isPending ? "Working…" : "Approve"}
-          </button>
-        </div>
-      </div>
-      {mutation.error ? (
-        <p className="mt-2 font-mono text-xs text-sev-critical">
-          {mutation.error instanceof ApiError
-            ? mutation.error.message
-            : "The decision could not be recorded."}{" "}
-          Reload to see where the run stands.
+        <p className="font-mono text-xs text-fg-muted">
+          Reply <span className="text-fg">/cujo confirm</span> or{" "}
+          <span className="text-fg">/cujo dismiss</span> on the pull request.
         </p>
-      ) : null}
+      </div>
     </div>
   );
 }

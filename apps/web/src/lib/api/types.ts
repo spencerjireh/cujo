@@ -142,17 +142,15 @@ export interface Run extends RunSummary {
   summary: string | null;
 }
 
-export interface ApproveResult {
-  ok: true;
-  decision: "allow" | "deny";
-  approver: string;
-}
-
 /**
- * A decision is offerable only when the run is paused on an approval that the
- * fold actually recorded. `superseded`, `error`, and the Contract 6 tripwire
- * (an approval raised on a thread other than `main`, which nulls `approval`)
- * all fall out of this one predicate.
+ * Whether a run is waiting on a person.
+ *
+ * No longer "can this page decide it" — nothing here decides anything since
+ * decision 49, and the answer is `/cujo confirm` on the pull request. It is
+ * still exactly this predicate that says a decision is *outstanding*: paused on
+ * an approval the fold actually recorded. `superseded`, `error`, and the
+ * Contract 6 tripwire (an approval raised on a thread other than `main`, which
+ * nulls `approval`) all fall out of it.
  */
 export function canDecide(run: Run): boolean {
   return run.status === "blocked_pending" && !!run.approval;

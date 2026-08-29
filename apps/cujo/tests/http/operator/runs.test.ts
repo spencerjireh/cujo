@@ -149,25 +149,17 @@ describe("operator runs API", () => {
     await reader.cancel();
   });
 
-  it("passes the approver's email into the decision", async () => {
-    const { app, runner, runId } = build(blockedView());
-    const res = await app.request(`/runs/${runId}/approve`, {
+  it("serves no approve route: the gate lives on the pull request now", async () => {
+    // Decision 48. `/cujo confirm` is the one way a held finding is answered,
+    // and it records a GitHub login rather than a shared identity. A second
+    // route that still worked would be the one nobody audits.
+    const { app, runner } = build(blockedView());
+    const res = await app.request("/runs/anything/approve", {
       method: "POST",
       headers: { ...AUTH, "content-type": "application/json" },
-      body: JSON.stringify({ decision: "deny" }),
+      body: JSON.stringify({ decision: "allow" }),
     });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, decision: "deny", approver: "op@example.com" });
-    expect(runner.approve).toHaveBeenCalledWith(runId, "deny", "op@example.com");
-  });
-
-  it("treats an unparseable body as a bad decision", async () => {
-    const { app, runId } = build(blockedView());
-    const res = await app.request(`/runs/${runId}/approve`, {
-      method: "POST",
-      headers: AUTH,
-      body: "not json",
-    });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
+    expect(runner.approve).not.toHaveBeenCalled();
   });
 });

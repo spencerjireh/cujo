@@ -70,7 +70,7 @@ flowchart LR
   end
 
   subgraph server [Our server - compose network - secrets live here]
-    Access{{Cloudflare Access<br/>email OTP}}
+    Access{{Operator gate<br/>bearer token}}
     Cujo[apps/cujo<br/>webhook - run store<br/>event folder - UI + API<br/>approve endpoint]
     TF[TrueForge server<br/>agent runtime - internal<br/>parent agent + subagents<br/>approval gate - sessions]
     MCP[github-mcp<br/>holds App private key]
@@ -119,7 +119,7 @@ Every crossing, with what it carries and what protects it:
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
 | `apps/cujo` → GitHub | REST API | A reply on the pull request, and a reaction on the comment it answers (decision 43). Text, but only ever in answer to a person who addressed Cujo directly — never an unprompted finding | Installation token minted from the App private key; the same `pull_requests: write` |
 | `apps/cujo` → TrueForge | HTTP on the compose network | A **second** session per pull request, for conversation only (Contract 10): `sessions.create` with a spec carrying `mcpServers: []`, then one turn per question. Never the review's session, which a second turn would cancel, be refused on, or corrupt | Internal |
-| Human → `apps/cujo` | HTTPS through Cloudflare Access on `cujo.spencerjireh.com` | Reads runs, check cards, findings, the drafted review. Writes one thing: approve or reject | Email OTP; the approve route checks the Access JWT and records the approver |
+| Human → `apps/cujo` | HTTPS on `cujo-admin.spencerjireh.com` | Reads runs, check cards, findings, the drafted review, and binds a Discord channel. It decides no review: the approve route is gone, and a held finding is answered with `/cujo confirm` on the pull request (decision 49) | A bearer token the UI holds in an httpOnly cookie, or a Cloudflare Access assertion while both are accepted. Writes are recorded against the fixed identity `operator` |
 | `apps/cujo` → TrueForge | HTTP on the compose network | `createTurn` with `user.tool_approval {allow \| deny}`, then `subscribeToTurn`; the turn resumes | Internal |
 | Discord → `apps/cujo` | HTTPS to `cujo-ingress.spencerjireh.com` | A `/cujo` interaction: the server, the invoking member and their permissions, and the chosen repo, channel and role (Contract 8) | Ed25519 over `timestamp + rawBody`, verified against `DISCORD_PUBLIC_KEY`; an invalid signature is 401 |
 | `apps/cujo` → Discord | HTTPS to `discord.com/api/v10` | One card per run, edited in place: repo, PR number, status, check names, finding titles and evidence, and the run's Cujo link. Every derived string escaped, stripped of bidi, truncated, and mention-suppressed (Contract 7) | `Authorization: Bot`; `DISCORD_BOT_TOKEN`, held only by `apps/cujo` and never near the sandbox |
