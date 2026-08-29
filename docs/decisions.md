@@ -63,6 +63,13 @@ that is reversed after it was built or shown is noted here rather than deleted
 55. [A card names both parties, and a login reaches a URL only through an allowlist](#55-a-card-names-both-parties-and-a-login-reaches-a-url-only-through-an-allowlist)
 56. [A provider must declare the reasoning efforts it will accept](#56-a-provider-must-declare-the-reasoning-efforts-it-will-accept)
 57. [The operator plane is deleted; every route is signature-gated or anonymous](#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)
+58. [A sensor may not read the tripwire it is watching](#58-a-sensor-may-not-read-the-tripwire-it-is-watching)
+59. [The checks start together, because nothing was ever waiting](#59-the-checks-start-together-because-nothing-was-ever-waiting)
+60. [The prompt for a maintainer is written by the thing it instructs](#60-the-prompt-for-a-maintainer-is-written-by-the-thing-it-instructs)
+61. [The model is trusted; the pull request is not](#61-the-model-is-trusted-the-pull-request-is-not)
+62. [The report validator may only add](#62-the-report-validator-may-only-add)
+63. [`/cujo review` re-reviews the current head, on the same principal](#63-cujo-review-re-reviews-the-current-head-on-the-same-principal)
+64. [Nothing says when a compaction happened, so Cujo does not](#64-nothing-says-when-a-compaction-happened-so-cujo-does-not)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2691,3 +2698,154 @@ called the least reliable one for that. **Stripping the sentence from a gated
 body that contains it anyway**, which would reach the pull requests whose
 sessions are pinned to the old rubric, but only by string-matching model prose,
 and a paraphrase defeats it.
+## 61. The model is trusted; the pull request is not
+
+Decision 21 re-derives the hard rules inside `apps/cujo` so the trusted zone
+enforces them rather than taking the agent's word. That is worth having, and it
+is worth being precise about what it buys, because the sentence "the trusted
+side enforces the rules" is easy to read as more than it is.
+
+**The rules are re-derived from text the model wrote.** A check report reaches
+`findings.ts` as the JSON block a sub-agent put at the end of its final message.
+Nothing signs it, nothing counts it, and nothing ties it to a command that
+actually ran. A model that fabricates a clean report — or one an injected
+instruction in the pull request persuades to fabricate one — defeats every hard
+rule at once, and it defeats them silently, because a clean report and an absent
+finding look identical from here.
+
+So the trust boundary is the sandbox, and not the agent loop. The untrusted
+party is the code in the pull request: it runs in a disposable box, behind a
+proxy, watched by sensors it does not control, and only JSON comes back out. The
+model reading that JSON is trusted, along with TrueForge and the provider behind
+it. Accepted deliberately, written down here because it is load bearing and was
+previously only implied.
+
+What follows from it: the sensor design is a defence against hostile *code*, not
+against a hostile or broken *model*, and a claim like "the hard rules cannot be
+bypassed" is true of the agent's judgment and false of the agent's honesty. The
+rules stop a model from *reasoning* its way past a finding, which is the failure
+that actually happens.
+
+Rejected: **signing reports inside the sandbox**, which needs a key in the
+sandbox, and the one rule that has never bent is that no secret goes in. **A
+per-run nonce echoed through the report**, which raises the cost of fabrication
+from nothing to almost nothing — the nonce is in the sandbox too, and a model
+copying reports is a model copying the nonce. **Having the parent re-read the
+raw `sniff.py` output**, which is another model reading another string. The
+honest fix is out of the sandbox entirely: `apps/cujo` reading the reports
+directly, which means a credentialed channel from the trusted zone into the
+untrusted one, and that is a larger hole than the one it closes.
+
+## 62. The report validator may only add
+
+Decision 54 made the check report additive-only and said what a report could not
+observe. It did not say what happens when a report is not the shape a report is,
+and the answer was nothing: `check.report` is `unknown`, and `findings.ts` reads
+every field through helpers where a missing or renamed key means "not observed",
+which the rules read as "no hit". A field the sandbox renames therefore fails
+nothing. It quietly stops a tripwire from firing, and the run folds clean.
+
+`report-schema.ts` closes that, and the whole design is in one rule: **the
+validator may only add.** `invalidReportFindings` is a separate pass from
+`hardRuleFindings`, which never learns whether it passed.
+
+The alternative — treating a report that failed validation as no report — is the
+obvious reading of "invalid" and it is wrong here. A sub-agent that gets one
+roll-up field wrong would turn a `decoy_read: true` sitting in plain sight
+inside `runs[]` into a `warn` about formatting: a strict loss against reading the
+report leniently, which is what this codebase already does everywhere. Keeping
+the two passes in separate functions is what makes that impossible to
+reintroduce later; a branch inside the rules would not be.
+
+So a report that fails produces one `warn`, `report_invalid`, beside
+`check_missing` and `sensor_unarmed` in the family of findings that describe the
+evidence rather than the code. The run's status does not move, and no review is
+withheld.
+
+What the schema requires is what the rubric asks for, and no more. A session
+pins its rubric at creation (decision 16), so every pull request open when this
+shipped keeps the older wording — and requiring a field that wording never named
+would have put a warn on every in-flight review for nothing.
+
+Rejected: **rejecting an unrecognised `schema_version`**, which Contract 2
+already forbids and which would break the deploy ordering decision 54 exists to
+protect — the sandbox is always newer than the container reading it. **Failing
+the run**, which turns a formatting slip into a pull request with no review.
+**A strict schema that refuses unknown fields**, which is decision 54 reversed.
+
+## 63. `/cujo review` re-reviews the current head, on the same principal
+
+A run that ended badly had no way back. The automatic retry covers a turn that
+failed on its own; nothing covered a review somebody simply wants run again —
+after fixing what it complained about, on a pull request opened before the App
+was installed, or on one whose run the already-reviewed guard deleted. The only
+lever was pushing a commit.
+
+A third verb, and it takes repo write like the other two. Not because it decides
+anything — it decides nothing — but because it provisions a Daytona sandbox and
+a model turn, and that is a cost a stranger should not be able to impose on
+somebody else's repository from a comment box. Decision 44's principal, for a
+different reason than decision 44 had.
+
+The author guard does not apply. `dismiss` is barred to the pull request's
+author because a denied gate posts nothing, so dismissing is the direction that
+buries an accusation against one's own change (decision 45). Asking to be looked
+at again buries nothing, so the author may use this exactly as they may
+`confirm`.
+
+Two rules the other verbs live by are skipped, and both are deliberate. There is
+no `no_run` refusal: the pull request Cujo has never seen is this verb's main
+case. And there is no `stale_head` refusal: that rule exists to stop somebody
+answering an old commit's finding, while this verb targets whatever the head is
+now — being out of date is the reason to run it.
+
+Claiming costs something the reply states out loud. `runs_head` is UNIQUE on
+`(repo, pr_number, head_sha)`, so a second run for a head needs the first one
+gone; `reclaimRunForHead` deletes it, and `deleteRun` takes its projection, its
+board page and its Discord message rows with it. The old evidence page stops
+resolving and a fresh card is posted.
+
+Rejected: **a mention** (`@cujo-guard review this again`), which decision 45
+already settled — a mention is a sentence, and a sentence can never carry a
+privileged verb. **Letting anyone who can comment ask**, which puts the cost of
+a sandbox in the hands of whoever opened the pull request, the concern
+decisions 44 and 47 both weighed. **Refusing while a run is in flight**, which
+would leave a wedged run with no way to clear it, since clearing one is exactly
+what somebody would reach for this to do.
+
+## 64. Nothing says when a compaction happened, so Cujo does not
+
+`contextManagement` was unset, so the review agent compacted at TrueForge's
+default of 50,000 tokens. The parent collects four full check reports and then
+writes its review body from them, so a compaction in that window produces a
+review argued from a summary of the evidence rather than from the evidence. The
+hard rules survive it — Cujo re-derives those from the reports on its own side —
+but the prose and the agent's own findings do not. The threshold is raised, and
+configurable.
+
+The second half was meant to be a `compacted` flag on the projection, so a
+summarised review would be visible rather than silent. It is not there, because
+it cannot be honest.
+
+**TrueForge emits no compaction event.** The SDK's event vocabulary is
+`mcp.auth_required`, `mcp.initialize`, `model.message`, `model.message.delta`,
+`sandbox.created`, `thread.created`, `thread.done`, `tool.approval_required`,
+`tool.response`, `tool.response_required`, `turn.created` and `turn.done`.
+Compaction exists only as configuration. The nearest available signal is
+`usage.inputTokensBreakdown.messages` falling between two messages on one
+thread, which is an inference — and one that fires for a large tool response
+being offloaded to a file as well.
+
+Publishing that inference as an observation is exactly the pattern decision 54
+exists to forbid: a report that says what it did not measure. The per-check token
+counts are published, and a reader can see the drop for themselves and draw
+their own conclusion, which is the difference between showing evidence and
+making a claim.
+
+Rejected: **inferring it from the token drop and calling the field
+`compacted`**, for the reason above. **Disabling compaction on the review
+agent**, which trades a review argued from a summary for a run that fails
+outright when the context fills — the wrong direction, since the hard rules
+survive a compaction and nothing survives a failed turn. **Leaving the threshold
+at the default and adding nothing**, which keeps a known hazard for no reason
+now that the setting is one line.
