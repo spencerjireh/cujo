@@ -29,41 +29,33 @@ services:
 
   cujo:
     environment:
-      # Host dispatch (spec Contract 6). Every hostname resolves to loopback, so
-      # curl the API with -H 'Host: cujo-admin.localhost'. The `/public` group
-      # answers on the same host with no assertion at all (decision 34).
-      CUJO_UI_HOST: cujo-admin.localhost
-      # How `web` addresses this service on the compose network.
+      # Host dispatch (spec Contract 6). The read plane answers on the compose
+      # service name and nothing else, which is what every production request
+      # carries too, so curl it with -H 'Host: cujo'. Everything outside
+      # /public is 404 there; there is no credential to present (decision 52).
       CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: cujo-ingress.localhost
-      # No Cloudflare Access locally; the process logs a warning on start.
-      CUJO_DEV_NO_ACCESS: '1'
       # Only here, never in the base file: the deploy runs at the default
       # `info`, and the lines this reaches down for — the public stream's
       # open and close, an ignored webhook — are debug precisely because
       # they are not worth their volume in production (decision 37).
       CUJO_LOG_LEVEL: ${CUJO_LOG_LEVEL:-info}
-      # Run links in a Discord card. A public run points at the board, anything
-      # else at the operator UI; both are `web` on this one port locally, told
-      # apart by Host (decision 34).
-      CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-http://cujo-admin.localhost:3000}
+      # Run links in a Discord card. A public run points at the board; a
+      # private one has no page, so its card carries no link (decision 52).
       CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-http://cujo.localhost:3000}
     ports:
       - '127.0.0.1:8080:8080' # Cujo API, and the webhook receiver
 
-  # One container, two planes. http://cujo.localhost:3000 is the public board
-  # and http://cujo-admin.localhost:3000 the operator UI; plain
-  # http://localhost:3000 does not match CUJO_PUBLIC_HOST, so it is the
-  # operator plane too — which is the safe direction, and locally is open
-  # anyway because CUJO_DEV_NO_ACCESS is set on `cujo`. Most systems resolve
-  # any *.localhost name to loopback; add them to /etc/hosts if yours does not.
+  # One container, one plane. http://localhost:3000 and
+  # http://cujo.localhost:3000 are the same anonymous board — there is nothing
+  # else to be since decision 52, so no Host tells them apart. Most systems
+  # resolve any *.localhost name to loopback; add them to /etc/hosts if yours
+  # does not.
   web:
     environment:
       CUJO_API_URL: http://cujo:8080
-      CUJO_PUBLIC_HOST: cujo.localhost
-      CUJO_ADMIN_BASE_URL: http://cujo-admin.localhost:3000
     ports:
-      - '127.0.0.1:3000:3000' # The UI — open http://cujo.localhost:3000
+      - '127.0.0.1:3000:3000' # The UI — open http://localhost:3000
 
   github-mcp:
     environment:
