@@ -52,8 +52,20 @@ async function main(): Promise<void> {
   const log = createLogger({ service: "cujo", level: config.logLevel });
   const store = new Store(config.dbPath);
   const harness = new Harness(config, log);
-  const runner = new Runner(store.runs, harness, { turnTimeoutMs: config.turnTimeoutMs }, log);
-  const github = new GitHubReader(config.githubAppId, config.githubAppPrivateKey, fetch, log);
+  const github = new GitHubReader(
+    config.githubAppId,
+    config.githubAppPrivateKey,
+    fetch,
+    log,
+    config.botLogin,
+  );
+  const runner = new Runner(
+    store.runs,
+    harness,
+    { turnTimeoutMs: config.turnTimeoutMs },
+    log,
+    github,
+  );
   const spec = buildAgentSpec(config);
   // Where a Discord card points. A public run links to the board anyone can
   // open; a private one has no page at all, so its card carries no link
@@ -84,7 +96,13 @@ async function main(): Promise<void> {
   const reactor = config.prReactions
     ? new PrReactor({
         log,
-        reactions: new GitHubReactions(config.githubAppId, config.githubAppPrivateKey, fetch, log),
+        reactions: new GitHubReactions(
+          config.githubAppId,
+          config.githubAppPrivateKey,
+          fetch,
+          log,
+          config.botLogin,
+        ),
       })
     : null;
   if (reactor) {
@@ -103,8 +121,15 @@ async function main(): Promise<void> {
     runner,
     github,
     reactions: config.prReactions
-      ? new GitHubReactions(config.githubAppId, config.githubAppPrivateKey, fetch, log)
+      ? new GitHubReactions(
+          config.githubAppId,
+          config.githubAppPrivateKey,
+          fetch,
+          log,
+          config.botLogin,
+        )
       : null,
+    botLogin: config.botLogin,
   });
 
   // Design 3, and the only service that shares the harness client with the
@@ -124,6 +149,7 @@ async function main(): Promise<void> {
             windowMs: config.converseWindowMs,
           }),
           turnTimeoutMs: config.converseTimeoutMs,
+          botLogin: config.botLogin,
         })
       : null;
   if (!converse) log.warn("converse.disabled");
