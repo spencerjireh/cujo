@@ -26,16 +26,40 @@ export function choiceFromAttribute(attribute: string | null): ThemeChoice {
   return attribute === "light" || attribute === "dark" ? attribute : "system";
 }
 
-/** Writes the choice to the document and to storage, which is all a theme is. */
-export function applyTheme(choice: ThemeChoice): void {
+/** What the theme needs of `localStorage`, so a test can hand it a fake. */
+type ThemeStorage = Pick<Storage, "setItem" | "removeItem">;
+
+/**
+ * Persists the choice, and says whether it stuck. A private window and a
+ * browser told to block site data both throw here, and neither is a reason to
+ * refuse the theme change — the page still switches, it just cannot remember.
+ */
+export function storeTheme(choice: ThemeChoice, storage: ThemeStorage): boolean {
+  const attribute = attributeFor(choice);
+  try {
+    if (attribute === null) storage.removeItem(THEME_STORAGE_KEY);
+    else storage.setItem(THEME_STORAGE_KEY, attribute);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Writes the choice to the document and to storage, which is all a theme is.
+ * Returns false when it was applied but not persisted, which is the one part
+ * of this the caller has to tell the reader about.
+ */
+export function applyTheme(choice: ThemeChoice): boolean {
   const attribute = attributeFor(choice);
   const root = document.documentElement;
   if (attribute === null) root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", attribute);
   try {
-    if (attribute === null) localStorage.removeItem(THEME_STORAGE_KEY);
-    else localStorage.setItem(THEME_STORAGE_KEY, attribute);
+    return storeTheme(choice, localStorage);
   } catch {
-    // A blocked storage API is not a reason to refuse the theme change.
+    // Reaching `localStorage` at all throws when the browser blocks site data,
+    // so the guard has to sit outside the one inside storeTheme.
+    return false;
   }
 }
