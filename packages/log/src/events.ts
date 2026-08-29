@@ -60,6 +60,8 @@ export const EVENT_NAMES = [
   "converse.turn.timeout",
   "converse.stream.dropped",
   "converse.reply.failed",
+  "converse.cancel.failed",
+  "converse.redelivered",
   "converse.disabled",
   // A run's life, from the claim to a terminal status.
   "run.skipped",

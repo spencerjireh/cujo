@@ -1167,11 +1167,36 @@ still answers the person, which a reply tool structurally could not.
 
 **What the agent is given** is a curated brief, not the review session's
 history: the run's check reports, its findings, the posted review body, the head
-SHA and a public clone URL, plus the question. Everything in it is already in the
-projection, and a payload a person can review is worth more than one that is
-merely complete. The rubric is `agent/CONVERSE.md`, and it states that the
-question is untrusted data — `SKILL.md` scoped that rule to the repository, and
-this contract publishes a second channel to the internet.
+SHA, plus the question. Everything in it is already in the projection, and a
+payload a person can review is worth more than one that is merely complete. The
+rubric is `agent/CONVERSE.md`, and it states that the question is untrusted
+data — `SKILL.md` scoped that rule to the repository, and this contract
+publishes a second channel to the internet.
+
+`clone_url` is included **only for a public repository**, omitted rather than
+blanked, the same rule `run_id` follows (decision 36). The sandbox holds no
+credential and never will, so a private repo has no URL it could clone; the
+rubric says to answer from the brief and say so when the key is absent. Private
+repositories remain a non-goal rather than a gap this works around.
+
+**Which run a question is about** is decided by the commit GitHub reports, not
+by the order deliveries were inserted in — the same hazard `/cujo` has. Unlike a
+command, a question about a review the pull request has since been pushed past
+is still answered from the newest run rather than refused: the evidence was real
+when it was collected, and a question changes nothing.
+
+**One comment is answered once.** GitHub redelivers, and a redelivery is not a
+second question; without a claim on the comment id it would start a second
+sandbox, post a second reply, and spend a second slot, none of which the
+in-flight flag covers. The claim is in memory like the ceiling, because what it
+protects is provisioned by this process.
+
+**The deadline is raced against the stream, not set beside it.** Cancelling is
+what closes the stream, so a `cancelTurn` that fails would leave the consumer
+blocked forever and `CUJO_CONVERSE_TIMEOUT_MS` would bound nothing. A stream
+that ends without `turn.done` is a drop rather than a completion — the turn may
+still be running — so it is resubscribed once and then answered honestly rather
+than by posting whatever happens to be persisted.
 
 **Authorization is repo `write` or `admin`**, the same check `/cujo` uses, and
 checked before the rate limit so a stranger cannot spend a maintainer's budget.

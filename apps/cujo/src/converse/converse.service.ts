@@ -28,7 +28,7 @@ import { BOT_LOGIN } from "../clients/github";
 import type { Harness, SessionEvent } from "../clients/trueforge";
 import { messageText } from "../review/fold";
 import { parseMention } from "../review/parse-command";
-import type { CheckState, Finding, Projection } from "../review/types";
+import type { CheckState, Finding, Projection, RunRecord } from "../review/types";
 import type { RunStore } from "../store";
 import type { ConverseRateLimit } from "./rate-limit";
 
@@ -43,6 +43,7 @@ export interface ConverseGitHub {
     repo: string,
     login: string,
   ): Promise<"admin" | "write" | "read" | "none" | "unknown">;
+  pullRequestHead(repo: string, prNumber: number): Promise<{ headSha: string } | null>;
   createComment(repo: string, prNumber: number, body: string): Promise<number>;
   replyToReviewComment(
     repo: string,
@@ -75,7 +76,7 @@ export interface ConverseRequest {
 }
 
 type Outcome =
-  | { kind: "ignored"; reason: "not_a_mention" | "own_comment" }
+  | { kind: "ignored"; reason: "not_a_mention" | "own_comment" | "already_answered" }
   | { kind: "refused"; reason: string; say: string }
   | { kind: "answered" };
 
@@ -151,8 +152,21 @@ export class ConverseService {
     const question = parseMention(request.body);
     if (!question) return { kind: "ignored", reason: "not_a_mention" };
 
-    const run = this.deps.runs.latestRunForPr(request.repo, request.prNumber);
-    if (!run) return { kind: "refused", reason: "no_run", say: NO_RUN };
+    // GitHub redelivers. A redelivery of a comment already answered is not a
+    // second question, and running it would spend a second sandbox and post a
+    // second reply. Claimed after the parse so an ordinary comment costs
+    // nothing, and before every remote call.
+    if (!this.deps.limit.claim(request.commentId)) {
+      request.log.debug("converse.redelivered", {
+        repo: request.repo,
+        pr_number: request.prNumber,
+        comment_id: String(request.commentId),
+      });
+      return { kind: "ignored", reason: "already_answered" };
+    }
+
+    const known = this.deps.runs.latestRunForPr(request.repo, request.prNumber);
+    if (!known) return { kind: "refused", reason: "no_run", say: NO_RUN };
 
     // Before the rate limit, so a stranger cannot spend a maintainer's budget.
     const permission = await this.deps.github.permissionFor(request.repo, request.actor);
@@ -162,6 +176,16 @@ export class ConverseService {
     if (permission !== "admin" && permission !== "write") {
       return { kind: "refused", reason: "not_a_maintainer", say: NOT_A_MAINTAINER };
     }
+
+    // The commit picks the run, not the order the deliveries arrived in: a late
+    // delivery for an older head is the newest row locally while being the
+    // oldest commit on GitHub. Unlike a command, a question about a review that
+    // has since been pushed past is still worth answering — the evidence was
+    // real when it was collected — so this falls back to the newest run and
+    // says which commit it is talking about rather than refusing.
+    const head = await this.deps.github.pullRequestHead(request.repo, request.prNumber);
+    const run =
+      (head && this.deps.runs.runForPrHead(request.repo, request.prNumber, head.headSha)) || known;
 
     const verdict = this.deps.limit.take(request.repo, request.prNumber);
     if (!verdict.allowed) {
@@ -173,7 +197,7 @@ export class ConverseService {
     try {
       const projection = this.deps.runs.getProjection(run.id);
       const sessionId = await this.session(request);
-      const message = this.brief(request, run.headSha, projection, question);
+      const message = this.brief(request, run, projection, question);
       request.log.info("converse.started", {
         repo: request.repo,
         pr_number: request.prNumber,
@@ -213,15 +237,21 @@ export class ConverseService {
    */
   private brief(
     request: ConverseRequest,
-    headSha: string,
+    run: RunRecord,
     projection: Projection | null,
     question: string,
   ): string {
     const payload = {
       repo: request.repo,
       pr_number: request.prNumber,
-      head_sha: headSha,
-      clone_url: `https://github.com/${request.repo}.git`,
+      head_sha: run.headSha,
+      // Only for a public repo, and the same reason `run_id` is omitted rather
+      // than blanked on the review path (decision 36): one rule at both ends.
+      // A private repo has no URL the sandbox could clone — it holds no
+      // credential, and it never will — so the key is absent and the rubric
+      // says to answer from the brief when it is. Private repos are a
+      // non-goal, not a gap this quietly works around.
+      ...(run.isPublic ? { clone_url: `https://github.com/${request.repo}.git` } : {}),
       run_status: projection?.status ?? "unknown",
       checks: (projection?.checks ?? []).filter((c) => c.isCheck).map(briefCheck),
       findings: (projection?.findings ?? []).map(briefFinding),
@@ -254,30 +284,86 @@ export class ConverseService {
       });
       return "I could not start a sandbox to answer that. Ask again and I will try once more.";
     }
-    let timedOut = false;
-    const deadline = setTimeout(() => {
-      timedOut = true;
-      void this.deps.harness.cancelTurn(sessionId).catch(() => {});
-    }, this.deps.turnTimeoutMs);
-    try {
-      const stream = await this.deps.harness.subscribe(sessionId, turnId);
-      for await (const event of stream) {
-        if (event.type === "turn.done") break;
-      }
-    } catch (error) {
-      request.log.warn("converse.stream.dropped", { session_id: sessionId, ...errorFields(error) });
-    } finally {
-      clearTimeout(deadline);
-    }
-    if (timedOut) {
+    const ended = await this.drain(request, sessionId, turnId);
+    if (ended === "timeout") {
       request.log.warn("converse.turn.timeout", {
         session_id: sessionId,
         timeout_ms: this.deps.turnTimeoutMs,
       });
       return "I ran out of time working on that. Ask again if it is still worth answering.";
     }
+    if (ended === "lost") {
+      // The turn may well still be running. Saying "here is your answer" from
+      // whatever happens to be persisted would post half a thought as though it
+      // were the whole one.
+      return "I lost track of that run before it finished, so I do not have an answer I trust. Ask again.";
+    }
     const text = await this.finalMessage(sessionId, turnId);
     return text ?? "I did not get to an answer on that one, and I would rather say so than guess.";
+  }
+
+  /**
+   * Consume the turn's stream to its terminal event.
+   *
+   * The deadline is **raced against** the stream rather than only setting a
+   * flag beside it. Cancelling is what closes the stream on the server, so a
+   * `cancelTurn` that fails — or one the server does not act on — would leave
+   * `for await` blocked forever and the configured timeout would bound nothing.
+   * Racing means the answer is bounded by the clock alone, and the cancel is
+   * best effort on top.
+   *
+   * A stream that ends without `turn.done` is a **drop**, not a completion:
+   * `Runner.consume` resubscribes on exactly this condition, because the
+   * server's subscribe window closing says nothing about the turn. One
+   * resubscribe is enough here — the reviewer's budget exists because a review
+   * is thirty minutes of work, and a question that has already lost its stream
+   * twice is better answered honestly than waited on.
+   */
+  private async drain(
+    request: ConverseRequest,
+    sessionId: string,
+    turnId: string,
+  ): Promise<"done" | "timeout" | "lost"> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), this.deps.turnTimeoutMs);
+    });
+    const consume = async (): Promise<"done" | "lost"> => {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const stream = await this.deps.harness.subscribe(sessionId, turnId);
+          for await (const event of stream) {
+            if (event.type === "turn.done") return "done";
+          }
+          throw new Error("stream ended before the terminal event");
+        } catch (error) {
+          request.log.warn("converse.stream.dropped", {
+            session_id: sessionId,
+            attempt,
+            ...errorFields(error),
+          });
+        }
+      }
+      return "lost";
+    };
+    try {
+      const ended = await Promise.race([consume(), expired]);
+      if (ended === "timeout") {
+        try {
+          await this.deps.harness.cancelTurn(sessionId);
+        } catch (error) {
+          // Best effort, but never silent: a cancel that failed means sandbox
+          // work is still running and nothing else will say so.
+          request.log.warn("converse.cancel.failed", {
+            session_id: sessionId,
+            ...errorFields(error),
+          });
+        }
+      }
+      return ended;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

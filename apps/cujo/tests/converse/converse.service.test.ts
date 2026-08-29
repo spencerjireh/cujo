@@ -49,6 +49,9 @@ function harness(
     limit?: number;
     seedRun?: boolean;
     projection?: Partial<Projection>;
+    /** What GitHub reports as the current head; null means unreadable. */
+    head?: string | null;
+    isPublic?: boolean;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -58,7 +61,7 @@ function harness(
       prNumber: 7,
       headSha: "h1",
       sessionId: "review-session",
-      isPublic: true,
+      isPublic: over.isPublic ?? true,
       deliveryId: "d1",
     });
     store.runs.putProjection(run.id, {
@@ -105,6 +108,7 @@ function harness(
     } as never,
     github: {
       permissionFor: async () => over.permission ?? "write",
+      pullRequestHead: async () => (over.head === null ? null : { headSha: over.head ?? "h1" }),
       createComment: async (_repo: string, _pr: number, body: string) => {
         replies.push(body);
         return 1;
@@ -118,11 +122,14 @@ function harness(
     limit: new ConverseRateLimit({ limit: over.limit ?? 3, windowMs: 60_000 }),
     turnTimeoutMs: 50,
   });
-  const ask = (body: string, actor = "maintainer") =>
+  // Each call is a distinct comment, as two questions on a pull request are.
+  // Passing an id explicitly is how a redelivery of one comment is written.
+  let nextComment = 55;
+  const ask = (body: string, actor = "maintainer", commentId = nextComment++) =>
     service.handle({
       repo: "o/r",
       prNumber: 7,
-      commentId: 55,
+      commentId,
       actor,
       body,
       surface: { kind: "issue" },
@@ -335,6 +342,7 @@ describe("ConverseService", () => {
       harness: {} as never,
       github: {
         permissionFor: async () => "write" as const,
+        pullRequestHead: async () => ({ headSha: "h1" }),
         createComment: async () => 1,
         replyToReviewComment: async () => 2,
       },
@@ -375,6 +383,60 @@ describe("ConverseService", () => {
     expect(h.started).toEqual([]);
     expect(h.replies).toEqual([]);
   });
+
+  it("answers one comment once, however many times GitHub delivers it", async () => {
+    // A redelivery is not a second question. Without this it starts a second
+    // sandbox, posts a second reply and spends a second slot; the in-flight
+    // flag covers only deliveries that overlap.
+    const h = harness();
+    await h.ask("@cujo-guard why?", "maintainer", 4242);
+    await h.ask("@cujo-guard why?", "maintainer", 4242);
+    expect(h.started).toHaveLength(1);
+    expect(h.replies).toHaveLength(1);
+  });
+
+  it("answers about the commit GitHub reports, not the row inserted last", async () => {
+    // Delivery order is not commit order, so a late delivery for an older head
+    // is the newest row while being the oldest commit.
+    const h = harness();
+    h.store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h2",
+      sessionId: "review-session",
+      isPublic: true,
+      deliveryId: "d2",
+    });
+    // `latestRunForPr` would give h2; GitHub says the pull request is on h1.
+    await h.ask("@cujo-guard which commit is this about?");
+    const payload = JSON.parse(
+      /```json\n([\s\S]*?)\n```/.exec(h.started[0]?.message ?? "")?.[1] ?? "{}",
+    );
+    expect(payload.head_sha).toBe("h1");
+  });
+
+  it("still answers about the newest run when the head has moved past every run", async () => {
+    // Unlike a command, a question about a review the pull request has been
+    // pushed past is worth answering: the evidence was real when collected.
+    const h = harness({ head: "h-unreviewed" });
+    await h.ask("@cujo-guard what did you see?");
+    const payload = JSON.parse(
+      /```json\n([\s\S]*?)\n```/.exec(h.started[0]?.message ?? "")?.[1] ?? "{}",
+    );
+    expect(payload.head_sha).toBe("h1");
+  });
+
+  it("gives a private repo no clone URL, rather than one that cannot be cloned", async () => {
+    // The sandbox never holds a credential, so there is no URL that would
+    // work. Omitted rather than blanked, the way `run_id` is (decision 36).
+    const h = harness({ isPublic: false });
+    await h.ask("@cujo-guard re-run it");
+    const payload = JSON.parse(
+      /```json\n([\s\S]*?)\n```/.exec(h.started[0]?.message ?? "")?.[1] ?? "{}",
+    );
+    expect(payload).not.toHaveProperty("clone_url");
+    expect(JSON.stringify(payload)).not.toContain("github.com");
+  });
 });
 
 describe("the turn timeout", () => {
@@ -414,6 +476,7 @@ describe("the turn timeout", () => {
       } as never,
       github: {
         permissionFor: async () => "write" as const,
+        pullRequestHead: async () => ({ headSha: "h1" }),
         createComment: async (_repo: string, _pr: number, body: string) => {
           replies.push(body);
           return 1;
@@ -437,5 +500,118 @@ describe("the turn timeout", () => {
 
     expect(cancelled).toEqual(["converse-session"]);
     expect(replies[0]).toContain("ran out of time");
+  });
+
+  it("fires even when the cancel fails and the stream never closes", async () => {
+    // The reason the deadline is raced against the stream rather than only
+    // setting a flag beside it: cancelling is what closes the stream, so a
+    // cancel that fails would otherwise leave `for await` blocked forever and
+    // the configured timeout would bound nothing at all.
+    const replies: string[] = [];
+    const store = new Store(":memory:");
+    store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h1",
+      sessionId: "review-session",
+      isPublic: true,
+      deliveryId: "d1",
+    });
+    const service = new ConverseService({
+      runs: store.runs,
+      harness: {
+        createSession: async () => "converse-session",
+        startTurn: async () => "turn-1",
+        // A stream that never yields and never ends, which is what the race
+        // has to survive: the cancel below cannot close it.
+        subscribe: async () => ({
+          [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }),
+        }),
+        listEvents: async () => [],
+        cancelTurn: async () => {
+          throw new Error("harness unreachable");
+        },
+      } as never,
+      github: {
+        permissionFor: async () => "write" as const,
+        pullRequestHead: async () => ({ headSha: "h1" }),
+        createComment: async (_repo: string, _pr: number, body: string) => {
+          replies.push(body);
+          return 1;
+        },
+        replyToReviewComment: async () => 2,
+      },
+      spec: {} as TrueForgeApi.AgentSpec,
+      limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
+      turnTimeoutMs: 20,
+    });
+
+    await service.handle({
+      repo: "o/r",
+      prNumber: 7,
+      commentId: 56,
+      actor: "maintainer",
+      body: "@cujo-guard why?",
+      surface: { kind: "issue" },
+      log: createLogger({ service: "cujo", sink: () => {} }),
+    });
+
+    expect(replies[0]).toContain("ran out of time");
+  });
+
+  it("does not post a partial answer when the stream drops without finishing", async () => {
+    // A stream that ends without `turn.done` says nothing about the turn —
+    // `Runner.consume` resubscribes on exactly this. Reading whatever is
+    // persisted would post half a thought as though it were the whole one.
+    const replies: string[] = [];
+    let subscribes = 0;
+    const store = new Store(":memory:");
+    store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h1",
+      sessionId: "review-session",
+      isPublic: true,
+      deliveryId: "d1",
+    });
+    const service = new ConverseService({
+      runs: store.runs,
+      harness: {
+        createSession: async () => "converse-session",
+        startTurn: async () => "turn-1",
+        subscribe: async () => {
+          subscribes += 1;
+          return streamOf([]);
+        },
+        listEvents: async () => [{ turnId: "turn-1", event: said("half a thought") }],
+        cancelTurn: async () => {},
+      } as never,
+      github: {
+        permissionFor: async () => "write" as const,
+        pullRequestHead: async () => ({ headSha: "h1" }),
+        createComment: async (_repo: string, _pr: number, body: string) => {
+          replies.push(body);
+          return 1;
+        },
+        replyToReviewComment: async () => 2,
+      },
+      spec: {} as TrueForgeApi.AgentSpec,
+      limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
+      turnTimeoutMs: 5_000,
+    });
+
+    await service.handle({
+      repo: "o/r",
+      prNumber: 7,
+      commentId: 57,
+      actor: "maintainer",
+      body: "@cujo-guard why?",
+      surface: { kind: "issue" },
+      log: createLogger({ service: "cujo", sink: () => {} }),
+    });
+
+    expect(subscribes).toBe(2);
+    expect(replies[0]).toContain("lost track");
+    expect(replies[0]).not.toContain("half a thought");
   });
 });
