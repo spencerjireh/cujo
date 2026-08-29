@@ -234,13 +234,17 @@ def test_a_report_says_the_sensors_were_watching(cli: Cli, home_dir: Path) -> No
         assert report["sensors"]["proxy"]["armed"] is True
         assert report["sensors"]["decoy"]["armed"] is True
         assert report["sensors"]["fs_diff"]["armed"] is True
-        assert report["truncated"] == {
-            "stdout_tail": False,
-            "stderr_tail": False,
-            "files_read": False,
-            "snapshot": False,
-            "hashes": False,
-        }
+        # The four this command decides. `hashes` is deliberately not among
+        # them: the walk covers `/etc`, so whether some file on *this* machine
+        # was too large to hash or changed identity under the walk is a fact
+        # about the machine, not about `true`. Pinning it made the suite pass on
+        # a developer's laptop and fail on a Linux runner, which is the test
+        # being wrong rather than the sensor.
+        assert report["truncated"]["stdout_tail"] is False
+        assert report["truncated"]["stderr_tail"] is False
+        assert report["truncated"]["files_read"] is False
+        assert report["truncated"]["snapshot"] is False
+        assert isinstance(report["truncated"]["hashes"], bool)
         # `true` is not a Python process, so there is no hook to arm and that
         # is not a fault -- it is the difference the block exists to record.
         assert report["sensors"]["audit"]["armed"] is False
