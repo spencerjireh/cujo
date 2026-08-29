@@ -9,6 +9,8 @@
 # Local working screenshots from setup, not part of the project
 *.png
 !brand/**/*.png
+# The board's favicon PNG fallback, tracked like the SVG beside it
+!apps/web/src/app/icon.png
 
 # Node / TypeScript
 node_modules/
