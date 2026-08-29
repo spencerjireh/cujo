@@ -16,11 +16,13 @@ describe("the migration ladder", () => {
     expect(MIGRATIONS[0]).toBe("ALTER TABLE discord_channels ADD COLUMN bound_by TEXT");
     expect(MIGRATIONS[1]).toBe("ALTER TABLE runs ADD COLUMN is_public INTEGER");
     expect(MIGRATIONS[2]).toBe("ALTER TABLE runs ADD COLUMN delivery_id TEXT");
+    expect(MIGRATIONS[3]).toBe("ALTER TABLE run_pr_meta ADD COLUMN author_login TEXT");
+    expect(MIGRATIONS[4]).toBe("ALTER TABLE run_pr_meta ADD COLUMN author_id INTEGER");
   });
 
   it("has no gaps, since index i takes user_version i to i + 1", () => {
     expect(MIGRATIONS.every((statement) => typeof statement === "string" && statement.length > 0));
-    expect(MIGRATIONS).toHaveLength(3);
+    expect(MIGRATIONS).toHaveLength(5);
   });
 
   /**
@@ -41,5 +43,17 @@ describe("the migration ladder", () => {
   it("adds delivery_id without a default, so a run that had none says so", () => {
     expect(MIGRATIONS[2]).not.toMatch(/DEFAULT/i);
     expect(MIGRATIONS[2]).not.toMatch(/NOT NULL/i);
+  });
+
+  /**
+   * Same reasoning again, and one more case beside it. A run recorded before
+   * these columns has no author, and neither does a pull request whose account
+   * was deleted — an empty login would read as a person nobody can look up.
+   */
+  it("adds the author columns without a default, so a run that had none says so", () => {
+    for (const statement of [MIGRATIONS[3], MIGRATIONS[4]]) {
+      expect(statement).not.toMatch(/DEFAULT/i);
+      expect(statement).not.toMatch(/NOT NULL/i);
+    }
   });
 });

@@ -57,6 +57,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 49. [The operator plane swaps an email for a shared token, because it no longer decides anything](#49-the-operator-plane-swaps-an-email-for-a-shared-token-because-it-no-longer-decides-anything)
 50. [`issue_comment` costs the App a permission, and decision 43's check did not cover it](#50-issue_comment-costs-the-app-a-permission-and-decision-43s-check-did-not-cover-it)
 51. [A shipped design document is deleted, and the log carries its own reversals](#51-a-shipped-design-document-is-deleted-and-the-log-carries-its-own-reversals)
+52. [A card names both parties, and a login reaches a URL only through an allowlist](#52-a-card-names-both-parties-and-a-login-reaches-a-url-only-through-an-allowlist)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2011,3 +2012,85 @@ buys a second narration of what `spec.md` and this file already hold, and
 guarantees a third contradiction later. **Leaving the reversals unmarked and
 relying on "newest context wins"**, which is a rule about how to resolve a
 conflict, not a way to notice there is one.
+
+
+## 52. A card names both parties, and a login reaches a URL only through an allowlist
+
+A Discord card said `spencerjireh/orders-api #7 — Add refund endpoint` and
+nothing else identified either side of it. Cujo appeared only as the bot avatar
+above the embed, and the person who opened the pull request was not named at
+all — so a channel watching four repos read a wall of near-identical grey
+blocks, and answering "whose is this" meant opening GitHub.
+
+**Cujo takes the embed's author line; the pull request's author takes a field
+and the footer icon.** An embed has one author slot, and it goes to the fixed
+party rather than the variable one, because the alternative spends the only
+avatar affordance on an identity already visible in the message header. That
+leaves the person a field — `Opened by`, second so it renders inline beside
+`Head` — and the footer icon, which is the one image slot left once the author
+line is spent. A field value cannot carry an image, which is the whole reason
+the two are split across three slots rather than one.
+
+Both are on every status, `running` and `superseded` included. The rule that
+keeps those two cards sparse is that the card is rewritten only on a status
+change, so anything that moves under it would freeze and then lie. Who opened a
+pull request does not move.
+
+**The mark is served from this repository, not from `apps/web`.** Discord's
+media proxy fetches the icon anonymously, and the operator hostname is gated
+while the public one is deploy configuration this process cannot depend on.
+`raw.githubusercontent.com` is neither. That needs a committed PNG —
+`brand/logo/png/` is gitignored — so `brand/tools/render.mjs` now also writes
+`brand/logo/avatar-64.png` beside the SVG, and a mark change cannot leave the
+icon stale. It renders `avatar.svg` and not `mark.svg`: the mark is
+`currentColor` on transparent, which disappears on one of Discord's two themes,
+while the avatar carries its own dark ground.
+
+**Contract 7's rule 7 is amended, not dropped.** It said no derived string is
+ever written into an embed URL field. It now says none reaches one without
+passing a strict allowlist first, and there are exactly two:
+
+- The avatar is `https://avatars.githubusercontent.com/u/<id>?s=64`, built from
+  the numeric account id. A login is a string somebody else chose; an id is not.
+- The profile link is built only from a login matching
+  `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`. GitHub cannot issue a login outside
+  that set, so the check should never fire — it is there so the rule is enforced
+  by code rather than assumed. A bot login (`dependabot[bot]`) fails it by
+  design: its profile is at `/apps/<name>`, a second URL shape nothing else
+  needs, so a bot is named with its avatar and no link.
+
+The field value is assembled rather than escaped whole, because `clean()`
+defangs `://` — that is its job. The login goes through the escape pass and the
+URL is concatenated after it.
+
+**The store joins, rather than the caller looking up.** The title already lived
+in `run_pr_meta`, read by one explicit call in the notifier. The author needed
+to reach the card *and* two serializers *and* the SSE stream, so instead of
+three more lookups every run read is now a `LEFT JOIN` and `RunRecord` carries
+`prTitle`, `prAuthorLogin` and `prAuthorId`. That also buys the public plane's
+allowlist test for free: a field on `RunRecord` is a red build until somebody
+classifies it (decision 34). Two migrations, both nullable with no default, for
+the same reason 2 and 3 were — a run recorded before them has no author, and a
+deleted account has none either, neither of which is an empty string.
+
+**The public board now names one kind of person.** It publishes `pr_title`,
+`pr_author_login` and `pr_author_id`, and the run page renders the author with
+their avatar. Every row that plane serves is one where `is_public` is true, so
+all three are already world-readable on the pull request itself — a different
+fact from `approver`, which names a Cujo operator and appears nowhere else and
+stays withheld. The summary carries only the title: a list row names a pull
+request, not a person.
+
+**The web app loads avatars through `next/image`.** They are fetched and
+resized by the Next server, so opening a run on the anonymous board does not
+make a request to github.com carrying the visitor's address. That costs a pinned
+`sharp` dependency, which the standalone build traces. A plain `<img>` would
+have cost nothing and leaked exactly that.
+
+Rejected: **the author line for Cujo *and* a thumbnail for the person**, which
+puts a large image on every card and squeezes the fields on a narrow client.
+**Naming the person in the footer text**, which reads better but cannot carry
+the link, since Discord renders no markdown in a footer. **Falling back to the
+Cujo mark when there is no author avatar**, which puts the same icon on one card
+twice and reads as a bug rather than as an absence. **An `Author` column on the
+runs list**, which repeats a face down a table that is scanned for status.

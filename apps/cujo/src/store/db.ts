@@ -48,6 +48,15 @@ export const MIGRATIONS: readonly string[] = [
   //     this column existed genuinely has no delivery, which is not the same
   //     fact as an empty one.
   "ALTER TABLE runs ADD COLUMN delivery_id TEXT",
+  // 4, 5 — who opened the pull request (decision 52). The login is what a card
+  //     and a run page name; the id is what an avatar URL is built from,
+  //     because a login is a string somebody else chose and no derived string
+  //     may reach a URL without passing an allowlist first. Both nullable: a
+  //     run recorded before these columns existed has no author, and neither
+  //     does a pull request whose account was deleted. Two statements rather
+  //     than one, because SQLite's ALTER TABLE adds a single column.
+  "ALTER TABLE run_pr_meta ADD COLUMN author_login TEXT",
+  "ALTER TABLE run_pr_meta ADD COLUMN author_id INTEGER",
 ];
 
 const SCHEMA = `
@@ -138,8 +147,10 @@ const SCHEMA = `
     authorized_at TEXT NOT NULL,
     PRIMARY KEY (guild_id, repo)
   );
-  -- The PR title for the card. RunRecord has no title and the webhook is
-  -- the only place it is ever read.
+  -- What the pull request itself says: its title, and who opened it. The
+  -- webhook is the only place either is read. Kept at its original shape
+  -- here, like every other table above; the author columns arrive through
+  -- the migrations, so a fresh database and a deployed one converge.
   CREATE TABLE IF NOT EXISTS run_pr_meta (
     run_id TEXT PRIMARY KEY REFERENCES runs (id),
     title TEXT NOT NULL,

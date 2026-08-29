@@ -62,3 +62,27 @@ export function bytes(value?: number): string {
 export function prUrl(repo: string, prNumber: number): string {
   return `https://github.com/${repo}/pull/${prNumber}`;
 }
+
+/**
+ * A GitHub login, and nothing else. The same allowlist `apps/cujo` applies
+ * before a login reaches a Discord card's URL (decision 52), restated here
+ * because these types are mirrored by hand and a login arrives as text from an
+ * API response. A bot login (`dependabot[bot]`) fails it by design: its
+ * profile lives at `/apps/<name>`, so a bot is named and not linked.
+ */
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+/** Null when the login must not become a link. */
+export function profileUrl(login?: string | null): string | null {
+  return login && LOGIN.test(login) ? `https://github.com/${login}` : null;
+}
+
+/**
+ * Built from the numeric account id, never from the login. `s` is the rendered
+ * width in CSS pixels doubled, which is what a retina display asks for.
+ */
+export function avatarUrl(authorId?: number | null, size = 40): string | null {
+  return typeof authorId === "number"
+    ? `https://avatars.githubusercontent.com/u/${authorId}?s=${size * 2}`
+    : null;
+}
