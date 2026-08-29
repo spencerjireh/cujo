@@ -27,13 +27,13 @@ const said = (text: string, id = "m1"): SessionEvent =>
     content: text,
   }) as SessionEvent;
 
-const turnDone = (): StreamEvent =>
+const turnDone = (status = "done"): StreamEvent =>
   ({
     type: "turn.done",
     id: "td",
     createdAt: at,
     threadId: null,
-    state: { status: "done", completedAt: at, output: null, requiredActions: [] },
+    state: { status, completedAt: at, output: null, requiredActions: [] },
   }) as StreamEvent;
 
 async function* streamOf(events: StreamEvent[]): AsyncGenerator<StreamEvent> {
@@ -426,6 +426,79 @@ describe("ConverseService", () => {
     expect(payload.head_sha).toBe("h1");
   });
 
+  it("does not post an answer from a turn that ended badly", async () => {
+    // A terminal event is not a successful one. `fold` treats `error` and
+    // `cancelled` as failures for a review, and a half-written thought from a
+    // turn that died is not an answer here either.
+    for (const status of ["error", "cancelled"] as const) {
+      const h = harness({
+        subscribe: async () => streamOf([turnDone(status)]),
+        events: [{ turnId: "turn-1", event: said("half a thought") }],
+      });
+      await h.ask("@cujo-guard why?");
+      expect(h.replies[0]).toContain("did not finish cleanly");
+      expect(h.replies[0]).not.toContain("half a thought");
+    }
+  });
+
+  it("lets a redelivery retry when the reply itself failed to post", async () => {
+    // A claim that outlives a failed write is worse than no claim: the person
+    // got nothing, and redelivery — the thing that would have recovered
+    // it — is then ignored as already answered.
+    let failNext = true;
+    const posted: string[] = [];
+    const store = new Store(":memory:");
+    store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h1",
+      sessionId: "review-session",
+      isPublic: true,
+      deliveryId: "d1",
+    });
+    const service = new ConverseService({
+      runs: store.runs,
+      harness: {
+        createSession: async () => "converse-session",
+        startTurn: async () => "turn-1",
+        subscribe: async () => streamOf([turnDone()]),
+        listEvents: async () => [{ turnId: "turn-1", event: said("340 ms on head.") }],
+        cancelTurn: async () => {},
+      } as never,
+      github: {
+        permissionFor: async () => "write" as const,
+        pullRequestHead: async () => ({ headSha: "h1" }),
+        createComment: async (_repo: string, _pr: number, body: string) => {
+          if (failNext) {
+            failNext = false;
+            throw new Error("502 from GitHub");
+          }
+          posted.push(body);
+          return 1;
+        },
+        replyToReviewComment: async () => 2,
+      },
+      spec: {} as TrueForgeApi.AgentSpec,
+      limit: new ConverseRateLimit({ limit: 5, windowMs: 60_000 }),
+      turnTimeoutMs: 5_000,
+    });
+    const deliver = () =>
+      service.handle({
+        repo: "o/r",
+        prNumber: 7,
+        commentId: 900,
+        actor: "maintainer",
+        body: "@cujo-guard why?",
+        surface: { kind: "issue" },
+        log: createLogger({ service: "cujo", sink: () => {} }),
+      });
+
+    await deliver();
+    await deliver();
+
+    expect(posted).toEqual(["340 ms on head."]);
+  });
+
   it("gives a private repo no clone URL, rather than one that cannot be cloned", async () => {
     // The sandbox never holds a credential, so there is no URL that would
     // work. Omitted rather than blanked, the way `run_id` is (decision 36).
@@ -557,6 +630,66 @@ describe("the turn timeout", () => {
     });
 
     expect(replies[0]).toContain("ran out of time");
+  });
+
+  it("stops the consumer when the deadline wins, rather than leaving it resubscribing", async () => {
+    // Losing the race does not stop `consume` on its own. Without a signal it
+    // would resubscribe *after* the person had already been answered, holding
+    // a stream and the request's state for as long as the server kept it open.
+    let subscribes = 0;
+    const replies: string[] = [];
+    const store = new Store(":memory:");
+    store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h1",
+      sessionId: "review-session",
+      isPublic: true,
+      deliveryId: "d1",
+    });
+    const service = new ConverseService({
+      runs: store.runs,
+      harness: {
+        createSession: async () => "converse-session",
+        startTurn: async () => "turn-1",
+        subscribe: async () => {
+          subscribes += 1;
+          // Ends without a terminal event, so `consume` would ordinarily go
+          // round again — but the deadline is about to fire.
+          await new Promise((r) => setTimeout(r, 40));
+          return streamOf([]);
+        },
+        listEvents: async () => [],
+        cancelTurn: async () => {},
+      } as never,
+      github: {
+        permissionFor: async () => "write" as const,
+        pullRequestHead: async () => ({ headSha: "h1" }),
+        createComment: async (_repo: string, _pr: number, body: string) => {
+          replies.push(body);
+          return 1;
+        },
+        replyToReviewComment: async () => 2,
+      },
+      spec: {} as TrueForgeApi.AgentSpec,
+      limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
+      turnTimeoutMs: 20,
+    });
+
+    await service.handle({
+      repo: "o/r",
+      prNumber: 7,
+      commentId: 901,
+      actor: "maintainer",
+      body: "@cujo-guard why?",
+      surface: { kind: "issue" },
+      log: createLogger({ service: "cujo", sink: () => {} }),
+    });
+    expect(replies[0]).toContain("ran out of time");
+
+    // Long enough for a second subscribe to have happened if nothing stopped it.
+    await new Promise((r) => setTimeout(r, 120));
+    expect(subscribes).toBe(1);
   });
 
   it("does not post a partial answer when the stream drops without finishing", async () => {
