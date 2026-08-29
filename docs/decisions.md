@@ -2173,6 +2173,19 @@ allowlist in `http/public/serialize.ts` stays, and adding a field to
 `Projection` still fails its test until it is classified. `publicRunId`'s rule
 (see 36) is unchanged, and `runUrl` has now converged on it.
 
+**Deleting the override left a repo unable to move, so `watch` gained the move
+itself.** The override was how a repo changed servers. Without it, `unwatch`
+lets only the *holder* release a binding, so a server that had gone quiet could
+have kept a repo forever and the refusal would have pointed at a `.cujo.yml`
+edit that changed nothing — a message that lies. So `watch` now re-reads the
+holder's authorization `fresh` and replaces a binding whose holder the
+declaration no longer names. A holder that is still named keeps it, which is
+the race the fresh read exists for; a read that fails is refused rather than
+guessed, because taking a binding from another server on a guess is the one
+mistake here that does not correct itself. `unwatch` is unchanged and still
+refuses, since it is reachable without authorization and must not become the
+way one server silences another.
+
 **A private run has no page at all, so its Discord card carries no link.**
 `runUrl` used to fall back to the gated hostname for a private run; there is
 nothing to fall back to. The embed omits the `url` key rather than setting it
