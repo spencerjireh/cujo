@@ -25,7 +25,11 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <RunView id={id} />
+      {/* The column the layout used to impose on every page. It stayed with the
+          pages that want it when the board took the full window. */}
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <RunView id={id} />
+      </div>
     </HydrationBoundary>
   );
 }

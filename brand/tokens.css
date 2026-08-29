@@ -21,6 +21,19 @@
   --sev-info: #1d62a3;
   --sev-info-bg: #d6e4f3;
 
+  /* The instrument viewport. Declared once and never redefined below, because
+     the chamber is a screen and a screen is dark in a lit room too. The four
+     signal colours are the dark severity ramp, pinned: what is drawn inside
+     the chamber must not change hue when the page around it goes light. */
+  --chamber: #0a0908;
+  --chamber-line: #24211c;
+  --chamber-fg: #ede6da;
+  --chamber-fg-muted: #a39b90;
+  --chamber-critical: #ff5c45;
+  --chamber-amber: #f2a900;
+  --chamber-info: #66b0f0;
+  --chamber-inert: #958d82;
+
   --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 

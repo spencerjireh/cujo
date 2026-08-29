@@ -75,6 +75,30 @@ Amber lands on exactly one status, `blocked_pending`, because that is the one
 waiting on a person. Red means the pull request is dangerous and never that Cujo
 fell over, so a run that errors is `info` blue.
 
+### The instrument viewport
+
+One surface is not themed: the chamber, the dark volume the board draws its
+runs inside. It is a screen, and a screen is dark in a lit room too, so
+`--chamber` and its three companions are declared once on `:root` and never
+redefined for dark. The page around it stays on the palette above.
+
+| Token | Value | For |
+| --- | --- | --- |
+| `--chamber` | `#0a0908` | The volume itself, one step below dark `--bg` |
+| `--chamber-line` | `#24211c` | Its wireframe, the floor grid, the chain |
+| `--chamber-fg` | `#ede6da` | Type inside it — the dark `--fg`, unchanged |
+| `--chamber-fg-muted` | `#a39b90` | Labels inside it — dark `--fg-muted` |
+| `--chamber-critical` | `#ff5c45` | A blocked run, and a check that errored |
+| `--chamber-amber` | `#f2a900` | `blocked_pending`, and the sweep line |
+| `--chamber-info` | `#66b0f0` | A clean run, and a run that errored |
+| `--chamber-inert` | `#958d82` | Superseded, denied, and a check still running |
+
+The four signal colours are the dark severity ramp, pinned rather than
+inherited: what is drawn inside the chamber must not change hue when the page
+around it goes light, and a specimen must agree with the badge for the same run.
+Amber lands on exactly two things — a `blocked_pending` specimen and the sweep
+line — which is the same restraint the palette above asks for.
+
 ### Contrast (WCAG, text on `--bg`)
 
 Light: fg 15.5, muted 5.3, accent 5.0, critical 5.3, high 5.0, medium 5.9,
@@ -82,7 +106,8 @@ low 5.3, info 5.6. `--accent-fill` on light is 3.4, so it is for shapes and
 large text only. Dark: fg 15.6, muted 7.0, accent 9.6, critical 6.3, high 9.6,
 medium 12.3, low 5.9, info 8.3. All text pairs clear AA (4.5:1), and every
 badge fg/bg pair is at or above 4.6:1; ratios on
-`--bg-raised` are within 0.5 of these.
+`--bg-raised` are within 0.5 of these. On `--chamber`, which is darker than
+dark `--bg`, every dark-ramp ratio above is higher still.
 
 ## Type
 
