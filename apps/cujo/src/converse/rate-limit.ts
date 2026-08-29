@@ -88,17 +88,49 @@ export class ConverseRateLimit {
     if (entry) entry.inFlight = false;
   }
 
-  /** Newest at the end, oldest evicted first — the pattern `PrReactor` uses. */
+  /**
+   * Claim one comment, once.
+   *
+   * GitHub redelivers, and a redelivery of a comment already answered is not a
+   * new question: without this it starts a second sandbox, posts a second
+   * reply, and spends a second slot. The in-flight flag only covers deliveries
+   * that overlap, which a redelivery after the first turn finished does not.
+   *
+   * In memory, like the rest of this class, because what it protects is
+   * provisioned by this process. A restart lets a redelivery through, which
+   * costs one sandbox in a case that is already rare — the alternative is a
+   * table whose rows outlive the thing they guard.
+   */
+  claim(commentId: number): boolean {
+    if (this.answered.has(commentId)) return false;
+    this.answered.add(commentId);
+    if (this.answered.size > MAX_TRACKED) {
+      const oldest = this.answered.values().next().value;
+      if (oldest !== undefined) this.answered.delete(oldest);
+    }
+    return true;
+  }
+
+  private readonly answered = new Set<number>();
+
+  /**
+   * Newest at the end, oldest evicted first — the pattern `PrReactor` uses,
+   * with one difference it has to have.
+   *
+   * An in-flight entry may never be evicted: its `release` would then find
+   * nothing, insert a fresh entry that is not in flight, and the guard would
+   * be gone. So eviction walks past those rather than giving up on the first
+   * one, and keeps going until the map is inside the cap. If every entry is in
+   * flight the map is briefly over it, which is bounded by concurrency rather
+   * than by history and resolves as those turns end.
+   */
   private remember(key: string, entry: Entry): void {
     this.entries.delete(key);
     this.entries.set(key, entry);
-    if (this.entries.size > MAX_TRACKED) {
-      const oldest = this.entries.keys().next().value;
-      // Never evict something in flight: its `release` would then create a
-      // fresh entry that is not in flight, and the guard would be gone.
-      if (oldest !== undefined && !this.entries.get(oldest)?.inFlight) {
-        this.entries.delete(oldest);
-      }
+    if (this.entries.size <= MAX_TRACKED) return;
+    for (const [candidate, tracked] of this.entries) {
+      if (this.entries.size <= MAX_TRACKED) return;
+      if (!tracked.inFlight) this.entries.delete(candidate);
     }
   }
 }
