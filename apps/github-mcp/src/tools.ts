@@ -17,7 +17,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { appendConfirmPrompt, appendReviewMarker, appendRunFooter, reviewMarker } from "./body";
 import { appendMovedComments, validateAnchors } from "./diff";
-import type { GitHubClient } from "./github";
+import type { ExistingReview, GitHubClient } from "./github";
 
 export const reviewInputShape = {
   repo: z
@@ -138,41 +138,59 @@ export async function postReview(
     throw error;
   }
 
+  /**
+   * A review this run has already posted with this tool, if there is one.
+   *
+   * `type === "Bot"` and not just the marker text. A marker is copyable: a
+   * stranger who pastes one into their own review body would otherwise suppress
+   * Cujo's. This server holds no bot login of its own, so the account type is
+   * the check available without new configuration.
+   */
+  async function alreadyPosted(marker: string): Promise<ExistingReview | undefined> {
+    if (!marker) return undefined;
+    const existing = await github.listReviews(input.repo, input.pr_number);
+    return existing.find(
+      (review) => review.user?.type === "Bot" && (review.body ?? "").includes(marker),
+    );
+  }
+
+  function duplicate(already: ExistingReview): ReviewResult {
+    log.info("review.duplicate.skipped", {
+      repo: input.repo,
+      pr_number: input.pr_number,
+      head_sha: input.head_sha,
+      tool,
+      review_id: String(already.id),
+    });
+    // The review that is already there, rather than an error. A thrown tool
+    // error is something the model may work around or retry, and "idempotent"
+    // means the second call answers like the first.
+    return {
+      review_id: already.id,
+      html_url: already.html_url,
+      posted_inline: 0,
+      moved_to_body: 0,
+    };
+  }
+
   async function post(): Promise<ReviewResult> {
-    // Before anything else, because everything else costs an API call and a
-    // GitHub review. `post_advisory_review` and `post_blocking_review` post the
-    // moment the model calls them, so a model that calls one twice has already
-    // posted twice by the time anything downstream notices — `fold` records one
-    // review and the pull request carries two.
+    // Checked twice, and the second one is the one that matters.
+    //
+    // This is a check-then-act sequence and GitHub offers no conditional create
+    // for a review, so it cannot be made atomic here. What it can be is narrow:
+    // the first check runs before the file listing and the anchor validation,
+    // so the common case — a model that calls the tool twice — costs one API
+    // call instead of three and posts nothing. The second runs immediately
+    // before `createReview`, which shrinks the window two concurrent calls
+    // would have to land inside from "three API calls wide" to "one".
+    //
+    // Two genuinely simultaneous calls can still both post. Closing that needs
+    // state neither this server nor GitHub has: `github-mcp` is stateless by
+    // design (decision 5) and builds a fresh MCP server per request.
     const marker = reviewMarker(tool, input.head_sha, input.run_id);
-    if (marker) {
-      const existing = await github.listReviews(input.repo, input.pr_number);
-      // `type === "Bot"` and not just the marker text. A marker is copyable: a
-      // stranger who pastes one into their own review body would otherwise
-      // suppress Cujo's. This server holds no bot login of its own, so the
-      // account type is the check available without new configuration.
-      const already = existing.find(
-        (review) => review.user?.type === "Bot" && (review.body ?? "").includes(marker),
-      );
-      if (already) {
-        log.info("review.duplicate.skipped", {
-          repo: input.repo,
-          pr_number: input.pr_number,
-          head_sha: input.head_sha,
-          tool,
-          review_id: String(already.id),
-        });
-        // The review that is already there, rather than an error. A thrown
-        // tool error is something the model may work around or retry, and
-        // "idempotent" means the second call answers like the first.
-        return {
-          review_id: already.id,
-          html_url: already.html_url,
-          posted_inline: 0,
-          moved_to_body: 0,
-        };
-      }
-    }
+    const early = await alreadyPosted(marker);
+    if (early) return duplicate(early);
+
     const files = await github.listPullFiles(input.repo, input.pr_number);
     const { inline, moved } = validateAnchors(files, input.comments);
     for (const { comment, reason } of moved) {
@@ -187,6 +205,11 @@ export async function postReview(
         reason,
       });
     }
+    // The narrow one. Everything between here and the first check was reads,
+    // so a review that appeared during them is one this call must not repeat.
+    const late = await alreadyPosted(marker);
+    if (late) return duplicate(late);
+
     const review = await github.createReview(input.repo, input.pr_number, {
       commitId: input.head_sha,
       event,

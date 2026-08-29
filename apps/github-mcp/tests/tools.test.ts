@@ -297,3 +297,78 @@ describe("the duplicate review check", () => {
     expect(createReview).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("the duplicate check runs again just before the write", () => {
+  const RUN = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+  const base = {
+    repo: "o/r",
+    pr_number: 7,
+    head_sha: "abc1234",
+    body: "What ran.",
+    comments: [],
+    findings: [],
+    run_id: RUN,
+  };
+
+  it("refuses a review that appeared while this call was reading", async () => {
+    // The window a single check leaves open: the file listing and the anchor
+    // validation sit between the check and the write. GitHub has no conditional
+    // create, so this cannot be made atomic — the second check makes the gap one
+    // API call wide instead of three.
+    const marker = reviewMarker("post_advisory_review", "abc1234", RUN);
+    const raced = {
+      id: 42,
+      html_url: "https://gh/r/42",
+      body: `What ran.\n\n${marker}\n`,
+      user: { login: "cujo-guard[bot]", type: "Bot" },
+    };
+    let call = 0;
+    const createReview = vi.fn(async () => ({ id: 99, html_url: "https://gh/r/99" }));
+    const github = {
+      // Empty on the early check, then carrying the other call's review by the
+      // time the late one runs.
+      listReviews: vi.fn(async () => (++call === 1 ? [] : [raced])),
+      listPullFiles: vi.fn(async () => []),
+      createReview,
+    } as unknown as GitHubClient;
+
+    const { log, of } = capture();
+    const result = await postReview(github, "COMMENT", "post_advisory_review", base, "", log);
+    expect(createReview).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ review_id: 42 });
+    expect(of("review.duplicate.skipped")).toHaveLength(1);
+  });
+
+  it("costs one read, not two, when the early check already finds it", async () => {
+    const marker = reviewMarker("post_advisory_review", "abc1234", RUN);
+    const github = {
+      listReviews: vi.fn(async () => [
+        {
+          id: 42,
+          html_url: "https://gh/r/42",
+          body: marker,
+          user: { login: "cujo-guard[bot]", type: "Bot" },
+        },
+      ]),
+      listPullFiles: vi.fn(async () => []),
+      createReview: vi.fn(),
+    } as unknown as GitHubClient;
+    const { log } = capture();
+    await postReview(github, "COMMENT", "post_advisory_review", base, "", log);
+    expect(github.listReviews).toHaveBeenCalledTimes(1);
+    expect(github.listPullFiles).not.toHaveBeenCalled();
+  });
+
+  it("spends no read at all without a run id to key on", async () => {
+    const github = {
+      listReviews: vi.fn(async () => []),
+      listPullFiles: vi.fn(async () => []),
+      createReview: vi.fn(async () => ({ id: 1, html_url: "https://gh/r/1" })),
+    } as unknown as GitHubClient;
+    const { log } = capture();
+    const { run_id: _run, ...noRun } = base;
+    await postReview(github, "COMMENT", "post_advisory_review", noRun, "", log);
+    expect(github.listReviews).not.toHaveBeenCalled();
+    expect(github.createReview).toHaveBeenCalledTimes(1);
+  });
+});

@@ -236,6 +236,12 @@ export class RunStore {
    * the old one being edited. That is the cost of asking for a re-review, and
    * `pr-command.service.ts` says so in its reply.
    *
+   * **It does not stop anything.** A run that still owns a live turn on its
+   * session must be superseded before its row is deleted, or that turn keeps
+   * running: it folds into a row that no longer exists and can still post a
+   * review. This method cannot do that itself — it holds no harness — so the
+   * caller does it, and `index.ts`'s `startReview` is the one caller there is.
+   *
    * Reports whether there was one, so a caller can tell a re-review from a
    * first look.
    */

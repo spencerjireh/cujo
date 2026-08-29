@@ -123,6 +123,13 @@ async function main(): Promise<void> {
   const provenance = { model: config.model, rubricSha256: specFingerprint(spec) };
 
   /**
+   * The two statuses that mean a run still owns a live turn on its session.
+   * `Runner.isTerminal` says the same thing and is private to it.
+   */
+  const inFlight = (status: RunRecord["status"]) =>
+    status === "running" || status === "blocked_pending";
+
+  /**
    * `/cujo review` (decision 63): claim the current head and start a turn on it.
    *
    * The same pieces the webhook route uses, composed once here so
@@ -158,6 +165,27 @@ async function main(): Promise<void> {
         await harness.createSession(spec),
       );
     }
+    // A run for this head that is still in flight owns a live turn on the
+    // session. Deleting its row would leave that turn running: it would keep
+    // folding into a row that no longer exists, and it could still post a
+    // review for the head this command is about to review again. `supersede`
+    // cancels the turn and settles the run first, which is what the webhook
+    // path does for an older head and what this path was missing.
+    const existing = store.runs.runForPrHead(input.repo, input.prNumber, input.headSha);
+    if (existing && inFlight(existing.status)) {
+      await runner.supersede(existing.id);
+      // `supersede` declines to cancel when a human's decision is landing on
+      // that same run (`run.supersede.deferred`), because cancelling would kill
+      // the turn that decision started. Deleting the row underneath it would be
+      // worse, so this refuses rather than racing the person.
+      const settled = store.runs.getRun(existing.id);
+      if (settled && inFlight(settled.status)) {
+        return {
+          ok: false,
+          detail: "A decision on this commit's review is still being applied. Try again shortly.",
+        };
+      }
+    }
     store.runs.reclaimRunForHead(input.repo, input.prNumber, input.headSha);
     const { run, created } = store.runs.createRun({
       repo: input.repo,
@@ -177,6 +205,9 @@ async function main(): Promise<void> {
       reason: "pr_command",
     });
     reactor?.markClaimed(run);
+    // Fire and forget, with a terminal catch: `startRun` handles its own
+    // failures and marks the run, but an unhandled rejection here would take
+    // the process down rather than the run.
     void startRun(
       {
         github,
@@ -188,7 +219,7 @@ async function main(): Promise<void> {
       },
       run,
       { force: true },
-    );
+    ).catch((error) => log.error("run.prepare.failed", { run_id: run.id, ...errorFields(error) }));
     return { ok: true };
   };
 
