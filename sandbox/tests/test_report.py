@@ -9,7 +9,12 @@ from cujo_sniff.policy import DECOY_KEY
 from cujo_sniff.report import build_sensor_block, health, merge_egress, merge_reports
 
 ARMED = {"proxy": health(True, "port 8899"), "decoy": health(True, "inotify")}
-NOT_TRUNCATED = {"stdout_tail": False, "stderr_tail": False, "snapshot": False}
+NOT_TRUNCATED = {
+    "stdout_tail": False,
+    "stderr_tail": False,
+    "snapshot": False,
+    "hashes": False,
+}
 
 
 def _block(home_dir: Path, **overrides: Any) -> dict[str, Any]:

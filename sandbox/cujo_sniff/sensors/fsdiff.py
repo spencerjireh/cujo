@@ -31,9 +31,15 @@ from cujo_sniff.scrub import scrub
 # the timestamp, then `chmod 000` it, and treating the failed digest as
 # out-of-scope would let the metadata comparison call it unchanged.
 UNREADABLE = "unreadable"
+# In scope, and past HASH_MAX_BYTES. This one *does* fall back to metadata --
+# there is no digest on either side to compare -- which is why it may not be
+# silent: `snapshot` counts these and the report carries `truncated.hashes`, so
+# a file too large to check says so instead of reading as checked and clean.
+UNHASHED = "unhashed"
 
 # (mtime_ns, size, digest). The digest is None where the file was not in scope
-# for hashing, and UNREADABLE where it was but could not be read.
+# for hashing, UNREADABLE where it was but could not be read, and UNHASHED where
+# it was in scope but too large.
 Entry = tuple[int, int, str | None]
 
 
@@ -49,6 +55,11 @@ class Snapshot:
 
     entries: dict[str, Entry]
     truncated: bool
+    # In-scope files the size cap left uncompared. Not the same kind of loss as
+    # `truncated` -- those paths were walked and recorded, just not hashed --
+    # but it is a loss, and the report says so rather than presenting a
+    # metadata-only verdict as a content one.
+    unhashed: int = 0
 
 
 def _snapshot_roots(workspace_roots: list[Path], home_dir: Path | None = None) -> list[Path]:
@@ -91,7 +102,7 @@ def _digest(path: Path, st: os.stat_result) -> str | None:
         if not stat.S_ISREG(st.st_mode):
             return None
         if st.st_size > HASH_MAX_BYTES:
-            return None
+            return UNHASHED
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
@@ -120,6 +131,7 @@ def snapshot(
     tree cannot turn a check into a snapshot benchmark.
     """
     seen: dict[str, Entry] = {}
+    unhashed = 0
     for root in _snapshot_roots(workspace_roots, home_dir):
         for dirpath, dirnames, filenames in os.walk(root, onerror=lambda e: None):
             d = Path(dirpath)
@@ -133,10 +145,12 @@ def snapshot(
                 except OSError:
                     continue
                 digest = _digest(p, st) if should_hash(str(p), home_dir) else None
+                if digest == UNHASHED:
+                    unhashed += 1
                 seen[str(p)] = (st.st_mtime_ns, st.st_size, digest)
                 if len(seen) >= MAX_SNAPSHOT_FILES:
-                    return Snapshot(seen, truncated=True)
-    return Snapshot(seen, truncated=False)
+                    return Snapshot(seen, truncated=True, unhashed=unhashed)
+    return Snapshot(seen, truncated=False, unhashed=unhashed)
 
 
 def _unchanged(before: Entry, after: Entry) -> bool:
@@ -144,13 +158,15 @@ def _unchanged(before: Entry, after: Entry) -> bool:
 
     `None` on either side means the path was never in hashing scope, so there is
     nothing to compare and metadata is the whole answer -- which is what it was
-    before there were digests at all. UNREADABLE is not that: it is a digest
-    that was wanted and failed, so it compares unequal to a real one. A file
-    that hashed before and cannot be read now has changed.
+    before there were digests at all. UNHASHED behaves the same way and for the
+    same reason, and is a distinct value only so the walk can count it and the
+    report can admit the gap. UNREADABLE is neither: it is a digest that was
+    wanted and failed, so it compares unequal to a real one. A file that hashed
+    before and cannot be read now has changed.
     """
     if before[:2] != after[:2]:
         return False
-    if before[2] is None or after[2] is None:
+    if before[2] in (None, UNHASHED) or after[2] in (None, UNHASHED):
         return True
     return before[2] == after[2]
 

@@ -117,8 +117,14 @@ def snapshot_health(before: Snapshot, after: Snapshot) -> dict[str, Any]:
     count = len(after.entries)
     if count == 0:
         return health(False, "walked no files")
-    capped = " (capped)" if before.truncated or after.truncated else ""
-    return health(True, f"{count} paths{capped}")
+    notes = []
+    if before.truncated or after.truncated:
+        notes.append("capped")
+    unhashed = max(before.unhashed, after.unhashed)
+    if unhashed:
+        notes.append(f"{unhashed} too large to hash")
+    detail = f"{count} paths" + (f" ({', '.join(notes)})" if notes else "")
+    return health(True, detail)
 
 
 @contextlib.contextmanager
@@ -210,6 +216,10 @@ def run_sensed(
             "stdout_tail": len(out) > TAIL_CHARS,
             "stderr_tail": len(err) > TAIL_CHARS,
             "snapshot": before.truncated or after.truncated,
+            # A file too large to hash falls back to metadata, which is exactly
+            # what a restored mtime defeats. Saying so is the difference between
+            # a comparison that was not made and one that came back clean.
+            "hashes": bool(before.unhashed or after.unhashed),
         },
         home_dir=ctx.home,
         cwd=cwd,

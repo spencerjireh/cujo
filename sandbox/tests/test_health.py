@@ -88,6 +88,10 @@ def test_the_filesystem_sensor_reports_how_far_it_walked() -> None:
     capped = snapshot_health(Snapshot({}, True), Snapshot({"a": (1, 1, None)}, False))
     assert capped["armed"] is True
     assert "capped" in capped["detail"]
+    # Walked and recorded, but not compared: a different loss, said separately.
+    big = snapshot_health(Snapshot({}, False, 2), Snapshot({"a": (1, 1, None)}, False, 2))
+    assert big["armed"] is True
+    assert "2 too large to hash" in big["detail"]
 
 
 def test_the_caps_say_when_they_cut(home_dir: Path) -> None:

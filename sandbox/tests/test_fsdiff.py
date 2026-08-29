@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from cujo_sniff.context import Context, state_paths
 from cujo_sniff.report import build_sensor_block
 from cujo_sniff.sensors.fsdiff import (
+    UNHASHED,
     UNREADABLE,
     Snapshot,
     _snapshot_roots,
@@ -243,3 +246,37 @@ def test_a_filename_cannot_smuggle_control_characters(home_dir: Path) -> None:
     path = diff_snapshots(walked({}), after, [], home_dir)[0]["path"]
     assert "\x1b" not in path
     assert path == "~/a\\x1b[31mred"
+
+
+def test_a_file_too_large_to_hash_says_so_rather_than_reading_as_checked(
+    home_dir: Path, ctx: Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cap that silently turns the comparison off hands the evasion back.
+
+    Over the limit there is no digest on either side, so the comparison is
+    metadata again and a restored mtime wins -- which is fine, and is only fine
+    because the walk counts those files and the report carries
+    `truncated.hashes`. A verdict nobody reached must not read like one that
+    came back clean.
+    """
+    monkeypatch.setattr("cujo_sniff.sensors.fsdiff.HASH_MAX_BYTES", 8)
+    aws = home_dir / ".aws"
+    aws.mkdir()
+    big = aws / "credentials"
+    big.write_text("x" * 64)
+    walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
+
+    snap = snapshot([home_dir], **walk)
+    assert snap.entries[str(big)][2] == UNHASHED
+    assert snap.unhashed == 1
+
+    # Distinct from out-of-scope, which is what lets the walk count it at all.
+    small = home_dir / "notes.txt"
+    small.write_text("x" * 64)
+    assert snapshot([home_dir], **walk).entries[str(small)][2] is None
+
+    # And under the cap the digest is taken, so the count goes back to zero.
+    monkeypatch.setattr("cujo_sniff.sensors.fsdiff.HASH_MAX_BYTES", 1024)
+    hashed = snapshot([home_dir], **walk)
+    assert hashed.unhashed == 0
+    assert hashed.entries[str(big)][2] not in (None, UNHASHED, UNREADABLE)
