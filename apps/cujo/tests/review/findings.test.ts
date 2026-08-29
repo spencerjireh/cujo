@@ -145,6 +145,82 @@ describe("isMaliceClaim", () => {
   });
 });
 
+describe("the sensor health block", () => {
+  const sensors = (over: Record<string, unknown> = {}) => ({
+    sensors: {
+      proxy: { armed: true, detail: "port 8899" },
+      decoy: { armed: true, detail: "inotify" },
+      audit: { armed: true, detail: "12 rows" },
+      fs_diff: { armed: true, detail: "900 paths" },
+      ...over,
+    },
+  });
+
+  it("warns once per daemon that was not watching, naming what the sandbox said", () => {
+    const found = hardRuleFindings([
+      check(
+        "probes",
+        sensors({ proxy: { armed: false, detail: "started during setup, no longer running" } }),
+      ),
+    ]);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      source: "hard_rule",
+      check: "probes",
+      severity: "warn",
+      rule: "sensor_unarmed",
+      title: "the proxy sensor was not watching during probes",
+    });
+    expect(found[0]?.evidence).toContain("no longer running");
+  });
+
+  it("says nothing about the two sensors whose being off is not a fault", () => {
+    // A check running `npm test` has no Python process to hook, and the
+    // filesystem sensor is never off, only incomplete — which `truncated`
+    // covers. Warning on either would fire on every JavaScript repository.
+    expect(
+      hardRuleFindings([
+        check(
+          "tests",
+          sensors({
+            audit: { armed: false, detail: "no Python process ran" },
+            fs_diff: { armed: false, detail: "walked no files" },
+          }),
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("treats an absent block as unknown rather than unarmed", () => {
+    // Every report stored before this block existed, and every report an agent
+    // writes by hand. Absent is not evidence the sensors were off.
+    expect(hardRuleFindings([check("tests", { derived: {} })])).toEqual([]);
+    expect(hardRuleFindings([check("tests", { sensors: {} })])).toEqual([]);
+    expect(hardRuleFindings([check("tests", { sensors: { proxy: {} } })])).toEqual([]);
+    expect(hardRuleFindings([check("tests", { sensors: "broken" })])).toEqual([]);
+  });
+
+  it("warns once for a sensor that was down in one run of several", () => {
+    // Detonation is several sensed commands. One blind stretch is one warn,
+    // not one per run, and the detail comes from the run that lost it.
+    const found = hardRuleFindings([
+      check("detonation", {
+        ...sensors(),
+        runs: [sensors(), sensors({ decoy: { armed: false, detail: "atime, no longer running" } })],
+      }),
+    ]);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.evidence).toContain("atime, no longer running");
+  });
+
+  it("does not gate the run, so a blind sensor cannot look like an accusation", () => {
+    const found = hardRuleFindings([
+      check("tests", sensors({ decoy: { armed: false, detail: "no watcher armed during setup" } })),
+    ]);
+    expect(found.map(isMaliceClaim)).toEqual([false]);
+  });
+});
+
 describe("missingCheckFindings", () => {
   it("warns once per required check without a report, ignoring non-check threads", () => {
     const found = missingCheckFindings([

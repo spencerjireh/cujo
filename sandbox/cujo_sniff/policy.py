@@ -14,12 +14,24 @@ from pathlib import Path
 
 from cujo_sniff.paths import canonical, home, under
 
+# The report shape. Bumped when a consumer would read an old report wrongly --
+# a renamed key or a changed meaning -- and not for a new one, because every
+# consumer ignores fields it does not know. A consumer that meets a version it
+# does not recognise reads what it can rather than rejecting the report: half
+# the evidence beats none, and the sandbox is always newer than the container
+# reading it (decision 54).
+SCHEMA_VERSION = 1
+
 DEFAULT_PROXY_PORT = 8899
 DECOY_KEY = "AKIACUJODECOY0000000"
 DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
 MAX_FILES_READ = 200
 MAX_SNAPSHOT_FILES = 200_000
+# Files above this are compared by (mtime, size) alone. A credential nobody can
+# read in one gulp is not a credential; the cap is here so a snapshot cannot be
+# turned into a hashing benchmark by dropping a large file somewhere sensitive.
+HASH_MAX_BYTES = 1_048_576
 # How long one sensed command waits for another to release the sensors. Longer
 # than any check should take, so the wait ends because the other command
 # finished and not because the clock ran out.
@@ -50,12 +62,36 @@ SENSITIVE_HOME_PATHS = (
     ".bashrc",
     ".profile",
     ".zshrc",
+    ".bash_profile",
     ".config/gcloud",
+    ".config/gh",
     ".netrc",
     ".npmrc",
     ".pypirc",
+    ".kube",
+    ".docker/config.json",
+    ".git-credentials",
+    ".gitconfig",
+    ".gnupg",
 )
-SENSITIVE_ABS_PREFIXES = ("/etc/cron",)
+# Prefixes, so `/etc/sudoers` covers `/etc/sudoers.d/` and `/etc/profile` covers
+# `/etc/profile.d/`. The ones that name a directory keep their trailing slash so
+# `/etc/ssh/` is not read as a prefix of `/etc/sshd_backup`.
+SENSITIVE_ABS_PREFIXES = (
+    "/etc/cron",
+    "/etc/shadow",
+    "/etc/passwd",
+    "/etc/sudoers",
+    "/etc/ssh/",
+    "/etc/pam.d/",
+    "/etc/systemd/",
+    "/etc/profile",
+    # Writable by root only, read by every dynamic executable: the shortest path
+    # from a sandbox write to code running in someone else's process. It is also
+    # under the `/etc/ld.so` noise prefix below, which is why the sensitive
+    # verdict has to be taken first -- see `is_noise_read`.
+    "/etc/ld.so.preload",
+)
 
 NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
 # Directory prefixes end in "/" so /usr/libexec is not taken for /usr/lib.
@@ -90,6 +126,21 @@ def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
         if any(under(c, root / rel) for c in candidates for root in roots):
             return True
     return any(str(c).startswith(SENSITIVE_ABS_PREFIXES) for c in candidates)
+
+
+def should_hash(path: str, home_dir: Path | None = None) -> bool:
+    """Whether this path is worth a content digest as well as its metadata.
+
+    `(mtime_ns, size)` is defeated by anything that restores the timestamp after
+    a same-length overwrite -- flipping a flag, swapping a key for another key.
+    Hashing every file would turn each snapshot into a full read of HOME, so it
+    is spent where a silent edit is the whole attack: the credential and
+    shell-rc locations, and the rest of `/etc`, which is walked anyway.
+    """
+    if is_sensitive(path, home_dir):
+        return True
+    p = Path(os.path.normpath(os.path.expanduser(path)))
+    return str(p).startswith("/etc/")
 
 
 def is_noise_read(path: str) -> bool:

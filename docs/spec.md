@@ -229,35 +229,46 @@ report returns to the parent.
 
   plus the shared sensor block below.
 
-### The sensor block
+### The report
 
-Every check report carries the same sensor block, produced by the same sensors,
-so the hard rules read one shape regardless of which check ran:
+**[`docs/contracts/report.example.json`](contracts/report.example.json) is the
+shape.** One complete example carrying every field at once, and the normative
+one: this section says what the fields mean and that file says what they are.
+It is there rather than inline because there is no schema — `check.report` is
+`unknown` in `apps/cujo` and in `apps/web`, so a renamed field produces no
+compile error anywhere, only rules that stop firing and tables that empty. A
+conformance test in each of the three consumers loads that file, which is what
+makes a change on one side fail on the others (decision 54).
 
-```json
-{
-  "egress": [
-    { "host": "pypi.org", "port": 443, "bytes": 3200, "known": true },
-    { "host": "files.pythonhosted.org", "port": 443, "bytes": 1048576, "known": true }
-  ],
-  "files_read": [
-    { "path": "~/.aws/credentials", "sensitive": true }
-  ],
-  "fs_changes": [
-    { "path": "~/.venv/lib/python3.12/site-packages/humanize", "type": "created", "in_workspace": true }
-  ],
-  "secret_probe": {
-    "decoy_read": false,
-    "decoy_in_egress": false
-  },
-  "derived": {
-    "egress_to_unknown_host": false,
-    "wrote_outside_workspace": false,
-    "wrote_sensitive": false,
-    "spawned_subprocess": false
-  }
-}
-```
+The envelope a check sub-agent returns:
+
+| field | |
+|---|---|
+| `schema_version` | The report shape, an integer. Read what you recognise; never reject a report for carrying a version you do not know. |
+| `check` | One of `tests`, `probes`, `smoke`, `detonation`. It must match the sub-agent's own name, which is how a report is attributed to a check. |
+| `runs[]` | Every `sniff.py run` or `detonate` report, in order, verbatim. |
+| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. |
+
+plus the per-check fields in the rubric: `base` / `head` / `base_pass_head_fail`
+for `tests`, `probes[]`, `endpoints[]` and `log_tail` for `smoke`.
+
+Each entry of `runs[]` is what `sniff.py run` printed: `schema_version`, `argv`,
+`exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail`, and the
+sensor block below. A `detonate` entry carries `dependency`, `source`,
+`install_ok` and `duration_s` in place of `argv` and `exit`.
+
+The sensor block itself, the same on every check so the hard rules read one
+shape regardless of which one ran: `egress[]`, `files_read[]`, `fs_changes[]`,
+`subprocesses[]`, `secret_probe`, `sensors`, `truncated`, `derived`.
+
+**Every string in a report is written by the code under review** — what it
+printed, the arguments it ran, the filenames it chose, the hosts it asked for —
+and it is read by the parent agent, quoted into a review, and rendered in a
+browser. Control characters, terminal escapes, and the bidirectional and
+zero-width characters are therefore escaped where they appear, as visible
+`\xNN` and `\uNNNN`. Escaped, not stripped: the record still says what the
+command did, and the escape is its own account of itself, so there is no
+"sanitized" flag to carry.
 
 The sensors, layered from language-agnostic to language-specific:
 
@@ -300,6 +311,15 @@ A path is classified sensitive on either its lexically normalised or its fully
 resolved form, so a `..` segment cannot walk into a credentials directory
 unnoticed and a symlink planted inside one is still sensitive.
 
+The filesystem sensor identifies a file by `(mtime_ns, size)`, plus a SHA-256
+digest where a silent edit is the whole attack — the credential and shell-rc
+locations, and the rest of `/etc`, which is walked anyway. Metadata alone is
+defeated by `os.utime`: overwrite a key with another key of the same length, put
+the timestamp back, and two `lstat` calls see no change. Hashing everything
+would make each snapshot a full read of `$HOME`, so it is spent only there. A
+symlink is digested by its target string, so a link repointed with its timestamp
+preserved is still a change.
+
 The proxy and the watcher write to logs shared by every check, so a report is
 the slice of those logs written while one command ran. `sniff.py run` and
 `detonate` therefore take an exclusive lock for the duration: one sensed
@@ -324,13 +344,64 @@ package, and the script exists so the rubric's spelling stays the same and so
 The commands keep their state in `CUJO_DIR`, which defaults *beside* the
 extracted code and never inside it, so logs, pid files, the decoy backup, and
 the sensed lock are neither mixed in with the modules nor destroyed by the
-fetch, which replaces the code directory wholesale (decision 47). The rubric
+fetch, which replaces the code directory wholesale (decision 48). The rubric
 never names that directory: every path it needs comes back in `setup`'s JSON.
 
-`decoy_in_egress` stays `false` until TLS interception can confirm the value
-left the box. The `derived` block holds the booleans the hard rules read.
+The `derived` block holds the booleans the hard rules read.
 `egress_to_unknown_host` is true when a host is neither a known package index
 nor in `allow_hosts`.
+
+`secret_probe.decoy_in_egress` is `null` on every report, and null is the
+claim: the proxy counts bytes and never reads a payload, so nothing in this
+sandbox can tell whether the decoy's value left the box. It was `false` until
+decision 54, which asserted an observation nobody had made. The hard rule stays
+— it fires on `true` and nothing emits one — so that a later sandbox that can
+measure it needs no change on the trusted side.
+
+#### `sensors` — what was watching
+
+A tripwire that cannot say it was disarmed is worth less than it looks: `false`
+on every signal is also what a report says when the sensor producing it was not
+running. `sensors` carries one `{armed, detail}` entry per sensor, so "not
+observed" and "not observable" stop reading alike.
+
+| sensor | armed when | `detail` |
+|---|---|---|
+| `proxy` | the daemon bound its port during `setup` **and** is still alive now | the loopback port |
+| `decoy` | the watcher armed during `setup` **and** is still alive now | `inotify` or `atime` — which one matters, because the atime fallback is close to useless under `relatime` |
+| `audit` | the hook wrote its `armed` row into this command's log | the row count, or that no Python process ran |
+| `fs_diff` | the walk reached any file at all | how many paths, and whether the cap cut it |
+
+Both daemon entries are re-checked per command, not taken from `setup`: a proxy
+that died during the first check used to leave the three that followed with an
+empty `egress` and a clean `egress_to_unknown_host` — a clean bill of health
+from a blind sensor.
+
+An unarmed `proxy` or `decoy` is one `warn` in `apps/cujo` (`sensor_unarmed`),
+never a `critical`: it says the evidence is thin, not that the code did
+anything, and it does not gate the review. `audit` and `fs_diff` are reported
+and not ruled on — a check running `npm test` has no Python process to hook,
+and the filesystem sensor is never off, only short.
+
+Nothing in this block may name a host, a path, or a repository. A check report
+crosses to the anonymous public plane verbatim, with no field-level allowlist
+between here and there.
+
+#### `truncated` — where the evidence was cut
+
+Four caps bound what a report can cost: `TAIL_CHARS` on each output tail,
+`MAX_FILES_READ` on `files_read` (a sensitive read is never dropped), and
+`MAX_SNAPSHOT_FILES` on each filesystem walk. `truncated` carries one boolean
+per cap, because a list that was cut is not a list that was empty.
+
+A truncated walk also suppresses `deleted` rows for that report. Two capped
+walks of a tree being written to do not stop in the same place, and the
+difference between them looks exactly like a deletion; the flag is what says
+why the deletions are missing instead.
+
+`window_exclusive`, on each run, is the same kind of statement about the lock:
+`false` means another sensed command overlapped this one, so rows in this report
+may belong to it.
 
 ## Contract 3 — findings and the hard rules
 

@@ -18,9 +18,11 @@ import cujo_sniff
 from cujo_sniff.context import Context, decoy_path, state_paths
 from cujo_sniff.daemons import pid_alive, port_free, spawn_daemon, stop_daemons, wait_port
 from cujo_sniff.detonate import cmd_detonate
-from cujo_sniff.policy import DEFAULT_PROXY_PORT
+from cujo_sniff.jsonl import file_size
+from cujo_sniff.policy import DEFAULT_PROXY_PORT, SCHEMA_VERSION
+from cujo_sniff.report import health
 from cujo_sniff.runner import run_sensed, sensor_env
-from cujo_sniff.sensors.decoy import restore_decoy, seed_decoy, watch_decoy
+from cujo_sniff.sensors.decoy import restore_decoy, seed_decoy, watch_decoy, watched_backend
 from cujo_sniff.sensors.proxy import serve_proxy
 from cujo_sniff.sensors.pyhook import write_pyhook
 
@@ -41,8 +43,16 @@ def cmd_setup(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
     elif not port_free(port):
-        return {"ok": False, "error": f"port {port} is held by another process"}
-    config = {"allow_hosts": args.allow_host, "proxy_port": port, "decoy": str(decoy)}
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "error": f"port {port} is held by another process",
+        }
+    config: dict[str, Any] = {
+        "allow_hosts": args.allow_host,
+        "proxy_port": port,
+        "decoy": str(decoy),
+    }
     paths["config"].write_text(json.dumps(config))
     # The daemons are given their paths here, not left to re-derive them: the
     # watcher used to rebuild the decoy path from $HOME, which agreed with the
@@ -53,14 +63,35 @@ def cmd_setup(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
         paths["proxy_pid"],
         "proxy.log",
     )
+    decoy_log_end = file_size(paths["decoy_log"])
     spawn_daemon(
         ctx,
         ["_watch", "--decoy", str(decoy), "--log", str(paths["decoy_log"])],
         paths["watcher_pid"],
         "watcher.log",
     )
-    ready = wait_port(port) and pid_alive(proxy_pid)
-    return {"ok": ready, "proxy_port": port, "decoy": str(decoy), "env": sensor_env(ctx, config)}
+    # What armed, written down while it is still knowable. The watcher says
+    # which backend it chose exactly once, in a row it writes before it blocks;
+    # `run` reads this back rather than re-deriving anything.
+    config["proxy_armed"] = wait_port(port) and pid_alive(proxy_pid)
+    config["decoy_backend"] = watched_backend(paths["decoy_log"], decoy_log_end)
+    paths["config"].write_text(json.dumps(config))
+    return {
+        "schema_version": SCHEMA_VERSION,
+        # Setup succeeded if the proxy is up. A watcher that failed to arm does
+        # not stop the checks -- it makes them say so, on every report.
+        "ok": config["proxy_armed"],
+        "proxy_port": port,
+        "decoy": str(decoy),
+        "sensors": {
+            "proxy": health(config["proxy_armed"], f"port {port}"),
+            "decoy": health(
+                config["decoy_backend"] is not None,
+                str(config["decoy_backend"] or "no watcher armed during setup"),
+            ),
+        },
+        "env": sensor_env(ctx, config),
+    }
 
 
 def cmd_run(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
@@ -74,7 +105,7 @@ def cmd_run(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
 def cmd_teardown(ctx: Context, _args: argparse.Namespace) -> dict[str, Any]:
     stopped = stop_daemons(ctx)
     decoy = restore_decoy(decoy_path(ctx), state_paths(ctx)["decoy_backup"])
-    return {"ok": True, "stopped": stopped, "decoy": decoy}
+    return {"schema_version": SCHEMA_VERSION, "ok": True, "stopped": stopped, "decoy": decoy}
 
 
 def build_parser() -> argparse.ArgumentParser:

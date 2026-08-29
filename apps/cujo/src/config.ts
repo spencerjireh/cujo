@@ -65,9 +65,6 @@ export interface Config {
    */
   modelReasoningEffort: string;
   githubMcpUrl: string;
-  /** Superseded by `sniffTarballUrl` and no longer read; deleted once every
-   * deployed container fetches the tarball (decision 46). */
-  sniffUrl: string;
   /** Where the agent fetches the source archive holding `sandbox/`. */
   sniffTarballUrl: string;
   turnTimeoutMs: number;
@@ -203,9 +200,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     model: required(env, "CUJO_MODEL"),
     modelReasoningEffort: (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim(),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
-    sniffUrl:
-      env.CUJO_SNIFF_URL ??
-      "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
     // `||`, not `??`: an unset compose optional arrives as the empty string,
     // and an empty URL would reach the sandbox as a `curl` with no argument.
     sniffTarballUrl: tarballUrl(

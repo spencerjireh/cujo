@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from cujo_sniff.jsonl import append_jsonl
+from cujo_sniff.jsonl import append_jsonl, read_jsonl
 from cujo_sniff.policy import DECOY_KEY
 
 IN_ACCESS = 0x1
@@ -65,6 +65,30 @@ def _atime_poll(path: Path, log_path: Path) -> None:
 def watch_decoy(path: Path, log_path: Path) -> None:
     if not _inotify_watch(path, log_path):
         _atime_poll(path, log_path)
+
+
+def watched_backend(log_path: Path, offset: int = 0, timeout: float = 3.0) -> str | None:
+    """Which backend the watcher armed, or None if it never said.
+
+    The daemon announces itself with one `watching` row and then blocks, so this
+    is the only moment the choice is knowable -- and it matters, because the
+    atime fallback is close to useless under `relatime` and a report that cannot
+    name its backend cannot say how much a quiet decoy is worth. `setup` records
+    the answer for every later command to read.
+
+    `offset` is where the log ended before this watcher was spawned. Setup is
+    idempotent, so the log can already hold an earlier run's `watching` row, and
+    reading from the start would report the backend that run chose rather than
+    this one's.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for row in read_jsonl(log_path, offset):
+            if row.get("event") == "watching":
+                backend = row.get("backend")
+                return str(backend) if backend else None
+        time.sleep(0.05)
+    return None
 
 
 def seed_decoy(decoy: Path, backup: Path) -> Path:
