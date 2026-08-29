@@ -141,11 +141,15 @@ export function checkOutcome(check: DigestCheck | undefined): CheckOutcome {
  * calm review is nearly colourless, and the eye goes straight to the one arm
  * that is not.
  *
- * A check still running is info blue rather than inert, and that is the one
- * place an arm takes a signal colour for something that is not a problem: bone
- * and inert are a shade apart by design, so a running arm drawn inert would be
- * indistinguishable from one that finished. Blue reads as "in flight" here and
- * as a verdict on a core; they are different objects and never adjacent.
+ * A check still running is inert, not blue. Blue is a verdict in the chamber —
+ * a clean run's core and an errored run's core — and giving it a second
+ * meaning on an arm would make one hue say two things in a single drawing.
+ * Inert is what "no measurement yet" already means, and the arm is not relying
+ * on hue to say it: a running check is drawn at the shorter unmeasured length,
+ * and its whole specimen breathes while the run is live.
+ *
+ * This map feeds the chamber alone. The record's sensor strip keeps its own
+ * classes: it draws no cores, so blue is free there and carries the pulse.
  *
  * `absent` never reaches a renderer — an arm of length zero is not drawn, in
  * the scene or in the flat elevation — so its tone is what a gap would be
@@ -154,7 +158,7 @@ export function checkOutcome(check: DigestCheck | undefined): CheckOutcome {
 export const OUTCOME_TONE: Record<CheckOutcome, Tone> = {
   done: "bone",
   error: "critical",
-  running: "info",
+  running: "inert",
   absent: "inert",
 };
 

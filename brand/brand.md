@@ -90,14 +90,14 @@ redefined for dark. The page around it stays on the palette above.
 | `--chamber-fg-muted` | `#a39b90` | Labels inside it — dark `--fg-muted` |
 | `--chamber-critical` | `#ff5c45` | A blocked run, and a check that errored |
 | `--chamber-amber` | `#f2a900` | `blocked_pending`, and the sweep line |
-| `--chamber-info` | `#66b0f0` | A clean run, a run that errored, and a check still running |
-| `--chamber-inert` | `#958d82` | A superseded or denied run |
+| `--chamber-info` | `#66b0f0` | A clean run, and a run that errored |
+| `--chamber-inert` | `#958d82` | Superseded, denied, and a check still running |
 
-A check still running is the one arm that takes a signal colour without
-anything being wrong: bone and `--chamber-inert` are a shade apart on purpose,
-so an arm drawn inert could not be told from one that finished. Blue reads as
-"in flight" on an arm and as a verdict on a core, and the two are never
-adjacent.
+Blue is a verdict in the chamber and nothing else, so a check still running is
+inert rather than blue: one hue saying two things in a single drawing is worse
+than a quiet arm. Nothing relies on hue to say a check is in flight anyway — it
+is drawn at the shorter unmeasured length, and its specimen breathes while the
+run is live.
 
 The four signal colours are the dark severity ramp, pinned rather than
 inherited: what is drawn inside the chamber must not change hue when the page
