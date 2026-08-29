@@ -299,6 +299,17 @@ The sensor block itself, the same on every check so the hard rules read one
 shape regardless of which one ran: `egress[]`, `files_read[]`, `fs_changes[]`,
 `subprocesses[]`, `secret_probe`, `sensors`, `truncated`, `derived`.
 
+Inside `sensors`, each entry carries `armed` and `detail`. **`armed` is
+required and `detail` is not.** `sniff.py` writes both in every `runs[]` entry,
+and `docs/contracts/report.example.json` shows that maximal shape — but the
+envelope's `sensors` is a roll-up the sub-agent writes by hand, where only
+`armed` carries meaning: it is the half `unarmedSensors` rules on, while
+`detail` is prose for a reader ("port 8899", "793 rows") already quoted
+verbatim in the runs below. The validator accepts a roll-up without it, and the
+rubric says so, because the first production review after the validator shipped
+warned on four sensors that were correct and complete in every way a rule or a
+reader can use.
+
 **Every string in a report is written by the code under review** — what it
 printed, the arguments it ran, the filenames it chose, the hosts it asked for —
 and it is read by the parent agent, quoted into a review, and rendered in a
