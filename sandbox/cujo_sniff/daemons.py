@@ -83,6 +83,38 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def daemon_alive(pid_file: Path) -> bool:
+    """Whether the daemon a pid file names is still running, and is one of ours.
+
+    `setup` proving a daemon started says nothing about the fourth check half an
+    hour later: a proxy that died in between leaves every later report with an
+    empty `egress` and no way to tell that from a quiet one. This is what the
+    health block re-checks per command.
+
+    The command being measured runs as this user and can write the pid file, so
+    it could kill a sensor and leave any live pid behind -- its own, or the
+    runner's. Checking the command line raises that from "write four digits" to
+    "keep a process alive whose argv says `cujo_sniff`", which is worth the six
+    lines and is not a proof. Nothing inside a sandbox the author controls can
+    be: the same code can rewrite `proxy.jsonl` directly. What bounds the damage
+    is the direction of the lie -- forging health hides a gap, and cannot
+    manufacture a finding against anyone. See docs/spec.md Contract 2.
+    """
+    try:
+        pid = int(pid_file.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    if not pid_alive(pid):
+        return False
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        # No procfs (macOS, and any sandbox without /proc mounted). The pid
+        # answered, which is all this platform will say.
+        return True
+    return b"cujo_sniff" in argv
+
+
 def stop_daemons(ctx: Context) -> list[int]:
     """SIGTERM the daemons named by the pid files; forget the files.
 
