@@ -57,10 +57,10 @@ The split between deterministic code and agent reasoning is fixed:
 ## Contract 1 — the trigger
 
 The Cujo GitHub App subscribes to `pull_request` events (`opened`,
-`synchronize`), to `repository` events (`privatized`, `publicized`), and to
-`issue_comment` events (`created`). The signature is checked before the event
-type, so all three arrive on the same route with the same one gate in front of
-them.
+`synchronize`), to `repository` events (`privatized`, `publicized`), to
+`issue_comment` events (`created`), and to `pull_request_review_comment` events
+(`created`). The signature is checked before the event type, so all four arrive
+on the same route with the same one gate in front of them.
 
 A `repository` event re-stamps `is_public` on every run of that repo and does
 nothing else; it is the fast path for decision 34's public board, and matching
@@ -113,6 +113,14 @@ flight where the supersede path cannot see it in the status; when the stale deny
 finds the call already answered and `approver` is set, the run is left alone
 rather than cancelled. The finding was real on the commit that person read, the
 observation half is public either way, and the new head gets its own run.
+
+A `pull_request_review_comment` event is a reply inside a review thread — the
+comments hanging off one line of the diff, where Cujo's inline findings are.
+It is a different event from `issue_comment` and the only one that reaches
+those threads, so it is what conversation needs and what a reply to a finding
+arrives on. It carries conversation and never a privileged verb; narrowing the
+surfaces that can decide a review costs nothing, since `/cujo` is about the run
+rather than about one line. Contract 10 has the rest.
 
 For a `pull_request` event the `apps/cujo` webhook module:
 
@@ -1116,6 +1124,96 @@ Four properties, the first three the same ones Contract 7 holds:
 
 `CUJO_PR_REACTIONS=0` turns the whole thing off. It is the only thing
 `apps/cujo` writes to a repository, so it gets a switch (decision 38).
+
+## Contract 10 — conversation
+
+`@cujo-guard <anything>` on a pull request asks Cujo a question about a review it
+already posted. It is neither a review nor a notification: nothing it does
+changes a verdict, and the answer goes only to the person who asked.
+
+The verb it exists for is **re-execution**. Every other review bot can re-read a
+diff; Cujo still has the sandbox recipe, so when a maintainer says "that route
+needs orders to exist, seed the database first", the answer is a new measurement
+rather than a rephrasing of the old one.
+
+**Its own TrueForge session, always.** Keyed `(repo, pr_number)` in
+`conversation_sessions`, which is a second table rather than a column because
+`sessions` is keyed by the pull request and already holds the review's. Sharing
+the review's session fails three ways, each independently fatal:
+
+- it **cancels a live review** — creating a turn while one runs cancels the old
+  one, and a subscriber to the cancelled turn is never told, so the run ends on
+  the watchdog. Ungated, that is a one-comment denial of review.
+- it is **refused `422`** — "user message cannot be sent while approvals or
+  questions are pending" — in exactly the `blocked_pending` state a maintainer
+  most wants to talk about.
+- it **corrupts the projection**: `fold` dedupes checks by thread id, so a
+  re-run emits every hard-rule critical twice and can never clear the finding it
+  was meant to correct.
+
+**Two events carry it.** `issue_comment` is the pull request's own thread, and
+`pull_request_review_comment` is a reply inside a review thread — where Cujo's
+inline findings are, and where "prove it" is actually asked. The reply goes back
+to whichever surface the question came from, so an answer lands under the
+finding it is about. Only conversation is dispatched from the review-thread
+event; a `/cujo` verb stays on the pull request's own thread.
+
+**The agent holds no write authority.** Its spec carries `mcpServers: []`, so it
+has no review tool and no way to reach GitHub at all; `apps/cujo` reads the
+turn's final assistant message — the last one on `main` with text and no tool
+call — and posts it. That is what bounds a prompt injection through a stranger's
+comment to "wastes a sandbox", and it is why a turn that errors or times out
+still answers the person, which a reply tool structurally could not.
+
+**What the agent is given** is a curated brief, not the review session's
+history: the run's check reports, its findings, the posted review body, the head
+SHA, plus the question. Everything in it is already in the projection, and a
+payload a person can review is worth more than one that is merely complete. The
+rubric is `agent/CONVERSE.md`, and it states that the question is untrusted
+data — `SKILL.md` scoped that rule to the repository, and this contract
+publishes a second channel to the internet.
+
+`clone_url` is included **only for a public repository**, omitted rather than
+blanked, the same rule `run_id` follows (decision 36). The sandbox holds no
+credential and never will, so a private repo has no URL it could clone; the
+rubric says to answer from the brief and say so when the key is absent. Private
+repositories remain a non-goal rather than a gap this works around.
+
+**Which run a question is about** is decided by the commit GitHub reports, not
+by the order deliveries were inserted in — the same hazard `/cujo` has. Unlike a
+command, a question about a review the pull request has since been pushed past
+is still answered from the newest run rather than refused: the evidence was real
+when it was collected, and a question changes nothing.
+
+**One comment is answered once.** GitHub redelivers, and a redelivery is not a
+second question; without a claim on the comment id it would start a second
+sandbox, post a second reply, and spend a second slot, none of which the
+in-flight flag covers. The claim is in memory like the ceiling, because what it
+protects is provisioned by this process.
+
+**The deadline is raced against the stream, not set beside it.** Cancelling is
+what closes the stream, so a `cancelTurn` that fails would leave the consumer
+blocked forever and `CUJO_CONVERSE_TIMEOUT_MS` would bound nothing. A stream
+that ends without `turn.done` is a drop rather than a completion — the turn may
+still be running — so it is resubscribed once and then answered honestly rather
+than by posting whatever happens to be persisted.
+
+**Authorization is repo `write` or `admin`**, the same check `/cujo` uses, and
+checked before the rate limit so a stranger cannot spend a maintainer's budget.
+A sandbox is not free speech. The refusal says every finding is readable by
+anyone, because it is.
+
+**A ceiling, in memory, per pull request.** At most `CUJO_CONVERSE_LIMIT`
+questions per `CUJO_CONVERSE_WINDOW_MS` (3 an hour by default) and one at a
+time; a second question while one is running is refused rather than queued,
+since two sandboxes for one pull request is the thing the limit prevents. The
+count lives in the process because the resource does: a restart already means no
+turn is in flight. `CUJO_CONVERSE_LIMIT=0` turns conversation off and deliveries
+are still answered 200.
+
+**Every outcome speaks**, as with `/cujo`: a refusal nobody can see is
+indistinguishable from a delivery that never arrived. The one exception is a
+comment that does not mention Cujo at all, which is silence by design.
 
 ## Stretch — remediation
 

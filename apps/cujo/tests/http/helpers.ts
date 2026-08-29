@@ -54,6 +54,8 @@ export function build(
     createSession: () => Promise<string>;
     /** Design 2. Absent means `/cujo` on a pull request is not configured. */
     prCommands: { handle: (command: unknown) => Promise<void> };
+    /** Design 3. Absent means `@cujo-guard` is not configured. */
+    converse: { handle: (request: unknown) => Promise<void> };
   }> = {},
 ) {
   const store = new Store(":memory:");
@@ -111,6 +113,7 @@ export function build(
       onClaimed: (run) => claimed.push(run.id),
       onSettled: (runId) => settled.shift()?.(runId),
       ...(overrides.prCommands ? { prCommands: overrides.prCommands as never } : {}),
+      ...(overrides.converse ? { converse: overrides.converse as never } : {}),
     },
     ...(overrides.interactions
       ? {

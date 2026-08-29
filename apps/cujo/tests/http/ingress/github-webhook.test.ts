@@ -325,6 +325,148 @@ describe("webhook", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ ignored: "not_configured" });
     });
+
+    it("offers the comment to both services, each ignoring what is not its shape", async () => {
+      // A comment is a command or a question and never both — the two syntaxes
+      // were chosen to be unmistakable — so which one it was is decided by the
+      // service that owns the syntax, not by a branch here.
+      const commands: Record<string, unknown>[] = [];
+      const questions: Record<string, unknown>[] = [];
+      const { app } = build({
+        prCommands: {
+          handle: async (c) => {
+            commands.push(c as Record<string, unknown>);
+          },
+        },
+        converse: {
+          handle: async (r) => {
+            questions.push(r as Record<string, unknown>);
+          },
+        },
+      });
+      await send(app, commentEvent({ comment: { id: 55, body: "@cujo-guard why?", user: null } }));
+      expect(commands).toHaveLength(1);
+      expect(questions[0]).toMatchObject({
+        repo: "o/r",
+        prNumber: 7,
+        body: "@cujo-guard why?",
+        surface: { kind: "issue" },
+      });
+    });
+  });
+
+  /**
+   * A reply inside a review thread. A different GitHub event from
+   * `issue_comment`, and the one flow C needs: "prove it" is asked under the
+   * finding it doubts, not at the bottom of the page.
+   */
+  describe("the pull_request_review_comment event", () => {
+    const reviewComment = (over: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        action: "created",
+        repository: { full_name: "o/r" },
+        pull_request: { number: 7 },
+        comment: { id: 88, body: "@cujo-guard seed the db", user: { login: "maintainer" } },
+        ...over,
+      });
+
+    const send = (app: ReturnType<typeof build>["app"], body: string) =>
+      app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: {
+            "x-github-event": "pull_request_review_comment",
+            "x-hub-signature-256": sign(body),
+          },
+          body,
+        }),
+      );
+
+    const withConverse = () => {
+      const questions: Record<string, unknown>[] = [];
+      const commands: Record<string, unknown>[] = [];
+      const harness = build({
+        converse: {
+          handle: async (r) => {
+            questions.push(r as Record<string, unknown>);
+          },
+        },
+        prCommands: {
+          handle: async (c) => {
+            commands.push(c as Record<string, unknown>);
+          },
+        },
+      });
+      return { ...harness, questions, commands };
+    };
+
+    it("hands the reply to conversation, naming the thread to answer in", async () => {
+      const { app, questions } = withConverse();
+      const res = await send(app, reviewComment());
+      expect(res.status).toBe(200);
+      expect(questions[0]).toMatchObject({
+        repo: "o/r",
+        prNumber: 7,
+        commentId: 88,
+        actor: "maintainer",
+        surface: { kind: "review_thread", commentId: 88 },
+      });
+    });
+
+    it("never routes a privileged verb through this surface", async () => {
+      // `/cujo confirm` decides a review, and narrowing the surfaces that can
+      // do that costs nothing: the command belongs on the pull request's own
+      // thread, where it is about the run rather than about one line.
+      const { app, commands, questions } = withConverse();
+      await send(app, reviewComment({ comment: { id: 88, body: "/cujo confirm", user: null } }));
+      expect(commands).toEqual([]);
+      expect(questions).toHaveLength(1);
+    });
+
+    it("refuses an unsigned delivery, like every other event on this route", async () => {
+      const { app, questions } = withConverse();
+      const body = reviewComment();
+      const res = await app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: {
+            "x-github-event": "pull_request_review_comment",
+            "x-hub-signature-256": "sha256=00",
+          },
+          body,
+        }),
+      );
+      expect(res.status).toBe(401);
+      expect(questions).toEqual([]);
+    });
+
+    it("acts on `created` only", async () => {
+      const { app, questions } = withConverse();
+      const res = await send(app, reviewComment({ action: "edited" }));
+      expect(await res.json()).toMatchObject({ ignored: "action" });
+      expect(questions).toEqual([]);
+    });
+
+    it("answers 200 and does nothing on a payload that is not the documented shape", async () => {
+      const { app, questions } = withConverse();
+      for (const body of [
+        "not json",
+        reviewComment({ pull_request: { number: "7" } }),
+        reviewComment({ comment: { id: 88, body: 42, user: null } }),
+      ]) {
+        const res = await send(app, body);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({ ignored: "malformed" });
+      }
+      expect(questions).toEqual([]);
+    });
+
+    it("answers 200 when conversation is not configured", async () => {
+      const { app } = build();
+      const res = await send(app, reviewComment());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ignored: "not_configured" });
+    });
   });
 
   describe("the repository event", () => {
