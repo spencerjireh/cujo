@@ -33,19 +33,31 @@ from cujo_sniff.scrub import scrub
 UNREADABLE = "unreadable"
 # In scope, and past HASH_MAX_BYTES.
 UNHASHED = "unhashed"
+# In scope, opened, and not the file that was measured -- swapped between the
+# `lstat` and the `open`, or no longer a regular file by then. Separate from
+# UNREADABLE because it is a thing that happened during this walk rather than a
+# standing fact about the filesystem.
+UNVERIFIED = "unverified"
 
-# The two ways a file in scope ends up without a digest. Neither is a content
+# The three ways a file in scope ends up without a digest. None is a content
 # verdict, so two of them are not agreement: where both snapshots land here the
-# comparison falls back to metadata, and `snapshot` counts the file so the
-# report can carry `truncated.hashes` and say the check was partial.
+# comparison falls back to metadata rather than declaring a change.
 #
-# It has to be a fallback rather than "always changed". Plenty of `/etc` is
-# root-owned and unreadable to this process from one run to the next --
-# `/etc/shadow` most of all -- and calling those modified every time would put a
-# non-lowerable `wrote_sensitive` critical on every check of every repository.
-# Whether an unreadable file's contents changed is genuinely not observable from
-# here; the honest move is to say the comparison did not happen, not to guess.
-NO_DIGEST = (UNHASHED, UNREADABLE)
+# It has to be a fallback. Plenty of `/etc` is root-owned and unreadable to this
+# process from one run to the next -- `/etc/shadow` most of all -- and calling
+# those modified every time would put a non-lowerable `wrote_sensitive` critical
+# on every check of every repository. Whether an unreadable file's contents
+# changed is genuinely not observable from here.
+NO_DIGEST = (UNHASHED, UNREADABLE, UNVERIFIED)
+
+# Which of those the report counts into `truncated.hashes`: the ones where this
+# walk could have compared the file and did not. A file the sensors have never
+# been able to read is not a gap that opened, it is a part of the filesystem
+# outside their reach -- the same standing condition as a directory `os.walk`
+# cannot descend into, which it already skips without comment. Counting it would
+# raise the flag on every run on every Linux box, and a flag that is always true
+# says nothing at all. See docs/spec.md Contract 2 for what that leaves open.
+UNCOMPARED = (UNHASHED, UNVERIFIED)
 
 # (mtime_ns, size, digest). The digest is None where the file was not in scope
 # for hashing, UNREADABLE where it was but could not be read, and UNHASHED where
@@ -125,9 +137,9 @@ def _digest(path: Path, st: os.stat_result) -> str | None:
             # was measured closes that; a mismatch is not a digest anyone should
             # trust, so it is recorded as one that could not be taken.
             if not stat.S_ISREG(opened.st_mode):
-                return UNREADABLE
+                return UNVERIFIED
             if (opened.st_ino, opened.st_dev) != (st.st_ino, st.st_dev):
-                return UNREADABLE
+                return UNVERIFIED
             h = hashlib.sha256()
             read = 0
             while chunk := os.read(fd, 65536):
@@ -177,7 +189,7 @@ def snapshot(
                 except OSError:
                     continue
                 digest = _digest(p, st) if should_hash(str(p), home_dir) else None
-                if digest in NO_DIGEST:
+                if digest in UNCOMPARED:
                     uncompared += 1
                 seen[str(p)] = (st.st_mtime_ns, st.st_size, digest)
                 # One past the cap, not at it. A tree holding exactly
@@ -201,10 +213,11 @@ def _unchanged(before: Entry, after: Entry) -> bool:
 
     A file that has a digest on one side and none on the other has changed, and
     that is the important half: readable before and not now, or hashed before
-    and swapped since, are both events. Where *neither* side has one there is
-    nothing to compare either, so it falls back to metadata and the walk counts
-    the file into `truncated.hashes`. That case is not observable from in here,
-    and a report that says so beats one that guesses -- in either direction.
+    and swapped since, are both events, and both are what a command does to a
+    file *while it runs*. Where neither side has one there is nothing to compare
+    either, so it falls back to metadata. That case is not observable from in
+    here, and a report that says so beats one that guesses -- in either
+    direction.
     """
     if before[:2] != after[:2]:
         return False

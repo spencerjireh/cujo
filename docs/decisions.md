@@ -2205,10 +2205,24 @@ to metadata rather than declaring a change. Much of `/etc` is root-owned and
 unreadable to the sensors from one run to the next, and `wrote_sensitive` is a
 `critical` the agent may not lower — so "unreadable twice means modified" would
 put a non-lowerable accusation on every check of every repository, which is a
-worse failure than the one it closes. Whether an unreadable file changed is
-genuinely not observable from inside the sandbox. The walk counts those files
-and the report carries `truncated.hashes`, which is this decision's whole thesis
-applied to its own weakest point: say the measurement did not happen.
+worse failure than the one it closes.
+
+Nor does it flag them. The first version of this counted every file without a
+digest into `truncated.hashes`, and CI is what showed that up: on any Linux box
+`/etc/shadow` is unreadable to the sensors, so the flag was true on every run
+ever. A flag that is always true is not evidence, it is furniture. So the count
+is the files this walk *could* have compared and did not — past the size cap, or
+swapped under it — and a file the sensors have never been able to read is
+treated as what it is: outside their reach, like a directory the walk cannot
+descend into and has always skipped in silence.
+
+That leaves one thing genuinely missed, and Contract 2 says so out loud rather
+than leaving it implied: a file held unreadable across both snapshots and edited
+in between, with size and timestamp restored. It is not observable from inside
+the sandbox in either direction. Saying which measurement did not happen is this
+decision's whole thesis, and the boundary of the thesis is that some of them
+cannot be measured *or* usefully flagged — at which point the honest move is to
+write the gap down where a reader will find it.
 
 The sensitive set grew at the same time and for the same reason: it held nine
 `$HOME` paths and `/etc/cron`, so a write to `/etc/sudoers.d/` or
