@@ -274,3 +274,38 @@ export interface RunRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * A run's checks and findings reduced to what a list row can hold
+ * (decision 65).
+ *
+ * `Projection` carries every sensor report in full, which is the right shape
+ * for one run and the wrong one for a hundred: the public list would have to
+ * parse a sensor report per row to answer "how long did tests take". This is
+ * that answer, derived once by `deriveDigest` and stored beside the projection
+ * it came from. It holds no fact the run's own detail route does not already
+ * publish.
+ */
+export interface RunDigest {
+  /**
+   * Keyed by `CHECK_NAMES`. A missing key means the check never appeared,
+   * which is not the same fact as a check that failed — `check_missing` is a
+   * hard rule precisely because those two differ.
+   */
+  checks: Partial<Record<CheckName, DigestCheck>>;
+  /** How many findings of each severity, at the time of the fold. */
+  findings: Record<Severity, number>;
+  /**
+   * Wall clock across the checks: the last `endedAt` minus the first
+   * `startedAt`. Null while a check is still running, and on a run recorded
+   * before those stamps existed. Deliberately not `updatedAt - createdAt`,
+   * which on a `blocked_pending` run counts the hours it waited on a person.
+   */
+  durationMs: number | null;
+}
+
+export interface DigestCheck {
+  status: CheckState["status"];
+  /** How long the check ran, or null while it runs and on an unstamped run. */
+  ms: number | null;
+}

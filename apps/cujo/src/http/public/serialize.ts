@@ -11,9 +11,21 @@
  * `PUBLIC_SOURCE_FIELDS` and `WITHHELD_SOURCE_FIELDS` together must cover every
  * key of `RunRecord` and `Projection`; the test asserts that, so a new field is
  * a red build until it has been classified.
+ *
+ * `RunDigest` is classified the same way but on its own list. It is derived
+ * from `checks` and `findings`, both already public above, so folding its keys
+ * into `SourceField` would collide on those two names and make the no-duplicate
+ * assertion unstatable — a third list keeps every key of every source type
+ * written down, which is the property that matters.
  */
 
-import type { CheckState, DraftedReview, Projection, RunRecord } from "../../review/types";
+import type {
+  CheckState,
+  DraftedReview,
+  Projection,
+  RunDigest,
+  RunRecord,
+} from "../../review/types";
 
 /** Every key the two source types have between them. */
 export type SourceField = keyof RunRecord | keyof Projection;
@@ -108,6 +120,17 @@ export const PUBLIC_RUN_FIELDS = [
   "usage",
 ] as const;
 
+/**
+ * Every key of `RunDigest`, all published (decision 65). Each is a reduction
+ * of `checks` or `findings`, which the detail route already serves in full to
+ * the same anonymous caller — this makes them cheap, not visible.
+ */
+export const PUBLIC_DIGEST_FIELDS: readonly (keyof RunDigest)[] = [
+  "checks",
+  "findings",
+  "durationMs",
+];
+
 /** Exactly the keys `serializePublicSummary` emits. */
 export const PUBLIC_SUMMARY_FIELDS = [
   "id",
@@ -120,6 +143,11 @@ export const PUBLIC_SUMMARY_FIELDS = [
   // The title alone. A list row names the pull request; the author belongs to
   // the page that is about one run, not to a column repeated down a table.
   "pr_title",
+  // What the checks reported, reduced (decision 65). A row carrying only a
+  // status says a run was blocked; this says which check said so and how long
+  // it watched, which is the difference between a verdict and evidence. Its
+  // own keys are guarded by `PUBLIC_DIGEST_FIELDS`.
+  "digest",
 ] as const;
 
 /**
@@ -198,8 +226,16 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
   };
 }
 
-/** One row of the public list. */
-export function serializePublicSummary(run: RunRecord) {
+/**
+ * One row of the public list.
+ *
+ * The digest's absence is a fact rather than a zero: a run claimed but never
+ * folded has no checks, which is not the same as four checks that reported
+ * nothing. It is null in that case rather than an empty digest, so a reader
+ * cannot mistake one for the other.
+ */
+export function serializePublicSummary(row: { run: RunRecord; digest: RunDigest | null }) {
+  const { run, digest } = row;
   return {
     id: run.id,
     repo: run.repo,
@@ -209,5 +245,18 @@ export function serializePublicSummary(run: RunRecord) {
     created_at: run.createdAt,
     updated_at: run.updatedAt,
     pr_title: run.prTitle,
+    // One nested field and not three loose ones. `checks` at the top level
+    // would collide with the detail route's `checks`, which is the same word
+    // for a different shape — the array of what each check said, against this
+    // reduction of how each one ended. Nested keys stay camelCase, the way
+    // `publicCheck` leaves `isCheck` and `startedAt`.
+    //
+    // Shaped rather than passed through, for the reason the rest of this file
+    // is: a field added to `RunDigest` has to be written into
+    // `PUBLIC_DIGEST_FIELDS` and then into this literal before it can reach
+    // the wire.
+    digest: digest
+      ? { checks: digest.checks, findings: digest.findings, durationMs: digest.durationMs }
+      : null,
   };
 }

@@ -106,6 +106,37 @@ export interface RunSummary {
    * and every render falls back to `repo #N` (decision 55).
    */
   pr_title: string | null;
+  /**
+   * What the four checks measured, reduced (decision 65). Null on a run
+   * claimed but never folded, and absent on a `run` frame from the SSE stream,
+   * which carries the detail shape instead — so a reader has to handle both,
+   * and `RunSummary` is the only place the reduction appears.
+   *
+   * Nested keys are camelCase, like every other nested object on this wire.
+   */
+  digest?: RunDigest | null;
+}
+
+export interface RunDigest {
+  /**
+   * A key that is missing is a check that never appeared, which the board must
+   * draw differently from one that ran and passed — `check_missing` is a hard
+   * rule precisely because those two differ.
+   */
+  checks: Partial<Record<CheckName, DigestCheck>>;
+  findings: Record<Severity, number>;
+  /**
+   * The envelope around the checks, not `updated_at − created_at`: the latter
+   * counts the hours a `blocked_pending` run waited on a person. Null while a
+   * check is still running, and on a run recorded before the stamps existed.
+   */
+  durationMs: number | null;
+}
+
+export interface DigestCheck {
+  status: CheckState["status"];
+  /** How long the check ran, or null while it runs and on an unstamped run. */
+  ms: number | null;
 }
 
 export interface RunList {
