@@ -28,6 +28,53 @@ function capture() {
   return { log, lines, of: (event: string) => lines.filter((l) => l.event === event) };
 }
 
+describe("the maintainer prompt", () => {
+  function poster() {
+    let posted = "";
+    const github = {
+      listPullFiles: vi.fn(async () => []),
+      createReview: vi.fn(async (_repo: string, _pr: number, req: { body: string }) => {
+        posted = req.body;
+        return { id: 1, html_url: "https://gh/r/1" };
+      }),
+    } as unknown as GitHubClient;
+    return { github, body: () => posted };
+  }
+
+  it("is appended to the observation that holds an accusation back", async () => {
+    const { log } = capture();
+    const { github, body } = poster();
+    await postReview(
+      github,
+      "COMMENT",
+      "post_advisory_review",
+      { ...input, accusation_follows: true },
+      "",
+      log,
+    );
+    expect(body()).toContain("Reply `/cujo confirm` or `/cujo dismiss`.");
+  });
+
+  it("is absent from the accusation, which cannot ask for it", async () => {
+    // The regression this exists for. The rubric used to quote the sentence for
+    // the agent to reproduce, and it reproduced it on both halves — so the
+    // published accusation asked a maintainer to confirm something they had
+    // already confirmed, since the approval is what let this call run at all.
+    const { log } = capture();
+    const { github, body } = poster();
+    await postReview(github, "REQUEST_CHANGES", "post_gated_review", input, "", log);
+    expect(body()).not.toContain("supply-chain pattern");
+    expect(body()).not.toContain("/cujo confirm");
+  });
+
+  it("is absent from an ordinary review that nothing follows", async () => {
+    const { log } = capture();
+    const { github, body } = poster();
+    await postReview(github, "COMMENT", "post_advisory_review", input, "", log);
+    expect(body()).not.toContain("/cujo confirm");
+  });
+});
+
 describe("review.posted", () => {
   it("records the repo, the tool and what was actually posted", async () => {
     const { log, of } = capture();
