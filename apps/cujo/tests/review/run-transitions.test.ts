@@ -575,7 +575,11 @@ describe("healing a wedged session", () => {
     // clear from the outside.
     const store = new Store(":memory:");
     const { log, logged } = sink();
-    const resume = vi.fn(async () => "t-deny");
+    const denied: string[] = [];
+    const resume = async (_session: string, approval: { toolCallId: string }) => {
+      denied.push(approval.toolCallId);
+      return "t-deny";
+    };
     // `consume` hydrates through `listEvents` too, so the re-read is counted
     // only once superseding has begun.
     let superseding = false;
@@ -612,8 +616,8 @@ describe("healing a wedged session", () => {
     superseding = true;
     await runner.supersede(run.id);
 
-    expect(resume).toHaveBeenCalledTimes(2);
-    expect(resume.mock.calls[1]?.[1]).toMatchObject({ toolCallId: "c2" });
+    // Both: the one it was handed, and the one the resumed turn raised.
+    expect(denied).toEqual(["c1", "c2"]);
     expect(logged("run.approval.reraised")[0]).toMatchObject({ session_id: "s", round: 1 });
     expect(logged("run.approval.cleared")).toHaveLength(2);
     runner.stopAll();
