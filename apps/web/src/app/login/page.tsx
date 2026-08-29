@@ -6,7 +6,7 @@ import { notFound, redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /**
- * Where an operator hands over the token, once (decision 48).
+ * Where an operator hands over the token, once (decision 49).
  *
  * A form post and an httpOnly cookie rather than a field in local storage: the
  * token gates every write on this plane, and a value a page can read is a value

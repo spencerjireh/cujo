@@ -38,7 +38,7 @@ export type AccessVerifier = (assertion: string | undefined) => Promise<AccessRe
  * A fixed string rather than a person, because a shared token names nobody —
  * and saying `operator` is honest where an email would have been a claim the
  * gate can no longer support. It is a downward swap of principal, which
- * decision 28 refused and decision 48 accepts only because the action that
+ * decision 28 refused and decision 49 accepts only because the action that
  * justified the email — publishing an accusation — moved to the pull request,
  * where the principal is repo write and the trail is a GitHub login.
  */
@@ -128,7 +128,7 @@ export function createAccessVerifier(options: {
       // request happened to carry: a reader would have to know which gate was
       // configured on the day to know what a row means. The plane records
       // `operator` because that is what it can prove about anyone who reaches
-      // it — an accusation is decided on the pull request now (decision 48).
+      // it — an accusation is decided on the pull request now (decision 49).
       return { operator: OPERATOR_IDENTITY, reason: null };
     } catch (error) {
       return { operator: null, reason: reasonFor(error) };

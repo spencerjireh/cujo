@@ -1,5 +1,5 @@
 /**
- * The operator gate, while it accepts two credentials (decision 48).
+ * The operator gate, while it accepts two credentials (decision 49).
  *
  * The token is where this plane is going; the Access assertion is what it has
  * today. Both work for one release so the token can be configured and the

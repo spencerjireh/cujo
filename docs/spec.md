@@ -599,7 +599,7 @@ list in order.
 | `session_id` | The TrueForge session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
 | `status` | One of the eight states below. |
-| `approver`, `decided_at` | Who decided and when. `github:<login>` for a decision made with `/cujo confirm` or `/cujo dismiss` on the pull request, which is the only way a held finding is answered (decisions 45 and 48); the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
+| `approver`, `decided_at` | Who decided and when. `github:<login>` for a decision made with `/cujo confirm` or `/cujo dismiss` on the pull request, which is the only way a held finding is answered (decisions 45 and 49); the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `created_at`, `updated_at` | Timestamps. |
@@ -725,7 +725,7 @@ the process, not only at the edge:
   forwards `Cf-Ray`, so a line from the UI and a line from this process share
   one correlation id.
 - Every route outside `/public` requires an operator credential, and there are
-  two for one release (decision 48). An `Authorization: Bearer` carrying
+  two for one release (decision 49). An `Authorization: Bearer` carrying
   `CUJO_OPERATOR_TOKEN`, compared in constant time, is where this plane is
   going; a `Cf-Access-Jwt-Assertion` that verifies against the Cloudflare
   Access public keys for the application's audience tag is what it has today.
@@ -946,7 +946,7 @@ the same way reverting a commit drops a declared one. An unreadable
 on the UI host still allows a pair directly, recorded in `authorized_by` as
 the fixed identity `operator` — a shared token names nobody, and saying so is
 honest where an email would be a claim the gate can no longer support
-(decision 48). It is for moving a repo between servers, and for a repo whose
+(decision 49). It is for moving a repo between servers, and for a repo whose
 `.cujo.yml` cannot be changed. It is no longer the way notifications are
 normally set up.
 

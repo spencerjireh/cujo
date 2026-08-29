@@ -47,7 +47,7 @@ describe("createAccessVerifier", () => {
     // shape Access issues — but it is not what gets recorded. `authorized_by`
     // must not depend on which transitional credential a request carried, or a
     // reader would need to know which gate was configured that day to know
-    // what a row means (decision 48).
+    // what a row means (decision 49).
     expect(await verify(await sign({ email: "op@example.com" }))).toEqual({
       operator: OPERATOR_IDENTITY,
       reason: null,
@@ -120,7 +120,7 @@ describe("devVerifier", () => {
 describe("verifyOperatorToken", () => {
   it("accepts the token and records the fixed identity", () => {
     // A shared token names nobody, and `operator` says so. An email here
-    // would be a claim the gate can no longer support (decision 48).
+    // would be a claim the gate can no longer support (decision 49).
     expect(verifyOperatorToken("s3cret", "s3cret")).toEqual({
       operator: OPERATOR_IDENTITY,
       reason: null,

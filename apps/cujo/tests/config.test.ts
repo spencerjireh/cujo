@@ -25,7 +25,7 @@ describe("loadConfig", () => {
     expect(dev.cfAccessAud).toBe("");
     // The other way out, and what makes the two gates orderable: a deploy that
     // has set the token no longer has to keep the Access values around to
-    // start (decision 48).
+    // start (decision 49).
     const tokened = loadConfig({ ...withoutAud, CUJO_OPERATOR_TOKEN: "s3cret" });
     expect(tokened.operatorToken).toBe("s3cret");
     expect(tokened.cfAccessAud).toBe("");

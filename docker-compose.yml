@@ -101,7 +101,7 @@ services:
       # name too, still behind the Access check.
       CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: ${CUJO_WEBHOOK_HOST}
-      # The operator gate (decision 48). Both credentials are accepted for one
+      # The operator gate (decision 49). Both credentials are accepted for one
       # release, so the token can be set and the Access application removed in
       # either order; the CF_ACCESS_* pair is required only while the token is
       # unset. Defaulted to empty so a deploy that has moved on can drop them.

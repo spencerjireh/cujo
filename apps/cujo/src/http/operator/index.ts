@@ -6,7 +6,7 @@
  * verification twice per request and no test would notice, so the gate stays
  * in exactly one place and the groups assume it.
  *
- * **Two credentials for one release** (decision 48). A bearer token is what
+ * **Two credentials for one release** (decision 49). A bearer token is what
  * this plane is moving to; a Cloudflare Access assertion is what it has today.
  * Both are accepted here so the token can be configured and the Access
  * application removed in either order, because merging is the deploy and a
