@@ -9,9 +9,8 @@ first. For what Cujo is and how to run it, see the [top-level README](../README.
 - [spec.md](spec.md) — the contracts the code follows: the trigger, the sandbox
   run and its check reports, findings and the hard rules, and the approval
   model.
-- [hitl.md](hitl.md) — a design, not yet built: the human gate moves from a
-  Cloudflare Access route to the pull request itself, and narrows to accusations.
-- [decisions.md](decisions.md) — every load-bearing choice and its reason.
+- [decisions.md](decisions.md) — every load-bearing choice and its reason,
+  indexed, with each superseded entry naming the entry that replaced it.
 - [demo.md](demo.md) — the three demo pull requests and the judging narrative
   (tentative).
 - [hackathon.md](hackathon.md) — the event Cujo is built for: dates, requirements,

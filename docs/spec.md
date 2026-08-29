@@ -41,18 +41,17 @@ The split between deterministic code and agent reasoning is fixed:
 ## Non-goals (for this milestone)
 
 - Private repos and self-hosted Daytona.
-- TLS interception of sandbox egress (metadata only for now; see the
-  egress-depth decision).
+- TLS interception of sandbox egress; metadata only (decision 10).
 - Forcing all sandbox traffic through the proxy. The proxy sees processes that
   honour `HTTP(S)_PROXY`; a non-Python process that opens a direct socket is
   not observed. A network-namespace or iptables redirect inside the sandbox
   closes that gap later.
 - Remediation (a fix PR on `critical`) is a stretch, not a requirement.
 - Answering a held finding from Discord. Contract 7 notifies; it does not
-  decide. The design leaves room for an interactions endpoint on the webhook
-  host, but the button is not built: being in a channel is not a claim about a
-  repository (decision 23). The gate itself lives on the pull request, where
-  the principal is repo write (Contract 1, decisions 44 and 45).
+  decide. The interactions endpoint on the webhook host exists and carries
+  `/cujo` (Contract 8), but nothing on it decides a review: being in a channel
+  is not a claim about a repository (decision 23). The gate lives on the pull
+  request, where the principal is repo write (Contract 1, decisions 44 and 45).
 
 ## Contract 1 — the trigger
 
@@ -441,14 +440,8 @@ pulled in only for the consequential action. Three tool paths on `github-mcp`:
 | `post_blocking_review` | every `critical` is a correctness finding | REQUEST_CHANGES (blocks merge) | No — posts automatically |
 | `post_gated_review` | any `critical` is a malice finding | REQUEST_CHANGES (blocks merge) | **Yes** — pauses for human approval |
 
-**The gate is on the accusation, not on the block** (decision 42). Blocking a
-merge is consequential but reversible: anyone with write access dismisses a
-`REQUEST_CHANGES` in one click, and "your tests fail" is mechanical enough that
-no reasonable person answers "no" to it, so asking is ceremony. Naming code as
-malicious is not reversible — the text is in the record permanently and it harms
-someone if it is wrong — and it is the one judgment where a human holds
-information the sandbox cannot observe. Contract 3's table says which rule makes
-which kind of claim.
+**The gate is on the accusation, not on the block** (decision 42). Contract 3's
+table says which rule makes which kind of claim.
 
 **A malice finding posts twice, in order: observation, then conclusion.** The
 first call goes always, stating what the sensors recorded as fact, marking the
@@ -461,9 +454,7 @@ head is not double-posting.
 
 **A run can hold both kinds at once, and the correctness half must not wait.**
 When a malice rule and `tests.base_pass_head_fail` trip together, the first call
-is `post_blocking_review` rather than the advisory: the broken test is confirmed
-and mechanical, and holding it behind a question about something else would
-leave a merge unblocked that was never in doubt. That body carries the
+is `post_blocking_review` rather than the advisory. That body carries the
 correctness findings as `critical` and the malice observations as `warn`; the
 gated call that follows carries only the accusation. The ordered pair is
 therefore blocking-then-gated for a mixed run and advisory-then-gated for a pure
@@ -508,8 +499,6 @@ feature.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.
-(Posting a formal APPROVE on a clean run for a green check is a later option if
-we want the nicer UX.)
 
 The gate is the harness's `require_approval_for_tools` on `post_gated_review`,
 and that one name is the whole mechanism: the annotation `@destructive` marks
@@ -520,8 +509,10 @@ after posting the observation, and the turn pauses with a `tool.approval_require
 event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
 `apps/cujo` reads the drafted review (the tool call's `body` and `comments[]`)
 from the `model.message` event that `source_event_id` names, marks the run
-`blocked_pending`, and shows the review with the findings and the evidence in
-the Cujo UI. A human approves or rejects there. `apps/cujo` resumes the turn
+`blocked_pending`, and shows the drafted review on the operator plane, which
+displays it but decides nothing. The answer comes from `/cujo confirm` or
+`/cujo dismiss` on the pull request (Contract 8, decisions 45 and 49), and
+`apps/cujo` resumes the turn
 with `sessions.createTurn(sessionId, {input: [{type:
 'user.tool_approval', threadId: 'main', toolCallId, approval: {status:
 'allow' | 'deny'}}]})` and then `subscribeToTurn` on the returned id, which it
@@ -541,15 +532,9 @@ retry if a turn cannot be started at all; the reason it sends says the commit
 was replaced, not that an operator rejected the block, and the run stays
 `superseded` with no approver (decision 39).
 
-The review body carries the findings, the signals behind them, and the
-execution summary, so the human confirms a judgment rather than reconstructing
-it.
-
 A REQUEST_CHANGES review only *blocks* a merge when the target repo's default
 branch has branch protection requiring PR review. Without it, the review still
-posts and shows as changes-requested, but does not gate the merge. So `orders-api`
-needs branch protection enabled on `main` for the block to bite (a setup step on
-that repo, done later).
+posts and shows as changes-requested, but does not gate the merge.
 
 ## Contract 5 — one session per PR, no double-posting
 
@@ -649,9 +634,8 @@ appended to `turn_ids`, the gated call's `tool.response` moves the run to
 `blocked_posted` or its absence to `denied`, and `approver` is set to
 `external`. The UI shows such a run with an "approved outside Cujo" mark
 instead of a name. The run cannot go stale, and the audit trail records that
-the decision bypassed the approve route rather than pretending it did not
-happen. The operator-console rule in decision 17 says not to do this; the
-projection makes it survivable when someone does.
+the decision was made outside Cujo rather than pretending it did not happen
+(decision 17).
 
 The four checks are matched to subagent threads by title. The parent titles
 each spawned thread exactly `tests`, `probes`, `smoke`, or `detonation`; a
@@ -712,17 +696,17 @@ the process, not only at the edge:
   404 to `/webhook`. A request with any other `Host` gets 404. The internal name
   exists because the UI reaches this process over the compose network
   and Node's `fetch` always sends the target's own authority as `Host`; those
-  routes are not exempt from the Access check.
+  routes are not exempt from the gate.
 - The plane split is by path, not by a third hostname, for that same reason:
   this process never receives the public name, so a fourth branch in the host
   dispatch would have to trust a forwarded header, and a header a client can
   also send is not a boundary. `/public` is mounted on its own router beside
-  the gated one rather than under it, so the Access middleware cannot match it
+  the gated one rather than under it, so the gate middleware cannot match it
   by accident.
 - The UI itself is `apps/web`, a separate service on both
   `cujo.spencerjireh.com` and `cujo-admin.spencerjireh.com`. It proxies
-  `/api/cujo/*` and the run stream to this process, forwarding the Access
-  assertion on the operator hostname and forwarding none — and refusing any
+  `/api/cujo/*` and the run stream to this process, attaching the operator
+  credential on the operator hostname and attaching none — and refusing any
   path outside `/public` — on the public one, so the API is same-origin with
   the page and needs no public route of its own (decision 27). When this
   process is unreachable the proxy answers `502` with
@@ -732,18 +716,17 @@ the process, not only at the edge:
   one correlation id.
 - Every route outside `/public` requires an operator credential, and there are
   two for one release (decision 49). An `Authorization: Bearer` carrying
-  `CUJO_OPERATOR_TOKEN`, compared in constant time, is where this plane is
-  going; a `Cf-Access-Jwt-Assertion` that verifies against the Cloudflare
-  Access public keys for the application's audience tag is what it has today.
+  `CUJO_OPERATOR_TOKEN`, compared in constant time, is the live one; a
+  `Cf-Access-Jwt-Assertion` that verifies against the Cloudflare Access public
+  keys for the application's audience tag is still accepted, though the
+  `cujo-admin` Access application it came from has since been removed.
   A missing or invalid credential is a bare 401 either way — naming the failing
   check tells a stranger how to pass it — and the reason goes to the log. A
   presented token that is wrong is refused rather than falling through to
   Access: whoever sent it meant to use that gate.
 
-  Both are accepted so the token can be configured and the Access application
-  removed in either order. Merging is the deploy (decision 35), and a gate that
-  accepts only the credential nobody has issued yet locks the operator out of
-  their own board.
+  Both are accepted so the token could be configured and the Access application
+  removed in either order (decision 35).
 
   The browser never holds the token in JavaScript. `apps/web` takes it once at
   `/login`, keeps it in an httpOnly cookie on its own origin, and turns it into
@@ -755,7 +738,7 @@ the process, not only at the edge:
 
 Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
 subagent was given the review tool, which the design forbids. `apps/cujo` logs
-it, marks the run `error`, and does not offer an approve button for it.
+it and marks the run `error`; no `/cujo` command can decide it.
 
 ## Contract 7 — Discord notifications
 
@@ -855,8 +838,8 @@ safe direction. The channel is pinned to the run when its card is created, so
 re-pointing a repo mid-run cannot edit a message into a channel that never held
 it.
 
-The API `apps/cujo` serves on `cujo.spencerjireh.com`, behind the same Access
-check as every other route in Contract 6:
+The API `apps/cujo` serves on `cujo-admin.spencerjireh.com`, behind the same
+operator credential as every other gated route in Contract 6:
 
 | Route | Returns or does |
 |-------|-----------------|
@@ -899,11 +882,9 @@ line. Nothing on the notification path touches the sandbox at all.
 
 ## Contract 8 — the `/cujo` slash command
 
-Contract 7 routes notifications; deciding where they go was an operator's job
-over the Access-gated API. That put the fiddly part — which channel, which
-role — in the wrong place, behind a login the people who care about the channel
-may not have. This contract moves that choice into Discord without moving the
-decision that matters.
+Contract 7 routes notifications. This contract decides where they go: the
+choice of channel and role is made in Discord, and the decision of which server
+may see a repo at all stays with the repo (decisions 28 and 31).
 
 **Two halves** (decisions 28 and 31). They answer different questions and are
 proved by different people. Neither alone does anything:
@@ -950,8 +931,7 @@ the same way reverting a commit drops a declared one. An unreadable
 
 **The operator override.** `PUT /discord/authorizations/:guildId/:owner/:name`
 on the UI host still allows a pair directly, recorded in `authorized_by` as
-the fixed identity `operator` — a shared token names nobody, and saying so is
-honest where an email would be a claim the gate can no longer support
+the fixed identity `operator`, because a shared token names nobody
 (decision 49). It is for moving a repo between servers, and for a repo whose
 `.cujo.yml` cannot be changed. It is no longer the way notifications are
 normally set up.
@@ -991,8 +971,7 @@ render as native pickers; `repo:` is completed from every repo the Cujo App is
 installed on. It is deliberately not narrowed to the ones this server may
 watch: that would mean reading each repo's `.cujo.yml` on every keystroke,
 against a three-second budget. `watch` does one targeted read for the repo that
-was picked and says exactly what to add if it has not named this server, which
-teaches more than a row missing from a dropdown.
+was picked, and says exactly what to add if it has not named this server.
 
 | Subcommand | Does |
 |------------|------|
@@ -1048,7 +1027,8 @@ longer than Discord's 100-character choice limit is not offered by autocomplete
 
 **Transport.** `POST /discord/interactions` on `cujo-ingress.spencerjireh.com`,
 the same host as the GitHub webhook and for the same reason (decision 7):
-Discord cannot solve a Cloudflare Access challenge. It is signature-gated
+Discord carries no operator credential and cannot answer a login challenge, so
+a gated host could never receive it. It is signature-gated
 ingress, so the UI host answers 404 for it, in the process and not only at the
 edge.
 
@@ -1246,9 +1226,10 @@ comment that does not mention Cujo at all, which is silence by design.
 
 ## Stretch — remediation
 
-If hackathon time allows, add a third gated tool `open_remediation_pr`: on a
-`critical` finding with an obvious fix (a broken test the agent can repair, a
-dependency to remove or pin), the agent opens a fix PR. The human approves
-opening it. This turns Cujo from a reviewer into a gatekeeper that also proposes
-the fix — a stronger demonstration of an agent taking a real, sensitive action
-under human oversight.
+A fourth gated tool `open_remediation_pr`: on a `critical` finding with an
+obvious fix (a broken test the agent can repair, a dependency to remove or pin),
+the agent opens a fix PR and a human approves opening it. Not built. It needs
+`contents: write`, which every installation would have to re-approve, and it
+must be reconciled with the teaching flow in
+[issue #56](https://github.com/spencerjireh/cujo/issues/56), which writes to the
+same file through the same mechanism.

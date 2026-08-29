@@ -4,6 +4,60 @@ Load-bearing choices and why they were made. Newest context wins. A decision
 that is reversed after it was built or shown is noted here rather than deleted
 (see 6); a design that was only ever on paper is rewritten in place.
 
+## Index
+
+1. [Build on stock TrueForge — no fork](#1-build-on-stock-trueforge--no-fork)
+2. [Hosted mode on Hetzner via Coolify, gated by Cloudflare Access](#2-hosted-mode-on-hetzner-via-coolify-gated-by-cloudflare-access)
+3. [In-sandbox logging proxy — not Daytona's `outboundProxyUrl`](#3-in-sandbox-logging-proxy--not-daytonas-outboundproxyurl)
+4. [Bot identity is a GitHub App — `cujo-guard[bot]`](#4-bot-identity-is-a-github-app--cujo-guardbot)
+5. [The agent posts the review via MCP, not the `apps/cujo` code](#5-the-agent-posts-the-review-via-mcp-not-the-appscujo-code)
+6. [Reviews auto-post; the human gate is on the block](#6-reviews-auto-post-the-human-gate-is-on-the-block)
+7. [The webhook route is on a non-Access hostname](#7-the-webhook-route-is-on-a-non-access-hostname)
+8. [A free-tier model provider for inference; hosted Daytona for the sandbox](#8-a-free-tier-model-provider-for-inference-hosted-daytona-for-the-sandbox)
+9. [Code senses, the agent judges, hard rules guard the dangerous cases](#9-code-senses-the-agent-judges-hard-rules-guard-the-dangerous-cases)
+10. [Sensors: language-agnostic base, Python audit hook on top, TLS later](#10-sensors-language-agnostic-base-python-audit-hook-on-top-tls-later)
+11. [Cujo reviews the whole PR by running it; detonation is one check](#11-cujo-reviews-the-whole-pr-by-running-it-detonation-is-one-check)
+12. [Findings with severity, not a single verdict](#12-findings-with-severity-not-a-single-verdict)
+13. [Agent infers repo commands; `.cujo.yml` overrides](#13-agent-infers-repo-commands-cujoyml-overrides)
+14. [One subagent per check](#14-one-subagent-per-check)
+15. [No tests means one `warn` and stop](#15-no-tests-means-one-warn-and-stop)
+16. [One session per PR; `apps/cujo` owns idempotency](#16-one-session-per-pr-appscujo-owns-idempotency)
+17. [Cujo owns the operator UI; TrueForge is a dependency, not a destination](#17-cujo-owns-the-operator-ui-trueforge-is-a-dependency-not-a-destination)
+18. [`apps/cujo` is a projection of TrueForge, not a source of truth](#18-appscujo-is-a-projection-of-trueforge-not-a-source-of-truth)
+19. [The sensor script reaches the sandbox by public URL, not by upload](#19-the-sensor-script-reaches-the-sandbox-by-public-url-not-by-upload)
+20. [One run, one turn chain; the newest head supersedes the rest](#20-one-run-one-turn-chain-the-newest-head-supersedes-the-rest)
+21. [The hard rules are re-derived in `apps/cujo`, not only in the rubric](#21-the-hard-rules-are-re-derived-in-appscujo-not-only-in-the-rubric)
+22. [A brand system in `brand/`: guard dog, amber, dark and light](#22-a-brand-system-in-brand-guard-dog-amber-dark-and-light)
+23. [Discord is notified by `apps/cujo`, not by the agent, and it notifies only](#23-discord-is-notified-by-appscujo-not-by-the-agent-and-it-notifies-only)
+24. [The repo-to-channel binding lives in the store, not the environment](#24-the-repo-to-channel-binding-lives-in-the-store-not-the-environment)
+25. [New tables, not new columns: the store has no migration path](#25-new-tables-not-new-columns-the-store-has-no-migration-path)
+26. [Every Discord payload is treated as attacker-controlled](#26-every-discord-payload-is-treated-as-attacker-controlled)
+27. [The operator UI is `apps/web`; `apps/cujo` becomes API-only](#27-the-operator-ui-is-appsweb-appscujo-becomes-api-only)
+28. [Two tiers: an operator authorizes a server, the server configures itself](#28-two-tiers-an-operator-authorizes-a-server-the-server-configures-itself)
+29. [Slash commands over the HTTP interactions endpoint, registered per server](#29-slash-commands-over-the-http-interactions-endpoint-registered-per-server)
+30. [The store gets a migration path, at the first change that needed one](#30-the-store-gets-a-migration-path-at-the-first-change-that-needed-one)
+31. [The repo declares its Discord server; the operator route becomes an override](#31-the-repo-declares-its-discord-server-the-operator-route-becomes-an-override)
+32. [The file tree carries the trust boundary, not the layer](#32-the-file-tree-carries-the-trust-boundary-not-the-layer)
+33. [The origin accepts Cloudflare only; the ACME path is bypassed to match](#33-the-origin-accepts-cloudflare-only-the-acme-path-is-bypassed-to-match)
+34. [The run board is public and read-only; the operator surface moves hosts](#34-the-run-board-is-public-and-read-only-the-operator-surface-moves-hosts)
+35. [Merging is the deploy, so an env-coupled change is valid on both sides](#35-merging-is-the-deploy-so-an-env-coupled-change-is-valid-on-both-sides)
+36. [The review links to its own evidence, and the bot wears the brand](#36-the-review-links-to-its-own-evidence-and-the-bot-wears-the-brand)
+37. [Logging is a closed vocabulary on stdout, and readiness is not liveness](#37-logging-is-a-closed-vocabulary-on-stdout-and-readiness-is-not-liveness)
+38. [`apps/cujo` may write a reaction; the gate is about reviews, not writes](#38-appscujo-may-write-a-reaction-the-gate-is-about-reviews-not-writes)
+39. [A superseded run answers its pending approval](#39-a-superseded-run-answers-its-pending-approval)
+40. [A single-server deploy may name its server, and skip the declaration](#40-a-single-server-deploy-may-name-its-server-and-skip-the-declaration)
+41. [One sensed command at a time, and one audit log per command](#41-one-sensed-command-at-a-time-and-one-audit-log-per-command)
+42. [The projection holds two reviews, and a blocking review can end a run](#42-the-projection-holds-two-reviews-and-a-blocking-review-can-end-a-run)
+43. [`apps/cujo` may reply on a pull request, because a person asked it to](#43-appscujo-may-reply-on-a-pull-request-because-a-person-asked-it-to)
+44. [Repo write is the principal that may publish an accusation](#44-repo-write-is-the-principal-that-may-publish-an-accusation)
+45. [The signature-gated plane may answer a held finding](#45-the-signature-gated-plane-may-answer-a-held-finding)
+46. [The sensors are a package, delivered as a source archive](#46-the-sensors-are-a-package-delivered-as-a-source-archive)
+47. [Conversation runs in its own session, and the agent that answers cannot write](#47-conversation-runs-in-its-own-session-and-the-agent-that-answers-cannot-write)
+48. [`sniff.py` is an entry point, and state lives beside the code](#48-sniffpy-is-an-entry-point-and-state-lives-beside-the-code)
+49. [The operator plane swaps an email for a shared token, because it no longer decides anything](#49-the-operator-plane-swaps-an-email-for-a-shared-token-because-it-no-longer-decides-anything)
+50. [`issue_comment` costs the App a permission, and decision 43's check did not cover it](#50-issue_comment-costs-the-app-a-permission-and-decision-43s-check-did-not-cover-it)
+51. [A shipped design document is deleted, and the log carries its own reversals](#51-a-shipped-design-document-is-deleted-and-the-log-carries-its-own-reversals)
+
 ## 1. Build on stock TrueForge — no fork
 
 Use the published `@truefoundry/trueforge` package as-is. The rubric rewards
@@ -13,6 +67,9 @@ maintenance and risk for no score. Everything Cujo needs is reachable through
 configuration and the SDK.
 
 ## 2. Hosted mode on Hetzner via Coolify, gated by Cloudflare Access
+
+**Superseded in part by 34 and 49.** The operator plane's Access gate is
+gone; the `cujo-harness` console gate stands.
 
 TrueForge runs in hosted mode (Postgres + Redis) on one Hetzner server, deployed
 by Coolify. Its bundled UI is reachable at `cujo-harness.spencerjireh.com` as an
@@ -53,6 +110,9 @@ action. If plumbing posted the review, the "agent, gated by a human" story would
 be hollow. `github-mcp` is a small server we own that authenticates as the App.
 
 ## 6. Reviews auto-post; the human gate is on the block
+
+**Superseded by 42.** The gate no longer fires on any blocking review, only
+on the accusation.
 
 Gating every review post would turn an automation tool into a manual one and
 destroy its value. Instead, advisory reviews post automatically, and the
@@ -165,6 +225,9 @@ a diff-only review (which Qodo already provides).
 
 ## 16. One session per PR; `apps/cujo` owns idempotency
 
+**Refined by 47.** One session per pull request still holds for the review;
+conversation runs in a second session of its own.
+
 A PR maps to one TrueForge session keyed by repo and PR number; a
 `synchronize` event runs a new turn in it, so the agent can see what it said
 before. `apps/cujo` checks the PR's existing reviews before starting a turn and
@@ -172,6 +235,9 @@ skips it if `cujo-guard[bot]` already reviewed the current head SHA. That keeps
 a retried webhook from double-posting and keeps `github-mcp` write-only.
 
 ## 17. Cujo owns the operator UI; TrueForge is a dependency, not a destination
+
+**Superseded by 27.** The operator UI is `apps/web`; `apps/cujo` is API-only.
+The rule that nobody approves in the TrueForge console still holds.
 
 The human who approves a block does it in Cujo's own UI, not in TrueForge's
 bundled chat. `apps/ingress` grows into `apps/cujo`: one service that receives
@@ -250,6 +316,9 @@ records the approver's email on the run as the human-oversight audit trail.
 
 ## 19. The sensor script reaches the sandbox by public URL, not by upload
 
+**Superseded by 46.** The sensors are a package, delivered as a source
+archive from `CUJO_SNIFF_TARBALL_URL`.
+
 The agent fetches `sniff.py` with `curl` from `CUJO_SNIFF_URL`, the raw GitHub
 URL of this repo's `main`, before any check runs. Nothing on the server pushes
 the file in, so the trust boundary stays as decision 4 states it: the only
@@ -265,6 +334,9 @@ are the natural next step: `agent/SKILL.md` is already in the skill format so
 registering it as a skill later is a bootstrap call, not a rewrite.
 
 ## 20. One run, one turn chain; the newest head supersedes the rest
+
+**Superseded in part by 39.** A superseded run answers its pending approval
+before it cancels its turn.
 
 Decision 16 puts every run on a PR in one session, so a run must know which
 turns on that session are its own. It records the id of each turn it creates
@@ -373,6 +445,9 @@ the earlier heads.
 
 ## 24. The repo-to-channel binding lives in the store, not the environment
 
+**Superseded by 28, then by 31.** The binding is no longer an operator's
+errand behind a login.
+
 An environment variable would need a redeploy to add a repo, could not be
 validated, and has nowhere to put `notify_role_id`. The binding is operator
 data, so it sits next to the runs and is written over the API behind Cloudflare
@@ -473,6 +548,9 @@ to reach against a live stack and is deliberately not in CI, where its browser
 download would roughly double the install.
 
 ## 28. Two tiers: an operator authorizes a server, the server configures itself
+
+**Superseded by 31 and 49.** The repo declares its own server, and the
+operator plane's principal is a shared token, not a policy-checked email.
 
 Decision 24 put the repo-to-channel binding behind Cloudflare Access, which
 made every routing change an operator's errand and put the choice behind a
@@ -1320,8 +1398,8 @@ both cases.
 ## 42. The projection holds two reviews, and a blocking review can end a run
 
 Decision 6 said reviews auto-post and the gate fires on a blocking review.
-Design 1 in [hitl.md](hitl.md) narrows that gate to the accusation, which needs
-two things the projection could not express.
+Design 1 of the HITL design (removed in decision 51) narrows that gate to the
+accusation, which needs two things the projection could not express.
 
 **Two slots, not one.** A run on the malice path posts its observation as an
 advisory review and holds its conclusion for a human, so it holds two reviews at
@@ -1373,6 +1451,9 @@ alternative is keeping every REQUEST_CHANGES gated, which is the ceremony this
 change removes.
 
 ## 43. `apps/cujo` may reply on a pull request, because a person asked it to
+
+**Corrected by 50.** Its conclusion that no installation has to re-approve
+did not cover `issue_comment`, which costs the App `issues: read`.
 
 Decision 38 let `apps/cujo` write a reaction, on the argument that the rule
 being protected is that **nothing states a finding on a pull request without a
@@ -1431,10 +1512,10 @@ the event subscription the same design needs. The App now also holds
 
 ## 44. Repo write is the principal that may publish an accusation
 
-[hitl.md](hitl.md) ends by naming the question it does not answer: *who, exactly,
-is the principal that may publish a public accusation naming a third party, and
-is repo write access that principal?* Design 2 rests entirely on the answer. It
-is yes, with one exception.
+The HITL design (removed in decision 51) ended by naming the question it did not
+answer: *who, exactly, is the principal that may publish a public accusation
+naming a third party, and is repo write access that principal?* Design 2 rests
+entirely on the answer. It is yes, with one exception.
 
 Repo write is **broader** than the policy-verified email decision 34 kept Access
 for, not narrower. It includes the pull request's author, every bot with write
@@ -1875,8 +1956,58 @@ agent reads an issue. It exists to make one webhook arrive.
 `pull_requests`, which the App already held for the review itself.
 
 The rejected alternative was **`author_association` from the payload**, which
-arrives free and needs no permission. `hitl.md` had already ruled it out for
-authorization, and it is ruled out here for the same reason: `COLLABORATOR` does
+arrives free and needs no permission. The HITL design had already ruled it out
+for authorization, and it is ruled out here for the same reason: `COLLABORATOR` does
 not distinguish triage from push, so it is not the repo-write check decision 44
 requires. Trading the accuracy of the principal for a permission grant is the
 wrong side of that trade.
+
+## 51. A shipped design document is deleted, and the log carries its own reversals
+
+`docs/hitl.md` was written before designs 1, 2, 3 and 5 were built. Once they
+shipped it stopped being a plan and became a second, competing description of
+the running system — and a wrong one. It opened "A design that is not built
+yet". It said "the last decision is **41**; new entries start at **42**" while
+this file was at 50. Its "Documentation this changes" table was a to-do list of
+edits already applied. Its "Still open" items had been answered by 47 and by
+Contract 6, and the question it says it does not answer was answered by 44.
+
+That is not staleness anyone can read past. A design document and a spec that
+disagree do not average out; the reader believes whichever they opened, and this
+one was linked from `docs/README.md` as current. Deleting it is the correction.
+
+**Design 4 survives as [issue #56](https://github.com/spencerjireh/cujo/issues/56).**
+It was the only part never built, and it is worth building: a maintainer says a
+host is theirs, Cujo opens a `.cujo.yml` pull request, and merging it is the
+authorization. The issue re-derives every citation, because the document's had
+rotted — it claimed `findings.ts` honours a `known` flag on egress rows, and
+that suppression moved into `sandbox/cujo_sniff/report.py` at 46 and 48. It also
+records the blocker the document could not know about: the conversation agent
+that would hear the request has no write tool, by 47.
+
+**The six user flows move to `docs/architecture.md`.** They describe how the
+shipped system behaves end to end and existed nowhere else. Flow E is marked
+unbuilt and points at the issue.
+
+**This file gains an index and superseded banners.** Append-only was the right
+rule and it is unchanged; what was missing is that a reversed entry gave no sign
+it had been reversed, so a top-down read produced confident wrong answers about
+Access (2), the gate's scope (6), where the operator UI lives (17), how the
+sensors reach the sandbox (19), and the Discord binding's principal (24, 28)
+until the reversal turned up hundreds of lines later. Each such entry now names
+its successor in one line under its heading. Only the superseded side needed it:
+by house style a superseding entry already opens by saying what it corrects.
+
+Two entries that look reversed and are not, recorded so nobody "fixes" them: 16
+stands — "a session per head SHA, which reverses decision 16" appears inside 39
+as a *rejected* alternative, and 47's second session refines 16 rather than
+replacing it. And 38 → 43 → 47 is one rule widening under a constant argument,
+not a reversal.
+
+Rejected: **keeping `hitl.md` as a dated tombstone**, which leaves rotted
+line-number citations a reader cannot tell from live ones, and leaves the
+document still linked from the index. **Rewriting it into past tense**, which
+buys a second narration of what `spec.md` and this file already hold, and
+guarantees a third contradiction later. **Leaving the reversals unmarked and
+relying on "newest context wins"**, which is a rule about how to resolve a
+conflict, not a way to notice there is one.
