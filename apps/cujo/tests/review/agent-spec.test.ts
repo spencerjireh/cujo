@@ -141,6 +141,20 @@ describe("buildAgentSpec", () => {
     });
   });
 
+  it("passes the reasoning effort through, and omits params when it is unset", () => {
+    // Absent, not empty. Every key in `params` reaches the provider as-is, and
+    // a model that does not reason answers an empty `reasoning_effort` with an
+    // error rather than a default (decision 53).
+    expect(buildAgentSpec(config, "r").model).toEqual({ name: "p/m" });
+    expect("params" in buildAgentSpec(config, "r").model).toBe(false);
+
+    const thinking = { ...config, modelReasoningEffort: "low" } as Config;
+    expect(buildAgentSpec(thinking, "r").model).toEqual({
+      name: "p/m",
+      params: { reasoningEffort: "low" },
+    });
+  });
+
   it("carries no server-side secret into the spec the sandbox runs under", () => {
     // The spec defines the session the sandbox runs in, so it is the one place
     // a secret could cross the trust boundary. buildAgentSpec takes only the
@@ -218,6 +232,16 @@ describe("buildConverseSpec", () => {
       sandbox: { enabled: true },
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
+    });
+  });
+
+  it("runs at the same reasoning effort as the reviewer", () => {
+    // One setting, both agents. A conversation that reasons less than the
+    // review it is explaining would contradict it for no stated reason.
+    const thinking = { ...config, modelReasoningEffort: "low" } as Config;
+    expect(buildConverseSpec(thinking, "rubric").model).toEqual({
+      name: "p/m",
+      params: { reasoningEffort: "low" },
     });
   });
 

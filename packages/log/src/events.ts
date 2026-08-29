@@ -121,6 +121,10 @@ export const EVENT_NAMES = [
   "review.posted",
   "review.failed",
   "review.anchor.moved",
+  // Stale review dismissal (decision 52).
+  "review.stale.skipped",
+  "review.stale.dismissed",
+  "review.stale.dismiss.failed",
   "mcp.request.failed",
   // apps/web's route handlers.
   "proxy.rejected",

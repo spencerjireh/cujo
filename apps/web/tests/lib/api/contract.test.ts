@@ -230,7 +230,7 @@ describe("the public wire shape tracks apps/cujo", () => {
     "created_at",
     "updated_at",
     // What the pull request says about itself: already world-readable on
-    // GitHub for every repo this plane serves (decision 52).
+    // GitHub for every repo this plane serves (decision 54).
     "pr_title",
   ];
 

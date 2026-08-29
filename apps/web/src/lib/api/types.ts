@@ -112,7 +112,7 @@ export interface RunSummary {
    * What the pull request calls itself. Both planes send it on every row, so
    * it is required here and nullable rather than optional: null is a run
    * recorded before titles were stored, or one whose PR read never completed,
-   * and every render falls back to `repo #N` (decision 52).
+   * and every render falls back to `repo #N` (decision 54).
    */
   pr_title: string | null;
 }

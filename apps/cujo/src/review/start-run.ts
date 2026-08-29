@@ -74,7 +74,7 @@ export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void
     const pr = await deps.github.pullRequest(run.repo, run.prNumber);
     // The only place the title and the author are ever read. A Discord card
     // and a run page name the pull request and the person who opened it with
-    // them (Contract 7, decision 52); both fall back to `owner/name #7` and no
+    // them (Contract 7, decision 54); both fall back to `owner/name #7` and no
     // author at all without them, which is what a run claimed before these
     // were stored still shows.
     deps.store.putRunPrMeta(run.id, {

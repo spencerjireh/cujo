@@ -14,7 +14,7 @@
  */
 
 import type { Logger } from "@cujo/log";
-import { BOT_LOGIN } from "../clients/github";
+import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "../clients/github";
 import type { Reaction } from "../clients/github-reactions";
 import type { RunStore } from "../store/runs";
 import { type CommandVerb, authorizeCommand } from "./command-authorization";
@@ -43,6 +43,7 @@ export interface PrCommandDeps {
   runner: Pick<Runner, "approve">;
   github: PrCommandGitHub;
   reactions: PrCommandReactions | null;
+  botLogin?: string;
 }
 
 export interface PrCommand {
@@ -122,7 +123,8 @@ export class PrCommandService {
   private async decide(command: PrCommand): Promise<Outcome> {
     // Cujo's own replies contain the verbs — `applied()` below prints them, and
     // a review body can quote them — so without this a reply re-triggers itself.
-    if (command.actor === BOT_LOGIN) return { kind: "ignored", reason: "own_comment" };
+    if (command.actor === (this.deps.botLogin ?? DEFAULT_BOT_LOGIN))
+      return { kind: "ignored", reason: "own_comment" };
 
     const parsed = parseCommand(command.body);
     if (parsed.kind === "none") return { kind: "ignored", reason: "not_a_command" };
