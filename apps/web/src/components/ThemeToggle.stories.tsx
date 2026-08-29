@@ -1,3 +1,4 @@
+import { Mark } from "@/components/brand/Mark";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -23,5 +24,21 @@ export const OnASurface: Story = {
       <span className="text-sm text-fg-muted">Header placement</span>
       <ThemeToggle />
     </div>
+  ),
+};
+
+/**
+ * Where the one-amber-eye rule is judged: the mark's eye on the left, the
+ * selected glyph on the right, and nothing amber in between.
+ */
+export const InTheHeader: Story = {
+  render: () => (
+    <header className="flex items-center justify-between gap-4 border-b border-line py-4">
+      <span className="flex items-center gap-2.5 text-fg">
+        <Mark className="h-7 w-7" />
+        <span className="font-display text-xl font-bold lowercase tracking-tight">cujo</span>
+      </span>
+      <ThemeToggle />
+    </header>
   ),
 };
