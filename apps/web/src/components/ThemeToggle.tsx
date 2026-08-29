@@ -13,6 +13,13 @@ const CELLS: Record<ThemeChoice, { label: string; Icon: typeof LightIcon }> = {
 const THUMB = "absolute top-0.5 left-0.5 h-7 w-7 rounded-sm bg-bg-raised";
 
 /**
+ * Shown as the group's `title` when the choice applied but did not persist.
+ * `aria-label` already names the group, so a `title` lands as its description
+ * rather than competing for the name.
+ */
+const NOT_SAVED = "This browser is blocking site data, so the theme resets on reload.";
+
+/**
  * Three mutually exclusive states on one light-to-dark axis, which is a radio
  * group and not a menu. Native radios carry the grouping, the arrow keys and
  * the focus, so there is no key handling here and no primitive behind it; the
@@ -28,6 +35,9 @@ export function ThemeToggle() {
   // back, so the first correction must not animate: a stored dark would
   // otherwise slide the thumb across the track on every load.
   const [mounted, setMounted] = useState(false);
+  // A theme that applied but did not persist is worth saying out loud; the
+  // reader would otherwise meet it as the toggle forgetting on every reload.
+  const [persisted, setPersisted] = useState(true);
   const name = useId();
 
   useEffect(() => {
@@ -39,6 +49,7 @@ export function ThemeToggle() {
     <div
       role="radiogroup"
       aria-label="Theme"
+      title={persisted ? undefined : NOT_SAVED}
       className="relative flex items-center rounded-md border border-line p-0.5"
     >
       <span
@@ -62,7 +73,7 @@ export function ThemeToggle() {
               checked={selected}
               aria-label={label}
               onChange={() => {
-                applyTheme(option);
+                setPersisted(applyTheme(option));
                 setChoice(option);
               }}
               className="peer sr-only"
