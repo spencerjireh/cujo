@@ -289,7 +289,11 @@ export interface PingInput {
  */
 export function buildPing(input: PingInput): DiscordMessagePayload {
   const { run, links, roleId } = input;
-  const where = `${run.repo} #${run.prNumber}`;
+  // Escaped the same way the embed heading is: a repo name may hold `_`, which
+  // Discord reads as emphasis. Not `clean`, and not applied to the whole
+  // string, because `escapeMarkdown` also defangs URLs — running it over the
+  // finished content would break Cujo's own link.
+  const where = escapeMarkdown(`${run.repo} #${run.prNumber}`);
   const link = runUrl(links, run);
   // A trailing space before an absent link would be invisible here and visible
   // in Discord, so the suffix is built rather than interpolated.
