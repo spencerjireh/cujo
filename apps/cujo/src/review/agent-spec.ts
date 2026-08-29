@@ -66,7 +66,11 @@ export function buildAgentSpec(
   return {
     model: { name: config.model },
     instructions: rubric.replaceAll("{{CUJO_SNIFF_URL}}", config.sniffUrl),
-    mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_blocking_review"] }],
+    // The one gated tool, and the one line that decides what a human is asked
+    // about. `post_blocking_review` is deliberately not here: blocking a merge
+    // on a broken test is mechanical and reversible, and asking about it is
+    // ceremony. Only the accusation waits (decision 42).
+    mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
     config: {
       sandbox: { enabled: true },
       // The review runs headless; nothing can answer a question or view a card.

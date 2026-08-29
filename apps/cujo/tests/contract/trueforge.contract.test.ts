@@ -99,11 +99,11 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(data.filter((p) => p.name === PROVIDER)).toHaveLength(1);
   });
 
-  it("creates a session from an inline agent spec that gates the blocking tool", async () => {
+  it("creates a session from an inline agent spec that gates the accusation", async () => {
     sessionId = await harness.createSession({
       model: { name: MODEL },
       instructions: "Do what the user message says.",
-      mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_blocking_review"] }],
+      mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
       config: {
         sandbox: { enabled: false },
         askUserQuestions: { enabled: false },
@@ -197,7 +197,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   it("a review through call_tool: the model sees meta-tools, not the MCP tools", () => {
     const names = stub.requests.at(-1)?.tools?.map((t) => t.function.name) ?? [];
     expect(names).toEqual(expect.arrayContaining(["call_tool", "list_tools", "get_tool_info"]));
-    expect(names.some((n) => n.endsWith("post_blocking_review"))).toBe(false);
+    expect(names.some((n) => n.endsWith("post_gated_review"))).toBe(false);
     runner = new Runner(store.runs, harness, { turnTimeoutMs: 60_000, pollIntervalMs: 1_000 });
   });
   const active = (): Runner => {
@@ -217,12 +217,12 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(projection?.summary).toBe("posted");
   });
 
-  it("a blocking review pauses for approval; Cujo's allow posts it", async () => {
+  it("a gated review pauses for approval; Cujo's allow posts it", async () => {
     const run = runFor("h-blk");
-    await active().start(run, reviewMessage("post_blocking_review"));
+    await active().start(run, reviewMessage("post_gated_review"));
     expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
     const projection = store.runs.getProjection(run.id);
-    expect(projection?.review?.tool).toBe("post_blocking_review");
+    expect(projection?.gatedReview?.tool).toBe("post_gated_review");
     expect(projection?.approval?.threadId).toBe("main");
 
     const decision = await active().approve(run.id, "allow", "op@example.com");
@@ -233,9 +233,9 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(store.runs.getRun(run.id)?.turnIds).toHaveLength(2);
   });
 
-  it("a denied blocking review folds to denied", async () => {
+  it("a denied accusation folds to denied", async () => {
     const run = runFor("h-deny");
-    await active().start(run, reviewMessage("post_blocking_review"));
+    await active().start(run, reviewMessage("post_gated_review"));
     expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
     expect((await active().approve(run.id, "deny", "op@example.com")).ok).toBe(true);
     await settled(run.id, ["denied"]);
@@ -248,9 +248,9 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
    * every later head on that pull request failed to start a turn with
    * `422 user message cannot be sent while approvals or questions are pending`.
    */
-  it("a superseded block leaves the session able to take the next head's turn", async () => {
+  it("a superseded accusation leaves the session able to take the next head's turn", async () => {
     const stale = runFor("h-stale");
-    await active().start(stale, reviewMessage("post_blocking_review"));
+    await active().start(stale, reviewMessage("post_gated_review"));
     expect(store.runs.getRun(stale.id)?.status).toBe("blocked_pending");
 
     // What the webhook does when a newer commit arrives while a human is
@@ -286,7 +286,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
 
   it("a resume sent outside Cujo is picked up by the poll and marked external", async () => {
     const run = runFor("h-ext");
-    await active().start(run, reviewMessage("post_blocking_review"));
+    await active().start(run, reviewMessage("post_gated_review"));
     const approval = store.runs.getProjection(run.id)?.approval;
     expect(approval).not.toBeNull();
     if (!approval) return;
