@@ -49,7 +49,7 @@ export interface Config {
   cfAccessTeamDomain: string;
   cfAccessAud: string;
   /**
-   * The shared operator token (decision 48). Optional while both gates are
+   * The shared operator token (decision 49). Optional while both gates are
    * accepted: empty disables the bearer path rather than accepting an empty
    * credential, which is the difference between "not configured yet" and
    * "open". It becomes required when Access is removed.

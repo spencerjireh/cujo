@@ -146,7 +146,7 @@ export interface Run extends RunSummary {
  * Whether a run is waiting on a person.
  *
  * No longer "can this page decide it" — nothing here decides anything since
- * decision 48, and the answer is `/cujo confirm` on the pull request. It is
+ * decision 49, and the answer is `/cujo confirm` on the pull request. It is
  * still exactly this predicate that says a decision is *outstanding*: paused on
  * an approval the fold actually recorded. `superseded`, `error`, and the
  * Contract 6 tripwire (an approval raised on a thread other than `main`, which

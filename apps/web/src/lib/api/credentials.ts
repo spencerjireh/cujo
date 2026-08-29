@@ -1,5 +1,5 @@
 /**
- * What the operator plane is asked to believe about a request (decision 48).
+ * What the operator plane is asked to believe about a request (decision 49).
  *
  * Two credentials for one release, and this is the one place that decides
  * which one to forward, so the proxy and the SSE route cannot drift apart.

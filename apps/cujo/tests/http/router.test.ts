@@ -114,7 +114,7 @@ describe("host dispatch", () => {
 
 describe("the approve route, which is gone", () => {
   it("serves no approve route on any plane", async () => {
-    // Deleted with decision 48. A held finding is answered with `/cujo confirm`
+    // Deleted with decision 49. A held finding is answered with `/cujo confirm`
     // on the pull request, where the principal is repo write and the trail is a
     // GitHub login — one gate, one place. A second one that still worked would
     // be the one nobody audits.

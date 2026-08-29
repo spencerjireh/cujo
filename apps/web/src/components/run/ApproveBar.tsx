@@ -6,7 +6,7 @@ import { type Run, canDecide } from "@/lib/api/types";
 /**
  * What a held review says, now that nothing here decides it.
  *
- * The decision moved to the pull request (decision 48): `/cujo confirm` from
+ * The decision moved to the pull request (decision 49): `/cujo confirm` from
  * somebody with repo write, recorded against their GitHub login. This panel is
  * what is left — a held review is a state the run sits in, sometimes for a long
  * time, and a reader looking at the evidence needs to know a person is being
