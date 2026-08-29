@@ -532,6 +532,20 @@ retry if a turn cannot be started at all; the reason it sends says the commit
 was replaced, not that an operator rejected the block, and the run stays
 `superseded` with no approver (decision 39).
 
+**Stale review dismissal (decision 52).** A `REQUEST_CHANGES` review from an
+older commit stays on the pull request when a newer head replaces it. When a new
+run on the same PR completes `clean`, `apps/cujo` lists the bot's own reviews,
+finds any whose `commit_id` differs from the current head and whose state is
+`CHANGES_REQUESTED`, and dismisses them with a fixed message naming the new
+head. The trigger is the `clean` status — by definition, zero critical findings
+remain — and no other terminal status fires it. A run that ends `blocked_*` or
+`error` leaves stale reviews standing, since the original condition may not be
+resolved. Before listing reviews, the dismissal reads the PR's current head
+from GitHub; if the head has moved past this run's commit, the operation is
+skipped entirely to prevent dismissing a newer run's valid blocking review.
+The dismissal is a service-level action in `apps/cujo`, not a tool the agent
+calls, and `github-mcp` is unaffected.
+
 A REQUEST_CHANGES review only *blocks* a merge when the target repo's default
 branch has branch protection requiring PR review. Without it, the review still
 posts and shows as changes-requested, but does not gate the merge.

@@ -24,7 +24,7 @@
 
 import { type Logger, errorFields } from "@cujo/log";
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
-import { BOT_LOGIN } from "../clients/github";
+import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "../clients/github";
 import type { Harness, SessionEvent } from "../clients/trueforge";
 import { messageText } from "../review/fold";
 import { parseMention } from "../review/parse-command";
@@ -62,6 +62,7 @@ export interface ConverseDeps {
   limit: ConverseRateLimit;
   /** How long one answer may take before the person is told it did not finish. */
   turnTimeoutMs: number;
+  botLogin?: string;
 }
 
 export interface ConverseRequest {
@@ -152,7 +153,8 @@ export class ConverseService {
   private async answer(request: ConverseRequest): Promise<Outcome> {
     // Cujo's own replies are comments on the pull request too, and a reply can
     // quote the question it answers. Without this, one mention is a loop.
-    if (request.actor === BOT_LOGIN) return { kind: "ignored", reason: "own_comment" };
+    if (request.actor === (this.deps.botLogin ?? DEFAULT_BOT_LOGIN))
+      return { kind: "ignored", reason: "own_comment" };
 
     const question = parseMention(request.body);
     if (!question) return { kind: "ignored", reason: "not_a_mention" };

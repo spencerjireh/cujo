@@ -48,6 +48,9 @@ services:
       # apart by Host (decision 34).
       CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-http://cujo-admin.localhost:3000}
       CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-http://cujo.localhost:3000}
+      # The dev App posts as a different bot; this makes the idempotency
+      # check and stale-review dismissal match the right login.
+      CUJO_BOT_LOGIN: ${CUJO_BOT_LOGIN:-cujo-guard[bot]}
     ports:
       - '127.0.0.1:8080:8080' # Cujo API, and the webhook receiver
 

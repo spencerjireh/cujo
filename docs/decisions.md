@@ -2011,3 +2011,55 @@ buys a second narration of what `spec.md` and this file already hold, and
 guarantees a third contradiction later. **Leaving the reversals unmarked and
 relying on "newest context wins"**, which is a rule about how to resolve a
 conflict, not a way to notice there is one.
+
+## 52. `apps/cujo` dismisses its own stale blocking reviews when a clean run supersedes them
+
+A `REQUEST_CHANGES` review from an earlier commit stays on the pull request when
+the author pushes a fix and the new run completes clean. GitHub branch
+protection treats it as still blocking, so the author or a maintainer must
+dismiss it by hand — a manual step that the system has enough information to
+perform on its own.
+
+When a run reaches `clean`, `apps/cujo` now lists the bot's own reviews on the
+pull request, finds any `REQUEST_CHANGES` whose `commit_id` differs from the
+current head, and calls `PUT .../reviews/{id}/dismissals` with a fixed
+template: `"Superseded by a clean run on <sha>."` The text is never agent
+prose, never quotes a model, and never states a finding — it only removes an
+action the bot took earlier. Each dismissal is logged as
+`review.stale.dismissed`; a failure is `review.stale.dismiss.failed` and does
+not affect the run's own status.
+
+**Why `clean` is the only trigger.** A run that ends `blocked_*` or `error`
+has not demonstrated that the original findings are gone, so the old review is
+left standing. The evidence is the run's own result, not a diff of findings:
+the simplest proof that the blocking condition is resolved is that the new run
+found nothing to block.
+
+**Precedent for the write.** Decision 38 originally held that the one write
+`apps/cujo` makes to GitHub is content-free (the reaction). Decision 43 later
+added `createComment` and `replyToReviewComment` to `GitHubReader` for the
+conversation feature, establishing that the trusted plane may make
+content-bearing writes when answering a human-initiated action. This dismissal
+extends the same pattern: it removes the bot's own earlier block, it carries no
+finding, and it fires only when the run's evidence justifies it.
+
+**Head-freshness guard.** The dismissal runs asynchronously after the clean
+status is persisted. If the PR advances while the task is in flight, a newer
+run's blocking review must not be dismissed by the clean run that preceded it.
+Before listing reviews, `dismissStaleReviews` reads the PR's current head from
+GitHub; if it differs from the run's `headSha`, the dismissal is skipped and
+logged as `review.stale.skipped` with `reason: "head_moved"`. The remaining
+TOCTOU window between the head check and the dismiss call is negligible, and a
+newer clean run would re-attempt its own dismissals regardless.
+
+**Not in `github-mcp`.** The dismissal is a service-level action driven by the
+run projection, not a tool the agent calls. `github-mcp` stays write-only and
+PR-state-blind (decision 5). `apps/cujo` already reads review state for the
+idempotency check (Contract 5, `alreadyReviewed`), so listing reviews is an
+existing capability, and dismissing them is a narrow extension of it.
+
+The rejected alternative was **manual-only dismissal**, which `hitl.md` Design 2
+treated as acceptable because "anyone with write access dismisses a
+`REQUEST_CHANGES` in one click." That is true and remains available, but a
+system that blocks a merge and then requires a human to undo the block after the
+system itself confirmed the fix is a friction the system can remove.
