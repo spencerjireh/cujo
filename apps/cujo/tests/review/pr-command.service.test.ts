@@ -46,9 +46,15 @@ function harness(
   const reacted: string[] = [];
   const lines: Record<string, unknown>[] = [];
   const approve = vi.fn(async () => over.approve ?? ({ ok: true } as ApproveResult));
+  // The store is keyed by commit, not by insertion order, so the fake is too:
+  // `runForPrHead` answers only for the commit its run actually reviewed.
+  const latest = "latest" in over ? over.latest : run();
   const service = new PrCommandService({
     runs: {
-      latestRunForPr: vi.fn(() => ("latest" in over ? over.latest : run())),
+      latestRunForPr: vi.fn(() => latest),
+      runForPrHead: vi.fn((_repo: string, _pr: number, headSha: string) =>
+        latest && latest.headSha === headSha ? latest : null,
+      ),
     } as never,
     runner: { approve } as never,
     github: {
@@ -149,6 +155,39 @@ describe("PrCommandService", () => {
     expect(moved.comments[0]).toContain("9999999");
   });
 
+  it("answers the run for the current commit, not the row inserted last", async () => {
+    // A delivery for an older head that arrived late is the newest row here
+    // while being the oldest commit on GitHub. Selecting by insertion order
+    // would refuse a command aimed at the run the person is reading.
+    const runs = {
+      latestRunForPr: vi.fn(() => run({ id: "late-old-head", headSha: "0000000bbbbbbb" })),
+      runForPrHead: vi.fn((_repo: string, _pr: number, headSha: string) =>
+        headSha === HEAD ? run({ id: "current" }) : null,
+      ),
+    };
+    const approve = vi.fn(async () => ({ ok: true }) as ApproveResult);
+    const service = new PrCommandService({
+      runs: runs as never,
+      runner: { approve } as never,
+      github: {
+        pullRequestHead: async () => ({ headSha: HEAD, author: "contributor" }),
+        permissionFor: async () => "write" as const,
+        createComment: async () => 1,
+      },
+      reactions: null,
+    });
+    await service.handle({
+      repo: "o/r",
+      prNumber: 7,
+      commentId: 55,
+      actor: "maintainer",
+      body: "/cujo confirm",
+      log: createLogger({ service: "cujo", sink: () => {} }),
+    });
+    expect(approve).toHaveBeenCalledWith("current", "allow", "github:maintainer");
+    expect(runs.runForPrHead).toHaveBeenCalledWith("o/r", 7, HEAD);
+  });
+
   it("says so when a second confirm loses the claim", async () => {
     const raced = harness({
       approve: { ok: false, reason: "already_decided", detail: "already decided" },
@@ -194,7 +233,7 @@ describe("PrCommandService", () => {
 
   it("still replies when the acknowledgement fails, because the reply is the answer", async () => {
     const service = new PrCommandService({
-      runs: { latestRunForPr: () => run() } as never,
+      runs: { latestRunForPr: () => run(), runForPrHead: () => run() } as never,
       runner: { approve: async () => ({ ok: true }) } as never,
       github: {
         pullRequestHead: async () => ({ headSha: HEAD, author: "contributor" }),

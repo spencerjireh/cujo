@@ -111,6 +111,20 @@ describe("store", () => {
     expect(store.runs.latestRunForPr("other/repo", 7)).toBeNull();
   });
 
+  it("finds the run for one commit, whatever order the deliveries arrived in", () => {
+    // The hazard this exists for: a delivery for an older head that arrives
+    // late is the newest row, so insertion order is not commit order and a
+    // command resolved by `latestRunForPr` would answer the wrong run.
+    const store = new Store(":memory:");
+    const current = store.runs.createRun({ ...head, headSha: "h2" }).run;
+    const lateOldHead = store.runs.createRun(head).run;
+    expect(store.runs.latestRunForPr("o/r", 7)?.id).toBe(lateOldHead.id);
+    expect(store.runs.runForPrHead("o/r", 7, "h2")?.id).toBe(current.id);
+    expect(store.runs.runForPrHead("O/R", 7, "h2")?.id).toBe(current.id);
+    expect(store.runs.runForPrHead("o/r", 7, "h3")).toBeNull();
+    expect(store.runs.runForPrHead("other/repo", 7, "h2")).toBeNull();
+  });
+
   it("remembers which resume turns Cujo sent", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun(head);
