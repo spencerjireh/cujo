@@ -1,9 +1,9 @@
 /**
- * The human gate, from a pull request comment (Design 2).
+ * The human gate, from a pull request comment (decisions 44 and 45).
  *
- * Every case here is one of the flows `docs/hitl.md` says must be proved: a
- * maintainer confirms, the author cannot dismiss, a stale head is refused, a
- * second confirm loses the CAS. The assertion that repeats is that **the pull
+ * Every case here is one of the flows `docs/architecture.md` "User flows" D and F
+ * describe: a maintainer confirms, the author cannot dismiss, a stale head is
+ * refused, a second confirm loses the CAS. The assertion that repeats is that **the pull
  * request is told** — a refusal nobody can see is the failure mode the operator
  * UI never had, because it at least answered 409.
  */

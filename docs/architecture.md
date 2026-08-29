@@ -127,7 +127,7 @@ Every crossing, with what it carries and what protects it:
 ## The approval path
 
 The mechanism the design hinges on: the pause happens inside TrueForge, the
-button lives in Cujo, and the resume goes over the SDK.
+answer is given on the pull request, and the resume goes over the SDK.
 
 ```mermaid
 sequenceDiagram
@@ -161,10 +161,10 @@ sequenceDiagram
   C->>C: run status = blocked_posted
 ```
 
-On Reject, the resume sends `deny`; the agent posts nothing further and the run
-ends `denied` — the advisory observation posted before the pause and stands, so
-a denial leaves the evidence on the pull request and drops only the claim about
-a person.
+On `/cujo dismiss`, the resume sends `deny`; the agent posts nothing further and
+the run ends `denied` — the advisory observation posted before the pause and
+stands, so a denial leaves the evidence on the pull request and drops only the
+claim about a person.
 
 **A held approval has no deadline.** The thirty-minute watchdog bounds a turn
 that is still streaming and is cleared the moment `turn.done` arrives, which is
@@ -174,13 +174,12 @@ decides it, and it stays in the set that rehydrates on restart. The direction is
 the safe one — the merge is not blocked and the observation is already
 public — but it is a wait, not an expiry, and no code says otherwise.
 
-With no `critical` finding the
-agent calls `post_advisory_review` alone; with a `critical` that says the pull
-request is broken rather than malicious it calls `post_blocking_review` alone,
-which is not gated and ends the run `blocked_unattended`. Neither pauses
-(decision 42). If a new head
-is pushed while a run is still going, that run ends `superseded` and the new
-head gets its own run on the same session; only the newest head is reviewed.
+With no `critical` finding the agent calls `post_advisory_review` alone; with a
+`critical` that says the pull request is broken rather than malicious it calls
+`post_blocking_review` alone, which is not gated and ends the run
+`blocked_unattended`. Neither pauses (decision 42). If a new head is pushed
+while a run is still going, that run ends `superseded` and the new head gets its
+own run on the same session; only the newest head is reviewed.
 Superseding a run that was waiting on a human also answers its approval, since
 the session refuses the new head's turn while one is pending (decision 39).
 
@@ -208,11 +207,54 @@ the session refuses the new head's turn while one is pending (decision 39).
    egress during an install. The agent assigns `info`, `warn`, or `critical`
    to everything else against the rubric, then drafts one review: a summary of
    what ran plus an inline comment per anchored finding.
-6. **Post, pausing only to block.** With no `critical` finding the review
-   posts automatically as `cujo-guard[bot]`. With one, the review blocks the PR,
-   and the harness pauses that one action until a human approves it in the
-   Cujo UI, which shows the drafted review and resumes the turn over the SDK.
-   The exact rule is in [spec.md](spec.md).
+6. **Post, pausing only to accuse.** With no `critical` finding the review
+   posts automatically as `cujo-guard[bot]`. A `critical` that says the pull
+   request is broken posts too, as REQUEST_CHANGES, with no human asked. Only a
+   `critical` that names the change as malicious pauses: the observation posts
+   first, and the harness holds the accusation until a maintainer answers
+   `/cujo confirm` or `/cujo dismiss` on the pull request, which resumes the
+   turn over the SDK. The exact rule is in [spec.md](spec.md).
+
+## User flows
+
+The six shapes a pull request actually takes, end to end.
+
+**A. Nothing is wrong (the common case).** PR opens, Cujo reacts on it within a
+second of the delivery, the sandbox runs the four checks, one COMMENT review
+lands with inline comments, and the reaction settles on the `clean` state
+(Contract 9). No human. **This flow has to stay boring** — it is the argument
+that Cujo is automation and not a form to fill in.
+
+**B. The pull request breaks something.** `tests.base_pass_head_fail` comes back
+non-empty, so a hard rule forces `critical`, the agent calls
+`post_blocking_review`, and REQUEST_CHANGES posts unattended. The author pushes
+a fix, the new run supersedes the old one, and the advisory posts. Still no
+human. This flow is what makes the gate in D credible: Cujo blocks on its own
+authority when the claim is about code.
+
+**C. "Prove it."** An inline comment says a smoke endpoint returned 500 on head
+and 200 on base. The maintainer replies in that thread asking for a seeded
+database. That is a `pull_request_review_comment` and not an `issue_comment`,
+which is why conversation subscribes to both. Cujo answers in the same thread
+from a separate session that holds no write tool (Contract 10, decision 47).
+
+**D. The accusation.** Detonation sees egress to an unknown host during an
+install. The advisory posts with the observation as a `warn`, plus the line
+saying what to do about it. Then `/cujo confirm` from someone with repo write
+who is not the author, on the current head, resumes `allow` and the gated
+REQUEST_CHANGES review posts. Or `/cujo dismiss` resumes `deny` and the warn
+stands. Or nobody answers: the warn stands, the merge is not blocked, and there
+is no deadline.
+
+**E. Teaching.** Three pull requests in a row flag the same host, a maintainer
+says `@cujo-guard that host is ours`, and Cujo opens a `.cujo.yml` pull request
+adding it to `allow_hosts`; merging it is the authorization. **Not built** —
+designed and tracked in [issue #56](https://github.com/spencerjireh/cujo/issues/56).
+
+**F. Outside contributor.** A fork pull request from someone with no write
+access. They read every finding and may reply to humans, and Cujo refuses both
+their `/cujo` commands and their `@cujo-guard` messages, out loud. This is the
+security boundary made visible: reading is public, deciding is not.
 
 ## Deployment topology
 
@@ -241,17 +283,19 @@ Coolify in a single `docker-compose` project so the services share a network.
   gates on. Both answer on each hostname this process serves — the ingress
   host, the UI host and the internal name — and neither is gated (decision 37).
 - **`web`** — the `apps/web` UI, on two hostnames from one container
-  (decision 34). `https://cujo-admin.spencerjireh.com` is behind Access and is
-  where a human sees a paused run and approves a block;
-  `https://cujo.spencerjireh.com` is the anonymous read-only board, which lists
-  public repos only and names no approver. Which plane a request is on is
+  (decision 34). `https://cujo-admin.spencerjireh.com` is the token-gated
+  operator plane: it reads runs and binds Discord channels, and it decides no
+  review — a held finding is answered with `/cujo confirm` on the pull request
+  (decision 49). `https://cujo.spencerjireh.com` is the anonymous read-only
+  board, which lists public repos only and names no approver. Which plane a
+  request is on is
   decided from its own `Host`, and only an exact match of `CUJO_PUBLIC_HOST` is
   public — every other hostname falls back to the gated plane, which then
-  refuses a request carrying no assertion. It proxies the JSON API at
+  refuses a request carrying no credential. It proxies the JSON API at
   `/api/cujo/*` and the run stream at `/api/runs/:id/events` to `cujo`
-  server-side, forwarding the Access assertion rather than terminating the
-  check, so the UI and the API stay same-origin (decision 27); on the public
-  hostname it forwards no assertion, refuses any path outside `/public`, and
+  server-side, attaching the operator credential there rather than terminating
+  the check, so the UI and the API stay same-origin (decision 27); on the public
+  hostname it forwards no credential, refuses any path outside `/public`, and
   uses `/api/public/runs/:id/events` for the stream. `/api/health` is this
   container's healthcheck and never calls `cujo`.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
@@ -286,11 +330,13 @@ untrusted code.
 
 Cloudflare proxies all four hostnames, and a Hetzner Cloud firewall accepts
 ports 80 and 443 only from Cloudflare's published ranges, so the origin's own
-address is not a way past Access; port 22 stays open for the control plane.
-The Access application covers `cujo-harness` and `cujo-admin`, and a second one
-scoped to `/.well-known/acme-challenge` holds a bypass policy for each name it
-fronts, without which Traefik's HTTP-01 renewal is answered by the login page
-(decision 33). A Cloudflare rate-limiting rule bounds requests per address to
+address is not a way past a gate; port 22 stays open for the control plane.
+One Access application is left, over `cujo-harness`: that console has its own
+authentication disabled, so an OTP is exactly what it is for. The one over
+`cujo-admin` is gone, replaced by the operator token (decision 49). A second
+application scoped to `/.well-known/acme-challenge` holds a bypass policy for
+each name Access fronts, without which Traefik's HTTP-01 renewal is answered by
+the login page (decision 33). A Cloudflare rate-limiting rule bounds requests per address to
 the public board's stream route; the process caps concurrent public streams as
 well, and the two answer 429 and 503 respectively so a log says which bound bit
 (decision 34).
