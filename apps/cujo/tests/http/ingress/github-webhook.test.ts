@@ -218,6 +218,86 @@ describe("webhook", () => {
    * and the same HMAC as the pull_request event, so the restructure into a real
    * event dispatch must not have moved the signature check behind it.
    */
+  describe("the issue_comment event", () => {
+    const commentEvent = (over: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        action: "created",
+        repository: { full_name: "o/r" },
+        issue: { number: 7, pull_request: { url: "https://api.github.com/…/pulls/7" } },
+        comment: { id: 55, body: "/cujo confirm", user: { login: "maintainer" } },
+        ...over,
+      });
+
+    const send = (app: ReturnType<typeof build>["app"], body: string) =>
+      app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: { "x-github-event": "issue_comment", "x-hub-signature-256": sign(body) },
+          body,
+        }),
+      );
+
+    const withCommands = () => {
+      const handled: Record<string, unknown>[] = [];
+      const harness = build({
+        prCommands: {
+          handle: async (command) => {
+            handled.push(command as Record<string, unknown>);
+          },
+        },
+      });
+      return { ...harness, handled };
+    };
+
+    it("hands a pull request comment to the command service and answers at once", async () => {
+      const { app, handled } = withCommands();
+      const res = await send(app, commentEvent());
+      expect(res.status).toBe(200);
+      expect(handled[0]).toMatchObject({
+        repo: "o/r",
+        prNumber: 7,
+        commentId: 55,
+        actor: "maintainer",
+        body: "/cujo confirm",
+      });
+    });
+
+    it("refuses an unsigned comment, like every other event on this route", async () => {
+      const { app, handled } = withCommands();
+      const res = await app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: { "x-github-event": "issue_comment", "x-hub-signature-256": "sha256=00" },
+          body: commentEvent(),
+        }),
+      );
+      expect(res.status).toBe(401);
+      expect(handled).toEqual([]);
+    });
+
+    it("ignores a comment on an issue, which is not a pull request", async () => {
+      const { app, handled } = withCommands();
+      const res = await send(app, commentEvent({ issue: { number: 7 } }));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ignored: "issue" });
+      expect(handled).toEqual([]);
+    });
+
+    it("ignores an edited comment, whose author is not who typed it", async () => {
+      const { app, handled } = withCommands();
+      const res = await send(app, commentEvent({ action: "edited" }));
+      expect(await res.json()).toMatchObject({ ignored: "action" });
+      expect(handled).toEqual([]);
+    });
+
+    it("answers 200 when commands are not configured, rather than failing the delivery", async () => {
+      const { app } = build();
+      const res = await send(app, commentEvent());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ignored: "not_configured" });
+    });
+  });
+
   describe("the repository event", () => {
     const repoEvent = (action: string, fullName = "o/r") =>
       JSON.stringify({ action, repository: { full_name: fullName } });
