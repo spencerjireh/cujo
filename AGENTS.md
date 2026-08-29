@@ -65,9 +65,9 @@ a design change.
 `apps/web` (Next.js App Router, TanStack Query, Tailwind on `brand/tokens.css`)
 is the UI and the only thing a human opens. It holds no secrets and no state:
 every call goes through its `/api/*` route handlers to `apps/cujo`, same-origin
-so the Cloudflare Access assertion and the `EventSource` run stream both work
+so the operator credential and the `EventSource` run stream both work
 from a browser (decision 27). One container answers two hostnames — the public
-read-only board and the Access-gated operator view — decided per request from
+read-only board and the token-gated operator view — decided per request from
 its own `Host` in `lib/api/mode.ts`, where public requires an exact match and
 everything else falls back to the gated plane (decision 34). Storybook covers
 the components and is not part of CI.
@@ -81,7 +81,7 @@ src/
   http/
     router.ts       the host split, in one place
     ingress/        INTERNET. A signature is the only gate. Cannot approve.
-    operator/       Cloudflare Access. Where a human decides.
+    operator/       a bearer token. Reads and Discord bindings; decides no review.
     public/         INTERNET, no gate. Read-only, public repos, names nobody.
   review/           a PR becomes a run: start, follow, fold, hard rules
   converse/         @cujo-guard: its own session, no write tool, never Runner
@@ -92,7 +92,7 @@ tests/              mirrors src/ exactly
 ```
 
 Two hostnames and two planes, one process: the webhook host carries the
-signature-gated ingress routes, and the UI host carries both the Access-gated
+signature-gated ingress routes, and the UI host carries both the token-gated
 API and the ungated `/public` group. Enforced in `http/router.ts` and not only
 at the edge — the gated plane is a separate Hono instance the UI host delegates
 to, so its `app.use("*")` gate cannot compose with the public handlers. The

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { type JWTVerifyGetKey, createRemoteJWKSet, jwtVerify } from "jose";
 import type { RequestEnv } from "../request-log";
 
@@ -19,26 +20,41 @@ export type DenialReason =
   | "bad_signature"
   | "malformed"
   | "jwks_unavailable"
-  | "no_email";
+  | "no_email"
+  | "no_token"
+  | "bad_token";
 
 export interface AccessResult {
-  email: string | null;
+  operator: string | null;
   reason: DenialReason | null;
 }
 
-/** Resolves the caller's email from a Cloudflare Access assertion, or null. */
+/** Resolves the caller from a Cloudflare Access assertion, or null. */
 export type AccessVerifier = (assertion: string | undefined) => Promise<AccessResult>;
 
 /**
- * The verified email, set once by the gate in `index.ts` and read by any route
- * that records who acted. Declared here because this is what puts it there;
- * a route file that redeclared it would be describing someone else's promise.
+ * Who a decision made on this plane is recorded against.
+ *
+ * A fixed string rather than a person, because a shared token names nobody —
+ * and saying `operator` is honest where an email would have been a claim the
+ * gate can no longer support. It is a downward swap of principal, which
+ * decision 28 refused and decision 49 accepts only because the action that
+ * justified the email — publishing an accusation — moved to the pull request,
+ * where the principal is repo write and the trail is a GitHub login.
+ */
+export const OPERATOR_IDENTITY = "operator";
+
+/**
+ * The verified operator, set once by the gate in `index.ts` and read by any
+ * route that records who acted. Declared here because this is what puts it
+ * there; a route file that redeclared it would be describing someone else's
+ * promise.
  *
  * It extends `RequestEnv` for that same reason in reverse: `ray` and `log`
  * belong to every plane and are set above the host split, so this file states
  * only the variable it is responsible for and inherits the rest.
  */
-export type Env = RequestEnv & { Variables: { email: string } };
+export type Env = RequestEnv & { Variables: { operator: string } };
 
 /**
  * jose's own error codes, mapped to the closed set.
@@ -95,7 +111,7 @@ export function createAccessVerifier(options: {
   const issuer = `https://${options.teamDomain}`;
   const jwks = options.jwks ?? createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
   return async (assertion) => {
-    if (!assertion) return { email: null, reason: "no_assertion" };
+    if (!assertion) return { operator: null, reason: "no_assertion" };
     try {
       const { payload } = await jwtVerify(assertion, jwks, {
         issuer,
@@ -104,16 +120,42 @@ export function createAccessVerifier(options: {
       const email = payload.email;
       // A token that verifies but names nobody is its own case: the signature
       // was good, so this is a configuration problem rather than an attack.
-      if (typeof email !== "string" || !email) return { email: null, reason: "no_email" };
-      return { email, reason: null };
+      // Still checked, because its absence says the assertion is not the shape
+      // Access issues — but the email is not what gets recorded.
+      if (typeof email !== "string" || !email) return { operator: null, reason: "no_email" };
+      // The fixed identity, not the email, even though one is right here.
+      // `authorized_by` must not depend on which transitional credential a
+      // request happened to carry: a reader would have to know which gate was
+      // configured on the day to know what a row means. The plane records
+      // `operator` because that is what it can prove about anyone who reaches
+      // it — an accusation is decided on the pull request now (decision 49).
+      return { operator: OPERATOR_IDENTITY, reason: null };
     } catch (error) {
-      return { email: null, reason: reasonFor(error) };
+      return { operator: null, reason: reasonFor(error) };
     }
   };
 }
 
+/**
+ * The bearer token, checked in constant time.
+ *
+ * A shared secret compared with `===` leaks its prefix to anyone who can time
+ * the answer, and this one gates every write on the plane. Lengths are
+ * compared first because `timingSafeEqual` throws on a mismatch, which is the
+ * one thing about the token this does reveal — and a length is not a secret.
+ */
+export function verifyOperatorToken(expected: string, presented: string | undefined): AccessResult {
+  if (!presented) return { operator: null, reason: "no_token" };
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    return { operator: null, reason: "bad_token" };
+  }
+  return { operator: OPERATOR_IDENTITY, reason: null };
+}
+
 /** Dev only: every request is an anonymous local operator. */
 export const devVerifier: AccessVerifier = async () => ({
-  email: "dev@localhost",
+  operator: OPERATOR_IDENTITY,
   reason: null,
 });

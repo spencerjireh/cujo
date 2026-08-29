@@ -94,7 +94,7 @@ export const EVENT_NAMES = [
   // The Access gate and the one route where a human decides.
   "access.denied",
   "access.disabled",
-  "approve.requested",
+  "access.retired",
   "approve.applied",
   "approve.rejected",
   // The anonymous plane. All three are `debug` except the rejection.
