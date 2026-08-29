@@ -2,9 +2,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { emptyProjection } from "../../src/review/fold";
 import { Store } from "../../src/store";
+import type { Db } from "../../src/store/db";
 
 const head = { repo: "o/r", prNumber: 7, headSha: "h1", sessionId: "s1", isPublic: true };
+
+/**
+ * The connection behind a `Store`, for the two tests that have to break the
+ * database on purpose. Reached rather than exposed: making `db` public would
+ * widen the store's surface for every caller so that two tests could drop a
+ * table, and `private` is a compile-time word only.
+ */
+function sqlite(store: Store): Db {
+  return (store as unknown as { db: Db }).db;
+}
 
 describe("store", () => {
   it("claims one run per PR head", () => {
@@ -159,6 +171,65 @@ describe("store", () => {
     store.runs.deleteRun(run.id);
     expect(store.runs.getRun(run.id)).toBeNull();
     expect(store.runs.createRun(head).created).toBe(true);
+  });
+
+  /**
+   * The projection and its digest are one fact, so they commit together
+   * (decision 61).
+   *
+   * Failing the digest write and finding the projection unchanged is the only
+   * way to see that. A new projection left beside the *previous* digest is
+   * worse than one left beside no digest at all: `listPublicRuns` backfills
+   * only when the joined digest is null, so a stale row is taken as current
+   * and the board serves measurements from a superseded fold indefinitely.
+   *
+   * The failure is injected by dropping the table the second statement writes,
+   * which is the shape of any error it could raise.
+   */
+  it("leaves the projection alone when the digest cannot be written", () => {
+    const store = new Store(":memory:");
+    const run = store.runs.createRun(head).run;
+    store.runs.putProjection(run.id, { ...emptyProjection(), summary: "the first fold" });
+    expect(store.runs.getProjection(run.id)?.summary).toBe("the first fold");
+
+    sqlite(store).exec("DROP TABLE run_digests");
+    expect(() =>
+      store.runs.putProjection(run.id, { ...emptyProjection(), summary: "the second fold" }),
+    ).toThrow();
+    expect(store.runs.getProjection(run.id)?.summary).toBe("the first fold");
+  });
+
+  it("derives a digest beside every projection, and backfills a missing one", () => {
+    const store = new Store(":memory:");
+    const run = store.runs.createRun(head).run;
+    store.runs.putProjection(run.id, {
+      ...emptyProjection(),
+      checks: [
+        {
+          threadId: "t1",
+          title: "tests",
+          isCheck: true,
+          status: "done",
+          report: null,
+          error: null,
+          startedAt: "2026-08-28T10:00:00.000Z",
+          endedAt: "2026-08-28T10:00:30.000Z",
+        },
+      ],
+    });
+    expect(store.runs.listPublicRuns()[0]?.digest?.checks.tests).toEqual({
+      status: "done",
+      ms: 30_000,
+    });
+
+    // A run folded before `run_digests` existed. It never refolds, so the list
+    // has to derive and store the digest itself or the row stays blank forever.
+    sqlite(store).exec("DELETE FROM run_digests");
+    expect(store.runs.listPublicRuns()[0]?.digest?.durationMs).toBe(30_000);
+    const backfilled = sqlite(store).prepare("SELECT COUNT(*) AS n FROM run_digests").get() as {
+      n: number;
+    };
+    expect(backfilled.n).toBe(1);
   });
 
   it("persists repo visibility and lists only the public runs", () => {
