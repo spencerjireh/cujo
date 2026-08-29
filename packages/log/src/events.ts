@@ -72,6 +72,7 @@ export const EVENT_NAMES = [
   "run.turn.started",
   "run.turn.start.failed",
   "run.turn.timeout",
+  "run.turn.retried",
   "run.stream.dropped",
   "run.stream.resubscribe.failed",
   "run.stream.lost",

@@ -418,6 +418,26 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
 }
 
 /**
+ * How the last turn in this list ended, as the harness said it, or null when
+ * no turn has ended yet.
+ *
+ * `fold` cannot answer this either. It flattens `cancelled` into
+ * `status: "error"` with the reason written into `p.error` as prose, so a
+ * caller that needs to tell "stopped on purpose" from "failed" would have to
+ * match on that sentence — and the one caller that needs it, the turn retry,
+ * would start a new turn for a run somebody had just superseded or denied if
+ * the wording ever changed.
+ */
+export function lastTurnOutcome(events: readonly Event[]): "done" | "error" | "cancelled" | null {
+  let outcome: "done" | "error" | "cancelled" | null = null;
+  for (const event of events) {
+    if (event.type !== "turn.done") continue;
+    outcome = event.state.status;
+  }
+  return outcome;
+}
+
+/**
  * The approval the session is still waiting on, or null.
  *
  * `fold` cannot answer this. It never clears `approval`, and `decision` does
