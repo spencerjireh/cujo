@@ -641,8 +641,9 @@ after posting the observation, and the turn pauses with a `tool.approval_require
 event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
 `apps/cujo` reads the drafted review (the tool call's `body` and `comments[]`)
 from the `model.message` event that `source_event_id` names, marks the run
-`blocked_pending`, and shows the drafted review on the operator plane, which
-displays it but decides nothing. The answer comes from `/cujo confirm` or
+`blocked_pending`. The board shows nothing of it until it posts: publishing a
+held accusation is exactly what the gate prevents, and the audience there had no
+way to allow it. The answer comes from `/cujo confirm` or
 `/cujo dismiss` on the pull request (Contract 8, decisions 45 and 49), and
 `apps/cujo` resumes the turn
 with `sessions.createTurn(sessionId, {input: [{type:
@@ -792,32 +793,27 @@ in the message, parsed leniently, because the output is a model message and not
 a structured field. A `thread.done` with `status: error` marks the check
 failed and the parent decides what that means for the findings.
 
-The operator API `apps/cujo` serves on `cujo-admin.spencerjireh.com`:
+`apps/cujo` serves one read plane, under `/public`, on the internal service
+name in `CUJO_INTERNAL_HOST`. No gate stands in front of it, and there is no
+second plane behind one — the operator API was deleted with its hostname
+(decision 57):
 
 | Route | Returns or does |
 |-------|-----------------|
-| `GET /runs` | Runs, newest first, with status. |
-| `GET /runs/:id` | The run, its checks (thread, status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits` (the hard-rule subset), and the drafted review when `blocked_pending`. |
-| `GET /runs/:id/events` | Server-sent events: the folded run as it changes, for a live page. |
+| `GET /public/runs` | Public runs only, newest first. Filtered on `is_public = 1` in SQL, not by the route. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at` and `updated_at`, and nothing else. |
+| `GET /public/runs/:id` | The run, its checks (status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
 
-The `/discord/*` routes on the same host are Contract 7.
-
-And the public plane, under `/public`, which no gate stands in front of
-(decision 34):
-
-| Route | Returns or does |
-|-------|-----------------|
-| `GET /public/runs` | Public runs only, newest first. Filtered on `is_public = 1` in SQL, not by the route. |
-| `GET /public/runs/:id` | The same run the operator route returns, minus `approver`, `decided_at`, `session_id`, `turn_ids`, `delivery_id`, `approval` and `external_resume`, and with the drafted review shaped down to its tool, body and comments. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
-| `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` public streams; operator streams are not counted. Closes if the repo goes private while it is open. |
+There is no write route, and the `/discord/*` routes that were Contract 7's
+admin surface are gone: a channel is bound with `/cujo watch` (Contract 8).
 
 The response is built by an allowlist, field by field, and never by removing
-fields from the operator shape: the difference is what happens when a field is
-added to the projection later, and only the allowlist keeps that field private
-until somebody says otherwise.
+fields from a wider shape: the difference is what happens when a field is added
+to the projection later, and only the allowlist keeps that field private until
+somebody says otherwise.
 
-Two probes answer on each host this process already serves — the webhook host,
-the UI host, and the internal name in `CUJO_INTERNAL_HOST` — plus `/healthz` on
+Two probes answer on each host this process already serves — the webhook host
+and the internal name in `CUJO_INTERNAL_HOST` — plus `/healthz` on
 `127.0.0.1` and `localhost` for the container healthcheck. They widen no host
 boundary: an unrecognised `Host` still gets 404, exactly as below. No gate
 stands in front of either:
@@ -836,52 +832,39 @@ the process, not only at the edge:
 
 - Every request is dispatched on the `Host` header. On
   `cujo-ingress.spencerjireh.com` the process serves `POST /webhook`,
-  `GET /healthz` and `GET /readyz`, and answers 404 to everything else,
-  including `/runs`. On
-  `cujo-admin.spencerjireh.com`, and on the internal service name in
-  `CUJO_INTERNAL_HOST` (default `cujo`), it serves the routes above and answers
-  404 to `/webhook`. A request with any other `Host` gets 404. The internal name
-  exists because the UI reaches this process over the compose network
-  and Node's `fetch` always sends the target's own authority as `Host`; those
-  routes are not exempt from the gate.
-- The plane split is by path, not by a third hostname, for that same reason:
-  this process never receives the public name, so a fourth branch in the host
-  dispatch would have to trust a forwarded header, and a header a client can
-  also send is not a boundary. `/public` is mounted on its own router beside
-  the gated one rather than under it, so the gate middleware cannot match it
-  by accident.
-- The UI itself is `apps/web`, a separate service on both
-  `cujo.spencerjireh.com` and `cujo-admin.spencerjireh.com`. It proxies
-  `/api/cujo/*` and the run stream to this process, attaching the operator
-  credential on the operator hostname and attaching none — and refusing any
-  path outside `/public` — on the public one, so the API is same-origin with
-  the page and needs no public route of its own (decision 27). When this
-  process is unreachable the proxy answers `502` with
+  `POST /discord/interactions`, `GET /healthz` and `GET /readyz`, and answers
+  404 to everything else, including `/public/runs`. On the internal service name
+  in `CUJO_INTERNAL_HOST` (default `cujo`), it serves `/public/*` and the two
+  probes, and answers 404 to everything else — `/webhook` and
+  `/discord/interactions` included. A request with any other `Host` gets 404.
+  The internal name is the only one the read plane answers on, because the UI
+  reaches this process over the compose network and Node's `fetch` always sends
+  the target's own authority as `Host`, so a published name could never arrive
+  here anyway (decision 57).
+- **404, not 401, outside `/public`.** There is no credential to present since
+  decision 57, so "not the board" cannot mean "behind the check" — it means not
+  served. A 401 would be a route somebody could still reach with the right
+  header; the absence is the point. A request carrying an
+  `Authorization: Bearer` or a `Cf-Access-Jwt-Assertion` is answered exactly as
+  one carrying neither.
+- `/public` is mounted on its own router, which is what it was moved to when
+  there was a gate that might otherwise have matched it (decision 34). It stays
+  that way: the mount is matched exactly, so `/publicity` is a 404 and not the
+  board.
+- The UI itself is `apps/web`, a separate service on `cujo.spencerjireh.com`.
+  It proxies `/api/cujo/*` and the run stream to this process, forwarding only
+  `/public/*` and no credential — there is none — so the API is same-origin
+  with the page and needs no published route of its own (decision 27). `GET`
+  only: the board has no write route, so the other verbs are 405 by omission.
+  When this process is unreachable the proxy answers `502` with
   `{ok: false, error: "cujo is unreachable"}`, rather than letting the failed
   fetch surface as an unhandled `500` that says nothing (decision 37). It also
   forwards `Cf-Ray`, so a line from the UI and a line from this process share
   one correlation id.
-- Every route outside `/public` requires an operator credential, and there are
-  two for one release (decision 49). An `Authorization: Bearer` carrying
-  `CUJO_OPERATOR_TOKEN`, compared in constant time, is the live one; a
-  `Cf-Access-Jwt-Assertion` that verifies against the Cloudflare Access public
-  keys for the application's audience tag is still accepted, though the
-  `cujo-admin` Access application it came from has since been removed.
-  A missing or invalid credential is a bare 401 either way — naming the failing
-  check tells a stranger how to pass it — and the reason goes to the log. A
-  presented token that is wrong is refused rather than falling through to
-  Access: whoever sent it meant to use that gate.
-
-  Both are accepted so the token could be configured and the Access application
-  removed in either order (decision 35).
-
-  The browser never holds the token in JavaScript. `apps/web` takes it once at
-  `/login`, keeps it in an httpOnly cookie on its own origin, and turns it into
-  the bearer header server-side; a value a page can read is a value a script
-  injected into that page can read.
-- The webhook route on `cujo-ingress.spencerjireh.com` is the only route that
-  accepts a request with no operator credential at all, and it accepts only a
-  request whose HMAC verifies (Contract 1).
+- The webhook route on `cujo-ingress.spencerjireh.com` accepts only a request
+  whose HMAC verifies (Contract 1), and `/discord/interactions` only one whose
+  Ed25519 signature does (Contract 8). Those two signatures are the only
+  credentials anywhere in this process.
 
 Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
 subagent was given the review tool, which the design forbids. `apps/cujo` logs
@@ -1003,20 +986,13 @@ safe direction. The channel is pinned to the run when its card is created, so
 re-pointing a repo mid-run cannot edit a message into a channel that never held
 it.
 
-The API `apps/cujo` serves on `cujo-admin.spencerjireh.com`, behind the same
-operator credential as every other gated route in Contract 6:
+**There is no HTTP admin surface.** `apps/cujo` served a `/discord/*` API on
+the operator hostname until decision 57 deleted both. A binding is created and
+removed with `/cujo watch` and `/cujo unwatch` (Contract 8), which is a better
+gate than the shared token ever was: the invoking member needs Manage Server in
+that Discord server, and the repo has to name that server in its `.cujo.yml`.
 
-| Route | Returns or does |
-|-------|-----------------|
-| `GET /discord/channels` | Every binding, and `configured`: whether a bot token is set at all. |
-| `PUT /discord/channels/:owner/:name` | Body `{channel_id, notify_role_id?}`. Validates against Discord, then stores the binding with the guild and channel name Discord reported. |
-| `DELETE /discord/channels/:owner/:name` | Removes the binding. 404 when there was none. |
-| `GET /discord/guilds` | The servers the bot is in, so a picker need not ask for a raw id. |
-| `GET /discord/guilds/:id/channels` | That server's postable channels, in channel order. |
-
-The repo is two path segments rather than one, because `owner/name` holds a
-slash and `%2F` is handled differently by the router, the proxy, and `curl`.
-It is stored lower-cased: GitHub repo names are case-insensitive and
+A repo is stored lower-cased: GitHub repo names are case-insensitive and
 `repository.full_name` carries whatever casing the owner typed, so a binding
 typed by hand would otherwise silently never match.
 
@@ -1024,8 +1000,8 @@ The write is validated because a wrong id would otherwise fail silently at the
 first blocked run: `channel_id` must be a Discord id, the bot must be able to
 read the channel, and the channel must be a guild text or announcement channel
 in a server. A channel the bot cannot read and a channel that does not exist
-give the **same** answer on purpose — the difference would let an operator
-probe channels across all of Discord — and the real status is logged instead.
+give the **same** answer on purpose — the difference would let a caller probe
+channels across all of Discord — and the real status is logged instead.
 A `notify_role_id` is checked against the server's roles, so "the ping mentions
 nobody" becomes an error at bind time.
 
@@ -1094,12 +1070,12 @@ checked on the delivery path too, so unsetting it drops a binding it created,
 the same way reverting a commit drops a declared one. An unreadable
 `.cujo.yml` stays `unknown` and the default does not rescue it.
 
-**The operator override.** `PUT /discord/authorizations/:guildId/:owner/:name`
-on the UI host still allows a pair directly, recorded in `authorized_by` as
-the fixed identity `operator`, because a shared token names nobody
-(decision 49). It is for moving a repo between servers, and for a repo whose
-`.cujo.yml` cannot be changed. It is no longer the way notifications are
-normally set up.
+**There is no override.** A table on the operator plane used to allow a pair
+directly, for moving a repo between servers or for a repo whose `.cujo.yml`
+cannot be changed. It went with the plane (decision 57), and the table is
+dropped by a migration rather than left unread. The declaration is the whole
+authority: repo write access, auditable in git history, revoked by a commit
+(decision 31).
 
 **When a declaration is wrong**, nothing fails: a malformed value, a server the
 bot is not in, or a missing file all mean "not declared". Reviews are
@@ -1142,7 +1118,7 @@ was picked, and says exactly what to add if it has not named this server.
 |------------|------|
 | `/cujo watch repo channel [role]` | Sends that repo's cards to that channel, pinging that role when a review blocks. |
 | `/cujo unwatch repo` | Stops sending them. |
-| `/cujo status` | Where each repo watched here currently goes, plus anything an operator allowed that is not being sent yet, and the line to add to a repo to allow another. |
+| `/cujo status` | Where each repo watched here currently goes, and the line to add to a repo to allow another. There is no "allowed but not sent" state to report since decision 57: a declaration alone is not a binding. |
 | `/cujo test repo` | Posts a sample card to the bound channel. It exercises the token, the channel permissions and the rendering at once, which nothing else can do without waiting for a real pull request. |
 
 Every reply is ephemeral, so configuring makes no noise in the channel.
@@ -1167,16 +1143,26 @@ reply says which one failed:
    before the next check on purpose: a repo the App cannot see has no readable
    `.cujo.yml` either, and "it has not named this server" would send someone to
    edit a file Cujo could not have read.
-4. The repo names this server in `.cujo.yml`, or an operator allowed the pair.
-   `watch` checks this again immediately before it writes: the Discord round
-   trips in between are awaits, and a declaration reverted or an allowance
-   withdrawn during them must not end with a binding for a server that may no
-   longer see the repo.
-5. For `watch` and `unwatch`: no **other** server already holds this repo. One
-   repo notifies one channel (Contract 7), so two servers allowed the same repo
-   would otherwise be able to redirect or silence each other's reviews. Moving
-   a repo between servers is an operator's job, over
-   `PUT /discord/channels/:owner/:name`.
+4. The repo names this server in `.cujo.yml`, or this is the deploy's own
+   server and the repo declares nothing (decision 40). `watch` checks this again
+   immediately before it writes: the Discord round trips in between are awaits,
+   and a declaration reverted during them must not end with a binding for a
+   server that may no longer see the repo.
+5. For `unwatch`: no **other** server already holds this repo. One repo
+   notifies one channel (Contract 7), and `unwatch` is reachable without
+   authorization on purpose, so without this one server could silence
+   another's reviews.
+
+   For `watch` the rule is narrower, because this is also how a repo moves
+   between servers now that the operator override is gone (decision 57). An
+   existing binding held by another server is refused **unless that server's
+   claim has gone stale** — the holder's authorization is re-read `fresh`, and
+   only a holder the declaration no longer names loses the binding. A holder
+   that is still authorized keeps it, and a read that fails is refused rather
+   than guessed: taking a binding from another server on a guess is the one
+   mistake here that does not correct itself. So moving a repo is two steps
+   its own maintainers control — change `discord_guild` on the default branch,
+   then run `/cujo watch` in the new server.
 6. For `watch`: the channel is in **this** server, is a text or announcement
    channel, and the bot has View Channel, Send Messages and Embed Links there,
    resolved through the overwrites exactly as Contract 7's bind route does. The
@@ -1192,9 +1178,9 @@ longer than Discord's 100-character choice limit is not offered by autocomplete
 
 **Transport.** `POST /discord/interactions` on `cujo-ingress.spencerjireh.com`,
 the same host as the GitHub webhook and for the same reason (decision 7):
-Discord carries no operator credential and cannot answer a login challenge, so
+Discord can answer no login challenge, so
 a gated host could never receive it. It is signature-gated
-ingress, so the UI host answers 404 for it, in the process and not only at the
+ingress, so the read host answers 404 for it, in the process and not only at the
 edge.
 
 Each request is verified with Ed25519 over `timestamp + rawBody`, from

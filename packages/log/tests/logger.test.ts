@@ -38,7 +38,7 @@ describe("a log line", () => {
     const { log, lines } = build({ level: "debug" });
     log.debug("public.stream.opened");
     log.info("service.started");
-    log.warn("access.denied");
+    log.warn("webhook.rejected");
     log.error("service.fatal");
     expect(lines.map((l) => l.level)).toEqual(["debug", "info", "warn", "error"]);
   });

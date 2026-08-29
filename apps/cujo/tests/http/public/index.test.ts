@@ -52,8 +52,12 @@ describe("public run detail", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).not.toHaveProperty("approver");
-    expect(body).not.toHaveProperty("session_id");
+    expect(body).not.toHaveProperty("decided_at");
     expect(body).not.toHaveProperty("approval");
+    // Published since decision 57, and asserted here so this route is known to
+    // carry them and not only the serializer.
+    expect(body).toHaveProperty("session_id");
+    expect(body).toHaveProperty("turn_ids");
     expect(body.id).toBe("r1");
   });
 

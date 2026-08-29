@@ -1,24 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { publicRunId, runUrl } from "../../src/review/links";
 
-const LINKS = {
-  uiBaseUrl: "https://cujo-admin.example.com",
-  publicBaseUrl: "https://cujo.example.com",
-};
+const LINKS = { publicBaseUrl: "https://cujo.example.com" };
 
 const PUBLIC_RUN = { id: "r1", isPublic: true };
 const PRIVATE_RUN = { id: "r2", isPublic: false };
 
 describe("runUrl", () => {
-  it("sends a public run to the board and a private one to the operator UI", () => {
+  it("sends a public run to the board", () => {
     expect(runUrl(LINKS, PUBLIC_RUN)).toBe("https://cujo.example.com/runs/r1");
-    expect(runUrl(LINKS, PRIVATE_RUN)).toBe("https://cujo-admin.example.com/runs/r2");
   });
 
-  it("falls back to the operator UI when no public host is configured", () => {
-    expect(runUrl({ ...LINKS, publicBaseUrl: "" }, PUBLIC_RUN)).toBe(
-      "https://cujo-admin.example.com/runs/r1",
-    );
+  it("sends a private run nowhere", () => {
+    // There is no second, gated hostname to fall back to since decision 57,
+    // and the board serves public repos only — so a link would be a link into
+    // a 404. The pull request is where that run is discussed.
+    expect(runUrl(LINKS, PRIVATE_RUN)).toBeNull();
+  });
+
+  it("links nowhere at all when no board is configured", () => {
+    expect(runUrl({ publicBaseUrl: "" }, PUBLIC_RUN)).toBeNull();
+    expect(runUrl({ publicBaseUrl: "" }, PRIVATE_RUN)).toBeNull();
   });
 });
 
@@ -28,8 +30,8 @@ describe("publicRunId", () => {
   });
 
   it("returns nothing for a private run", () => {
-    // Never the operator host either: a reader of the pull request would get a
-    // login screen, which is worse than no link (decision 36).
+    // The same rule runUrl applies, reached from the other end: a reader of
+    // the pull request has no page to open either (decision 36).
     expect(publicRunId(PRIVATE_RUN)).toBe("");
   });
 

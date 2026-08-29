@@ -73,13 +73,22 @@ describe("the public field allowlist", () => {
     expect(classified).toHaveLength(new Set(classified).size);
   });
 
-  it("withholds the fields that name a person or a harness handle", () => {
+  it("withholds the fields that name a person, and the state of the gate", () => {
     expect(WITHHELD_SOURCE_FIELDS).toContain("approver");
     expect(WITHHELD_SOURCE_FIELDS).toContain("decidedAt");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("sessionId");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("deliveryId");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("turnIds");
     expect(WITHHELD_SOURCE_FIELDS).toContain("approval");
+    expect(WITHHELD_SOURCE_FIELDS).toContain("decision");
+    expect(WITHHELD_SOURCE_FIELDS).toContain("gatedResponseSeen");
+  });
+
+  it("publishes the harness and GitHub handles, which it used to withhold", () => {
+    // Decision 57. They authorize nothing on their own: the TrueForge console
+    // these name keeps its own Access application, and `delivery_id` is what
+    // correlates a board page with a log line.
+    for (const field of ["sessionId", "turnIds", "externalResume", "deliveryId"] as const) {
+      expect(PUBLIC_SOURCE_FIELDS).toContain(field);
+      expect(WITHHELD_SOURCE_FIELDS).not.toContain(field);
+    }
   });
 
   /**
@@ -189,10 +198,10 @@ describe("serializePublicRun", () => {
     for (const leaked of [
       "SENTINEL_approver",
       "SENTINEL_decidedAt",
-      "SENTINEL_sessionId",
-      "SENTINEL_turnIds",
-      // A GitHub-side handle, the same class as the two above.
-      "SENTINEL_deliveryId",
+      // The projection's own turn ids, which are rebuilt by the fold. The
+      // run's are published (decision 57); these are a second copy of the same
+      // fact and stay unread, so a leak here would mean the serializer started
+      // reading the projection where it should read the record.
       "SENTINEL_projectionTurnIds",
       "SENTINEL_approvalThreadId",
       "SENTINEL_approvalToolCallId",
@@ -238,6 +247,11 @@ describe("serializePublicRun", () => {
       "SENTINEL_comment",
       "SENTINEL_report",
       "SENTINEL_summary",
+      // Published since decision 57, and from the record rather than the
+      // projection.
+      "SENTINEL_sessionId",
+      "SENTINEL_turnIds",
+      "SENTINEL_deliveryId",
     ]) {
       expect(json).toContain(kept);
     }
@@ -264,16 +278,20 @@ describe("serializePublicSummary", () => {
 });
 
 /**
- * The one rule here that no type system expresses: the public module must not
- * reach into the operator one.
+ * The one rule here that no type system expresses: what this module is allowed
+ * to depend on at all.
  *
- * It is also the rule that makes the allowlist meaningful — importing the
- * operator `serialize()` and deleting fields from its result would pass every
- * other test in this file while restoring exactly the public-by-default
- * behaviour decision 34 rejected. Biome 1.9's `noRestrictedImports` is a
- * nursery rule that matches exact module specifiers rather than a directory,
- * so this reads the source instead. Unusual, and better than a comment nobody
- * is obliged to obey.
+ * It used to be stated as "never import from `../operator/`", because the way
+ * to defeat the allowlist was to import the operator serializer and delete
+ * fields from its result. Decision 57 deleted that directory, which would have
+ * left a guard that passes because its target no longer exists — a green test
+ * proving nothing. So the rule is inverted into a positive allowlist: these
+ * are the modules the public plane may reach, and anything else is a new
+ * dependency somebody has to write down here first.
+ *
+ * Biome 1.9's `noRestrictedImports` is a nursery rule matching exact module
+ * specifiers rather than a directory, so this reads the source instead.
+ * Unusual, and better than a comment nobody is obliged to obey.
  */
 describe("the public module's imports", () => {
   const dir = join(import.meta.dirname, "../../../src/http/public");
@@ -284,11 +302,27 @@ describe("the public module's imports", () => {
     return [...source.matchAll(IMPORT)].map(([, specifier]) => specifier ?? "");
   };
 
-  it("never reaches into the operator plane", () => {
+  /**
+   * Every specifier the plane may name. Anything reaching further — a client,
+   * the runner's own dependencies, a notify module — is how a field nobody
+   * classified arrives in a public response.
+   */
+  const ALLOWED = new Set([
+    "hono",
+    "hono/streaming",
+    "./serialize",
+    "./stream-limit",
+    "../request-log",
+    "../../review/runner.service",
+    "../../review/types",
+    "../../store",
+  ]);
+
+  it("reaches only the modules named here", () => {
     const offenders: string[] = [];
     for (const file of readdirSync(dir).filter((name) => name.endsWith(".ts"))) {
       for (const specifier of specifiersIn(file)) {
-        if (specifier.includes("operator")) offenders.push(`${file} -> ${specifier}`);
+        if (!ALLOWED.has(specifier)) offenders.push(`${file} -> ${specifier}`);
       }
     }
     expect(offenders).toEqual([]);

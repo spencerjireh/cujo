@@ -1,10 +1,12 @@
 /**
- * The mode belongs in the query key, and not for tidiness.
+ * The cache keys, now that there is one plane to key.
  *
- * `reduceRun` returns the *previous* cached object when a snapshot repeats, so
- * an entry filled on the operator plane — approver and all — would be handed
- * straight to a public render if the two planes could ever share a key. They
- * cannot (decision 34).
+ * The mode used to be part of every key, because `reduceRun` returns the
+ * *previous* cached object when a snapshot repeats and an entry filled on the
+ * operator plane — approver and all — could otherwise be handed to a public
+ * render (decision 34). Decision 57 deleted that plane, so what is left worth
+ * pinning is the shape: everything stays under `all`, so one invalidation
+ * still reaches the list and every detail.
  */
 
 import { describe, expect, it } from "vitest";
@@ -12,13 +14,13 @@ import { runStreamUrl } from "../../../src/lib/api/client";
 import { runKeys } from "../../../src/lib/api/keys";
 
 describe("runKeys", () => {
-  it("gives the two planes different keys for the same run", () => {
-    expect(runKeys.detail("public", "r1")).not.toEqual(runKeys.detail("operator", "r1"));
-    expect(runKeys.list("public")).not.toEqual(runKeys.list("operator"));
+  it("gives the list and a detail different keys", () => {
+    expect(runKeys.list()).not.toEqual(runKeys.detail("r1"));
+    expect(runKeys.detail("r1")).not.toEqual(runKeys.detail("r2"));
   });
 
-  it("keeps both planes under `all`, so one invalidation still reaches everything", () => {
-    for (const key of [runKeys.list("public"), runKeys.detail("operator", "r1")]) {
+  it("keeps everything under `all`, so one invalidation still reaches it", () => {
+    for (const key of [runKeys.list(), runKeys.detail("r1")]) {
       expect(key.slice(0, runKeys.all.length)).toEqual([...runKeys.all]);
     }
   });
@@ -26,15 +28,15 @@ describe("runKeys", () => {
 
 describe("runStreamUrl", () => {
   /**
-   * Separate routes rather than one route with a `?mode=` parameter: a query
-   * string is something the browser controls.
+   * A fixed path rather than a `?mode=` parameter. There is nothing else to
+   * ask for since decision 57, but the rule is kept: a query string is
+   * something the browser controls, and the stream URL is not.
    */
-  it("points each plane at its own proxy route", () => {
-    expect(runStreamUrl("public", "r1")).toBe("/api/public/runs/r1/events");
-    expect(runStreamUrl("operator", "r1")).toBe("/api/runs/r1/events");
+  it("points at the one proxy route", () => {
+    expect(runStreamUrl("r1")).toBe("/api/public/runs/r1/events");
   });
 
   it("encodes the id", () => {
-    expect(runStreamUrl("public", "a/b")).toBe("/api/public/runs/a%2Fb/events");
+    expect(runStreamUrl("a/b")).toBe("/api/public/runs/a%2Fb/events");
   });
 });

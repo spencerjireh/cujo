@@ -311,11 +311,15 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
   }
 
   const footer = `run ${run.id.slice(0, 8)} · ${run.headSha.slice(0, 7)}`;
+  const url = runUrl(links, run);
   const embed = clamp({
     title,
     // Ours, never derived. No projection string may reach a URL field, or a
-    // hostile PR chooses where the card's title points.
-    url: runUrl(links, run),
+    // hostile PR chooses where the card's title points. The key is omitted
+    // rather than set to null when there is no page — a private run has none
+    // (decision 57), and Discord refuses a null `url`. The title still renders,
+    // just not as a hyperlink.
+    ...(url ? { url } : {}),
     description: truncate(description, LIMITS.description),
     color: COLOR[status],
     // Both fixed strings. The line is deliberately unlinked: the title already
@@ -348,23 +352,34 @@ export interface PingInput {
  * structural: the repo was validated when the channel was bound, the number is
  * a number, and the link is ours. Nothing untrusted reaches it.
  *
+ * A private run has no page (decision 57), so its ping names the pull request
+ * and carries no link. That is where the answer is anyway: the decision is
+ * `/cujo confirm` on the pull request, not a button on a board.
+ *
  * Once the run leaves `blocked_pending` this same message is edited to say so,
  * so nobody chases a link to a run that can no longer be decided.
  */
 export function buildPing(input: PingInput): DiscordMessagePayload {
   const { run, links, roleId } = input;
-  const where = `${run.repo} #${run.prNumber}`;
+  // Escaped the same way the embed heading is: a repo name may hold `_`, which
+  // Discord reads as emphasis. Not `clean`, and not applied to the whole
+  // string, because `escapeMarkdown` also defangs URLs — running it over the
+  // finished content would break Cujo's own link.
+  const where = escapeMarkdown(`${run.repo} #${run.prNumber}`);
   const link = runUrl(links, run);
+  // A trailing space before an absent link would be invisible here and visible
+  // in Discord, so the suffix is built rather than interpolated.
+  const suffix = link ? ` ${link}` : "";
   if (run.status !== "blocked_pending") {
     return {
-      content: truncate(`Resolved (${run.status}) — ${where}. ${link}`, LIMITS.content),
+      content: truncate(`Resolved (${run.status}) — ${where}.${suffix}`, LIMITS.content),
       allowed_mentions: { parse: [] },
     };
   }
   const mention = roleId ? `<@&${roleId}> ` : "";
   return {
     content: truncate(
-      `${mention}Cujo is blocked on ${where} and needs a human. ${link}`,
+      `${mention}Cujo is blocked on ${where} and needs a human.${suffix}`,
       LIMITS.content,
     ),
     allowed_mentions: roleId ? { parse: [], roles: [roleId] } : { parse: [] },

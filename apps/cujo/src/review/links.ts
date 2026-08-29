@@ -1,36 +1,39 @@
 /**
  * Where a link to a run points. Pure: two rules, no I/O, no config reading.
  *
- * There are two different questions here and they have different answers. A
- * Discord card asks "where does this run live for the people in this channel",
- * and the answer is always some page. A pull request review asks "is there a
- * page a stranger could open", and the answer is sometimes nothing at all.
- * Keeping both in one file is what stops the second from drifting into the
- * first the next time someone needs a run link.
+ * The two questions here used to have different answers. A Discord card asked
+ * "where does this run live for the people in this channel", and there was
+ * always some page — the gated operator UI, if nothing else. A pull request
+ * review asked "is there a page a stranger could open", and the answer was
+ * sometimes nothing at all.
+ *
+ * Since decision 57 there is no gated UI, so both questions have the same
+ * answer and the functions differ only in whether they know the host.
+ * `publicRunId` deliberately still does not consult `publicBaseUrl`: whether a
+ * board exists is `github-mcp`'s half of the question (decision 36), and each
+ * side owns the half it can actually answer. They are kept apart so the next
+ * person who needs a run link cannot quietly give one of them the other's rule.
  */
 
-/** Where the two hostnames live, since a link has to choose between them. */
+/** The one origin there is, since decision 57. Empty means no link anywhere. */
 export interface UiLinks {
-  /** The Access-gated operator UI, where a decision is actually made. */
-  uiBaseUrl: string;
-  /** The anonymous board. Empty falls back to the operator UI. */
+  /** The anonymous board. Empty when none is configured. */
   publicBaseUrl: string;
 }
 
 /**
- * A card links to the public board when the run is public, and to the operator
- * UI when it is not (decision 34).
+ * A card links to the board when the run is public, and to nothing when it is
+ * not (decision 57).
  *
- * A repo's Discord channel holds its team, not Cujo's operators, and most of
- * them cannot pass Access — pointing every card at the gated hostname would
- * answer them with a login page. The public run page carries its own link on to
- * `cujo-admin` when a decision is pending, so an approver is one click further
- * and nobody else is stopped. A private repo has no public page, so its cards
- * have only the one place to go.
+ * A private run has no page: the board serves public repos only, and there is
+ * no second, gated hostname to fall back to any more. A card whose title is not
+ * a hyperlink is the honest rendering of that — better than a link into a 404,
+ * and better than naming a private repo's run somewhere it cannot be read.
+ * The pull request is where that run is actually discussed.
  */
-export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): string {
-  const base = run.isPublic && links.publicBaseUrl ? links.publicBaseUrl : links.uiBaseUrl;
-  return `${base}/runs/${run.id}`;
+export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): string | null {
+  if (!run.isPublic || !links.publicBaseUrl) return null;
+  return `${links.publicBaseUrl}/runs/${run.id}`;
 }
 
 /**
@@ -43,12 +46,13 @@ export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): 
  * different run on Cujo's own board rather than send readers somewhere else
  * entirely.
  *
- * The rule is stricter than `runUrl`'s. A review is read by anyone who can see
- * the pull request, including people who have never heard of Cujo, so the only
- * link worth putting there is one that opens for all of them — and a private
- * run has no such page. This deliberately does not consult `publicBaseUrl`:
- * whether a board exists is `github-mcp`'s half of the question, and each side
- * owns the half it can actually answer.
+ * The rule is the same one `runUrl` now applies, reached from the other end. A
+ * review is read by anyone who can see the pull request, including people who
+ * have never heard of Cujo, so the only link worth putting there is one that
+ * opens for all of them — and a private run has no such page. This
+ * deliberately does not consult `publicBaseUrl`: whether a board exists is
+ * `github-mcp`'s half of the question, and each side owns the half it can
+ * actually answer.
  */
 export function publicRunId(run: { id: string; isPublic: boolean }): string {
   return run.isPublic ? run.id : "";

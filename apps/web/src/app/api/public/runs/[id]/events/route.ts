@@ -6,18 +6,18 @@ import { errorFields } from "@cujo/log";
 import { headers } from "next/headers";
 
 /**
- * The public run stream, proxied unbuffered to `apps/cujo`'s `/public` plane.
+ * The run stream, proxied unbuffered to `apps/cujo`'s `/public` plane.
  *
- * A separate route rather than a `?mode=` parameter on the operator one: a
- * query string is something the browser controls, and a page served on the
- * public hostname must not be able to ask for the gated stream. No Access
- * assertion is forwarded, because there is none to forward and the upstream
- * route wants none.
+ * A fixed path rather than a `?mode=` parameter: a query string is something
+ * the browser controls, and this stayed a fixed path after decision 57 deleted
+ * the gated stream it used to be told apart from, because the rule is worth
+ * keeping whether or not there is a second thing to reach. No credential is
+ * forwarded — there is none, and the upstream route wants none.
  *
- * `apps/cujo` may answer 503 when it is already holding its cap of public
- * streams (decision 34). That status is passed through rather than smoothed
- * over; `useRunStream` shows the visitor that live updates stopped and falls
- * back to polling.
+ * `apps/cujo` may answer 503 when it is already holding its cap of streams
+ * (decision 34). That status is passed through rather than smoothed over;
+ * `useRunStream` shows the visitor that live updates stopped and falls back to
+ * polling.
  */
 
 export const runtime = "nodejs";
@@ -25,9 +25,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  // No assertion and no forwarded host on this plane — there is none to
-  // forward — but the ray still travels, so a visitor's stream and the run it
-  // is watching share one id in the log.
+  // No credential and no forwarded host — there is none to forward — but the
+  // ray still travels, so a visitor's stream and the run it is watching share
+  // one id in the log.
   const ray = (await headers()).get("cf-ray") ?? `cujo-${randomUUID()}`;
 
   let upstream: Response;
@@ -41,7 +41,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     // A browser closing the stream aborts this fetch, which is the normal end
     // of every run page and not a failure worth a line.
     if (request.signal.aborted) return new Response(null, { status: 499 });
-    log.error("proxy.stream.failed", { run_id: id, mode: "public", ray, ...errorFields(error) });
+    log.error("proxy.stream.failed", { run_id: id, ray, ...errorFields(error) });
     return new Response(null, { status: 502 });
   }
 
@@ -51,8 +51,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     // enforcement surface: the guard test scans the source for these literals
     // and fails on a declared name nothing emits, and a computed call is
     // invisible to it — this one was, until the scan said so.
-    const fields = { run_id: id, mode: "public", ray, http_status: upstream.status };
-    if (streamOutcome(upstream.status, upstream.ok, "public").event === "proxy.stream.degraded") {
+    const fields = { run_id: id, ray, http_status: upstream.status };
+    if (streamOutcome(upstream.status, upstream.ok).event === "proxy.stream.degraded") {
       log.warn("proxy.stream.degraded", { ...fields, reason: "stream_limit" });
     } else {
       log.error("proxy.stream.failed", fields);

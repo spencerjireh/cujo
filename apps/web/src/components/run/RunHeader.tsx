@@ -79,7 +79,6 @@ export function RunHeader({ run }: { run: Run }) {
       <p className="mt-2 font-mono text-xs text-fg-muted">
         <Author run={run} />
         {shortSha(run.head_sha)} · started <RelativeTime iso={run.created_at} />
-        {run.approver ? ` · decided by ${run.approver}` : ""}
       </p>
       {run.summary ? <p className="mt-4 max-w-[68ch] text-sm">{run.summary}</p> : null}
       {run.error ? (

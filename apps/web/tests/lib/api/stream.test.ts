@@ -8,7 +8,6 @@ const summary: RunSummary = {
   pr_number: 7,
   head_sha: "a1f9c3e",
   status: "running",
-  approver: null,
   pr_title: "Add a thing",
   created_at: "2026-08-28T10:00:00.000Z",
   updated_at: "2026-08-28T10:00:00.000Z",
@@ -18,14 +17,12 @@ const run = (over: Partial<Run> = {}): Run => ({
   ...summary,
   session_id: "s1",
   turn_ids: ["t1"],
-  decided_at: null,
   pr_author_login: "octocat",
   pr_author_id: 583231,
   checks: [],
   findings: [],
   hard_rule_hits: [],
   review: null,
-  approval: null,
   external_resume: false,
   error: null,
   summary: null,
@@ -75,9 +72,8 @@ describe("reduceList", () => {
   const list: RunList = { runs: [summary] };
 
   it("patches the matching row in place", () => {
-    const next = reduceList(list, run({ status: "blocked_posted", approver: "op@example.com" }));
+    const next = reduceList(list, run({ status: "blocked_posted" }));
     expect(next?.runs[0]?.status).toBe("blocked_posted");
-    expect(next?.runs[0]?.approver).toBe("op@example.com");
     // Untouched fields survive: the stream carries the detail shape, not the row.
     expect(next?.runs[0]?.head_sha).toBe("a1f9c3e");
   });
@@ -101,33 +97,17 @@ describe("reduceList", () => {
    * that an *operator* snapshot never reaches a public cache entry is the mode
    * in the query key, not this (decision 34).
    */
-  it("never introduces an approver on the public plane", () => {
-    const publicRow: RunSummary = {
-      id: "r1",
-      repo: "o/r",
-      pr_number: 7,
-      head_sha: "a1f9c3e",
-      status: "running",
-      pr_title: "Add a thing",
-      created_at: "2026-08-28T10:00:00.000Z",
-      updated_at: "2026-08-28T10:00:00.000Z",
-    };
-    const publicSnapshot: Run = {
-      ...publicRow,
+  it("carries no name onto a row, because the wire shape has none", () => {
+    // `reduceList` used to copy `approver` across, which was the one field
+    // that could put a person's name on a row the board renders. Decision 57
+    // removed it from the wire shape entirely, so this asserts the patch is
+    // status and timestamp and nothing else.
+    const next = reduceList(list, run({ status: "blocked_pending" }));
+    const row = next?.runs[0];
+    expect(row).toEqual({
+      ...summary,
       status: "blocked_pending",
-      updated_at: "2026-08-28T10:05:00.000Z",
-      pr_author_login: "octocat",
-      pr_author_id: 583231,
-      checks: [],
-      findings: [],
-      hard_rule_hits: [],
-      review: null,
-      error: null,
-      summary: null,
-    };
-    const next = reduceList({ runs: [publicRow] }, publicSnapshot);
-    expect(next?.runs[0]?.status).toBe("blocked_pending");
-    expect(next?.runs[0]?.approver ?? null).toBeNull();
-    expect(reduceRun(publicSnapshot, publicSnapshot).approver).toBeUndefined();
+      updated_at: run().updated_at,
+    });
   });
 });

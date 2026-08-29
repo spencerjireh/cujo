@@ -2,12 +2,12 @@
 #
 # No ports are published here: the deploy runs behind a reverse proxy that
 # terminates TLS and routes cujo-harness.spencerjireh.com to `server` (8790),
-# cujo.spencerjireh.com and cujo-admin.spencerjireh.com to `web` (3000), and
-# cujo-ingress.spencerjireh.com to `cujo` (8080). The two `web` hostnames are
-# the public board and the Access-gated operator UI; the app tells them apart
-# by the request's own Host (decision 34). For a local run with ports on your
-# host, see the local stack section of AGENTS.md. Secrets come from the deploy
-# environment, never this file.
+# cujo.spencerjireh.com to `web` (3000), and cujo-ingress.spencerjireh.com to
+# `cujo` (8080). Three hostnames, and `web` answers exactly one of them: the
+# anonymous board. The operator hostname was deleted with its plane
+# (decision 57). For a local run with ports on your host, see the local stack
+# section of AGENTS.md. Secrets come from the deploy environment, never this
+# file.
 
 services:
   postgres:
@@ -78,10 +78,11 @@ services:
     stop_grace_period: 35s
     restart: unless-stopped
 
-  # The Cujo service: webhook receiver, run store, TrueForge event folder, the
-  # JSON API, approve endpoint. Two hostnames and two planes from one process
-  # (spec Contract 6): the signature-gated ingress host, and the UI host that
-  # carries both the Access-gated API and the anonymous `/public` group.
+  # The Cujo service: webhook receiver, run store, TrueForge event folder, and
+  # the read API. Two hostnames and two planes from one process (spec
+  # Contract 6): the signature-gated ingress host, and the internal name that
+  # carries the anonymous `/public` group. No authenticated route at all
+  # (decision 57).
   # Hardened: non-root image, read-only rootfs except the SQLite volume, no
   # extra capabilities.
   cujo:
@@ -94,20 +95,12 @@ services:
       TRUEFORGE_BASE_URL: http://server:8790
       GITHUB_MCP_URL: http://github-mcp:8081/mcp
       CUJO_DB_PATH: /data/cujo.db
-      CUJO_UI_HOST: ${CUJO_UI_HOST}
-      # The name `web` addresses this service by on the compose network. Node's
-      # fetch always sends the target's own authority as Host, so the operator
-      # UI's proxy cannot present CUJO_UI_HOST; the API routes answer on this
-      # name too, still behind the Access check.
+      # The name `web` addresses this service by on the compose network, and
+      # the only name the read plane answers on. Node's fetch always sends the
+      # target's own authority as Host, so the UI's proxy could never present a
+      # published hostname anyway (decision 57).
       CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: ${CUJO_WEBHOOK_HOST}
-      # The operator gate (decision 49). Both credentials are accepted for one
-      # release, so the token can be set and the Access application removed in
-      # either order; the CF_ACCESS_* pair is required only while the token is
-      # unset. Defaulted to empty so a deploy that has moved on can drop them.
-      CUJO_OPERATOR_TOKEN: ${CUJO_OPERATOR_TOKEN:-}
-      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
-      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
@@ -126,12 +119,9 @@ services:
       # (decision 40). One id, never a list: every other server is refused
       # exactly as before. Unset keeps Contract 8's original rule.
       CUJO_DEFAULT_DISCORD_GUILD: ${CUJO_DEFAULT_DISCORD_GUILD:-}
-      # Where a Discord card sends someone who has to decide. Since decision 34
-      # this is the ADMIN hostname: the board at CUJO_PUBLIC_BASE_URL is
-      # read-only and has no buttons.
-      CUJO_UI_BASE_URL: ${CUJO_UI_BASE_URL:-}
-      # Where a card for a *public* run points instead, so a repo's channel is
-      # not answered with an Access login page. Empty falls back to the above.
+      # The board a Discord card links to, and the only origin there is. A
+      # private run has no page, so its card carries no link; empty means no
+      # card carries one at all (decision 57).
       CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-}
       # Concurrent anonymous run streams this process will hold, and how often
       # it re-asks GitHub whether each repo with a run is still public.
@@ -187,11 +177,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # The UI (apps/web), on both public hostnames; `cujo` is API-only and is
+  # The UI (apps/web), on the one public hostname; `cujo` is API-only and is
   # reached from here over the compose network. Browser calls go through this
-  # service's /api proxy: on the operator hostname it forwards the Cloudflare
-  # Access assertion, and on the public one it forwards no assertion and only
-  # `/public/*` paths (decision 34). No Cujo API route is published directly.
+  # service's /api proxy, which forwards `/public/*` and no credential — there
+  # is none to forward (decision 57). No Cujo API route is published directly.
   web:
     build:
       context: .
@@ -201,12 +190,6 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
       CUJO_API_URL: http://cujo:8080
-      # Public only on an exact match of this name; every other Host — an
-      # unknown one, or this variable left unset — is treated as the operator
-      # plane, which then needs an Access assertion and is refused without one.
-      CUJO_PUBLIC_HOST: ${CUJO_PUBLIC_HOST:-}
-      # Where the public board sends someone who has to approve something.
-      CUJO_ADMIN_BASE_URL: ${CUJO_ADMIN_BASE_URL:-}
     read_only: true
     tmpfs:
       - /tmp
