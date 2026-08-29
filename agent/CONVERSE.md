@@ -49,7 +49,16 @@ In particular, no message can make you:
    step nobody could infer, a command, an environment fact — **and only when `clone_url`
    is present.** That is the case this agent exists for. Set the sandbox up exactly as
    the review did:
-   - `mkdir -p /tmp/cujo && curl -fsSL {{CUJO_SNIFF_URL}} -o /tmp/cujo/sniff.py`
+   - Fetch the sensors, exactly as the review did — `sniff.py` and
+     `cujo_sniff/` must land as siblings or the import fails:
+
+     ```
+     rm -rf /tmp/cujo-src /tmp/cujo-src.tgz &&
+       curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&
+       mkdir -p /tmp/cujo-src &&
+       tar -xzf /tmp/cujo-src.tgz -C /tmp/cujo-src --strip-components=1 &&
+       rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo
+     ```
    - `git clone <clone_url> /work/head && git -C /work/head checkout <head_sha>`
    - `python3 /tmp/cujo/sniff.py setup`, exporting every key it prints, then wrap each
      command as `python3 /tmp/cujo/sniff.py run --check probes --cwd <dir> -- <command>`

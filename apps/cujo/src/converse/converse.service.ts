@@ -1,5 +1,5 @@
 /**
- * Answering `@cujo-guard` on a pull request (Design 3, decision 46).
+ * Answering `@cujo-guard` on a pull request (Design 3, decision 47).
  *
  * The load-bearing rule is that **conversation runs in its own TrueForge
  * session and is never folded into a run.** A second turn on the review's

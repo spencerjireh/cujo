@@ -56,7 +56,7 @@ describe("store", () => {
   });
 
   it("holds the conversation session apart from the review's", () => {
-    // The whole of decision 46 rests on these never being the same id: a turn
+    // The whole of decision 47 rests on these never being the same id: a turn
     // on the review's session cancels a live review, is refused while its
     // approval is pending, and corrupts the run's projection.
     const store = new Store(":memory:");

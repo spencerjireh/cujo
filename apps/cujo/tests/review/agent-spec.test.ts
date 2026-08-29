@@ -192,13 +192,13 @@ describe("buildAgentSpec", () => {
 });
 
 describe("buildConverseSpec", () => {
-  const config = { model: "p/m", sniffUrl: "https://x/sniff.py" } as Config;
+  const config = { model: "p/m", sniffTarballUrl: "https://x/src.tgz" } as Config;
 
   it("gives the conversation agent no review tools at all", () => {
     // Structural, not prose. The message it reads was written by whoever could
     // reach the pull request, so the bound on a prompt injection is that there
     // is nothing to inject *into*: `apps/cujo` posts the reply afterwards.
-    const spec = buildConverseSpec(config, "rubric {{CUJO_SNIFF_URL}}");
+    const spec = buildConverseSpec(config, "rubric {{CUJO_SNIFF_TARBALL_URL}}");
     expect(spec.mcpServers).toEqual([]);
   });
 
@@ -215,11 +215,13 @@ describe("buildConverseSpec", () => {
 
   it("loads its own rubric, not the reviewer's", () => {
     const converse = loadRubric("CONVERSE.md");
-    expect(converse).toContain("{{CUJO_SNIFF_URL}}");
+    expect(converse).toContain("{{CUJO_SNIFF_TARBALL_URL}}");
     expect(converse).not.toContain("post_gated_review");
     // The rule the design turns on: a second user message is untrusted too.
     expect(converse).toContain("untrusted");
-    expect(buildConverseSpec(config, converse).instructions).not.toContain("{{CUJO_SNIFF_URL}}");
+    expect(buildConverseSpec(config, converse).instructions).not.toContain(
+      "{{CUJO_SNIFF_TARBALL_URL}}",
+    );
   });
 
   it("carries no server-side secret either", () => {
