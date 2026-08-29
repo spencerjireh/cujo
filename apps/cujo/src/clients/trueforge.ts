@@ -95,7 +95,7 @@ export class Harness {
               // `CustomModelProvider` has no such field, and the catalog's
               // `supportedReasoningEfforts` is read-only.
               properties: provider.reasoningEfforts.length
-                ? { reasoningEfforts: provider.reasoningEfforts as TrueForgeApi.ReasoningEffort[] }
+                ? { reasoningEfforts: provider.reasoningEfforts }
                 : {},
             })),
           },
