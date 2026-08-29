@@ -16,6 +16,8 @@ function run(overrides: Partial<RunRecord> = {}): RunRecord {
     prTitle: null,
     prAuthorLogin: null,
     prAuthorId: null,
+    model: null,
+    rubricSha256: null,
     status: "clean",
     approver: null,
     decidedAt: null,

@@ -40,6 +40,8 @@ const EVERY_RUN_FIELD: Record<keyof RunRecord, true> = {
   decidedAt: true,
   isPublic: true,
   deliveryId: true,
+  model: true,
+  rubricSha256: true,
   prTitle: true,
   prAuthorLogin: true,
   prAuthorId: true,
@@ -61,6 +63,7 @@ const EVERY_PROJECTION_FIELD: Record<keyof Projection, true> = {
   gatedResponseSeen: true,
   error: true,
   summary: true,
+  usage: true,
 };
 
 const sorted = (values: readonly string[]) => [...new Set(values)].sort();
@@ -121,6 +124,8 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
     decidedAt: "SENTINEL_decidedAt",
     isPublic: true,
     deliveryId: "SENTINEL_deliveryId",
+    model: "SENTINEL_model",
+    rubricSha256: "SENTINEL_rubricSha256",
     prTitle: "SENTINEL_prTitle",
     prAuthorLogin: "SENTINEL_prAuthorLogin",
     prAuthorId: 4242,
@@ -252,6 +257,8 @@ describe("serializePublicRun", () => {
       "SENTINEL_sessionId",
       "SENTINEL_turnIds",
       "SENTINEL_deliveryId",
+      "SENTINEL_model",
+      "SENTINEL_rubricSha256",
     ]) {
       expect(json).toContain(kept);
     }

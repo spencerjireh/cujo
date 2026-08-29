@@ -6,6 +6,7 @@ import {
   buildTurnMessage,
   loadRubric,
   manifestChanged,
+  specFingerprint,
 } from "../../src/review/agent-spec";
 
 describe("manifestChanged", () => {
@@ -266,5 +267,40 @@ describe("buildConverseSpec", () => {
       githubAppPrivateKey: "SENTINEL-PEM",
     } as unknown as Config;
     expect(JSON.stringify(buildConverseSpec(withSecrets, "rubric"))).not.toContain("SENTINEL");
+  });
+});
+
+describe("specFingerprint", () => {
+  const config = {
+    model: "openrouter/some-model",
+    modelReasoningEffort: "",
+    sniffTarballUrl: "https://example.test/a.tgz",
+  } as unknown as Config;
+
+  it("is a sha256 of the instructions, and stable", () => {
+    const spec = buildAgentSpec(config, "the rubric");
+    expect(specFingerprint(spec)).toMatch(/^[0-9a-f]{64}$/);
+    expect(specFingerprint(spec)).toBe(specFingerprint(buildAgentSpec(config, "the rubric")));
+  });
+
+  it("changes when the rubric changes", () => {
+    expect(specFingerprint(buildAgentSpec(config, "one"))).not.toBe(
+      specFingerprint(buildAgentSpec(config, "two")),
+    );
+  });
+
+  it("changes when the substituted tarball URL changes", () => {
+    // The digest is of the string a session would actually be handed, so two
+    // deploys pointing at different sensor code are two different rubrics.
+    const other = { ...config, sniffTarballUrl: "https://example.test/b.tgz" } as unknown as Config;
+    const rubric = "fetch {{CUJO_SNIFF_TARBALL_URL}} and run it";
+    expect(specFingerprint(buildAgentSpec(config, rubric))).not.toBe(
+      specFingerprint(buildAgentSpec(other, rubric)),
+    );
+  });
+
+  it("hashes an absent instruction string rather than throwing", () => {
+    // `instructions` is optional on AgentSpec.
+    expect(specFingerprint({ model: { name: "m" } })).toMatch(/^[0-9a-f]{64}$/);
   });
 });

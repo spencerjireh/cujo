@@ -33,6 +33,8 @@ function run(patch: Partial<RunRecord> = {}): RunRecord {
     decidedAt: null,
     isPublic: true,
     deliveryId: null,
+    model: null,
+    rubricSha256: null,
     prTitle: "a pull request",
     prAuthorLogin: "octocat",
     prAuthorId: 583231,

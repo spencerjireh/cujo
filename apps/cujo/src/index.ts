@@ -11,7 +11,7 @@ import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { PrReactor } from "./notify/reactions.service";
-import { buildAgentSpec, buildConverseSpec } from "./review/agent-spec";
+import { buildAgentSpec, buildConverseSpec, specFingerprint } from "./review/agent-spec";
 import { publicRunId } from "./review/links";
 import { PrCommandService } from "./review/pr-command.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
@@ -217,6 +217,10 @@ async function main(): Promise<void> {
       reviewRunId: (run: RunRecord) => publicRunId(run),
       ...(reactor ? { onClaimed: (run: RunRecord) => reactor.markClaimed(run) } : {}),
       createSession: () => harness.createSession(spec),
+      // Stamped on every run this process claims. Read from the spec rather
+      // than from `config` so the digest is of the string a session would
+      // actually be handed, tarball URL substituted and all.
+      provenance: { model: config.model, rubricSha256: specFingerprint(spec) },
       isReady: () => harness.ready,
       prCommands,
       ...(converse ? { converse } : {}),

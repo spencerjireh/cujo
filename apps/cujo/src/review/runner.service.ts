@@ -10,6 +10,7 @@ import type { RunStore } from "../store";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
 import { fold, pendingApproval } from "./fold";
 import { runLogger } from "./start-run";
+import { checkTimings } from "./timings";
 import type { CheckState, PendingApproval, Projection, RunRecord } from "./types";
 
 type AnyEvent = SessionEvent | StreamEvent;
@@ -46,16 +47,19 @@ export interface RunnerOptions {
 }
 
 /**
- * How long a check took, in the event clock rather than the wall clock.
+ * How long a check took, for the log line, in the event clock rather than the
+ * wall clock.
  *
- * Omitted rather than guessed when either endpoint is missing: a check whose
- * thread events did not carry a timestamp has no honest duration, and a zero
- * would read as an instantaneous check.
+ * The rule this used to state in full now lives in `checkTimings`, which
+ * computes the same wall time and two more numbers beside it: omitted rather
+ * than guessed when either endpoint is missing, because a check whose thread
+ * events carried no timestamp has no honest duration and a zero would read as
+ * an instantaneous check. The field stays `duration_ms` because
+ * `packages/log` declares that name and nothing else means the same thing.
  */
 function durationOf(check: CheckState): { duration_ms?: number } {
-  if (!check.startedAt || !check.endedAt) return {};
-  const ms = Date.parse(check.endedAt) - Date.parse(check.startedAt);
-  return Number.isFinite(ms) && ms >= 0 ? { duration_ms: ms } : {};
+  const { wallMs } = checkTimings(check);
+  return wallMs === undefined ? {} : { duration_ms: wallMs };
 }
 
 /**

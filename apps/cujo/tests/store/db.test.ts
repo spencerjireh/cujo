@@ -27,11 +27,13 @@ describe("the migration ladder", () => {
     expect(MIGRATIONS[3]).toBe("ALTER TABLE run_pr_meta ADD COLUMN author_login TEXT");
     expect(MIGRATIONS[4]).toBe("ALTER TABLE run_pr_meta ADD COLUMN author_id INTEGER");
     expect(MIGRATIONS[5]).toBe("DROP TABLE IF EXISTS discord_guild_repos");
+    expect(MIGRATIONS[6]).toBe("ALTER TABLE runs ADD COLUMN model TEXT");
+    expect(MIGRATIONS[7]).toBe("ALTER TABLE runs ADD COLUMN rubric_sha256 TEXT");
   });
 
   it("has no gaps, since index i takes user_version i to i + 1", () => {
     expect(MIGRATIONS.every((statement) => typeof statement === "string" && statement.length > 0));
-    expect(MIGRATIONS).toHaveLength(6);
+    expect(MIGRATIONS).toHaveLength(8);
   });
 
   /**
@@ -61,6 +63,18 @@ describe("the migration ladder", () => {
    */
   it("adds the author columns without a default, so a run that had none says so", () => {
     for (const statement of [MIGRATIONS[3], MIGRATIONS[4]]) {
+      expect(statement).not.toMatch(/DEFAULT/i);
+      expect(statement).not.toMatch(/NOT NULL/i);
+    }
+  });
+
+  /**
+   * Same reasoning once more. A run claimed before these columns was produced
+   * by a model and a rubric nobody recorded; an empty string would read as a
+   * model with no name, which is a different and false claim.
+   */
+  it("adds the provenance columns without a default, so an unrecorded run says so", () => {
+    for (const statement of [MIGRATIONS[6], MIGRATIONS[7]]) {
       expect(statement).not.toMatch(/DEFAULT/i);
       expect(statement).not.toMatch(/NOT NULL/i);
     }
