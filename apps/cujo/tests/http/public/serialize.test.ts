@@ -218,6 +218,18 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
 }
 
 describe("serializePublicRun", () => {
+  it("still emits every field for a projection stored before `usage` existed", () => {
+    // The gap the sentinel fixture cannot show: it spreads `emptyProjection()`,
+    // which always has `usage`, so the field-list assertion below passes while
+    // a real stored row from before the field silently drops the key. Verified
+    // against the deployed board, which is where it was found.
+    const view = sentinelView();
+    const { usage: _usage, ...stored } = view.projection;
+    const body = serializePublicRun({ run: view.run, projection: stored as Projection });
+    expect(Object.keys(body).sort()).toEqual([...PUBLIC_RUN_FIELDS].sort());
+    expect(body.usage).toBeNull();
+  });
+
   it("emits exactly the public field list", () => {
     const body = serializePublicRun(sentinelView());
     expect(Object.keys(body).sort()).toEqual([...PUBLIC_RUN_FIELDS].sort());
