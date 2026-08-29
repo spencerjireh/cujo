@@ -57,7 +57,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 49. [The operator plane swaps an email for a shared token, because it no longer decides anything](#49-the-operator-plane-swaps-an-email-for-a-shared-token-because-it-no-longer-decides-anything)
 50. [`issue_comment` costs the App a permission, and decision 43's check did not cover it](#50-issue_comment-costs-the-app-a-permission-and-decision-43s-check-did-not-cover-it)
 51. [A shipped design document is deleted, and the log carries its own reversals](#51-a-shipped-design-document-is-deleted-and-the-log-carries-its-own-reversals)
-52. [The operator plane is deleted; every route is signature-gated or anonymous](#52-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)
+54. [The operator plane is deleted; every route is signature-gated or anonymous](#54-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -69,7 +69,7 @@ configuration and the SDK.
 
 ## 2. Hosted mode on Hetzner via Coolify, gated by Cloudflare Access
 
-**Superseded in part by 34, 49 and 52.** The operator plane is gone
+**Superseded in part by 34, 49 and 54.** The operator plane is gone
 entirely, and its Access gate with it; the `cujo-harness` console gate
 stands and is now the only one anywhere in this system.
 
@@ -628,7 +628,7 @@ that is already out there.
 
 ## 31. The repo declares its Discord server; the operator route becomes an override
 
-**Superseded in part by 52.** The declaration stands and is now the whole
+**Superseded in part by 54.** The declaration stands and is now the whole
 authority; the override route and its table are deleted.
 
 Decision 28 made a Cujo operator vouch that a Discord server may see a repo.
@@ -790,7 +790,7 @@ off; and restricting port 22 to a guessed control-plane address.
 
 ## 34. The run board is public and read-only; the operator surface moves hosts
 
-**Superseded in part by 52.** The board, the allowlist serializer, the
+**Superseded in part by 54.** The board, the allowlist serializer, the
 `is_public` stamping and the stream cap all stand. The second hostname and
 everything that linked to it do not.
 
@@ -1868,7 +1868,7 @@ a command reading it is exactly the thing worth seeing.
 
 ## 49. The operator plane swaps an email for a shared token, because it no longer decides anything
 
-**Superseded by 52.** The token is deleted with the plane it gated.
+**Superseded by 54.** The token is deleted with the plane it gated.
 
 **This is the downward swap of principal decision 28 refused**, and the entry
 has to say so first rather than last. Decision 28 rejected Discord channel
@@ -2023,7 +2023,7 @@ guarantees a third contradiction later. **Leaving the reversals unmarked and
 relying on "newest context wins"**, which is a rule about how to resolve a
 conflict, not a way to notice there is one.
 
-## 52. The operator plane is deleted; every route is signature-gated or anonymous
+## 54. The operator plane is deleted; every route is signature-gated or anonymous
 
 `cujo-admin.spencerjireh.com`, the operator API behind it, the shared token
 that gated it, the Cloudflare Access verifier still accepted beside it, and the

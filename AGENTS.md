@@ -45,7 +45,7 @@ on :8790, `cujo` on :8080 (dispatches on `Host`: the internal name `cujo` =
 the read API, `cujo-ingress.localhost` = webhook and Discord), `github-mcp` on
 :8081. Curl the API with `-H 'Host: cujo'`, which is what every production
 request carries too; anything outside `/public` is 404 there, and there is no
-credential to present (decision 52). Open http://localhost:3000 for the board.
+credential to present (decision 54). Open http://localhost:3000 for the board.
 `make clean` drops the database volume. The deploy uses `docker-compose.yml`
 alone; never make the base file depend on the overlay or the Makefile.
 
@@ -82,7 +82,7 @@ tests/              mirrors src/ exactly
 ```
 
 Two hostnames and two planes, one process, and **no authenticated route at
-all** (decision 52): the webhook host carries the signature-gated ingress
+all** (decision 54): the webhook host carries the signature-gated ingress
 routes, and the internal compose name carries the ungated `/public` group.
 Enforced in `http/router.ts` and not only at the edge. Outside `/public` the
 answer is 404 and not 401 — there is no credential to present, so a 401 would

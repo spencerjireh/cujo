@@ -9,7 +9,7 @@
  * by a commit (decision 31).
  *
  * There is no operator override any more. It was written only over the plane
- * decision 52 deleted, so keeping the table would have left a row nothing
+ * decision 54 deleted, so keeping the table would have left a row nothing
  * reads and a rule nobody could exercise.
  *
  * A deploy that serves one Discord server can name it in

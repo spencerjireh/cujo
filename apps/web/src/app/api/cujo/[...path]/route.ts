@@ -14,7 +14,7 @@ import { headers } from "next/headers";
  * else.
  *
  * It forwards only `/public/*`, and no credential, because there is nothing
- * else to reach and none to send (decision 52). `apps/cujo` answers 404 outside
+ * else to reach and none to send (decision 54). `apps/cujo` answers 404 outside
  * that prefix anyway, so this is the second refusal rather than the first — the
  * same defence in depth decision 33 relied on when the origin turned out to be
  * reachable by IP.
@@ -86,7 +86,7 @@ async function forward(request: Request, path: string[]): Promise<Response> {
  * `GET` only, because anything not exported here is a 405 from Next and there
  * is no other route to reach `apps/cujo` with: this app is what the hostname
  * resolves to. The write verbs existed for the Discord admin API, which went
- * with the operator plane (decision 52), and the board has no write route at
+ * with the operator plane (decision 54), and the board has no write route at
  * all — so the absence is the point rather than an omission.
  */
 type Context = { params: Promise<{ path: string[] }> };

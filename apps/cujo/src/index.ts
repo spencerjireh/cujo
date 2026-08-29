@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   const spec = buildAgentSpec(config);
   // Where a Discord card points. A public run links to the board anyone can
   // open; a private one has no page at all, so its card carries no link
-  // (decision 52).
+  // (decision 54).
   const links = { publicBaseUrl: config.publicBaseUrl };
 
   // Contract 7. Optional: with no token the service runs and simply does not

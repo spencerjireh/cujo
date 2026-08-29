@@ -96,7 +96,7 @@ describe("reduceList", () => {
    */
   it("carries no name onto a row, because the wire shape has none", () => {
     // `reduceList` used to copy `approver` across, which was the one field
-    // that could put a person's name on a row the board renders. Decision 52
+    // that could put a person's name on a row the board renders. Decision 54
     // removed it from the wire shape entirely, so this asserts the patch is
     // status and timestamp and nothing else.
     const next = reduceList(list, run({ status: "blocked_pending" }));

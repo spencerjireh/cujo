@@ -100,7 +100,7 @@ plus `cujo` (8080), `github-mcp` (8081), Postgres (5432), and Redis (6379) for
 inspection. `cujo` dispatches on the `Host` header: `-H 'Host: cujo'` reaches
 the read API under `/public`, and `http://cujo-ingress.localhost:8080/webhook`
 is the webhook receiver. Nothing is behind a credential — there is none
-(decision 52) — and anything outside `/public` on the read host is 404. All
+(decision 54) — and anything outside `/public` on the read host is 404. All
 ports bind to `127.0.0.1` (loopback) only. Other targets: `make down`,
 `make logs`, `make ps`, `make clean` (drops the database volume). Run
 `make help` for the full list.
@@ -129,7 +129,7 @@ Embed Links permissions. A repo with no binding is never notified, and with no
 token set the service runs as before.
 
 Bindings are made from inside Discord and nowhere else — the HTTP admin routes
-went with the operator plane (decision 52). Each repo and each server sort it
+went with the operator plane (decision 54). Each repo and each server sort it
 out between themselves (Contract 8). Once, for the deploy: set
 `DISCORD_PUBLIC_KEY` to the
 application's public key, point its **Interactions Endpoint URL** at

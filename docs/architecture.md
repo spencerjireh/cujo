@@ -28,11 +28,11 @@ sandbox is thrown away afterwards.
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
 | **`sandbox/`** | The in-sandbox sensor code: `sniff.py` and the `cujo_sniff` package behind it. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
-| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes and no credential: signature-gated ingress, and an anonymous read-only `/public` group (decision 34, decision 52). |
-| **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. One hostname, one plane: the anonymous read-only board (decision 52). |
+| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes and no credential: signature-gated ingress, and an anonymous read-only `/public` group (decision 34, decision 54). |
+| **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. One hostname, one plane: the anonymous read-only board (decision 54). |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
-| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). A card links to the board for a public run and nowhere for a private one, which has no page (decision 52). Optional: with no bot token the service runs and says nothing. |
+| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). A card links to the board for a public run and nowhere for a private one, which has no page (decision 54). Optional: with no bot token the service runs and says nothing. |
 | **`/cujo` command** | The other half, also in `apps/cujo`. A server a repo has named in its `.cujo.yml` picks its own channel and ping role from inside Discord (Contract 8). Slash commands over an HTTP interactions endpoint, not a gateway. It routes notifications and nothing else — a review is confirmed on the pull request. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
 
@@ -119,7 +119,7 @@ Every crossing, with what it carries and what protects it:
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
 | `apps/cujo` → GitHub | REST API | A reply on the pull request, and a reaction on the comment it answers (decision 43). Text, but only ever in answer to a person who addressed Cujo directly — never an unprompted finding | Installation token minted from the App private key; the same `pull_requests: write` |
 | `apps/cujo` → TrueForge | HTTP on the compose network | A **second** session per pull request, for conversation only (Contract 10): `sessions.create` with a spec carrying `mcpServers: []`, then one turn per question. Never the review's session, which a second turn would cancel, be refused on, or corrupt | Internal |
-| Human → `apps/web` | HTTPS on `cujo.spencerjireh.com` | Reads runs, check cards, findings and the posted review for a **public** repo, redacted by the allowlist in `http/public/serialize.ts`. It writes nothing and decides nothing: a held finding is answered with `/cujo confirm` on the pull request (decision 49), and a Discord channel is bound with `/cujo watch` (decision 52) | None. There is no credential and no authenticated route left |
+| Human → `apps/web` | HTTPS on `cujo.spencerjireh.com` | Reads runs, check cards, findings and the posted review for a **public** repo, redacted by the allowlist in `http/public/serialize.ts`. It writes nothing and decides nothing: a held finding is answered with `/cujo confirm` on the pull request (decision 49), and a Discord channel is bound with `/cujo watch` (decision 54) | None. There is no credential and no authenticated route left |
 | `apps/cujo` → TrueForge | HTTP on the compose network | `createTurn` with `user.tool_approval {allow \| deny}`, then `subscribeToTurn`; the turn resumes | Internal |
 | Discord → `apps/cujo` | HTTPS to `cujo-ingress.spencerjireh.com` | A `/cujo` interaction: the server, the invoking member and their permissions, and the chosen repo, channel and role (Contract 8) | Ed25519 over `timestamp + rawBody`, verified against `DISCORD_PUBLIC_KEY`; an invalid signature is 401 |
 | `apps/cujo` → Discord | HTTPS to `discord.com/api/v10` | One card per run, edited in place: repo, PR number, status, check names, finding titles and evidence, and the run's Cujo link. Every derived string escaped, stripped of bidi, truncated, and mention-suppressed (Contract 7) | `Authorization: Bot`; `DISCORD_BOT_TOKEN`, held only by `apps/cujo` and never near the sandbox |
@@ -287,7 +287,7 @@ Coolify in a single `docker-compose` project so the services share a network.
 - **`web`** — the `apps/web` UI, on one hostname.
   `https://cujo.spencerjireh.com` is the anonymous read-only board, which lists
   public repos only and names no approver. There is no second plane and no
-  credential: the operator one was deleted with its hostname (decision 52), and
+  credential: the operator one was deleted with its hostname (decision 54), and
   a held finding is answered with `/cujo confirm` on the pull request
   (decision 49). It proxies the JSON API at `/api/cujo/*` — forwarding only
   `/public/*`, and `GET` only, since the board has no write route — and the run
@@ -330,7 +330,7 @@ address is not a way past a gate; port 22 stays open for the control plane.
 One Access application is left, over `cujo-harness`: that console has its own
 authentication disabled, so an OTP is exactly what it is for. It is also the
 only gate anywhere in this system that a person passes — `cujo` is anonymous
-and `cujo-ingress` takes signatures (decision 52). A second
+and `cujo-ingress` takes signatures (decision 54). A second
 application scoped to `/.well-known/acme-challenge` holds a bypass policy for
 each name Access fronts, without which Traefik's HTTP-01 renewal is answered by
 the login page (decision 33). A Cloudflare rate-limiting rule bounds requests per address to

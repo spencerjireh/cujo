@@ -79,7 +79,7 @@ describe("the public field allowlist", () => {
   });
 
   it("publishes the harness and GitHub handles, which it used to withhold", () => {
-    // Decision 52. They authorize nothing on their own: the TrueForge console
+    // Decision 54. They authorize nothing on their own: the TrueForge console
     // these name keeps its own Access application, and `delivery_id` is what
     // correlates a board page with a log line.
     for (const field of ["sessionId", "turnIds", "externalResume", "deliveryId"] as const) {
@@ -181,7 +181,7 @@ describe("serializePublicRun", () => {
       "SENTINEL_approver",
       "SENTINEL_decidedAt",
       // The projection's own turn ids, which are rebuilt by the fold. The
-      // run's are published (decision 52); these are a second copy of the same
+      // run's are published (decision 54); these are a second copy of the same
       // fact and stay unread, so a leak here would mean the serializer started
       // reading the projection where it should read the record.
       "SENTINEL_projectionTurnIds",
@@ -229,7 +229,7 @@ describe("serializePublicRun", () => {
       "SENTINEL_comment",
       "SENTINEL_report",
       "SENTINEL_summary",
-      // Published since decision 52, and from the record rather than the
+      // Published since decision 54, and from the record rather than the
       // projection.
       "SENTINEL_sessionId",
       "SENTINEL_turnIds",
@@ -259,7 +259,7 @@ describe("serializePublicSummary", () => {
  *
  * It used to be stated as "never import from `../operator/`", because the way
  * to defeat the allowlist was to import the operator serializer and delete
- * fields from its result. Decision 52 deleted that directory, which would have
+ * fields from its result. Decision 54 deleted that directory, which would have
  * left a guard that passes because its target no longer exists — a green test
  * proving nothing. So the rule is inverted into a positive allowlist: these
  * are the modules the public plane may reach, and anything else is a new

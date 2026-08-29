@@ -649,12 +649,12 @@ failed and the parent decides what that means for the findings.
 `apps/cujo` serves one read plane, under `/public`, on the internal service
 name in `CUJO_INTERNAL_HOST`. No gate stands in front of it, and there is no
 second plane behind one — the operator API was deleted with its hostname
-(decision 52):
+(decision 54):
 
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /public/runs` | Public runs only, newest first. Filtered on `is_public = 1` in SQL, not by the route. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at` and `updated_at`, and nothing else. |
-| `GET /public/runs/:id` | The run, its checks (status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 52) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id` | The run, its checks (status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 54) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
 
 There is no write route, and the `/discord/*` routes that were Contract 7's
@@ -693,9 +693,9 @@ the process, not only at the edge:
   The internal name is the only one the read plane answers on, because the UI
   reaches this process over the compose network and Node's `fetch` always sends
   the target's own authority as `Host`, so a published name could never arrive
-  here anyway (decision 52).
+  here anyway (decision 54).
 - **404, not 401, outside `/public`.** There is no credential to present since
-  decision 52, so "not the board" cannot mean "behind the check" — it means not
+  decision 54, so "not the board" cannot mean "behind the check" — it means not
   served. A 401 would be a route somebody could still reach with the right
   header; the absence is the point. A request carrying an
   `Authorization: Bearer` or a `Cf-Access-Jwt-Assertion` is answered exactly as
@@ -822,7 +822,7 @@ re-pointing a repo mid-run cannot edit a message into a channel that never held
 it.
 
 **There is no HTTP admin surface.** `apps/cujo` served a `/discord/*` API on
-the operator hostname until decision 52 deleted both. A binding is created and
+the operator hostname until decision 54 deleted both. A binding is created and
 removed with `/cujo watch` and `/cujo unwatch` (Contract 8), which is a better
 gate than the shared token ever was: the invoking member needs Manage Server in
 that Discord server, and the repo has to name that server in its `.cujo.yml`.
@@ -907,7 +907,7 @@ the same way reverting a commit drops a declared one. An unreadable
 
 **There is no override.** A table on the operator plane used to allow a pair
 directly, for moving a repo between servers or for a repo whose `.cujo.yml`
-cannot be changed. It went with the plane (decision 52), and the table is
+cannot be changed. It went with the plane (decision 54), and the table is
 dropped by a migration rather than left unread. The declaration is the whole
 authority: repo write access, auditable in git history, revoked by a commit
 (decision 31).
@@ -953,7 +953,7 @@ was picked, and says exactly what to add if it has not named this server.
 |------------|------|
 | `/cujo watch repo channel [role]` | Sends that repo's cards to that channel, pinging that role when a review blocks. |
 | `/cujo unwatch repo` | Stops sending them. |
-| `/cujo status` | Where each repo watched here currently goes, and the line to add to a repo to allow another. There is no "allowed but not sent" state to report since decision 52: a declaration alone is not a binding. |
+| `/cujo status` | Where each repo watched here currently goes, and the line to add to a repo to allow another. There is no "allowed but not sent" state to report since decision 54: a declaration alone is not a binding. |
 | `/cujo test repo` | Posts a sample card to the bound channel. It exercises the token, the channel permissions and the rendering at once, which nothing else can do without waiting for a real pull request. |
 
 Every reply is ephemeral, so configuring makes no noise in the channel.
@@ -987,7 +987,7 @@ reply says which one failed:
    repo notifies one channel (Contract 7), so two servers allowed the same repo
    would otherwise be able to redirect or silence each other's reviews. A repo
    is moved between servers by changing `discord_guild` in its `.cujo.yml`,
-   which is the only authority there is (decision 52).
+   which is the only authority there is (decision 54).
 6. For `watch`: the channel is in **this** server, is a text or announcement
    channel, and the bot has View Channel, Send Messages and Embed Links there,
    resolved through the overwrites exactly as Contract 7's bind route does. The

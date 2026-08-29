@@ -188,7 +188,7 @@ describe("gatedReviewPosted", () => {
 /**
  * The public plane's wire shape, cross-checked the same way (decision 34).
  *
- * One plane since decision 52, so this is stricter than it was: the fields the
+ * One plane since decision 54, so this is stricter than it was: the fields the
  * serializer withholds are absent from these types rather than optional on
  * them. A field added on either side without the other fails here.
  */
@@ -216,7 +216,7 @@ describe("the public wire shape tracks apps/cujo", () => {
   });
 
   it("publishes the harness and GitHub handles on the detail, never on the list", () => {
-    // Decision 52 moved these into the public projection. The list stays as
+    // Decision 54 moved these into the public projection. The list stays as
     // narrow as it was: a board of every run is not the place for them.
     for (const field of ["session_id", "turn_ids", "external_resume", "delivery_id"]) {
       expect(PUBLIC_RUN_FIELDS).toContain(field);
