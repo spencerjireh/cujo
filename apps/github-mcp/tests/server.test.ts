@@ -11,6 +11,9 @@ const PATCH = "@@ -1,2 +1,3 @@\n a\n+b\n c";
 function fakeGitHub() {
   const posted: Array<{ repo: string; pr: number; input: CreateReviewInput }> = [];
   const client: GitHubClient = {
+    async listReviews() {
+      return [];
+    },
     async listPullFiles() {
       return [{ filename: "app.py", patch: PATCH }];
     },
@@ -160,8 +163,12 @@ describe("github-mcp", () => {
     await client.close();
 
     const body = github.posted.at(-1)?.input.body ?? "";
-    expect(body.endsWith(`Full evidence: ${PUBLIC_BASE}/runs/${RUN_ID}\n`)).toBe(true);
+    expect(body).toContain(`Full evidence: ${PUBLIC_BASE}/runs/${RUN_ID}\n`);
     expect(body.indexOf("Full evidence")).toBeGreaterThan(body.indexOf("without a diff anchor"));
+    // The footer is the last thing a reader sees. The duplicate marker sits
+    // below it and is an HTML comment, so it renders as nothing.
+    expect(body.trimEnd().endsWith("-->")).toBe(true);
+    expect(body.indexOf("<!-- cujo:")).toBeGreaterThan(body.indexOf("Full evidence"));
   });
 
   it("posts no footer when the run has no public page", async () => {
