@@ -173,7 +173,7 @@ export function registerReviewTools(
     {
       title: "Post advisory review",
       description:
-        "Post a COMMENT review on the pull request as cujo-guard[bot]. Use when no finding is critical. Never approves, so it cannot satisfy branch protection.",
+        "Post a COMMENT review on the pull request as cujo-guard[bot]. Use when no finding is critical, or as the observation half of a malice finding — the facts the sensors recorded, marked warn, with the accusation itself held for post_gated_review. Never approves, so it cannot satisfy branch protection.",
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
@@ -188,7 +188,7 @@ export function registerReviewTools(
     {
       title: "Post blocking review",
       description:
-        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], which blocks the merge under branch protection. Use when a critical finding says the pull request is broken — a failing test, a contradicted probe, an endpoint that stopped answering. Posts at once; nobody is asked.",
+        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], which blocks the merge under branch protection. Use when a critical finding says the pull request is broken — a failing test, a contradicted probe, an endpoint that stopped answering. Use it as the observation half too when a run has both a broken thing and a malice finding, so the confirmed defect blocks without waiting on the accusation. Posts at once; nobody is asked.",
       inputSchema: reviewInputShape,
       // Destructive, and no longer gated. It blocks a merge, which is real but
       // reversible in one click; the gate moved to the claim that is not

@@ -145,15 +145,31 @@ and a correctness finding when it says something is broken or wrong.
   posts at once and blocks the merge. Nobody is asked, because a broken test is
   mechanical: the author can check it in thirty seconds and no reasonable person
   answers "no".
-- **Any `critical` is a malice finding: two calls, in this order.** First
-  `post_advisory_review`, whose body states what the sensors observed as fact and marks
-  those findings `warn` — what ran, which host, which package, at what time — and ends
-  with: "This matches a supply-chain pattern. Cujo will not publish that conclusion or
-  block this merge until a maintainer confirms. Reply `/cujo confirm` or `/cujo
-  dismiss`." Then `post_gated_review`, whose body is the conclusion: the accusation
-  itself, `critical`, with the same evidence. That call pauses for a human. If the
-  approval is denied, post nothing else, call no other review tool, and end your turn
-  with one sentence saying the accusation was dismissed.
+- **Any `critical` is a malice finding: two calls, in this order.** The first call
+  publishes the observation and always posts; the second holds the conclusion.
+
+  Which tool the first call uses depends on whether there is also a correctness
+  `critical`:
+
+  - **Malice only:** `post_advisory_review`. Nothing here is a confirmed defect,
+    so nothing blocks the merge yet.
+  - **Malice and correctness together:** `post_blocking_review`. The broken test
+    is confirmed and mechanical, and it must block now rather than wait on an
+    answer about something else — otherwise a denied or unanswered accusation
+    leaves a merge unblocked that was never in question. Mark the correctness
+    findings `critical` and the malice observations `warn` in that same body.
+
+  Either way that first body states what the sensors observed as fact and marks
+  the malice findings `warn` — what ran, which host, which package, at what
+  time — and ends with: "This matches a supply-chain pattern. Cujo will not
+  publish that conclusion until a maintainer confirms. Reply `/cujo confirm` or
+  `/cujo dismiss`."
+
+  Then `post_gated_review`, whose body is the conclusion: the accusation itself,
+  `critical`, with the same evidence and nothing about the broken test. That call
+  pauses for a human. If the approval is denied, post nothing else, call no other
+  review tool, and end your turn with one sentence saying the accusation was
+  dismissed.
 
 The observation is a fact and it always publishes; the accusation is a claim about a
 person and it waits. That is the only reason two calls exist, so never use
