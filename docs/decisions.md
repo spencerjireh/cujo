@@ -1257,3 +1257,45 @@ that decisions 28 and 31 spent two entries escaping, and it deletes `/cujo`
 along with Contract 8; **dropping the declaration entirely** for Manage Server
 plus the App's installation list, which is the alternative rejected twice and
 would be actively wrong while Public Bot is on.
+
+## 41. One sensed command at a time, and every audit row says whose it is
+
+A check report is the slice of the shared sensor logs written while one command
+ran, bounded by the byte offset `run_sensed` took before starting it. Every
+check writes to the same `proxy.jsonl`, `audit.jsonl`, and `decoy.jsonl`, and
+nothing in the rubric serialises the checks: `agent/SKILL.md` says to run
+`tests` first and then `probes` and `smoke`, which does not stop two sub-agent
+threads from wrapping a command at the same time. When they do, each report
+carries the other's egress and file reads, and each filesystem snapshot diff
+picks up the other's writes. The evidence is not merely noisy — it is
+attributed to the wrong check, which is the one thing a report exists to get
+right.
+
+`sniff.py run` and `sniff.py detonate` now hold an exclusive `flock` on
+`CUJO_DIR/sensed.lock` for the whole sensed window, so a second command waits.
+A wait that exceeds fifteen minutes proceeds anyway and says so on stderr: a
+review that blocks forever is not better than one that reports an overlapping
+window, and the timeout is longer than any check should take.
+
+The lock cannot fix attribution on its own, because a process a check leaves
+running keeps appending after that check's window closes. So `run_sensed` also
+mints a run id, passes it to the sensed child as `CUJO_RUN_ID`, and the audit
+hook stamps it on every row; rows carrying another id are dropped even when the
+offsets place them inside the window. The env that `setup` prints carries no
+run id, so a command the agent runs with that environment but outside a wrapper
+writes rows no report claims — which is correct, and previously those rows were
+claimed by whichever report came next.
+
+Chosen over **tagging the proxy and watcher rows the same way**, which cannot
+work: those are long-lived daemons serving every check, and nothing in a
+connection tells them which check opened it. Over **a proxy and a log file per
+sensed run**, which is a port and two daemons per command and moves the same
+ambiguity into the port allocation. Over **attributing by process tree**, which
+the audit hook could nearly support (it records `pid`) but the proxy cannot.
+And over **leaving it to the rubric** to serialise the checks, which is a
+sentence of prose defending a correctness property, in the place where prose is
+least reliable.
+
+Known limit: the proxy rows are still bounded only by offsets. Under the lock
+that is correct, and outside it — after a timeout — the report may carry
+another command's hosts. The run id makes the audit rows exact in both cases.
