@@ -120,9 +120,9 @@ def snapshot_health(before: Snapshot, after: Snapshot) -> dict[str, Any]:
     notes = []
     if before.truncated or after.truncated:
         notes.append("capped")
-    unhashed = max(before.unhashed, after.unhashed)
-    if unhashed:
-        notes.append(f"{unhashed} too large to hash")
+    uncompared = max(before.uncompared, after.uncompared)
+    if uncompared:
+        notes.append(f"{uncompared} not compared by content")
     detail = f"{count} paths" + (f" ({', '.join(notes)})" if notes else "")
     return health(True, detail)
 
@@ -219,7 +219,7 @@ def run_sensed(
             # A file too large to hash falls back to metadata, which is exactly
             # what a restored mtime defeats. Saying so is the difference between
             # a comparison that was not made and one that came back clean.
-            "hashes": bool(before.unhashed or after.unhashed),
+            "hashes": bool(before.uncompared or after.uncompared),
         },
         home_dir=ctx.home,
         cwd=cwd,

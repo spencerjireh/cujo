@@ -321,13 +321,22 @@ symlink is digested by its target string, so a link repointed with its timestamp
 preserved is still a change.
 
 A digest that was wanted and could not be taken is recorded as its own value,
-distinct from one that was never wanted: otherwise the evasion closes back up —
-overwrite the key, restore the timestamp, then make the file unreadable, and a
-failed digest treated as out-of-scope falls back to the metadata that was just
-forged. And the walk opens what it hashes with `O_NOFOLLOW | O_NONBLOCK`,
-checking the descriptor rather than the name it asked for, because the command
-under test owns this tree and a FIFO substituted between the `lstat` and the
-open would otherwise block the snapshot for as long as nobody writes to it.
+distinct from one that was never wanted. A file with a digest on one side and
+none on the other has changed — readable before and not now, hashed before and
+swapped since, both are events. Where *neither* side has one, nothing was
+compared: that falls back to metadata and raises `truncated.hashes`, because
+much of `/etc` is root-owned and unreadable from one run to the next, and
+calling those files modified would put a non-lowerable critical on every check
+of every repository. Whether an unreadable file's contents changed is not
+observable from in here, and the report says that rather than guessing either
+way.
+
+The walk opens what it hashes with `O_NOFOLLOW | O_NONBLOCK` and then checks the
+descriptor — that it is still a regular file, and that its device and inode are
+the ones just measured. The command under test owns this tree: a FIFO
+substituted between the `lstat` and the open would block the snapshot for as
+long as nobody writes to it, and a file swapped in only for the duration of the
+open would pair an innocent digest with the metadata of whatever replaced it.
 
 The proxy and the watcher write to logs shared by every check, so a report is
 the slice of those logs written while one command ran. `sniff.py run` and

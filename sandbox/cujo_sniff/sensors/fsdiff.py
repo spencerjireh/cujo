@@ -31,11 +31,21 @@ from cujo_sniff.scrub import scrub
 # the timestamp, then `chmod 000` it, and treating the failed digest as
 # out-of-scope would let the metadata comparison call it unchanged.
 UNREADABLE = "unreadable"
-# In scope, and past HASH_MAX_BYTES. This one *does* fall back to metadata --
-# there is no digest on either side to compare -- which is why it may not be
-# silent: `snapshot` counts these and the report carries `truncated.hashes`, so
-# a file too large to check says so instead of reading as checked and clean.
+# In scope, and past HASH_MAX_BYTES.
 UNHASHED = "unhashed"
+
+# The two ways a file in scope ends up without a digest. Neither is a content
+# verdict, so two of them are not agreement: where both snapshots land here the
+# comparison falls back to metadata, and `snapshot` counts the file so the
+# report can carry `truncated.hashes` and say the check was partial.
+#
+# It has to be a fallback rather than "always changed". Plenty of `/etc` is
+# root-owned and unreadable to this process from one run to the next --
+# `/etc/shadow` most of all -- and calling those modified every time would put a
+# non-lowerable `wrote_sensitive` critical on every check of every repository.
+# Whether an unreadable file's contents changed is genuinely not observable from
+# here; the honest move is to say the comparison did not happen, not to guess.
+NO_DIGEST = (UNHASHED, UNREADABLE)
 
 # (mtime_ns, size, digest). The digest is None where the file was not in scope
 # for hashing, UNREADABLE where it was but could not be read, and UNHASHED where
@@ -55,11 +65,12 @@ class Snapshot:
 
     entries: dict[str, Entry]
     truncated: bool
-    # In-scope files the size cap left uncompared. Not the same kind of loss as
-    # `truncated` -- those paths were walked and recorded, just not hashed --
-    # but it is a loss, and the report says so rather than presenting a
-    # metadata-only verdict as a content one.
-    unhashed: int = 0
+    # In-scope files that got no usable digest: too large, unreadable, or swapped
+    # under the walk. Not the same kind of loss as `truncated` -- those paths were
+    # walked and recorded, just not compared by content -- but it is a loss, and
+    # the report says so rather than presenting a metadata-only verdict as a
+    # content one.
+    uncompared: int = 0
 
 
 def _snapshot_roots(workspace_roots: list[Path], home_dir: Path | None = None) -> list[Path]:
@@ -105,7 +116,17 @@ def _digest(path: Path, st: os.stat_result) -> str | None:
             return UNHASHED
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
-            if not stat.S_ISREG(os.fstat(fd).st_mode):
+            opened = os.fstat(fd)
+            # The same name, but is it the same file? `lstat` and `open` are two
+            # lookups, and between them the command under test can put the
+            # original file back just long enough to be hashed, then restore its
+            # own -- pairing an innocent digest with the metadata of the file
+            # that replaced it. Comparing the descriptor's identity against what
+            # was measured closes that; a mismatch is not a digest anyone should
+            # trust, so it is recorded as one that could not be taken.
+            if not stat.S_ISREG(opened.st_mode):
+                return UNREADABLE
+            if (opened.st_ino, opened.st_dev) != (st.st_ino, st.st_dev):
                 return UNREADABLE
             h = hashlib.sha256()
             read = 0
@@ -142,7 +163,7 @@ def snapshot(
     tree cannot turn a check into a snapshot benchmark.
     """
     seen: dict[str, Entry] = {}
-    unhashed = 0
+    uncompared = 0
     for root in _snapshot_roots(workspace_roots, home_dir):
         for dirpath, dirnames, filenames in os.walk(root, onerror=lambda e: None):
             d = Path(dirpath)
@@ -156,8 +177,8 @@ def snapshot(
                 except OSError:
                     continue
                 digest = _digest(p, st) if should_hash(str(p), home_dir) else None
-                if digest == UNHASHED:
-                    unhashed += 1
+                if digest in NO_DIGEST:
+                    uncompared += 1
                 seen[str(p)] = (st.st_mtime_ns, st.st_size, digest)
                 # One past the cap, not at it. A tree holding exactly
                 # MAX_SNAPSHOT_FILES files was walked to the end, and calling
@@ -167,8 +188,8 @@ def snapshot(
                 # cap still bounds what a snapshot costs.
                 if len(seen) > MAX_SNAPSHOT_FILES:
                     del seen[str(p)]
-                    return Snapshot(seen, truncated=True, unhashed=unhashed)
-    return Snapshot(seen, truncated=False, unhashed=unhashed)
+                    return Snapshot(seen, truncated=True, uncompared=uncompared)
+    return Snapshot(seen, truncated=False, uncompared=uncompared)
 
 
 def _unchanged(before: Entry, after: Entry) -> bool:
@@ -176,17 +197,23 @@ def _unchanged(before: Entry, after: Entry) -> bool:
 
     `None` on either side means the path was never in hashing scope, so there is
     nothing to compare and metadata is the whole answer -- which is what it was
-    before there were digests at all. UNHASHED behaves the same way and for the
-    same reason, and is a distinct value only so the walk can count it and the
-    report can admit the gap. UNREADABLE is neither: it is a digest that was
-    wanted and failed, so it compares unequal to a real one. A file that hashed
-    before and cannot be read now has changed.
+    before there were digests at all.
+
+    A file that has a digest on one side and none on the other has changed, and
+    that is the important half: readable before and not now, or hashed before
+    and swapped since, are both events. Where *neither* side has one there is
+    nothing to compare either, so it falls back to metadata and the walk counts
+    the file into `truncated.hashes`. That case is not observable from in here,
+    and a report that says so beats one that guesses -- in either direction.
     """
     if before[:2] != after[:2]:
         return False
-    if before[2] in (None, UNHASHED) or after[2] in (None, UNHASHED):
+    b, a = before[2], after[2]
+    if b is None or a is None:
         return True
-    return before[2] == after[2]
+    if b in NO_DIGEST and a in NO_DIGEST:
+        return True
+    return b == a
 
 
 def diff_snapshots(

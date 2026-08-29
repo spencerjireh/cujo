@@ -269,7 +269,7 @@ def test_a_file_too_large_to_hash_says_so_rather_than_reading_as_checked(
 
     snap = snapshot([home_dir], **walk)
     assert snap.entries[str(big)][2] == UNHASHED
-    assert snap.unhashed == 1
+    assert snap.uncompared >= 1
 
     # Distinct from out-of-scope, which is what lets the walk count it at all.
     small = home_dir / "notes.txt"
@@ -279,7 +279,6 @@ def test_a_file_too_large_to_hash_says_so_rather_than_reading_as_checked(
     # And under the cap the digest is taken, so the count goes back to zero.
     monkeypatch.setattr("cujo_sniff.sensors.fsdiff.HASH_MAX_BYTES", 1024)
     hashed = snapshot([home_dir], **walk)
-    assert hashed.unhashed == 0
     assert hashed.entries[str(big)][2] not in (None, UNHASHED, UNREADABLE)
 
 
@@ -305,6 +304,8 @@ def test_a_file_that_grows_after_the_stat_cannot_run_the_hash_forever(
 
     class Grown:
         st_mode = st.st_mode
+        st_ino = st.st_ino
+        st_dev = st.st_dev
         st_size = 8  # what the stale lstat claimed
 
     assert _digest(grown, Grown()) == UNHASHED
@@ -334,3 +335,61 @@ def test_a_walk_that_ends_exactly_on_the_cap_is_a_complete_walk(
     over = snapshot([home_dir], **walk)
     assert len(over.entries) == total - 1
     assert over.truncated is True
+
+
+def test_the_digest_must_be_of_the_file_that_was_measured(
+    home_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`lstat` and `open` are two lookups, and the command owns what is between.
+
+    Put the innocent file back just long enough to be hashed, restore your own
+    afterwards, and the entry pairs a clean digest with the metadata of the file
+    that replaced it. Comparing the descriptor's identity against what was
+    measured is what closes it; an identity that does not match is not a digest
+    to trust, so it is recorded as one that could not be taken.
+    """
+    aws = home_dir / ".aws"
+    aws.mkdir()
+    real = aws / "credentials"
+    real.write_text("AKIAREALKEY000000001")
+    decoy_stat = aws / "other"
+    decoy_stat.write_text("AKIASTOLENKEY0000002")
+
+    # A measurement of a *different* file, handed to _digest for this path.
+    other = decoy_stat.lstat()
+    assert _digest(real, other) == UNREADABLE
+    # Its own measurement still hashes.
+    assert _digest(real, real.lstat()) not in (None, UNHASHED, UNREADABLE)
+
+
+def test_two_files_nobody_could_read_are_not_two_files_that_agree(
+    home_dir: Path,
+) -> None:
+    """Neither side has a digest, so nothing was compared -- and saying so is the
+    only honest answer available.
+
+    Reporting it as changed instead would be a `wrote_sensitive` critical on
+    `/etc/shadow` on every check of every repository, since plenty of `/etc` is
+    root-owned and unreadable from one run to the next. Reporting it as verified
+    would be the lie. It falls back to metadata, and the walk counts the file so
+    `truncated.hashes` says the comparison was partial.
+    """
+    creds = str(home_dir / ".aws" / "credentials")
+    unreadable_before = Snapshot({creds: (1, 1, UNREADABLE)}, truncated=False, uncompared=1)
+    unreadable_after = Snapshot({creds: (1, 1, UNREADABLE)}, truncated=False, uncompared=1)
+    assert diff_snapshots(unreadable_before, unreadable_after, [], home_dir) == []
+
+    # One-sided is the case that *is* observable, and it is a change: readable
+    # before and not now, or hashed before and swapped since.
+    hashed = Snapshot({creds: (1, 1, "aaa")}, truncated=False)
+    assert [c["type"] for c in diff_snapshots(hashed, unreadable_after, [], home_dir)] == [
+        "modified"
+    ]
+    assert [c["type"] for c in diff_snapshots(unreadable_before, hashed, [], home_dir)] == [
+        "modified"
+    ]
+    # And a size cap on one side against a real digest on the other, likewise.
+    capped = Snapshot({creds: (1, 1, UNHASHED)}, truncated=False, uncompared=1)
+    assert [c["type"] for c in diff_snapshots(hashed, capped, [], home_dir)] == ["modified"]
+    # But the two no-digest reasons do not disagree with each other.
+    assert diff_snapshots(capped, unreadable_after, [], home_dir) == []
