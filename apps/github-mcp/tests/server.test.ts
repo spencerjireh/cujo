@@ -57,13 +57,55 @@ describe("github-mcp", () => {
     expect(byName.get("post_advisory_review")?.annotations?.destructiveHint).toBe(false);
     expect(byName.get("post_blocking_review")?.annotations?.destructiveHint).toBe(true);
     expect(byName.get("post_gated_review")?.annotations?.destructiveHint).toBe(true);
-    // Same input on all three: which one is gated is a choice `apps/cujo`
-    // makes about the name, not something the schema encodes.
+    // The same required input on all three: which one is gated is a choice
+    // `apps/cujo` makes about the name, not something the schema encodes.
     for (const name of byName.keys()) {
       expect(byName.get(name)?.inputSchema.required).toEqual(
         expect.arrayContaining(["repo", "pr_number", "head_sha", "body"]),
       );
     }
+  });
+
+  it("offers `accusation_follows` on the observation tools and not on the gated one", async () => {
+    // The one asymmetry, and the whole guarantee behind it: the maintainer
+    // prompt asks for an approval that `post_gated_review` already has by the
+    // time it runs, so that tool has no way to ask for the sentence. Absence
+    // of the parameter is what makes it unreachable — nothing checks for it.
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const { tools } = await client.listTools();
+    await client.close();
+
+    const props = (name: string) =>
+      Object.keys((tools.find((t) => t.name === name)?.inputSchema.properties ?? {}) as object);
+    expect(props("post_advisory_review")).toContain("accusation_follows");
+    expect(props("post_blocking_review")).toContain("accusation_follows");
+    expect(props("post_gated_review")).not.toContain("accusation_follows");
+  });
+
+  it("drops `accusation_follows` from a gated call that sends it anyway", async () => {
+    // The end-to-end half of the guarantee. `postReview` honours the flag
+    // whenever it is present and does not know which tool it is serving, so
+    // what keeps the prompt off an accusation is that the gated tool's schema
+    // has no such key and Zod strips what it does not declare.
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    await client.callTool({
+      name: "post_gated_review",
+      arguments: {
+        repo: "spencerjireh/orders-api",
+        pr_number: 7,
+        head_sha: "abcdef1",
+        body: "The dependency read the decoy at install time.",
+        accusation_follows: true,
+      },
+    });
+    await client.close();
+
+    const last = github.posted.at(-1);
+    expect(last?.input.body).toContain("read the decoy at install time");
+    expect(last?.input.body).not.toContain("supply-chain pattern");
+    expect(last?.input.body).not.toContain("/cujo confirm");
   });
 
   it("posts a blocking review, keeping valid anchors inline and moving the rest", async () => {
