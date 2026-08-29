@@ -2401,6 +2401,14 @@ the provider configured in the operator console instead, Cujo cannot know what
 it declares, and blocking a working deploy on a guess would be the same mistake
 in the other direction.
 
+**The values are checked against the SDK's own enum, not just against each
+other.** A first cut compared the chosen effort only to the declared list, which
+a typo in both variables satisfies by agreeing with itself; the bad value then
+reached the server, which rejects the *provider*, and `bootstrapUntilReady`
+retries that forever. The webhook would have answered 503 for good — the same
+silent outage, moved one step earlier. `Object.values(ReasoningEffort)` is the
+source of truth so the list cannot drift from the server validating against it.
+
 **The contract test now asks for an effort.** It created a session with
 `model: { name }` and no `params`, so the one job it exists for — catching a
 spec the real server rejects — did not cover the field that broke production.

@@ -198,6 +198,28 @@ describe("loadConfig", () => {
     ).toThrow(/it is empty/);
   });
 
+  it("refuses a value that is not a reasoning effort at all", () => {
+    // Qodo caught this: a typo shared by both variables satisfies the
+    // membership check by agreeing with itself, and the bad value then reaches
+    // TrueForge, which rejects the *provider* -- and bootstrapUntilReady
+    // retries that forever, so the webhook answers 503 for good.
+    expect(() =>
+      loadConfig({ ...base, ...withProvider, MODEL_PROVIDER_REASONING_EFFORTS: "none,loow" }),
+    ).toThrow(/MODEL_PROVIDER_REASONING_EFFORTS has "loow"/);
+    expect(() =>
+      loadConfig({
+        ...base,
+        ...withProvider,
+        MODEL_PROVIDER_REASONING_EFFORTS: "loow",
+        CUJO_MODEL_REASONING_EFFORT: "loow",
+      }),
+    ).toThrow(/not a reasoning effort/);
+    // And on its own, where there is no declared list to agree with.
+    expect(() => loadConfig({ ...base, CUJO_MODEL_REASONING_EFFORT: "loow" })).toThrow(
+      /CUJO_MODEL_REASONING_EFFORT has "loow"/,
+    );
+  });
+
   it("accepts a declared effort, and says nothing when none is chosen", () => {
     expect(
       loadConfig({

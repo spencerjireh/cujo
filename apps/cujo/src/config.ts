@@ -1,4 +1,5 @@
 import { type Level, parseLevel } from "@cujo/log";
+import { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 
 /**
  * Environment for the apps/cujo process. Every name here is fixed by the build
@@ -111,10 +112,31 @@ export interface Config {
        * Empty declares nothing, which is what every deploy did before — and
        * what made `CUJO_MODEL_REASONING_EFFORT` unusable.
        */
-      reasoningEfforts: string[];
+      reasoningEfforts: TrueForgeApi.ReasoningEffort[];
     } | null;
     daytonaApiKey: string | null;
   };
+}
+
+/**
+ * The efforts TrueForge knows, taken from the SDK rather than retyped, so the
+ * list cannot drift from the server that validates against it.
+ *
+ * Checked here and not merely at registration: an unknown value is accepted by
+ * every string type between here and the wire, and the server then rejects the
+ * *provider*, which `bootstrapUntilReady` retries forever. That leaves the
+ * webhook answering 503 for good — the same shape of silent outage this whole
+ * change exists to remove, just moved one step earlier.
+ */
+const EFFORTS = Object.values(TrueForgeApi.ReasoningEffort) as string[];
+
+function effort(raw: string, name: string): TrueForgeApi.ReasoningEffort {
+  if (!EFFORTS.includes(raw)) {
+    throw new Error(
+      `${name} has ${JSON.stringify(raw)}, which is not a reasoning effort. Valid values: ${EFFORTS.join(", ")}.`,
+    );
+  }
+  return raw as TrueForgeApi.ReasoningEffort;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -183,8 +205,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const reasoningEfforts = (env.MODEL_PROVIDER_REASONING_EFFORTS ?? "")
     .split(",")
     .map((e) => e.trim())
-    .filter(Boolean);
-  const modelReasoningEffort = (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim();
+    .filter(Boolean)
+    .map((e) => effort(e, "MODEL_PROVIDER_REASONING_EFFORTS"));
+  const chosen = (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim();
+  // Validated on its own before the membership check below, so a typo shared by
+  // both variables is caught rather than agreeing with itself.
+  const modelReasoningEffort = chosen ? effort(chosen, "CUJO_MODEL_REASONING_EFFORT") : "";
   // Refuse to start rather than answer 502 to every pull request.
   //
   // An effort the registration does not declare is rejected when the session is
