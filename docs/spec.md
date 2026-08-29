@@ -942,6 +942,21 @@ Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
 subagent was given the review tool, which the design forbids. `apps/cujo` logs
 it and marks the run `error`; no `/cujo` command can decide it.
 
+### Run lifecycle log events
+
+Every run emits structured events to stdout through `@cujo/log` (decision 37).
+The events below are the run-level subset; service-level events
+(`webhook.accepted`, `webhook.skipped`, etc.) are documented beside their
+emitters.
+
+| Event | Level | Fields | When |
+|-------|-------|--------|------|
+| `run.status.changed` | info | `from`, `to`, `error_message`? | Each status transition. `error_message` is present only when `to` is `error` and the projection carries an error string; omitted on clean endings. |
+| `check.started` | info | `check`, `thread_id` | A sub-agent thread whose title matches a check name moves to running. |
+| `check.finished` | info | `check`, `thread_id`, `status`, `duration_ms`? | A check thread reaches a terminal state. |
+| `run.setup.completed` | info | `session_id` | Fires once, on the first `check.started`, confirming sandbox setup succeeded and sensors are armed. `session_id` is the TrueForge session, not a turn id. Seeded from the stored projection on rehydrate so a restart does not re-emit. |
+| `check.hard_rule.tripped` | warn | `rule`, `check`, `severity`, `claim` | One line per rule per check. `claim` is `"malice"` for the four supply-chain rules (decision 21), `"correctness"` for `tests_failed`, or `"operational"` for `check_missing` and `sensor_unarmed` (evidence-quality warnings, not code defects). Deduplicated by `rule:check` and seeded from the stored projection, so a restart does not re-announce. |
+
 ## Contract 7 — Discord notifications
 
 A review that blocks a pull request is only useful if someone finds out. Cujo

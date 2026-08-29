@@ -77,7 +77,7 @@ const threadCreated = (threadId: string, title: string, createdAt: string = at):
   agentInfo: {} as never,
 });
 
-const threadDone = (threadId: string, createdAt: string): Ev => ({
+const threadDone = (threadId: string, createdAt: string, report?: string): Ev => ({
   type: "thread.done",
   id: `thd-${threadId}`,
   createdAt,
@@ -85,7 +85,13 @@ const threadDone = (threadId: string, createdAt: string): Ev => ({
   title: threadId,
   state: {
     status: "done",
-    output: { type: "model.message", id: "out", createdAt, threadId, content: "{}" },
+    output: {
+      type: "model.message",
+      id: "out",
+      createdAt,
+      threadId,
+      content: report ?? "{}",
+    },
   },
 });
 
@@ -670,5 +676,189 @@ describe("healing a wedged session", () => {
     expect(realClaim()).toBe(false);
     expect(claimedDuringDeny).toBe(false);
     runner.stopAll();
+  });
+});
+
+describe("check.hard_rule.tripped", () => {
+  const failingReport = JSON.stringify({
+    base_pass_head_fail: ["test_total_rounds_up"],
+    sensors: { proxy: { armed: true }, decoy: { armed: true } },
+  });
+
+  it("emits one line per hard-rule finding, with rule, check, and claim", async () => {
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${failingReport}\n\`\`\``),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
+    await runner.start(run, "review it");
+    const tripped = logged("check.hard_rule.tripped");
+    const testsFailed = tripped.find((l) => l.rule === "tests_failed");
+    expect(testsFailed).toMatchObject({
+      level: "warn",
+      rule: "tests_failed",
+      check: "tests",
+      severity: "critical",
+      claim: "correctness",
+    });
+  });
+
+  it("labels a malice rule as such", async () => {
+    const maliceReport = JSON.stringify({
+      secret_probe: { decoy_read: true },
+      sensors: { proxy: { armed: true }, decoy: { armed: true } },
+    });
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "probes"),
+      threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${maliceReport}\n\`\`\``),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
+    await runner.start(run, "review it");
+    const tripped = logged("check.hard_rule.tripped");
+    const decoyHit = tripped.find((l) => l.rule === "decoy_read");
+    expect(decoyHit).toMatchObject({
+      claim: "malice",
+      severity: "critical",
+      check: "probes",
+    });
+  });
+
+  it("labels sensor_unarmed as an operational claim", async () => {
+    const unarmedReport = JSON.stringify({
+      sensors: { proxy: { armed: false, detail: "never started" }, decoy: { armed: true } },
+    });
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${unarmedReport}\n\`\`\``),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
+    await runner.start(run, "review it");
+    const tripped = logged("check.hard_rule.tripped");
+    const unarmed = tripped.find((l) => l.rule === "sensor_unarmed");
+    expect(unarmed).toMatchObject({ claim: "operational", severity: "warn" });
+  });
+
+  it("does not re-announce the same hard rule on a later refold", async () => {
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${failingReport}\n\`\`\``),
+      threadCreated("sub-2", "probes"),
+      threadDone("sub-2", "2026-08-27T10:00:03Z"),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
+    await runner.start(run, "review it");
+    const tripped = logged("check.hard_rule.tripped");
+    const keys = tripped.map((l) => `${l.rule}:${l.check}`);
+    expect(keys).toEqual([...new Set(keys)]);
+  });
+
+  it("is not re-emitted on rehydrate (seeded from stored projection)", async () => {
+    const events = [
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${failingReport}\n\`\`\``),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ];
+    const first = build(events);
+    await first.runner.start(first.run, "review it");
+    expect(first.logged("check.hard_rule.tripped").length).toBeGreaterThanOrEqual(1);
+
+    const lines: Record<string, unknown>[] = [];
+    const log = createLogger({
+      service: "cujo",
+      sink: (line) => lines.push(JSON.parse(line)),
+    });
+    const restarted = new Runner(
+      first.store.runs,
+      {
+        listEvents: async () => events.map((event) => ({ turnId: "t1", event })),
+        subscribe: async () => streamOf([]),
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    const reloaded = first.store.runs.getRun(first.run.id);
+    if (!reloaded) throw new Error("run vanished");
+    await restarted.rehydrate(reloaded);
+    expect(lines.filter((l) => l.event === "check.hard_rule.tripped")).toEqual([]);
+  });
+});
+
+describe("run.setup.completed", () => {
+  it("fires once on the first check.started, with the session id", async () => {
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadCreated("sub-2", "probes"),
+      threadDone("sub-1", "2026-08-27T10:00:02Z"),
+      threadDone("sub-2", "2026-08-27T10:00:03Z"),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
+    await runner.start(run, "review it");
+    const events = logged("run.setup.completed");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ session_id: "s" });
+  });
+
+  it("is not re-emitted on rehydrate", async () => {
+    const events = [
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", "2026-08-27T10:00:02Z"),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ];
+    const first = build(events);
+    await first.runner.start(first.run, "review it");
+    expect(first.logged("run.setup.completed")).toHaveLength(1);
+
+    const lines: Record<string, unknown>[] = [];
+    const log = createLogger({
+      service: "cujo",
+      sink: (line) => lines.push(JSON.parse(line)),
+    });
+    const restarted = new Runner(
+      first.store.runs,
+      {
+        listEvents: async () => events.map((event) => ({ turnId: "t1", event })),
+        subscribe: async () => streamOf([]),
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    const reloaded = first.store.runs.getRun(first.run.id);
+    if (!reloaded) throw new Error("run vanished");
+    await restarted.rehydrate(reloaded);
+    expect(lines.filter((l) => l.event === "run.setup.completed")).toEqual([]);
+  });
+});
+
+describe("run.status.changed carries error_message", () => {
+  it("includes the error string when a run ends in error", async () => {
+    const { runner, run, logged } = build([turnCreated("t1"), turnDone("t1")]);
+    await runner.start(run, "review it");
+    const changed = logged("run.status.changed");
+    const errorLine = changed.find((l) => l.to === "error");
+    expect(errorLine).toBeDefined();
+    expect(errorLine?.error_message).toMatch(/without a review/i);
+  });
+
+  it("omits error_message when the run ends cleanly", async () => {
+    const { runner, run, logged } = build([turnCreated("t1"), reviewCall("c1"), turnDone("t1")]);
+    await runner.start(run, "review it");
+    const changed = logged("run.status.changed");
+    const cleanLine = changed.find((l) => l.to === "clean");
+    expect(cleanLine).toBeDefined();
+    expect(cleanLine).not.toHaveProperty("error_message");
   });
 });

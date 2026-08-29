@@ -8,6 +8,7 @@ import {
 } from "../clients/trueforge";
 import type { RunStore } from "../store";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
+import { isMaliceClaim, isOperationalRule } from "./findings";
 import { fold, lastTurnOutcome, pendingApproval } from "./fold";
 import { runLogger } from "./start-run";
 import { checkTimings } from "./timings";
@@ -46,6 +47,12 @@ interface RunState {
    * check that had already finished before it.
    */
   reportedChecks: Map<string, CheckState["status"]>;
+  /** Whether `run.setup.completed` has been emitted for this run. */
+  setupReported: boolean;
+  /** Hard-rule findings already announced, keyed by `rule:check`. */
+  reportedHardRules: Set<string>;
+  /** The TrueForge session for this run, used by `run.setup.completed`. */
+  sessionId: string | null;
   /** The run's own logger, bound once. */
   log: Logger;
 }
@@ -181,6 +188,11 @@ export class Runner {
         turnMessage: null,
         retried: false,
         syntheticTerminal: false,
+        setupReported: (stored?.checks ?? []).some((c) => c.isCheck),
+        reportedHardRules: new Set(
+          (stored?.hardRuleHits ?? []).filter((f) => f.rule).map((f) => `${f.rule}:${f.check}`),
+        ),
+        sessionId: run?.sessionId ?? null,
         reportedChecks: new Map(
           (stored?.checks ?? []).map((check) => [check.threadId, check.status]),
         ),
@@ -226,6 +238,7 @@ export class Runner {
       s.log.info("run.status.changed", {
         from: previousStatus ?? null,
         to: projection.status,
+        ...(projection.error ? { error_message: projection.error } : {}),
       });
     }
     this.reportChecks(s, projection);
@@ -267,6 +280,10 @@ export class Runner {
       if (seen === check.status) continue;
       s.reportedChecks.set(check.threadId, check.status);
       if (check.status === "running") {
+        if (!s.setupReported) {
+          s.setupReported = true;
+          s.log.info("run.setup.completed", { session_id: s.sessionId });
+        }
         s.log.info("check.started", { check: check.title, thread_id: check.threadId });
         continue;
       }
@@ -275,6 +292,22 @@ export class Runner {
         thread_id: check.threadId,
         status: check.status,
         ...durationOf(check),
+      });
+    }
+    for (const finding of projection.hardRuleHits) {
+      if (!finding.rule) continue;
+      const key = `${finding.rule}:${finding.check}`;
+      if (s.reportedHardRules.has(key)) continue;
+      s.reportedHardRules.add(key);
+      s.log.warn("check.hard_rule.tripped", {
+        rule: finding.rule,
+        check: finding.check,
+        severity: finding.severity,
+        claim: isMaliceClaim(finding)
+          ? "malice"
+          : isOperationalRule(finding)
+            ? "operational"
+            : "correctness",
       });
     }
   }

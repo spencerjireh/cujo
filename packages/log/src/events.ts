@@ -93,6 +93,13 @@ export const EVENT_NAMES = [
   "run.approval.clear.skipped",
   "check.started",
   "check.finished",
+  // A hard rule tripped on a check's report (decision 21). One line per rule
+  // per check, so an operator can grep for under-gating incidents without
+  // querying the run store.
+  "check.hard_rule.tripped",
+  // The run's first check started, which means sandbox setup completed and
+  // sensors are armed. Logged once per run, on the first `check.started`.
+  "run.setup.completed",
   // The one place a human decides: `/cujo confirm` on the pull request.
   "approve.applied",
   "approve.rejected",
