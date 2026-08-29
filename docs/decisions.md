@@ -2574,6 +2574,16 @@ overwrites the decoy has to open it — the same event by another route. What
 would be lost by keeping the digest is the sensor's only claim on the value of
 its own evidence, since a signal that fires on every input is not a signal.
 
+**The exclusion is the watched file, not every name that reaches it.** A
+symlink is digested by `os.readlink`, which never opens what it points at, so a
+link that merely resolves to the decoy trips nothing and is hashed like any
+other — which is why `should_hash` takes the caller's `lstat` verdict rather
+than deciding from the path alone. Skipping links too would have handed back the
+retargeted link: aim it at another target of the same length, restore the
+timestamp, and `lstat` sees nothing, since a link's `st_size` is the length of
+its target string. That is the case decision 54's digest was added to close, and
+it would have been given up for no gain at all.
+
 **The tests said it was fine.** Every end-to-end test of the decoy asserted
 `decoy_read is True`; the only `False` assertions were pure unit tests that
 hand-wrote an empty `decoy_rows`, which is the one arrangement in which no

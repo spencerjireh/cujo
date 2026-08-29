@@ -170,7 +170,7 @@ def is_decoy(path: str | Path, decoy_paths: set[Path]) -> bool:
     return p in decoy_paths or canonical(p) in decoy_paths
 
 
-def should_hash(path: str, home_dir: Path | None = None) -> bool:
+def should_hash(path: str, home_dir: Path | None = None, *, symlink: bool = False) -> bool:
     """Whether this path is worth a content digest as well as its metadata.
 
     `(mtime_ns, size)` is defeated by anything that restores the timestamp after
@@ -186,9 +186,16 @@ def should_hash(path: str, home_dir: Path | None = None) -> bool:
     unmodified base commit included. Nothing is lost: the entry still carries
     metadata, `decoy_intact` follows the inode, and a command that overwrites
     the decoy has to open it, which the watcher sees.
+
+    `symlink` is why the caller has to say what it `lstat`ed. A link is digested
+    by its target string, which is a `readlink` and never opens what it points
+    at, so a link that merely *resolves* to the decoy trips nothing and is
+    hashed like any other. Excluding it would give up the retargeted-link case
+    -- repoint it at another target of the same length, put the timestamp back,
+    and two `lstat` calls agree -- in exchange for nothing at all.
     """
     if is_sensitive(path, home_dir):
-        return not is_decoy(path, decoy_spellings(home_dir))
+        return symlink or not is_decoy(path, decoy_spellings(home_dir))
     p = Path(os.path.normpath(os.path.expanduser(path)))
     return str(p).startswith("/etc/")
 

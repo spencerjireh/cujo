@@ -161,3 +161,19 @@ def test_the_decoy_is_the_one_credential_not_worth_hashing(home_dir: Path) -> No
     # And it stays sensitive for every other purpose. A read of it by the code
     # under test is the whole point of it being there.
     assert is_sensitive(str(decoy), home_dir)
+
+
+def test_a_link_that_resolves_to_the_decoy_is_still_hashed(home_dir: Path) -> None:
+    """A link is digested by `readlink`, which opens nothing.
+
+    So the exclusion is about the file the watcher is armed on, not about every
+    name that resolves to it. Skipping a link too would give up the retargeted
+    link -- repointed at another target of the same length with the timestamp
+    restored, which two `lstat` calls cannot tell apart -- and buy nothing,
+    because reading a link's target never trips the watch.
+    """
+    link = str(home_dir / ".ssh" / "id_rsa")
+    assert should_hash(link, home_dir, symlink=True)
+    # Even a link sitting at the decoy's own path: still a `readlink`.
+    assert should_hash(str(home_dir / ".aws" / "credentials"), home_dir, symlink=True)
+    assert not should_hash(str(home_dir / ".aws" / "credentials"), home_dir)
