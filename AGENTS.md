@@ -62,15 +62,9 @@ go in; only JSON reports come out. No token, key, clone credential, or hostname
 may ever reach the sandbox. Treat any change that moves data across this line as
 a design change.
 
-`apps/web` (Next.js App Router, TanStack Query, Tailwind on `brand/tokens.css`)
-is the UI and the only thing a human opens. It holds no secrets and no state:
-every call goes through its `/api/*` route handlers to `apps/cujo`, same-origin
-so the operator credential and the `EventSource` run stream both work
-from a browser (decision 27). One container answers two hostnames — the public
-read-only board and the token-gated operator view — decided per request from
-its own `Host` in `lib/api/mode.ts`, where public requires an exact match and
-everything else falls back to the gated plane (decision 34). Storybook covers
-the components and is not part of CI.
+Read `docs/architecture.md` for the components, the crossings table, the
+approval path and the deployment topology. What follows is only what you need
+before you can read anything else: where code goes, and what governs that.
 
 `apps/cujo` (Hono, `node:sqlite`) is the sole TrueForge client and the only
 thing GitHub touches. Its `src/` is grouped by trust plane:
@@ -100,36 +94,11 @@ public split is a path and not a third hostname because this process never
 receives the public name (decision 34); `http/public/serialize.ts` is an
 allowlist, and adding a field to `Projection` fails its test until classified.
 
-The flow: `http/ingress/github-webhook.ts` verifies the HMAC and claims the
-run; `review/start-run.ts` reads the PR through `clients/github.ts` and starts
-a turn on a session created with the spec from `review/agent-spec.ts`, which is
-`agent/SKILL.md` with `{{CUJO_SNIFF_TARBALL_URL}}` substituted.
-`review/runner.service.ts` drives the turn and `review/fold.ts` folds its event
-stream (tagged by `thread_id`) into a projection. Unfinished runs rehydrate on
-restart. `notify/reactions.service.ts` moves a reaction on the pull request as
-that status changes — the only thing `apps/cujo` writes to GitHub, content-free
-by construction, and the earliest signal that the front half of the pipeline
-worked (decision 38). `clients/trueforge.ts` wraps the SDK so nothing else sees SDK shapes;
-`bootstrapUntilReady()` registers `github-mcp` and the webhook answers 503
-until it succeeds.
-
-`apps/github-mcp` is a stateless Streamable HTTP MCP server with two tools:
-`post_advisory_review` and `post_blocking_review`. Only the blocking one is
-marked destructive, which is what TrueForge's `@destructive` approval selector
-keys on; that is the entire mechanism behind the human gate. `diff.ts` validates
-every inline comment anchor against the PR hunks because one bad anchor fails
-the whole GitHub review. `packages/gh-app-auth` mints installation tokens from
-the App private key for both apps.
-
-`agent/SKILL.md` is the rubric: parent-agent setup, the four check subagents
-(`tests`, `probes`, `smoke`, `detonation`, each returning one JSON report), the
-hard rules that force `critical`, and the review format. `sandbox/` is the
-in-sandbox sensor code (`setup`, `run`, `detonate`, `teardown`): `sniff.py` is
-the entry point and `cujo_sniff/` is the package behind it. The rubric copies
-the whole of `sandbox/` into `/tmp/cujo`, so the two are siblings and
-`sys.path[0]` finds the package — there is no install step, nothing may import
-a third-party module, and it runs with the sandbox's `python3`, not `uv`
-(decision 46). Report shapes live in `docs/spec.md` Contract 2.
+`apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the
+MCP server whose one destructive tool is the entire human gate; `agent/SKILL.md`
+is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
+entry point and `cujo_sniff/` as the package behind it. Report shapes live in
+`docs/spec.md` Contract 2.
 
 ## Repo rules
 
@@ -145,7 +114,9 @@ a third-party module, and it runs with the sandbox's `python3`, not `uv`
   no trailing period); explain the why in the body. See `CONTRIBUTING.md`.
 - Run Python with `uv` everywhere except what runs in the sandbox (`sniff.py`
   and `cujo_sniff/`), which uses the sandbox's own `python3`; `sandbox/tests/`
-  runs here under `uv` like any other test.
+  runs here under `uv` like any other test. There is no install step in the
+  sandbox, so nothing under `sandbox/` may import a third-party module
+  (decision 46).
 - Never install `evil-package` outside the Daytona sandbox; it is an intentional
   malicious sample.
 - `*.pem` and `.env` are gitignored; real values live in the Coolify deploy.

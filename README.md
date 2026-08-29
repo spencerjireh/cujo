@@ -150,28 +150,17 @@ channel and ping role from Discord's own dropdowns. `/cujo status` shows where
 each repo goes, and `/cujo test` posts a sample card to prove the path works.
 
 Both halves are required: merging the declaration is what proves you control
-the repo, and running the command is what proves the server wants it.
-`PUT /discord/authorizations/:guildId/:owner/:name` remains as an operator
-override, for moving a repo between servers or for one whose `.cujo.yml` cannot
-be changed.
-
-A deploy that serves one Discord server can answer the declaration half once,
-in the environment, instead of once per repo (decision 40):
-
-```bash
-CUJO_DEFAULT_DISCORD_GUILD=222222222222222222
-```
-
-Then a repo that names no `discord_guild` belongs to that server, and setup is
-`/cujo watch` and nothing else. It is one id and never a list, so a server that
-invited the bot on its own is refused exactly as before, and a repo that names
-a different server still wins. Unsetting it drops the bindings it allowed, the
-same way reverting a `discord_guild` line does.
+the repo, and running the command is what proves the server wants it. A deploy
+serving a single Discord server can answer the declaration half once with
+`CUJO_DEFAULT_DISCORD_GUILD` instead of once per repo. The rules — what the
+override route is for, what an unset variable changes, and why the file is read
+from the default branch only — are [spec.md](docs/spec.md) Contract 8.
 
 The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
 are for local runs only and never touch how it deploys.
 
-The services under `apps/` build and test with pnpm; `sniff.py` runs with `uv`:
+The services under `apps/` build and test with pnpm; the sensor tests run with
+`uv` (`sniff.py` itself runs on the sandbox's own `python3`, decision 46):
 
 ```bash
 corepack enable && pnpm install
@@ -194,8 +183,10 @@ the approval gate, resume, and the fold of real events) and run in CI.
 ## Status
 
 The pipeline is in: webhook to session, the four checks, the sensors, the hard
-rules (applied by the agent and re-derived in `apps/cujo`), the gated blocking
-review, and the run API with findings. The Cujo UI is next, then the video.
+rules (applied by the agent and re-derived in `apps/cujo`), the gated review
+answered with `/cujo confirm` on the pull request, conversation with
+`@cujo-guard`, Discord notification, and both UI planes — the token-gated
+operator view and the public read-only board.
 
 ## License
 

@@ -10,7 +10,9 @@ block under human approval.
 - **`orders-api`** — a small FastAPI service (routes, models, `pyproject.toml`,
   a pinned `requirements.txt`, a pytest suite). The app we protect; the Cujo
   GitHub App is installed here. Qodo is installed here too, so its diff-only
-  review sits next to Cujo's on every PR.
+  review sits next to Cujo's on every PR. `main` needs branch protection
+  requiring pull request review, or a REQUEST_CHANGES review posts without
+  blocking anything (spec.md Contract 4).
 - **`evil-package`** — a pip-installable package whose `setup.py` runs a
   harmless but observable payload at install time. Its README says plainly that
   it is a demo sample. Never published to PyPI; pulled only through a `git+https`
