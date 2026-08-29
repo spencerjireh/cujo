@@ -71,3 +71,37 @@ describe("authorizeCommand", () => {
     expect(allowed).toEqual(["admin", "write"]);
   });
 });
+
+describe("who may ask for a review", () => {
+  const ask = (permission: RepoPermission, actor = "maintainer") =>
+    authorizeCommand({ verb: "review", permission, actor, prAuthor: "author" });
+
+  it("needs the same principal as the other two verbs", () => {
+    expect(ask("admin").allowed).toBe(true);
+    expect(ask("write").allowed).toBe(true);
+    expect(ask("read")).toEqual({ allowed: false, reason: "not_a_maintainer" });
+    expect(ask("none")).toEqual({ allowed: false, reason: "not_a_maintainer" });
+    expect(ask("unknown")).toEqual({ allowed: false, reason: "unknown" });
+  });
+
+  it("lets the pull request's author ask, unlike dismiss", () => {
+    // The author guard exists because `dismiss` buries an accusation against
+    // one's own change. Asking to be looked at again buries nothing.
+    expect(
+      authorizeCommand({
+        verb: "review",
+        permission: "write",
+        actor: "Author",
+        prAuthor: "author",
+      }).allowed,
+    ).toBe(true);
+    expect(
+      authorizeCommand({
+        verb: "dismiss",
+        permission: "write",
+        actor: "Author",
+        prAuthor: "author",
+      }),
+    ).toEqual({ allowed: false, reason: "author_may_not_dismiss" });
+  });
+});

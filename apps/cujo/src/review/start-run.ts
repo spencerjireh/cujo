@@ -60,10 +60,27 @@ export function runLogger(log: Logger, run: RunRecord): Logger {
   });
 }
 
-export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void> {
+export interface StartRunOptions {
+  /**
+   * Skip the already-reviewed guard, because somebody asked for this on
+   * purpose. Set only by `/cujo review`, whose whole point is a second look at
+   * a head Cujo has usually already reviewed. Nothing else may set it: the
+   * guard is what stops a redelivery reviewing the same commit twice.
+   */
+  force?: boolean;
+}
+
+export async function startRun(
+  deps: StartRunDeps,
+  run: RunRecord,
+  options: StartRunOptions = {},
+): Promise<void> {
   const log = runLogger(deps.log, run);
   try {
-    if (await deps.github.alreadyReviewed(run.repo, run.prNumber, run.headSha)) {
+    if (
+      !options.force &&
+      (await deps.github.alreadyReviewed(run.repo, run.prNumber, run.headSha))
+    ) {
       // Silent until now, and it deletes a run: without a line, a PR that
       // simply never gets reviewed again looks identical to one that was
       // never delivered.

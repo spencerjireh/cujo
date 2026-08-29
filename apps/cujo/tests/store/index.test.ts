@@ -335,3 +335,40 @@ describe("store", () => {
     }
   });
 });
+
+describe("reclaimRunForHead", () => {
+  const claim = {
+    repo: "o/r",
+    prNumber: 1,
+    headSha: "h",
+    sessionId: "s",
+    isPublic: true,
+    deliveryId: null,
+    model: null,
+    rubricSha256: null,
+  };
+
+  it("frees a finished head so it can be claimed again", () => {
+    // `runs_head` is UNIQUE on (repo, pr_number, head_sha) and createRun's own
+    // stale reclaim only takes error rows with no turn, so a finished run
+    // cannot be displaced by accident. `/cujo review` displaces it on purpose.
+    const store = new Store(":memory:");
+    const { run: first } = store.runs.createRun(claim);
+    store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
+    expect(store.runs.createRun(claim).created).toBe(false);
+
+    expect(store.runs.reclaimRunForHead("o/r", 1, "h")).toBe(true);
+    const { run: second, created } = store.runs.createRun(claim);
+    expect(created).toBe(true);
+    expect(second.id).not.toBe(first.id);
+    // The old run goes completely, which is what makes its board page stop
+    // resolving rather than showing a verdict nothing produced.
+    expect(store.runs.getRun(first.id)).toBeNull();
+    expect(store.runs.getProjection(first.id)).toBeNull();
+  });
+
+  it("says there was nothing to reclaim for a head with no run", () => {
+    const store = new Store(":memory:");
+    expect(store.runs.reclaimRunForHead("o/r", 1, "nope")).toBe(false);
+  });
+});

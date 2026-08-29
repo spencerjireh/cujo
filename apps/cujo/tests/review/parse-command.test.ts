@@ -178,3 +178,30 @@ describe("parseMention", () => {
     expect(parseMention(long)?.length).toBe(MENTION_BODY_CAP);
   });
 });
+
+describe("the review verb", () => {
+  it("reads `/cujo review` as a command", () => {
+    expect(parseCommand("/cujo review")).toEqual({ kind: "command", verb: "review" });
+    expect(parseCommand("/cujo   review  ")).toEqual({ kind: "command", verb: "review" });
+  });
+
+  it("still refuses a comment that gives two different verbs", () => {
+    // The ambiguity rule collects into a Set and refuses on more than one, so
+    // adding a third verb needed no change — but the pair it could not see
+    // before is the one worth asserting.
+    expect(parseCommand("/cujo confirm\n/cujo review").kind).toBe("ambiguous");
+    expect(parseCommand("/cujo dismiss\n/cujo review").kind).toBe("ambiguous");
+  });
+
+  it("reads the same verb twice as that verb, not as ambiguity", () => {
+    expect(parseCommand("/cujo review\n/cujo review")).toEqual({
+      kind: "command",
+      verb: "review",
+    });
+  });
+
+  it("is not a command inside a code block or a quote", () => {
+    expect(parseCommand("```\n/cujo review\n```").kind).toBe("none");
+    expect(parseCommand("> /cujo review").kind).toBe("none");
+  });
+});

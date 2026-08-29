@@ -64,6 +64,7 @@ export const EVENT_NAMES = [
   "converse.redelivered",
   "converse.disabled",
   // A run's life, from the claim to a terminal status.
+  "run.claimed",
   "run.skipped",
   "run.superseded",
   "run.supersede.deferred",
