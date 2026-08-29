@@ -91,6 +91,27 @@ describe("deriveDigest", () => {
     expect(digest.durationMs).toBeNull();
   });
 
+  /**
+   * The fold records `startedAt` and `endedAt` in different event handlers, so
+   * a projection can hold one check with only a start beside another with only
+   * an end. Counting the two lists instead of pairing them per check finds
+   * them equal, and the envelope then runs from one check's start to another
+   * check's end — a duration nothing measured, on a run still going.
+   */
+  it("refuses an envelope built from two different half-stamped checks", () => {
+    const digest = deriveDigest(
+      projection({
+        checks: [
+          check({ title: "tests", status: "running", startedAt: T0, endedAt: null }),
+          check({ title: "probes", startedAt: null, endedAt: T90 }),
+        ],
+      }),
+    );
+    expect(digest.checks.tests).toEqual({ status: "running", ms: null });
+    expect(digest.checks.probes).toEqual({ status: "done", ms: null });
+    expect(digest.durationMs).toBeNull();
+  });
+
   it("keeps a check that errored, with whatever it managed to measure", () => {
     const digest = deriveDigest(
       projection({ checks: [check({ title: "detonation", status: "error", startedAt: T0 })] }),

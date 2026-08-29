@@ -452,15 +452,32 @@ export class RunStore {
    * The projection and its digest, written together (decision 65). One method
    * and not two, so the digest cannot be forgotten at a call site and cannot
    * describe a projection other than the one stored on the same line.
+   *
+   * In one transaction, because the two rows are one fact. Two autocommit
+   * statements can leave a new projection beside the *previous* digest, and
+   * that pairing is worse than a missing one: the read-time backfill only
+   * fires on null, so a stale digest is taken as current and the board serves
+   * measurements from a superseded fold for as long as the run exists.
+   *
+   * The digest is derived before the transaction opens, so a fold that throws
+   * takes nothing with it.
    */
   putProjection(runId: string, projection: Projection): void {
-    this.db
-      .prepare(
-        "INSERT INTO run_projections (run_id, projection) VALUES (?, ?) " +
-          "ON CONFLICT (run_id) DO UPDATE SET projection = excluded.projection",
-      )
-      .run(runId, JSON.stringify(projection));
-    this.putDigest(runId, deriveDigest(projection));
+    const digest = deriveDigest(projection);
+    this.db.exec("BEGIN");
+    try {
+      this.db
+        .prepare(
+          "INSERT INTO run_projections (run_id, projection) VALUES (?, ?) " +
+            "ON CONFLICT (run_id) DO UPDATE SET projection = excluded.projection",
+        )
+        .run(runId, JSON.stringify(projection));
+      this.putDigest(runId, digest);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   private putDigest(runId: string, digest: RunDigest): void {

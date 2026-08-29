@@ -62,14 +62,27 @@ export function deriveDigest(projection: Projection): RunDigest {
 
 /**
  * The checks run concurrently in one sandbox, so the run's wall clock is the
- * envelope around all four and not the sum of them. Null unless every check
- * that started has also ended: a partial span would read as a fast run rather
- * than an unfinished one.
+ * envelope around all four and not the sum of them.
+ *
+ * Null unless *every* check has both stamps. The pair has to be checked per
+ * check and not by counting: `startedAt` and `endedAt` are recorded by
+ * different event handlers in the fold, so a projection can hold a check with
+ * only a start beside one with only an end. Two lists of equal length would
+ * pass that, and the envelope would then run from one check's start to a
+ * different check's end — a duration nothing measured, on a run that has not
+ * finished.
  */
 function spanMs(checks: CheckState[]): number | null {
-  const starts = checks.map((check) => stamp(check.startedAt)).filter(Number.isFinite);
-  const ends = checks.map((check) => stamp(check.endedAt)).filter(Number.isFinite);
-  if (starts.length === 0 || ends.length !== starts.length) return null;
-  const span = Math.max(...ends) - Math.min(...starts);
+  if (checks.length === 0) return null;
+  let first = Number.POSITIVE_INFINITY;
+  let last = Number.NEGATIVE_INFINITY;
+  for (const check of checks) {
+    const started = stamp(check.startedAt);
+    const ended = stamp(check.endedAt);
+    if (!Number.isFinite(started) || !Number.isFinite(ended)) return null;
+    first = Math.min(first, started);
+    last = Math.max(last, ended);
+  }
+  const span = last - first;
   return span >= 0 ? span : null;
 }
