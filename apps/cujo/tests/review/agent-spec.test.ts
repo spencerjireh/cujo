@@ -112,12 +112,15 @@ describe("buildTurnMessage", () => {
 describe("buildAgentSpec", () => {
   const config = { model: "p/m", sniffUrl: "https://x/sniff.py" } as Config;
 
-  it("injects the sensor URL into the rubric and gates the blocking tool", () => {
+  it("injects the sensor URL into the rubric and gates the accusation alone", () => {
     const spec = buildAgentSpec(config, "fetch {{CUJO_SNIFF_URL}} then {{CUJO_SNIFF_URL}}");
     expect(spec.model).toEqual({ name: "p/m" });
     expect(spec.instructions).toBe("fetch https://x/sniff.py then https://x/sniff.py");
+    // The one line that decides what a human is asked about. `post_blocking_review`
+    // is absent on purpose: blocking a merge on a broken test is mechanical and
+    // reversible, and asking about it is ceremony (decision 42).
     expect(spec.mcpServers).toEqual([
-      { name: "github-mcp", requireApprovalForTools: ["post_blocking_review"] },
+      { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
     ]);
     expect(spec.config).toMatchObject({
       sandbox: { enabled: true },
