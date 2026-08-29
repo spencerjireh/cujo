@@ -1,22 +1,31 @@
 "use client";
 
-import { alarms, parseReport } from "@/lib/api/report";
+import { needsAttention, parseReport } from "@/lib/api/report";
 import type { CheckState } from "@/lib/api/types";
 import { duration } from "@/lib/format";
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RawJson } from "./report/RawJson";
 import { SensorReport } from "./report/SensorReport";
 
 /** One collapsible section per check that returned something. */
 function CheckReport({ check }: { check: CheckState }) {
   const parsed = parseReport(check.report);
-  // A check that tripped anything is worth opening without being asked. This
-  // asks alarms() rather than testing one flag, so a decoy-secret read or a
-  // sensitive write opens the report too.
-  const [open, setOpen] = useState(
-    parsed.kind === "sensor" && parsed.blocks.some((block) => alarms(block).length > 0),
-  );
+  // A check that tripped anything, or that ran with a sensor down, is worth
+  // opening without being asked. `some` over the blocks, so one blind interval
+  // reported on both the roll-up and its run opens the card once.
+  const attention = parsed.kind === "sensor" && parsed.blocks.some(needsAttention);
+  const [open, setOpen] = useState(attention);
+  // The initializer runs once, and a check mounts while it is still running --
+  // `report: null`, nothing to be alarmed about yet. The report arrives later
+  // over the stream, into the same component, so without this the card a
+  // watcher most needs open is the one that stays shut. On the rising edge
+  // only: a card the reader closed again stays closed.
+  const wasAttention = useRef(attention);
+  useEffect(() => {
+    if (attention && !wasAttention.current) setOpen(true);
+    wasAttention.current = attention;
+  }, [attention]);
 
   return (
     <Collapsible.Root open={open} onOpenChange={setOpen} className="border-t border-line">
@@ -37,9 +46,23 @@ function CheckReport({ check }: { check: CheckState }) {
           <p className="mb-3 font-mono text-xs text-sev-critical">{check.error}</p>
         ) : null}
         {parsed.kind === "sensor" ? (
-          parsed.blocks.map((block, index) => (
-            <SensorReport key={block.label ?? `block-${index}`} block={block} />
-          ))
+          <>
+            {parsed.blocks.map((block, index) => (
+              <SensorReport key={block.label ?? `block-${index}`} block={block} />
+            ))}
+            {/* The tables are a reading of the report, not the report. Anything
+                they have no column for -- the output tails, the per-check
+                fields, a field added by a sandbox newer than this build -- is
+                only here. Closed by default; it is the fallback, not the view. */}
+            <details className="mt-4">
+              <summary className="cursor-pointer font-mono text-xs text-fg-muted">
+                raw report
+              </summary>
+              <div className="mt-2">
+                <RawJson value={parsed.raw} />
+              </div>
+            </details>
+          </>
         ) : parsed.kind === "opaque" ? (
           <RawJson value={parsed.raw} />
         ) : (

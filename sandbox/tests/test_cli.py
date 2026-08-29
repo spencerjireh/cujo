@@ -8,15 +8,18 @@ the sandbox uses after the rubric extracts the tarball.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import socket
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
-from cujo_sniff.context import Context
+from cujo_sniff.context import Context, state_paths
 from cujo_sniff.daemons import pid_alive
-from cujo_sniff.policy import DECOY_KEY
+from cujo_sniff.policy import DECOY_KEY, SCHEMA_VERSION
 from tests.conftest import CODE_DIR, Cli
 
 pytestmark = pytest.mark.harness
@@ -203,3 +206,96 @@ def test_the_shim_writes_state_under_the_state_dir_only(cli: Cli, ctx: Context) 
         assert not (CODE_DIR / "config.json").exists()
     finally:
         cli.script(["teardown"], check=True)
+
+
+def test_setup_reports_which_sensors_armed(cli: Cli) -> None:
+    setup = cli(["setup", "--proxy-port", "0"])
+    try:
+        assert setup["schema_version"] == SCHEMA_VERSION
+        assert setup["sensors"]["proxy"] == {
+            "armed": True,
+            "detail": f"port {setup['proxy_port']}",
+        }
+        # inotify on Linux, the atime poll everywhere else. Which one it is
+        # changes what a quiet decoy is worth, so the report says.
+        decoy = setup["sensors"]["decoy"]
+        assert decoy["armed"] is True
+        assert decoy["detail"] in ("inotify", "atime")
+    finally:
+        cli(["teardown"])
+
+
+def test_a_report_says_the_sensors_were_watching(cli: Cli, home_dir: Path) -> None:
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        report = cli(["run", "--check", "tests", "--cwd", str(home_dir), "--", "true"])
+        assert report["schema_version"] == SCHEMA_VERSION
+        assert report["window_exclusive"] is True
+        assert report["sensors"]["proxy"]["armed"] is True
+        assert report["sensors"]["decoy"]["armed"] is True
+        assert report["sensors"]["fs_diff"]["armed"] is True
+        # The four this command decides. `hashes` is deliberately not among
+        # them: the walk covers `/etc`, so whether some file on *this* machine
+        # was too large to hash or changed identity under the walk is a fact
+        # about the machine, not about `true`. Pinning it made the suite pass on
+        # a developer's laptop and fail on a Linux runner, which is the test
+        # being wrong rather than the sensor.
+        assert report["truncated"]["stdout_tail"] is False
+        assert report["truncated"]["stderr_tail"] is False
+        assert report["truncated"]["files_read"] is False
+        assert report["truncated"]["snapshot"] is False
+        assert isinstance(report["truncated"]["hashes"], bool)
+        # `true` is not a Python process, so there is no hook to arm and that
+        # is not a fault -- it is the difference the block exists to record.
+        assert report["sensors"]["audit"]["armed"] is False
+    finally:
+        cli(["teardown"])
+
+
+def test_a_proxy_that_dies_after_setup_is_not_a_clean_bill_of_health(
+    cli: Cli, ctx: Context, home_dir: Path
+) -> None:
+    """The failure the health block was written for.
+
+    Nothing re-checked the daemons after `setup`, so a proxy that died during
+    the first check left the three that followed with an empty `egress` and a
+    `derived.egress_to_unknown_host` of false -- a clean report from a blind
+    sensor. Now the report says it was blind, and apps/cujo turns that into a
+    warn the review has to carry.
+    """
+    setup = cli(["setup", "--proxy-port", "0"])
+    try:
+        assert setup["sensors"]["proxy"]["armed"] is True
+        proxy_pid = int(state_paths(ctx)["proxy_pid"].read_text())
+        os.kill(proxy_pid, signal.SIGKILL)
+        deadline = time.monotonic() + 5
+        while pid_alive(proxy_pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        report = cli(["run", "--check", "probes", "--cwd", str(home_dir), "--", "true"])
+        assert report["egress"] == []
+        assert report["derived"]["egress_to_unknown_host"] is False
+        assert report["sensors"]["proxy"]["armed"] is False
+        assert "no longer running" in report["sensors"]["proxy"]["detail"]
+        # The other sensors are untouched by the one that died.
+        assert report["sensors"]["decoy"]["armed"] is True
+    finally:
+        cli(["teardown"])
+
+
+def test_output_reaches_the_report_escaped(cli: Cli, home_dir: Path) -> None:
+    # The parent agent reads `stdout_tail` as text about the pull request, so a
+    # command that prints an escape sequence is writing into that prompt. The
+    # newline is kept: it is structure the reviewer wants.
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        script = r"import sys; sys.stdout.write('\x1b[2Jcleared\nsecond line')"
+        report = cli(
+            ["run", "--check", "tests", "--cwd", str(home_dir), "--", sys.executable, "-c", script]
+        )
+        assert report["exit"] == 0
+        assert report["stdout_tail"] == "\\x1b[2Jcleared\nsecond line"
+        # The Python that printed it did arm the hook.
+        assert report["sensors"]["audit"]["armed"] is True
+    finally:
+        cli(["teardown"])

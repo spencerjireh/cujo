@@ -64,7 +64,12 @@ export type HardRule =
   | "decoy_in_egress"
   | "wrote_sensitive"
   | "egress_to_unknown_host"
-  | "check_missing";
+  | "check_missing"
+  // Not an accusation and not a defect: a sensor that was not watching, so the
+  // clean report it produced is worth less than it looks. `warn`, like
+  // `check_missing`, and for the same reason — it says the evidence is thin,
+  // not that the code did anything.
+  | "sensor_unarmed";
 
 /** One finding (Contract 3). `source` says which layer produced it. */
 export interface Finding {
@@ -156,6 +161,20 @@ export interface RunRecord {
    * line, and it authorizes nothing on its own.
    */
   deliveryId: string | null;
+  /**
+   * What the pull request says about itself: its title, and who opened it
+   * (decision 55). Read from GitHub once when the run is claimed and joined
+   * onto every run read, so a card and a run page name the same two parties
+   * without either asking GitHub again.
+   *
+   * All three are null for a run recorded before the columns existed, or one
+   * whose PR read never completed; `authorLogin` and `authorId` are also both
+   * null when the account has since been deleted. Untrusted, like every other
+   * string GitHub hands over.
+   */
+  prTitle: string | null;
+  prAuthorLogin: string | null;
+  prAuthorId: number | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -28,6 +28,7 @@ const pr = {
   body: null,
   base: { sha: "b", repo: { clone_url: "https://github.com/o/r.git" } },
   head: { sha: "h" },
+  user: { login: "octocat", id: 583231 },
 };
 
 describe("GitHubReader.pullRequest", () => {
@@ -49,6 +50,8 @@ describe("GitHubReader.pullRequest", () => {
       baseSha: "b",
       headSha: "h",
       cloneUrl: "https://github.com/o/r.git",
+      authorLogin: "octocat",
+      authorId: 583231,
     });
     expect(info.changedFiles).toHaveLength(103);
     expect(calls.map((u) => u.pathname + u.search)).toEqual([
@@ -56,6 +59,17 @@ describe("GitHubReader.pullRequest", () => {
       "/repos/o/r/pulls/7/files?per_page=100&page=1",
       "/repos/o/r/pulls/7/files?per_page=100&page=2",
     ]);
+  });
+
+  it("reports no author for a deleted account, rather than an empty one", async () => {
+    // GitHub sends no `user` at all once the account is gone. Null and not
+    // "": an empty login would read as somebody nobody can look up.
+    const { impl } = fakeFetch((url) =>
+      url.pathname.endsWith("/files") ? { body: [] } : { body: { ...pr, user: null } },
+    );
+    const info = await new GitHubReader("1", "pem", impl).pullRequest("o/r", 7);
+    expect(info.authorLogin).toBeNull();
+    expect(info.authorId).toBeNull();
   });
 
   it("throws with the status on a failed read", async () => {

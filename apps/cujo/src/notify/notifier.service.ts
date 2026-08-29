@@ -199,12 +199,7 @@ export class DiscordNotifier {
     if (row?.lastNotifiedStatus !== run.status || !messageId) {
       const projection = store.runs.getProjection(runId);
       if (!projection) return;
-      const card = buildRunCard({
-        run,
-        projection,
-        prTitle: store.runs.getRunPrTitle(runId),
-        links,
-      });
+      const card = buildRunCard({ run, projection, links });
       messageId = await this.upsert(channelId, messageId, card);
       write();
     }

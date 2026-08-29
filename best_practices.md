@@ -28,7 +28,8 @@ the bot.
   `sys.path[0]` with no install, run with the sandbox's `python3`, because the
   sandbox image is not ours and does not carry `uv`. `sandbox/tests/` is not
   covered by that rule and imports `pytest` like every other test in the repo;
-  it is shipped along with the rest of `sandbox/` but never runs there.
+  the archive carries it and the rubric drops it on arrival, so it never
+  reaches the sandbox.
 - Never install `evil-package` outside the Daytona sandbox — it is an
   intentional malicious sample. Keep the name out of `apps/` and `packages/`
   entirely, tests included, so the tripwire stays a tripwire.
@@ -60,6 +61,15 @@ the bot.
 - A PR that changes behavior ships a test that covers the change, or states why
   it does not. Tests mirror the source tree in `tests/`, use `*.test.ts`, and
   follow the `describe`/`it` naming convention.
+- A change to the check-report shape is additive or value-only: no renames, no
+  removals, and nothing that moves one of the sensor block's top-level keys.
+  Nothing type-checks that shape -- `check.report` is `unknown` in both apps --
+  so a rename breaks a consumer silently, and the sandbox fetches from `main` at
+  turn time while `apps/cujo` runs the previous image until the deploy swaps, so
+  the old consumer always meets the new report first. Update
+  `docs/contracts/report.example.json` with the change; its three conformance
+  tests are what make a field added on one side fail on the others (see
+  `docs/decisions.md` 54).
 - A PR that changes how something works updates the relevant file in `docs/` in
   the same PR; a load-bearing choice gets an entry in `docs/decisions.md`.
 - Log through `@cujo/log`, never `console.*` — `noConsole` enforces it. Pass the

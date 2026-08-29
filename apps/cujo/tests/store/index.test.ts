@@ -249,10 +249,18 @@ describe("store", () => {
     expect(store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
-  it("keeps the run's Discord message and PR title, and drops both with the run", () => {
+  it("keeps the run's Discord message and PR meta, and drops both with the run", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun(head);
-    store.runs.putRunPrTitle(run.id, "Add a thing");
+    // Nothing is stored yet, so a fresh run carries no title and no author.
+    expect(run.prTitle).toBeNull();
+    expect(run.prAuthorLogin).toBeNull();
+    expect(run.prAuthorId).toBeNull();
+    store.runs.putRunPrMeta(run.id, {
+      title: "Add a thing",
+      authorLogin: "octocat",
+      authorId: 583231,
+    });
     store.notifications.putRunDiscordMessage({
       runId: run.id,
       channelId: "c1",
@@ -277,10 +285,14 @@ describe("store", () => {
       pingResolved: true,
       lastNotifiedStatus: "blocked_posted",
     });
-    expect(store.runs.getRunPrTitle(run.id)).toBe("Add a thing");
+    // Joined onto the run read, so a caller with a RunRecord already has it.
+    const stored = store.runs.getRun(run.id);
+    expect(stored?.prTitle).toBe("Add a thing");
+    expect(stored?.prAuthorLogin).toBe("octocat");
+    expect(stored?.prAuthorId).toBe(583231);
     store.runs.deleteRun(run.id);
     expect(store.notifications.getRunDiscordMessage(run.id)).toBeNull();
-    expect(store.runs.getRunPrTitle(run.id)).toBeNull();
+    expect(store.runs.getRun(run.id)).toBeNull();
   });
 
   it("records who bound a repo to a channel", () => {

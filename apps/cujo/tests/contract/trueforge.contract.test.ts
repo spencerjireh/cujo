@@ -76,6 +76,12 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
           baseUrl: `http://${STUB_HOST}:${stub.port}/v1`,
           apiKey: "stub",
           models: [{ name: "stub", modelId: "stub-1" }],
+          // Declared so the session below can ask for one. Without this the
+          // server rejects any `reasoningEffort` and createSession throws --
+          // which is exactly what shipped, because this test used to create a
+          // session with no `params` at all and so never touched that path
+          // (decision 56).
+          reasoningEfforts: ["none", "low"],
         },
         daytonaApiKey: null,
       },
@@ -101,7 +107,10 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
 
   it("creates a session from an inline agent spec that gates the accusation", async () => {
     sessionId = await harness.createSession({
-      model: { name: MODEL },
+      // `params` is the half CI never exercised. A spec naming an effort the
+      // provider does not declare is refused at creation, and production found
+      // that out as a 502 on every webhook.
+      model: { name: MODEL, params: { reasoningEffort: "low" } },
       instructions: "Do what the user message says.",
       mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
       config: {

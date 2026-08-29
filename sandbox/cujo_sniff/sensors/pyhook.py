@@ -12,10 +12,17 @@ reports a crash caused by Cujo as evidence against the pull request. A false
 could use are both closed for the same reason: stdout and stderr belong to the
 audited program, and the log is the thing that just failed.
 
-Which leaves a real gap, and it is not this file's to close: a hook that never
-armed and a run that did nothing produce the same clean report. The parent can
-tell them apart because it knows whether any row arrived at all, so the signal
-belongs in the sensor-health block on the report (docs/spec.md Contract 2).
+That used to leave a real gap: a hook that never armed and a run that did
+nothing produced the same empty log, and the report could not tell them apart.
+The hook now writes one `armed` row as it installs itself, so an empty log means
+no Python process ran and a log with only that row means one ran and did
+nothing. Which of the two it is reaches the report as `sensors.audit`
+(docs/spec.md Contract 2).
+
+An unarmed hook is not by itself a fault. A check that runs `npm test` has no
+Python process to hook, and reporting that as a broken sensor would cry wolf on
+every JavaScript repository -- so the state is reported and the agent weighs it,
+rather than becoming a finding on its own.
 """
 
 from __future__ import annotations
@@ -75,6 +82,10 @@ def _hook(event, args):
 
 if _LOG:
     sys.addaudithook(_hook)
+    # Proof of life, and the only row this hook writes about itself. Without it
+    # "the hook never loaded" and "the command did nothing" are the same empty
+    # file, and the report has to guess which.
+    _write({"event": "armed"})
 """
 
 

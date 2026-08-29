@@ -40,7 +40,12 @@ export interface DiscordEmbed {
   url?: string;
   color?: number;
   fields?: DiscordEmbedField[];
-  footer?: { text: string };
+  /**
+   * The line above the title. `name` counts against the 6000-character embed
+   * budget; neither icon URL does.
+   */
+  author?: { name: string; url?: string; icon_url?: string };
+  footer?: { text: string; icon_url?: string };
   timestamp?: string;
 }
 
