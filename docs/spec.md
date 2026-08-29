@@ -72,7 +72,8 @@ nothing else; it is the fast path for decision 34's public board, and matching
 is case-insensitive because `runs.repo` holds whatever casing GitHub sent.
 
 An `issue_comment` event may carry `/cujo confirm` or `/cujo dismiss`, which is
-the human gate (Contract 4, decision 45). Only `created` is acted on: a command
+the human gate (Contract 4, decision 45), or `/cujo review`, which asks for the
+current head to be reviewed again (decision 63). Only `created` is acted on: a command
 that can be typed into an existing comment is a command whose author is not the
 person the payload names at the time it fires. A comment on an issue rather
 than a pull request is ignored, since `issue_comment` fires for both. The route
@@ -86,6 +87,19 @@ The command is matched as an exact string, at the start of a line, by
 write, and any intent parser reads it as a dismissal — so a mention can never
 carry a privileged verb. Comments authored by `cujo-guard[bot]` are ignored
 outright, because Cujo's own replies print the verbs.
+
+`/cujo review` takes the same principal as the other two — repo write — but for
+a different reason: it decides nothing, and it provisions a sandbox and a model
+turn, which is a cost a stranger should not be able to impose on somebody else's
+repository from a comment box. The pull request's author may use it, unlike
+`dismiss`, since asking to be looked at again buries nothing.
+
+It also takes a different path. It answers no run, so a pull request Cujo has
+never seen is its main case rather than a refusal, and the stale-head rule does
+not apply — that rule stops somebody answering an old commit's finding, while
+this verb targets whatever the head is now. Claiming reclaims the head's
+existing run, which deletes that run's projection, its board page and its
+Discord card; the reply says so.
 
 **A line only counts if a reader can see it.** The scan drops fenced code,
 blockquotes, HTML comments and raw HTML before matching, following CommonMark
@@ -244,11 +258,25 @@ goes.
 **[`docs/contracts/report.example.json`](contracts/report.example.json) is the
 shape.** One complete example carrying every field at once, and the normative
 one: this section says what the fields mean and that file says what they are.
-It is there rather than inline because there is no schema — `check.report` is
-`unknown` in `apps/cujo` and in `apps/web`, so a renamed field produces no
-compile error anywhere, only rules that stop firing and tables that empty. A
-conformance test in each of the three consumers loads that file, which is what
-makes a change on one side fail on the others (decision 54).
+It is there rather than inline because `check.report` is `unknown` in
+`apps/cujo` and in `apps/web`, so a renamed field produces no compile error
+anywhere, only rules that stop firing and tables that empty. A conformance test
+in each of the three consumers loads that file, which is what makes a change on
+one side fail on the others (decision 54).
+
+**A report is validated on arrival, and validation may only add** (decision 62).
+`apps/cujo/src/review/report-schema.ts` checks the envelope and every `runs[]`
+entry; a report that does not hold produces one `warn` finding, `report_invalid`,
+in the same family as `check_missing` and `sensor_unarmed`. It costs the run
+nothing else: the status is untouched, and the hard rules still read the same
+report, field by field and as leniently as they always have. A sub-agent that
+gets one roll-up wrong must not be able to turn a `decoy_read` sitting in plain
+sight inside `runs[]` into a warning about formatting.
+
+An unrecognised `schema_version` is still not a rejection, and an unknown field
+anywhere passes through — the sandbox is always newer than the container reading
+it. What the schema requires is what the rubric asks for: `check`, `runs[]` and
+`derived` on the envelope, and each `runs[]` entry whole rather than trimmed.
 
 The envelope a check sub-agent returns:
 
@@ -773,6 +801,8 @@ list in order.
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 55). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
+| `model`, `rubric_sha256` | What produced this verdict: the configured model, and a SHA-256 of the instructions a session would be given — `agent/SKILL.md` after the tarball URL is substituted, so two deploys pointing at different sensor code hash differently. **Both describe the process that claimed the run, not necessarily the session that reviewed it**: the spec is built once at boot and a session is created once per pull request and then kept (decision 16), so a run claimed on an older session carries today's values. Unset for a run claimed before the columns existed. Served on both planes: a model name and a digest of a public rubric name no person and authorize nothing. |
+| `usage` | What the run cost, summed over every `turn.done` on it, from TrueForge's own `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus its estimated cost in USD. Cujo keeps no price table — the number is the harness's, or it is absent. Reads zero for most of a run and fills in at the end, because the streamed `model.message` is a stub and usage arrives with the persisted copy. Each check carries its own token total beside it, summed from its thread's messages, which is the only way to attribute anything per check. |
 | `created_at`, `updated_at` | Timestamps. |
 
 Status moves on events from the session's turn streams, with one exception
@@ -833,7 +863,7 @@ second plane behind one — the operator API was deleted with its hostname
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /public/runs` | Public runs only, newest first. Filtered on `is_public = 1` in SQL, not by the route. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at` and `updated_at`, and nothing else. |
-| `GET /public/runs/:id` | The run, its checks (status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id` | The run, its checks (status, report, and the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `model` and `rubric_sha256`, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
 
 There is no write route, and the `/discord/*` routes that were Contract 7's

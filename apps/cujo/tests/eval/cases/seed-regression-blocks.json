@@ -1,0 +1,196 @@
+{
+  "_comment": [
+    "A SEED case, hand-built rather than captured, and the first thing a real",
+    "capture should replace.",
+    "",
+    "It exists so the corpus is not empty on the day the machinery lands: an",
+    "eval suite with no cases passes every assertion in it and is worse than",
+    "none, because it reads like coverage. The events are the shapes",
+    "`docs/contracts/report.example.json` and `agent/SKILL.md` describe, so it",
+    "exercises the whole fold \u2014 checks, reports, hard rules, the review call,",
+    "usage and timings \u2014 without pretending to be evidence of what any model",
+    "did.",
+    "",
+    "`expected` is written by a person and never by the capture script. When a",
+    "change moves a verdict this test fails, and somebody decides whether the",
+    "new verdict is better before editing the block. Run",
+    "`capture.ts --verdict` to print the current one.",
+    "",
+    "This one: a test passes on base and fails on head, so the merge blocks without anybody being asked (decision 42)."
+  ],
+  "captured_at": null,
+  "session_id": null,
+  "synthetic": true,
+  "model": null,
+  "rubric_sha256": null,
+  "expected": {
+    "status": "blocked_unattended",
+    "hardRules": ["tests_failed"],
+    "severity": {
+      "critical": 1,
+      "warn": 0,
+      "info": 0
+    }
+  },
+  "events": [
+    {
+      "type": "turn.created",
+      "id": "tc-t1",
+      "createdAt": "2026-08-29T12:00:00.000Z",
+      "threadId": null,
+      "turnId": "t1",
+      "previousTurnId": null,
+      "state": {
+        "status": "running"
+      }
+    },
+    {
+      "type": "thread.created",
+      "id": "thc-th-tests",
+      "createdAt": "2026-08-29T12:00:10.000Z",
+      "threadId": "th-tests",
+      "title": "tests",
+      "parent": {
+        "threadId": "main",
+        "toolCallId": "spawn"
+      },
+      "agentInfo": {}
+    },
+    {
+      "type": "thread.created",
+      "id": "thc-th-probes",
+      "createdAt": "2026-08-29T12:00:10.000Z",
+      "threadId": "th-probes",
+      "title": "probes",
+      "parent": {
+        "threadId": "main",
+        "toolCallId": "spawn"
+      },
+      "agentInfo": {}
+    },
+    {
+      "type": "thread.created",
+      "id": "thc-th-smoke",
+      "createdAt": "2026-08-29T12:00:10.000Z",
+      "threadId": "th-smoke",
+      "title": "smoke",
+      "parent": {
+        "threadId": "main",
+        "toolCallId": "spawn"
+      },
+      "agentInfo": {}
+    },
+    {
+      "type": "model.message",
+      "id": "mm-1",
+      "createdAt": "2026-08-29T12:00:00.000Z",
+      "threadId": "th-tests",
+      "content": "running the suite",
+      "usage": {
+        "inputTokens": 5100,
+        "outputTokens": 240
+      }
+    },
+    {
+      "type": "thread.done",
+      "id": "thd-th-tests",
+      "createdAt": "2026-08-29T12:02:00.000Z",
+      "threadId": "th-tests",
+      "title": "tests",
+      "state": {
+        "status": "done",
+        "output": {
+          "type": "model.message",
+          "id": "out-th-tests",
+          "createdAt": "2026-08-29T12:02:00.000Z",
+          "threadId": "th-tests",
+          "content": "```json\n{\"schema_version\": 1, \"check\": \"tests\", \"runs\": [{\"schema_version\": 1, \"argv\": [\"python3\", \"-m\", \"pytest\", \"-q\"], \"exit\": 1, \"duration_s\": 12.5, \"window_exclusive\": true, \"stdout_tail\": \"1 failed, 211 passed in 12.9s\", \"stderr_tail\": \"\", \"egress\": [{\"host\": \"pypi.org\", \"port\": 443, \"bytes\": 2048, \"known\": true}], \"files_read\": [], \"fs_changes\": [], \"subprocesses\": [], \"secret_probe\": {\"decoy_read\": false, \"decoy_in_egress\": null}, \"sensors\": {\"proxy\": {\"armed\": true, \"detail\": \"port 8899\"}, \"decoy\": {\"armed\": true, \"detail\": \"inotify\"}, \"audit\": {\"armed\": true, \"detail\": \"184 rows\"}, \"fs_diff\": {\"armed\": true, \"detail\": \"3181 paths\"}}, \"truncated\": {\"stdout_tail\": false, \"stderr_tail\": false, \"files_read\": false, \"snapshot\": false, \"hashes\": false}, \"derived\": {\"egress_to_unknown_host\": false, \"wrote_outside_workspace\": false, \"wrote_sensitive\": false, \"spawned_subprocess\": false}}], \"derived\": {\"egress_to_unknown_host\": false, \"wrote_outside_workspace\": false, \"wrote_sensitive\": false, \"spawned_subprocess\": false}, \"sensors\": {\"proxy\": {\"armed\": true, \"detail\": \"port 8899\"}, \"decoy\": {\"armed\": true, \"detail\": \"inotify\"}, \"audit\": {\"armed\": true, \"detail\": \"184 rows\"}, \"fs_diff\": {\"armed\": true, \"detail\": \"3181 paths\"}}, \"truncated\": {\"stdout_tail\": false, \"stderr_tail\": false, \"files_read\": false, \"snapshot\": false, \"hashes\": false}, \"base\": {\"test_pricing.py::test_rounds_half_up\": \"pass\"}, \"head\": {\"test_pricing.py::test_rounds_half_up\": \"fail\"}, \"base_pass_head_fail\": [\"test_pricing.py::test_rounds_half_up\"]}\n```",
+          "finishReason": "stop"
+        }
+      }
+    },
+    {
+      "type": "thread.done",
+      "id": "thd-th-probes",
+      "createdAt": "2026-08-29T12:02:10.000Z",
+      "threadId": "th-probes",
+      "title": "probes",
+      "state": {
+        "status": "done",
+        "output": {
+          "type": "model.message",
+          "id": "out-th-probes",
+          "createdAt": "2026-08-29T12:02:10.000Z",
+          "threadId": "th-probes",
+          "content": "```json\n{\"schema_version\": 1, \"check\": \"probes\", \"runs\": [{\"schema_version\": 1, \"argv\": [\"python3\", \"-m\", \"pytest\", \"-q\"], \"exit\": 0, \"duration_s\": 12.5, \"window_exclusive\": true, \"stdout_tail\": \"212 passed in 12.4s\", \"stderr_tail\": \"\", \"egress\": [{\"host\": \"pypi.org\", \"port\": 443, \"bytes\": 2048, \"known\": true}], \"files_read\": [], \"fs_changes\": [], \"subprocesses\": [], \"secret_probe\": {\"decoy_read\": false, \"decoy_in_egress\": null}, \"sensors\": {\"proxy\": {\"armed\": true, \"detail\": \"port 8899\"}, \"decoy\": {\"armed\": true, \"detail\": \"inotify\"}, \"audit\": {\"armed\": true, \"detail\": \"184 rows\"}, \"fs_diff\": {\"armed\": true, \"detail\": \"3181 paths\"}}, \"truncated\": {\"stdout_tail\": false, \"stderr_tail\": false, \"files_read\": false, \"snapshot\": false, \"hashes\": false}, \"derived\": {\"egress_to_unknown_host\": false, \"wrote_outside_workspace\": false, \"wrote_sensitive\": false, \"spawned_subprocess\": false}}], \"derived\": {\"egress_to_unknown_host\": false, \"wrote_outside_workspace\": false, \"wrote_sensitive\": false, \"spawned_subprocess\": false}, \"sensors\": {\"proxy\": {\"armed\": true, \"detail\": \"port 8899\"}, \"decoy\": {\"armed\": true, \"detail\": \"inotify\"}, \"audit\": {\"armed\": true, \"detail\": \"184 rows\"}, \"fs_diff\": {\"armed\": true, \"detail\": \"3181 paths\"}}, \"truncated\": {\"stdout_tail\": false, \"stderr_tail\": false, \"files_read\": false, \"snapshot\": false, \"hashes\": false}, \"probes\": []}\n```",
+          "finishReason": "stop"
+        }
+      }
+    },
+    {
+      "type": "thread.done",
+      "id": "thd-th-smoke",
+      "createdAt": "2026-08-29T12:02:20.000Z",
+      "threadId": "th-smoke",
+      "title": "smoke",
+      "state": {
+        "status": "done",
+        "output": {
+          "type": "model.message",
+          "id": "out-th-smoke",
+          "createdAt": "2026-08-29T12:02:20.000Z",
+          "threadId": "th-smoke",
+          "content": "```json\n{\"schema_version\": 1, \"check\": \"smoke\", \"runs\": [{\"schema_version\": 1, \"argv\": [\"python3\", \"-m\", \"pytest\", \"-q\"], \"exit\": 0, \"duration_s\": 12.5, \"window_exclusive\": true, \"stdout_tail\": \"212 passed in 12.4s\", \"stderr_tail\": \"\", \"egress\": [{\"host\": \"pypi.org\", \"port\": 443, \"bytes\": 2048, \"known\": true}], \"files_read\": [], \"fs_changes\": [], \"subprocesses\": [], \"secret_probe\": {\"decoy_read\": false, \"decoy_in_egress\": null}, \"sensors\": {\"proxy\": {\"armed\": true, \"detail\": \"port 8899\"}, \"decoy\": {\"armed\": true, \"detail\": \"inotify\"}, \"audit\": {\"armed\": true, \"detail\": \"184 rows\"}, \"fs_diff\": {\"armed\": true, \"detail\": \"3181 paths\"}}, \"truncated\": {\"stdout_tail\": false, \"stderr_tail\": false, \"files_read\": false, \"snapshot\": false, \"hashes\": false}, \"derived\": {\"egress_to_unknown_host\": false, \"wrote_outside_workspace\": false, \"wrote_sensitive\": false, \"spawned_subprocess\": false}}], \"derived\": {\"egress_to_unknown_host\": false, \"wrote_outside_workspace\": false, \"wrote_sensitive\": false, \"spawned_subprocess\": false}, \"sensors\": {\"proxy\": {\"armed\": true, \"detail\": \"port 8899\"}, \"decoy\": {\"armed\": true, \"detail\": \"inotify\"}, \"audit\": {\"armed\": true, \"detail\": \"184 rows\"}, \"fs_diff\": {\"armed\": true, \"detail\": \"3181 paths\"}}, \"truncated\": {\"stdout_tail\": false, \"stderr_tail\": false, \"files_read\": false, \"snapshot\": false, \"hashes\": false}, \"endpoints\": [], \"log_tail\": \"\"}\n```",
+          "finishReason": "stop"
+        }
+      }
+    },
+    {
+      "type": "model.message",
+      "id": "mm-call-1",
+      "createdAt": "2026-08-29T12:00:00.000Z",
+      "threadId": "main",
+      "toolCalls": [
+        {
+          "id": "call-1",
+          "type": "function",
+          "function": {
+            "name": "post_blocking_review",
+            "arguments": "{\"repo\": \"spencerjireh/orders-api\", \"pr_number\": 13, \"head_sha\": \"def5678\", \"body\": \"Ran 212 tests on base and head. 1 failed on head only.\", \"comments\": [], \"findings\": [{\"check\": \"tests\", \"severity\": \"critical\", \"title\": \"1 test passes on base and fails on head\", \"evidence\": \"test_pricing.py::test_rounds_half_up\"}]}"
+          },
+          "toolInfo": {
+            "type": "mcp",
+            "mcpServerId": "x",
+            "mcpServerName": "github-mcp",
+            "originalToolName": "post_blocking_review"
+          }
+        }
+      ]
+    },
+    {
+      "type": "tool.response",
+      "id": "tr-1",
+      "createdAt": "2026-08-29T12:00:00.000Z",
+      "threadId": "main",
+      "toolCallId": "call-1",
+      "content": "{}"
+    },
+    {
+      "type": "turn.done",
+      "id": "td-t1",
+      "createdAt": "2026-08-29T12:00:00.000Z",
+      "threadId": null,
+      "state": {
+        "status": "done",
+        "completedAt": "2026-08-29T12:00:00.000Z",
+        "output": null,
+        "requiredActions": [],
+        "metrics": {
+          "totalInputTokens": 158000,
+          "totalOutputTokens": 6100,
+          "totalCostInUsd": 0.48
+        }
+      }
+    }
+  ]
+}

@@ -93,6 +93,18 @@ final message with exactly one fenced ```json block and no prose after it: `{"ch
 <name>, "runs": [<every run or detonate report, in order>], "derived": {<the sensor
 booleans, true if true in any run>}, ...}` plus the fields below.
 
+Cujo checks that envelope against a schema and records a `warn` when it does not
+hold, so the report is worth getting right. The envelope must carry `check`,
+`runs[]` and `derived`, and should also carry `schema_version`, `sensors` and
+`truncated` — the same roll-up over every run. Copy each `runs[]` entry from what
+`sniff.py` printed, verbatim and whole: a `run` entry carries `schema_version`,
+`argv`, `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail` and
+the sensor block, and a `detonate` entry carries `dependency`, `source` and
+`install_ok` in place of `argv` and `exit`. Never trim an entry to the fields you
+think matter. Extra fields are always allowed and never cause a rejection, and a
+report that fails the check is still read by the hard rules — the `warn` says the
+evidence is not the shape it claims, never that anything in it is ignored.
+
 - `tests`: wrap the test command on `/work/base` and on `/work/head`. Add `base` and
   `head` (map of test id to `pass|fail|skip`) and `base_pass_head_fail` (list of test ids).
 - `probes`: read the diff, write small scripts that call the changed functions with

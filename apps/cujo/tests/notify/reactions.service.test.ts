@@ -15,6 +15,8 @@ const run = (status: RunStatus, id = "run-1"): RunRecord => ({
   headSha: "h",
   sessionId: "sess-1",
   deliveryId: null,
+  model: null,
+  rubricSha256: null,
   prTitle: null,
   prAuthorLogin: null,
   prAuthorId: null,

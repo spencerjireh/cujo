@@ -68,6 +68,17 @@ export const MIGRATIONS: readonly string[] = [
   //     forward, so a database that already ran the two above would never see
   //     this one if it were inserted before them.
   "DROP TABLE IF EXISTS discord_guild_repos",
+  // 7 — what produced this verdict. A run said which pull request it looked at
+  //     and never which model or which rubric read it, so two runs that
+  //     disagreed about the same head were indistinguishable from one deploy
+  //     to the next. Nullable for every row claimed before these existed.
+  //
+  //     Read the caveat on `RunRecord.model` before trusting either: they
+  //     record the configuration the process that claimed the run was holding,
+  //     which is the session's configuration only when that process also
+  //     created the session. Two statements, one column each, as above.
+  "ALTER TABLE runs ADD COLUMN model TEXT",
+  "ALTER TABLE runs ADD COLUMN rubric_sha256 TEXT",
 ];
 
 export const SCHEMA = `
