@@ -20,6 +20,8 @@ measured.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -32,6 +34,7 @@ import socketserver
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -47,6 +50,10 @@ DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
 MAX_FILES_READ = 200
 MAX_SNAPSHOT_FILES = 200_000
+# How long one sensed command waits for another to release the sensors. Longer
+# than any check should take, so the wait ends because the other command
+# finished and not because the clock ran out.
+SENSED_LOCK_TIMEOUT_S = 900.0
 
 # Hosts an install legitimately talks to. Anything else, and not allowlisted,
 # is `egress_to_unknown_host`.
@@ -142,17 +149,33 @@ def append_jsonl(path: Path, row: dict[str, Any]) -> None:
         fh.write(json.dumps(row) + "\n")
 
 
+def _under(path: Path, target: Path) -> bool:
+    return path == target or target in path.parents
+
+
 def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
-    """True when `path` is under a credentials, shell-rc, or cron location."""
+    """True when `path` is under a credentials, shell-rc, or cron location.
+
+    The path is classified twice, lexically normalised and fully resolved,
+    and either match is enough. Comparing the raw path alone missed anything
+    a `..` segment could hide: the audit hook records a path as the program
+    passed it, so `/tmp/../home/u/.ssh/id_rsa` never matched `~/.ssh` and the
+    read went unflagged. Resolving alone would trade that for a different
+    miss, a symlink planted inside a sensitive directory whose target is
+    somewhere dull. A tripwire fires on either reading.
+    """
     h = home_dir or home()
     p = Path(os.path.expanduser(path))
     if not p.is_absolute():
         p = Path.cwd() / p
+    candidates = {Path(os.path.normpath(p)), Path(os.path.realpath(p))}
+    # HOME itself can be a symlink (macOS puts /tmp under /private), so the
+    # targets are resolved the same way the candidates are.
+    roots = {h, Path(os.path.realpath(h))}
     for rel in SENSITIVE_HOME_PATHS:
-        target = h / rel
-        if p == target or target in p.parents:
+        if any(_under(c, root / rel) for c in candidates for root in roots):
             return True
-    return any(str(p).startswith(prefix) for prefix in SENSITIVE_ABS_PREFIXES)
+    return any(str(c).startswith(SENSITIVE_ABS_PREFIXES) for c in candidates)
 
 
 NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
@@ -170,9 +193,16 @@ def is_noise_read(path: str) -> bool:
     the reads that carry a signal. Only those roots count: a shared object or
     a module read from the workspace or anywhere else stays in the list, and
     a sensitive path is never noise, whatever it looks like.
+
+    Our own state directory counts as noise too. `run_sensed` reads the three
+    sensor logs to build the report, and it does that with the audit hook
+    installed in its own process, so without this the report lists
+    `proxy.jsonl` among the files the command under test read.
     """
     p = str(path)
     if p.startswith((f"{sys.prefix}/lib/", f"{sys.base_prefix}/lib/")):
+        return True
+    if _under(Path(p), CUJO_DIR):
         return True
     return (
         any(part in p for part in NOISE_READ_PARTS)
@@ -373,6 +403,7 @@ SITECUSTOMIZE = r"""
 import json, os, sys, threading
 
 _LOG = os.environ.get("CUJO_AUDIT_LOG")
+_RUN = os.environ.get("CUJO_RUN_ID")
 _local = threading.local()
 
 
@@ -382,6 +413,7 @@ def _write(row):
     _local.busy = True
     try:
         row["pid"] = os.getpid()
+        row["run"] = _RUN
         with open(_LOG, "a") as fh:
             fh.write(json.dumps(row) + "\n")
     except Exception:
@@ -583,13 +615,13 @@ def _merge_egress(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # Running a command under the sensors
 
 
-def sensor_env(config: dict[str, Any]) -> dict[str, str]:
+def sensor_env(config: dict[str, Any], run_id: str | None = None) -> dict[str, str]:
     paths = state_paths()
     proxy = f"http://127.0.0.1:{config.get('proxy_port', DEFAULT_PROXY_PORT)}"
     pyhook = str(paths["pyhook"])
     existing = os.environ.get("PYTHONPATH")
     pythonpath = pyhook if not existing else f"{pyhook}{os.pathsep}{existing}"
-    return {
+    env = {
         "HTTP_PROXY": proxy,
         "HTTPS_PROXY": proxy,
         "http_proxy": proxy,
@@ -601,6 +633,54 @@ def sensor_env(config: dict[str, Any]) -> dict[str, str]:
         # sample (evil-package) keeps its payload inert unless this is set.
         "CUJO_SANDBOX": "1",
     }
+    # Only a command `run_sensed` is watching carries one. The env `setup`
+    # prints has none, so a process started outside a sensed window writes
+    # rows no report claims, rather than rows the next report claims wrongly.
+    if run_id is not None:
+        env["CUJO_RUN_ID"] = run_id
+    return env
+
+
+@contextlib.contextmanager
+def sensed_window(timeout: float = SENSED_LOCK_TIMEOUT_S) -> Iterator[bool]:
+    """Hold the sensors for one command. Yields False when the wait timed out.
+
+    The proxy, the watcher, and the audit hook append to three logs shared by
+    every check, and a report is the slice of those logs written while one
+    command ran. Two commands sensed at once therefore read each other's rows:
+    `probes` reports `smoke`'s egress, and both snapshot each other's writes.
+    Nothing in the rubric serialises the checks, so this does.
+
+    A wait that times out proceeds anyway. A review that returns evidence from
+    an overlapping window is worse than one that blocks forever only in the
+    sense that it is wrong; a review that never finishes is wrong too, and the
+    overlap is announced on stderr.
+    """
+    lock_path = CUJO_DIR / "sensed.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = lock_path.open("a+")
+    deadline = time.monotonic() + timeout
+    held = False
+    try:
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    print(
+                        f"sniff: sensors busy after {timeout:.0f}s; this report may "
+                        "carry another command's rows",
+                        file=sys.stderr,
+                    )
+                    break
+                time.sleep(0.1)
+        yield held
+    finally:
+        if held:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+        fh.close()
 
 
 def run_sensed(
@@ -609,24 +689,36 @@ def run_sensed(
     """Run `argv` with the sensor env and return the report minus the header."""
     paths = state_paths()
     config = load_config()
-    offsets = {k: file_size(paths[k]) for k in ("proxy_log", "audit_log", "decoy_log")}
-    before = snapshot(workspace_roots)
-    env = {**os.environ, **sensor_env(config)}
-    started = time.monotonic()
-    try:
-        proc = subprocess.run(
-            argv, cwd=str(cwd), env=env, capture_output=True, text=True, errors="replace"
-        )
-        exit_code, out, err = proc.returncode, proc.stdout, proc.stderr
-    except FileNotFoundError as exc:
-        exit_code, out, err = 127, "", str(exc)
-    duration = round(time.monotonic() - started, 2)
-    time.sleep(0.3)  # let the daemons flush the last events
-    after = snapshot(workspace_roots)
+    run_id = os.urandom(6).hex()
+    with sensed_window():
+        offsets = {k: file_size(paths[k]) for k in ("proxy_log", "audit_log", "decoy_log")}
+        before = snapshot(workspace_roots)
+        env = {**os.environ, **sensor_env(config, run_id)}
+        started = time.monotonic()
+        try:
+            proc = subprocess.run(
+                argv, cwd=str(cwd), env=env, capture_output=True, text=True, errors="replace"
+            )
+            exit_code, out, err = proc.returncode, proc.stdout, proc.stderr
+        except FileNotFoundError as exc:
+            exit_code, out, err = 127, "", str(exc)
+        duration = round(time.monotonic() - started, 2)
+        time.sleep(0.3)  # let the daemons flush the last events
+        after = snapshot(workspace_roots)
+        proxy_rows = read_jsonl(paths["proxy_log"], offsets["proxy_log"])
+        # The offsets bound the window; the run id says whose rows these are.
+        # A process the command left running keeps writing into the next
+        # command's window, and only the id tells the two apart.
+        audit_rows = [
+            r
+            for r in read_jsonl(paths["audit_log"], offsets["audit_log"])
+            if r.get("run") == run_id
+        ]
+        decoy_rows = read_jsonl(paths["decoy_log"], offsets["decoy_log"])
     sensors = build_sensor_block(
-        proxy_rows=read_jsonl(paths["proxy_log"], offsets["proxy_log"]),
-        audit_rows=read_jsonl(paths["audit_log"], offsets["audit_log"]),
-        decoy_rows=read_jsonl(paths["decoy_log"], offsets["decoy_log"]),
+        proxy_rows=proxy_rows,
+        audit_rows=audit_rows,
+        decoy_rows=decoy_rows,
         fs_changes=diff_snapshots(before, after, workspace_roots),
         allow_hosts=config.get("allow_hosts", []),
         check=check,
@@ -646,6 +738,29 @@ def run_sensed(
 # Commands
 
 
+def _daemon_env() -> dict[str, str]:
+    """The environment a sensor daemon runs in: never a sensed one.
+
+    A daemon inherits whatever the operator exported, and the rubric tells the
+    operator to export the sensor env for every later command. That put the
+    audit hook inside the proxy, so each upstream connection the proxy opened
+    on a check's behalf was logged as a `connect` and appended to `egress` a
+    second time, with a phantom `bytes: 0`. Dropping `CUJO_AUDIT_LOG` disarms
+    the hook; the proxy variables go with it so a daemon can never be routed
+    through the proxy it is.
+    """
+    strip = {
+        "CUJO_AUDIT_LOG",
+        "CUJO_RUN_ID",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "NO_PROXY",
+    }
+    return {k: v for k, v in os.environ.items() if k not in strip}
+
+
 def _spawn_daemon(args: list[str], pid_file: Path, log_name: str) -> int:
     log = (CUJO_DIR / log_name).open("ab")
     proc = subprocess.Popen(
@@ -654,6 +769,7 @@ def _spawn_daemon(args: list[str], pid_file: Path, log_name: str) -> int:
         stderr=log,
         stdin=subprocess.DEVNULL,
         start_new_session=True,
+        env=_daemon_env(),
     )
     pid_file.write_text(str(proc.pid))
     return proc.pid

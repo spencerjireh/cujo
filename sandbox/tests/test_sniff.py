@@ -366,3 +366,123 @@ def test_detonate_local_package_sees_the_payload(tmp_path: Path, home_dir: Path)
         assert (home_dir / ".cujo-demo-dropper.txt").exists()
     finally:
         _run(["teardown"], env)
+
+
+def test_sensitive_survives_traversal_and_symlink(tmp_path: Path, home_dir: Path) -> None:
+    # The audit hook records a path as the program passed it, so a `..` segment
+    # reached ~/.ssh while reading as an ordinary path under /tmp.
+    detour = f"/tmp/..{home_dir}/.ssh/id_rsa"
+    assert sniff.is_sensitive(detour, home_dir)
+    assert sniff.is_sensitive(f"{home_dir}/../{home_dir.name}/.ssh/id_rsa", home_dir)
+    assert sniff.is_sensitive(f"{home_dir}/./.aws/credentials", home_dir)
+    assert sniff.is_sensitive(f"{home_dir}/project/../.bashrc", home_dir)
+    # A link planted inside a sensitive directory is sensitive even though it
+    # resolves somewhere dull, which is why both readings are checked.
+    (home_dir / ".ssh").mkdir()
+    dull = tmp_path / "dull"
+    dull.write_text("x")
+    link = home_dir / ".ssh" / "authorized_keys"
+    link.symlink_to(dull)
+    assert sniff.is_sensitive(str(link), home_dir)
+    # Traversal that lands somewhere ordinary is still ordinary.
+    assert not sniff.is_sensitive(f"{home_dir}/.ssh/../project/app.py", home_dir)
+
+
+def test_our_own_state_dir_is_noise(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state = tmp_path / "cujo"
+    monkeypatch.setattr(sniff, "CUJO_DIR", state)
+    # run_sensed reads these three to build the report, with the audit hook
+    # installed in its own process.
+    assert sniff.is_noise_read(str(state / "proxy.jsonl"))
+    assert sniff.is_noise_read(str(state / "audit.jsonl"))
+    assert sniff.is_noise_read(str(state / "pyhook" / "sitecustomize.py"))
+    # The detonation environments live beside the state dir, not inside it,
+    # and what an install reads there is evidence.
+    assert not sniff.is_noise_read(str(tmp_path / "cujo-envs" / "lib" / "payload.py"))
+
+
+def test_daemon_env_disarms_the_hook_and_the_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CUJO_AUDIT_LOG", "/tmp/cujo/audit.jsonl")
+    monkeypatch.setenv("CUJO_RUN_ID", "deadbeef")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:8899")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:8899")
+    monkeypatch.setenv("PATH", os.environ["PATH"])
+    env = sniff._daemon_env()
+    for gone in ("CUJO_AUDIT_LOG", "CUJO_RUN_ID", "HTTPS_PROXY", "http_proxy"):
+        assert gone not in env
+    assert env["PATH"] == os.environ["PATH"]
+
+
+def test_sensor_env_carries_a_run_id_only_when_sensed() -> None:
+    config = {"proxy_port": 8899, "allow_hosts": []}
+    assert "CUJO_RUN_ID" not in sniff.sensor_env(config)
+    assert sniff.sensor_env(config, "abc123")["CUJO_RUN_ID"] == "abc123"
+
+
+def test_sensed_window_is_exclusive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state = tmp_path / "cujo"
+    monkeypatch.setattr(sniff, "CUJO_DIR", state)
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl,sys,time;"
+            "fh=open(sys.argv[1],'a+');"
+            "fcntl.flock(fh, fcntl.LOCK_EX);"
+            "print('held', flush=True);"
+            "time.sleep(30)",
+            str(state / "sensed.lock"),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        state.mkdir(parents=True, exist_ok=True)
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "held"
+        with sniff.sensed_window(timeout=0.3) as held:
+            assert held is False
+    finally:
+        holder.kill()
+        holder.wait()
+    # Nothing holds it now, so the next command gets it.
+    with sniff.sensed_window(timeout=0.3) as held:
+        assert held is True
+
+
+def test_run_ignores_audit_rows_from_another_window(tmp_path: Path, home_dir: Path) -> None:
+    env = {**os.environ, "HOME": str(home_dir), "CUJO_DIR": str(tmp_path / "cujo")}
+    env.pop("PYTHONPATH", None)
+    _run(["setup", "--proxy-port", "0"], env)
+    try:
+        # A process the previous check left running keeps appending to the
+        # shared audit log. The offsets put those rows inside this window; only
+        # the run id says they are not this command's.
+        stray = json.dumps(
+            {"event": "open", "path": str(home_dir / "stray.txt"), "mode": "r", "run": "not-ours"}
+        )
+        script = (
+            "import os\n"
+            f"open(os.environ['CUJO_AUDIT_LOG'], 'a').write({stray!r} + '\\n')\n"
+            f"open({str(home_dir / 'mine.txt')!r}, 'w').write('x')\n"
+            f"open({str(home_dir / 'mine.txt')!r}).read()\n"
+        )
+        report = _run(
+            [
+                "run",
+                "--check",
+                "probes",
+                "--cwd",
+                str(home_dir),
+                "--",
+                sys.executable,
+                "-c",
+                script,
+            ],
+            env,
+        )
+        read = [f["path"] for f in report["files_read"]]
+        assert "~/stray.txt" not in read
+        assert "~/mine.txt" in read
+    finally:
+        _run(["teardown"], env)
