@@ -1,5 +1,6 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
+import { isMaliceClaim } from "../../src/review/findings";
 import { fold, parseReport, parseReview, pendingApproval } from "../../src/review/fold";
 
 type Ev = TrueForgeApi.SessionEvent;
@@ -223,9 +224,34 @@ describe("fold", () => {
 
 describe("hard rules in the fold", () => {
   const fenced = (report: unknown) => `\`\`\`json\n${JSON.stringify(report)}\n\`\`\``;
-  const tripped = fenced({ check: "tests", base_pass_head_fail: ["t_x"] });
+
+  /**
+   * The three fields the rubric asks every envelope to carry, so a fixture here
+   * is the shape of a report and not only the one field a test is about.
+   *
+   * Without this every fixture below would also raise a `report_invalid` warn,
+   * which is a different test's subject and would bury the finding each of
+   * these cases exists to assert.
+   */
+  const BASE = {
+    runs: [],
+    derived: {
+      egress_to_unknown_host: false,
+      wrote_outside_workspace: false,
+      wrote_sensitive: false,
+      spawned_subprocess: false,
+    },
+  };
+  const report = (over: Record<string, unknown> = {}) =>
+    fenced({
+      ...BASE,
+      ...over,
+      derived: { ...BASE.derived, ...(over.derived as Record<string, boolean> | undefined) },
+    });
+
+  const tripped = report({ check: "tests", base_pass_head_fail: ["t_x"] });
   /** A malice rule, unlike `tripped`: an install called a host nobody allowed. */
-  const detonated = fenced({
+  const detonated = report({
     check: "detonation",
     derived: { egress_to_unknown_host: true },
     egress: [{ host: "45.33.12.9", known: false }],
@@ -420,7 +446,7 @@ describe("hard rules in the fold", () => {
     const p = fold([
       turnCreated("t1"),
       threadCreated("th-tests", "tests"),
-      threadDone("th-tests", fenced({ check: "tests", base_pass_head_fail: [] })),
+      threadDone("th-tests", report({ check: "tests", base_pass_head_fail: [] })),
       reviewCall("call-0", "post_advisory_review", withFindings),
       toolResponse("call-0"),
       turnDone(),
@@ -436,11 +462,55 @@ describe("hard rules in the fold", () => {
     ]);
   });
 
+  it("warns about a report it cannot read, and still applies the rules to it", () => {
+    // The point of the whole arrangement: a sub-agent that got the envelope
+    // wrong does not get its evidence ignored. `base_pass_head_fail` is right
+    // there, so the critical stands, and the warn says the rest is worth less
+    // than it looks.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", fenced({ check: "tests", base_pass_head_fail: ["t_x"] })),
+      reviewCall("call-1", "post_blocking_review", review),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+    ]);
+    const rules = p.hardRuleHits.map((f) => f.rule);
+    expect(rules).toContain("tests_failed");
+    expect(rules).toContain("report_invalid");
+    expect(p.hardRuleHits.find((f) => f.rule === "report_invalid")).toMatchObject({
+      severity: "warn",
+      check: "tests",
+    });
+    // A malformed report is a claim about the evidence, never about the code,
+    // so it must not put a review through the human gate.
+    expect(p.hardRuleHits.filter((f) => f.rule === "report_invalid").map(isMaliceClaim)).toEqual([
+      false,
+    ]);
+  });
+
+  it("says nothing about the shape of a report that never arrived", () => {
+    // `check_missing` already covers that, and saying both would be saying the
+    // same thing twice.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", "no json here at all"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.findings.map((f) => f.rule)).not.toContain("report_invalid");
+    expect(p.findings.filter((f) => f.check === "tests").map((f) => f.rule)).toEqual([
+      "check_missing",
+    ]);
+  });
+
   it("warns for every required check the parent did not delegate", () => {
     const p = fold([
       turnCreated("t1"),
       threadCreated("th-smoke", "smoke"),
-      threadDone("th-smoke", fenced({ check: "smoke", endpoints: [] })),
+      threadDone("th-smoke", report({ check: "smoke", endpoints: [] })),
       reviewCall("call-0", "post_advisory_review", review),
       toolResponse("call-0"),
       turnDone(),

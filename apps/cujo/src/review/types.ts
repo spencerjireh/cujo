@@ -69,7 +69,16 @@ export type HardRule =
   // clean report it produced is worth less than it looks. `warn`, like
   // `check_missing`, and for the same reason — it says the evidence is thin,
   // not that the code did anything.
-  | "sensor_unarmed";
+  | "sensor_unarmed"
+  // The report is not the shape it claims to be. Third in this family of three
+  // — with `check_missing` and `sensor_unarmed` — and the same `warn` for the
+  // same reason: it says something about the evidence, never about the code.
+  //
+  // It is purely additive. The rules still read the report it describes, field
+  // by field and leniently, so a report that fails validation for one reason
+  // still trips every tripwire the rest of it sets off. Anything else would let
+  // a misplaced roll-up turn a `decoy_read` into silence.
+  | "report_invalid";
 
 /** One finding (Contract 3). `source` says which layer produced it. */
 export interface Finding {
