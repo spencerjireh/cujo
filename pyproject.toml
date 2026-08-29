@@ -1,7 +1,7 @@
 [project]
 name = "cujo-sniff"
 version = "0.0.0"
-description = "In-sandbox dependency detonation script for Cujo."
+description = "In-sandbox sensors and dependency detonation for Cujo."
 requires-python = ">=3.12"
 dependencies = []
 
@@ -12,7 +12,8 @@ dev = [
 ]
 
 [tool.uv]
-# sandbox/sniff.py is a standalone script, not an installable package.
+# sandbox/ is fetched into the sandbox and imported from sys.path[0]; nothing
+# installs it, here or there.
 package = false
 
 [tool.ruff]
@@ -29,5 +30,12 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["sandbox/tests"]
-# sniff.py is imported by name, not installed, so its directory is the path.
+# Nothing is installed, so the directory is the path -- which is also the
+# arrangement inside the sandbox, where `sniff.py` and `cujo_sniff/` are
+# siblings and `sys.path[0]` is what finds the package.
 pythonpath = ["sandbox"]
+addopts = "--strict-markers"
+markers = [
+  "harness: needs a real state directory, subprocesses, or the sensor daemons",
+  "slow: builds a virtualenv or installs a package",
+]

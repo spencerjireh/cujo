@@ -1,0 +1,93 @@
+"""The filesystem sensor: which directories are walked, and what a diff says."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from cujo_sniff.context import Context, state_paths
+from cujo_sniff.report import build_sensor_block
+from cujo_sniff.sensors.fsdiff import _snapshot_roots, diff_snapshots, snapshot
+
+
+def test_diff_snapshots_flags_workspace_and_sensitive(home_dir: Path) -> None:
+    ws = home_dir / "work"
+    before = {str(ws / "a.py"): (1, 1), str(home_dir / "keep"): (1, 1)}
+    after = {
+        str(ws / "a.py"): (2, 1),
+        str(ws / "b.py"): (1, 1),
+        str(home_dir / "keep"): (1, 1),
+        str(home_dir / ".ssh" / "authorized_keys"): (1, 1),
+        str(home_dir / ".cache" / "pip" / "wheel"): (1, 1),
+    }
+    changes = {c["path"]: c for c in diff_snapshots(before, after, [ws], home_dir)}
+    assert changes["~/work/a.py"]["type"] == "modified"
+    assert changes["~/work/b.py"]["type"] == "created"
+    assert changes["~/work/b.py"]["in_workspace"] is True
+    assert changes["~/.ssh/authorized_keys"]["sensitive"] is True
+    assert changes["~/.ssh/authorized_keys"]["in_workspace"] is False
+    assert changes["~/.cache/pip/wheel"]["sensitive"] is False
+    assert "~/keep" not in changes
+
+
+def test_diff_snapshots_reports_deletions(home_dir: Path) -> None:
+    ws = home_dir / "work"
+    before = {
+        str(ws / "gone.py"): (1, 1),
+        str(home_dir / ".ssh" / "id_rsa"): (1, 1),
+        str(home_dir / "keep"): (1, 1),
+    }
+    after = {str(home_dir / "keep"): (1, 1)}
+    changes = {c["path"]: c for c in diff_snapshots(before, after, [ws], home_dir)}
+    assert changes["~/work/gone.py"] == {
+        "path": "~/work/gone.py",
+        "type": "deleted",
+        "in_workspace": True,
+        "sensitive": False,
+    }
+    assert changes["~/.ssh/id_rsa"]["type"] == "deleted"
+    assert changes["~/.ssh/id_rsa"]["sensitive"] is True
+    block = build_sensor_block(
+        proxy_rows=[],
+        audit_rows=[],
+        decoy_rows=[],
+        fs_changes=list(changes.values()),
+        allow_hosts=[],
+        check="tests",
+        home_dir=home_dir,
+    )
+    assert block["derived"]["wrote_sensitive"] is True
+    assert block["derived"]["wrote_outside_workspace"] is True
+
+
+def test_snapshot_sees_detonation_env_but_not_state_dir(ctx: Context, home_dir: Path) -> None:
+    env_dir = ctx.envs_dir / "abc"
+    env_dir.mkdir(parents=True)
+    ctx.state_dir.mkdir()
+    walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
+    before = snapshot([env_dir], **walk)
+    (env_dir / "site-packages.txt").write_text("installed")
+    (ctx.state_dir / "proxy.jsonl").write_text("noise")
+    after = snapshot([env_dir], **walk)
+    changes = diff_snapshots(before, after, [env_dir], home_dir)
+    # The environments directory sits beside the state dir, not inside it, so
+    # what an install writes there is visible while our own logs are not.
+    assert state_paths(ctx)["envs"] == ctx.envs_dir
+    assert [c for c in changes if c["path"].endswith("site-packages.txt")][0]["in_workspace"]
+    assert not any("proxy.jsonl" in c["path"] for c in changes)
+
+
+def test_an_aliased_home_is_still_one_directory(tmp_path: Path, home_dir: Path) -> None:
+    # `--cwd` reaches the snapshot resolved and $HOME does not, so a HOME
+    # behind a symlink was walked as two directories. Every file got two rows,
+    # and because only one of them matched the workspace root, a write inside
+    # the workspace set wrote_outside_workspace.
+    alias = tmp_path / "home-link"
+    alias.symlink_to(home_dir)
+    assert _snapshot_roots([home_dir], alias) == _snapshot_roots([alias], alias)
+    assert _snapshot_roots([home_dir], alias).count(home_dir) == 1
+
+    after = {str(home_dir / "x.txt"): (1, 1)}
+    changes = diff_snapshots({}, after, [home_dir], alias)
+    assert changes == [
+        {"path": "~/x.txt", "type": "created", "in_workspace": True, "sensitive": False}
+    ]
