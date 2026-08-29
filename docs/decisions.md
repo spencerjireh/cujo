@@ -1714,7 +1714,7 @@ other bot already does. And **no rate limit**, on the argument that repo write i
 enough: it gates who, not how often, and six pasted questions are six clones.
 ||||||| parent of b0d91c2 (docs: record the cutover, and correct two lines decision 46 left behind)
 
-## 48. `sniff.py` is an entry point, and state lives under the code directory
+## 48. `sniff.py` is an entry point, and state lives beside the code
 
 The package landed in decision 46 beside an untouched `sandbox/sniff.py`, which
 stayed the thing production ran. That was a delivery constraint, not a design:
