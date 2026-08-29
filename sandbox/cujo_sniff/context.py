@@ -42,7 +42,13 @@ class Context:
 
     @classmethod
     def from_env(cls) -> Context:
-        state_dir = Path(os.environ.get("CUJO_DIR", "/tmp/cujo"))
+        # The default is under the code directory, not equal to it. The rubric
+        # extracts `sandbox/` into /tmp/cujo and then never writes there again,
+        # so a state dir of /tmp/cujo mixed our logs, the decoy backup, and the
+        # sensed lock in among the modules being imported. Nested keeps the
+        # code directory a listing of code, which is what makes "did anything
+        # change in /tmp/cujo?" a question with a meaning.
+        state_dir = Path(os.environ.get("CUJO_DIR", "/tmp/cujo/state"))
         return cls(
             state_dir=state_dir,
             # Detonation environments live beside the state dir, not inside it:
