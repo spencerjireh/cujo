@@ -2356,3 +2356,61 @@ the link, since Discord renders no markdown in a footer. **Falling back to the
 Cujo mark when there is no author avatar**, which puts the same icon on one card
 twice and reads as a bug rather than as an absence. **An `Author` column on the
 runs list**, which repeats a face down a table that is scanned for status.
+
+## 56. A provider must declare the reasoning efforts it will accept
+
+Decision 53 added `CUJO_MODEL_REASONING_EFFORT` and shipped it unusable. Setting
+it to `low` made **every** pull request webhook answer 502 —
+`createSession` throwing with `reason: "session_create_failed"` — and no review
+started on any repository. It did that twice in one afternoon.
+
+The cause was one line. `clients/trueforge.ts` registered every model with
+`properties: {}`, and `ModelProperties` carries `reasoningEfforts`. So the
+server was told each model supports no reasoning effort at all, and then refused
+any session spec that named one. Decision 53 named the seven values correctly
+and never said who had to declare them.
+
+**The provider was never the problem, and this was measured.** Calling
+OpenRouter directly with the deploy's own key: `z-ai/glm-5.3-flash` answers 200
+with `reasoning_tokens: 11`, and the same call with `reasoning: {effort: "low"}`
+answers 200 with `reasoning_tokens: 0`. Low effort works, and does the thing it
+was wanted for. The model call simply never happened, because validation failed
+first.
+
+So `MODEL_PROVIDER_REASONING_EFFORTS` joins `MODEL_PROVIDER_MODELS`, and every
+model this process registers carries it.
+
+**One list, fanned out per model.** There is no provider-level field:
+`CustomModelProvider` has only `auth`, `baseUrl`, `models`, `name` and `type`,
+and the declaration lives on each `ConfiguredModel.properties`. The catalog's
+`supportedReasoningEfforts` reads like the right field and is not — it is
+read-only, carries no models, and cannot be sent. A per-model syntax was
+rejected in favour of one list because `MODEL_PROVIDER_MODELS` is parsed by one
+`indexOf("=")` and is a value the deployment cannot read back to check.
+
+**An undeclared effort now stops the process, not the reviews.** This is the
+half that matters more than the fix. Nothing failed at boot: bootstrap
+succeeded, `/readyz` reported `harness: ready`, both hostnames answered 200, and
+the only evidence anywhere was the GitHub App's delivery log — which nobody
+watches, and which GitHub does not retry from. A configuration error that
+silently stops all work while every health signal stays green is worse than a
+crash, so `loadConfig` now refuses.
+
+It refuses **only when this process is the one registering the provider**. With
+the provider configured in the operator console instead, Cujo cannot know what
+it declares, and blocking a working deploy on a guess would be the same mistake
+in the other direction.
+
+**The values are checked against the SDK's own enum, not just against each
+other.** A first cut compared the chosen effort only to the declared list, which
+a typo in both variables satisfies by agreeing with itself; the bad value then
+reached the server, which rejects the *provider*, and `bootstrapUntilReady`
+retries that forever. The webhook would have answered 503 for good — the same
+silent outage, moved one step earlier. `Object.values(ReasoningEffort)` is the
+source of truth so the list cannot drift from the server validating against it.
+
+**The contract test now asks for an effort.** It created a session with
+`model: { name }` and no `params`, so the one job it exists for — catching a
+spec the real server rejects — did not cover the field that broke production.
+CI was green throughout. That gap, not the missing declaration, is why this
+reached a deploy.

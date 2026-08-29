@@ -153,12 +153,92 @@ describe("loadConfig", () => {
         { name: "fast", modelId: "vendor/fast-1" },
         { name: "plain", modelId: "plain" },
       ],
+      // Nothing declared unless asked for: this is what every deploy sent
+      // before decision 56, and it is why an effort could not be used.
+      reasoningEfforts: [],
     });
     expect(config.bootstrap.daytonaApiKey).toBe("d");
     expect(
       loadConfig({ ...base, MODEL_PROVIDER_BASE_URL: "https://llm.example/v1" }).bootstrap
         .modelProvider,
     ).toBeNull();
+  });
+
+  const withProvider = {
+    MODEL_PROVIDER_BASE_URL: "https://llm.example/v1",
+    MODEL_PROVIDER_API_KEY: "k",
+    MODEL_PROVIDER_MODELS: "fast=vendor/fast-1",
+  };
+
+  it("declares the reasoning efforts the registration will carry", () => {
+    const config = loadConfig({
+      ...base,
+      ...withProvider,
+      MODEL_PROVIDER_REASONING_EFFORTS: " none , low ,,medium ",
+    });
+    expect(config.bootstrap.modelProvider?.reasoningEfforts).toEqual(["none", "low", "medium"]);
+  });
+
+  it("refuses to start when the chosen effort is not declared", () => {
+    // The whole point of decision 56. Without this the process starts, reports
+    // healthy, and answers 502 to every pull request — the failure is invisible
+    // except in GitHub's delivery log, which nobody is reading.
+    expect(() =>
+      loadConfig({
+        ...base,
+        ...withProvider,
+        MODEL_PROVIDER_REASONING_EFFORTS: "none,medium",
+        CUJO_MODEL_REASONING_EFFORT: "low",
+      }),
+    ).toThrow(/"low".*does not declare.*none, medium/s);
+
+    // And when nothing at all is declared, which is the state that shipped.
+    expect(() =>
+      loadConfig({ ...base, ...withProvider, CUJO_MODEL_REASONING_EFFORT: "low" }),
+    ).toThrow(/it is empty/);
+  });
+
+  it("refuses a value that is not a reasoning effort at all", () => {
+    // Qodo caught this: a typo shared by both variables satisfies the
+    // membership check by agreeing with itself, and the bad value then reaches
+    // TrueForge, which rejects the *provider* -- and bootstrapUntilReady
+    // retries that forever, so the webhook answers 503 for good.
+    expect(() =>
+      loadConfig({ ...base, ...withProvider, MODEL_PROVIDER_REASONING_EFFORTS: "none,loow" }),
+    ).toThrow(/MODEL_PROVIDER_REASONING_EFFORTS has "loow"/);
+    expect(() =>
+      loadConfig({
+        ...base,
+        ...withProvider,
+        MODEL_PROVIDER_REASONING_EFFORTS: "loow",
+        CUJO_MODEL_REASONING_EFFORT: "loow",
+      }),
+    ).toThrow(/not a reasoning effort/);
+    // And on its own, where there is no declared list to agree with.
+    expect(() => loadConfig({ ...base, CUJO_MODEL_REASONING_EFFORT: "loow" })).toThrow(
+      /CUJO_MODEL_REASONING_EFFORT has "loow"/,
+    );
+  });
+
+  it("accepts a declared effort, and says nothing when none is chosen", () => {
+    expect(
+      loadConfig({
+        ...base,
+        ...withProvider,
+        MODEL_PROVIDER_REASONING_EFFORTS: "none,low",
+        CUJO_MODEL_REASONING_EFFORT: "low",
+      }).modelReasoningEffort,
+    ).toBe("low");
+    expect(loadConfig({ ...base, ...withProvider }).modelReasoningEffort).toBe("");
+  });
+
+  it("does not refuse when this process is not the one registering the provider", () => {
+    // The provider is configured in the operator console instead, so Cujo has
+    // no idea what it declares. Refusing on a guess would block a deploy that
+    // works.
+    expect(loadConfig({ ...base, CUJO_MODEL_REASONING_EFFORT: "low" }).modelReasoningEffort).toBe(
+      "low",
+    );
   });
 
   /**
