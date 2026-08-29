@@ -72,9 +72,16 @@ export async function startRun(deps: StartRunDeps, run: RunRecord): Promise<void
       return;
     }
     const pr = await deps.github.pullRequest(run.repo, run.prNumber);
-    // The only place the title is ever read. A Discord card names the PR
-    // with it (Contract 7) and falls back to `owner/name #7` without it.
-    deps.store.putRunPrTitle(run.id, pr.title);
+    // The only place the title and the author are ever read. A Discord card
+    // and a run page name the pull request and the person who opened it with
+    // them (Contract 7, decision 55); both fall back to `owner/name #7` and no
+    // author at all without them, which is what a run claimed before these
+    // were stored still shows.
+    deps.store.putRunPrMeta(run.id, {
+      title: pr.title,
+      authorLogin: pr.authorLogin,
+      authorId: pr.authorId,
+    });
     // Delivery order is not commit order: a delayed delivery for an older
     // head must not replace the run for the head GitHub reports now.
     if (pr.headSha !== run.headSha) {

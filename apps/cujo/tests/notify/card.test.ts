@@ -33,6 +33,9 @@ function run(patch: Partial<RunRecord> = {}): RunRecord {
     decidedAt: null,
     isPublic: true,
     deliveryId: null,
+    prTitle: "a pull request",
+    prAuthorLogin: "octocat",
+    prAuthorId: 583231,
     createdAt: "2026-08-27T00:00:00.000Z",
     updatedAt: "2026-08-27T00:01:00.000Z",
     ...patch,
@@ -60,6 +63,7 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
 function expectWithinDiscordLimits(payload: DiscordMessagePayload): void {
   expect(payload.content?.length ?? 0).toBeLessThanOrEqual(LIMITS.content);
   for (const embed of payload.embeds ?? []) {
+    expect(embed.author?.name.length ?? 0).toBeLessThanOrEqual(LIMITS.author);
     expect(embed.title?.length ?? 0).toBeLessThanOrEqual(LIMITS.title);
     expect(embed.description?.length ?? 0).toBeLessThanOrEqual(LIMITS.description);
     expect(embed.footer?.text.length ?? 0).toBeLessThanOrEqual(LIMITS.footer);
@@ -134,14 +138,17 @@ const STATUSES: RunStatus[] = [
 describe("buildRunCard", () => {
   it.each(STATUSES)("renders %s within every Discord limit", (status) => {
     const payload = buildRunCard({
-      run: run({ status, approver: status === "denied" ? "op@example.com" : null }),
+      run: run({
+        status,
+        approver: status === "denied" ? "op@example.com" : null,
+        prTitle: "Add a thing",
+      }),
       projection: projection({
         status,
         error: "boom",
         summary: "all good",
         findings: [finding({ severity: "critical", path: "a.py", line: 3 })],
       }),
-      prTitle: "Add a thing",
       links: LINKS,
     });
     expectWithinDiscordLimits(payload);
@@ -154,9 +161,8 @@ describe("buildRunCard", () => {
     const colors = STATUSES.map(
       (status) =>
         buildRunCard({
-          run: run({ status }),
+          run: run({ status, prTitle: null }),
           projection: projection({ status }),
-          prTitle: null,
           links: LINKS,
         }).embeds?.[0]?.color,
     );
@@ -169,9 +175,8 @@ describe("buildRunCard", () => {
     const amber = STATUSES.filter(
       (status) =>
         buildRunCard({
-          run: run({ status }),
+          run: run({ status, prTitle: null }),
           projection: projection({ status }),
-          prTitle: null,
           links: LINKS,
         }).embeds?.[0]?.color === 0xf2a900,
     );
@@ -183,9 +188,8 @@ describe("buildRunCard", () => {
     // falling over, which is a status and not a verdict on someone's code.
     const colorOf = (status: RunStatus) =>
       buildRunCard({
-        run: run({ status }),
+        run: run({ status, prTitle: null }),
         projection: projection({ status }),
-        prTitle: null,
         links: LINKS,
       }).embeds?.[0]?.color;
     expect(colorOf("error")).toBe(0x66b0f0);
@@ -194,9 +198,8 @@ describe("buildRunCard", () => {
 
   it("suppresses every mention, so a PR titled @everyone pings nobody", () => {
     const payload = buildRunCard({
-      run: run(),
+      run: run({ prTitle: "@everyone @here <@&999>" }),
       projection: projection(),
-      prTitle: "@everyone @here <@&999>",
       links: LINKS,
     });
     expect(payload.allowed_mentions).toEqual({ parse: [] });
@@ -205,7 +208,7 @@ describe("buildRunCard", () => {
 
   it("never puts a derived string in a URL field, or leaves one clickable", () => {
     const payload = buildRunCard({
-      run: run({ status: "error" }),
+      run: run({ status: "error", prTitle: "http://evil.example" }),
       projection: projection({
         status: "error",
         error: "see <https://evil.example> and www.evil.example",
@@ -217,7 +220,6 @@ describe("buildRunCard", () => {
           }),
         ],
       }),
-      prTitle: "http://evil.example",
       links: LINKS,
     });
     const embed = payload.embeds?.[0];
@@ -232,9 +234,8 @@ describe("buildRunCard", () => {
 
   it("escapes the summary and the error", () => {
     const payload = buildRunCard({
-      run: run({ status: "clean" }),
+      run: run({ status: "clean", prTitle: null }),
       projection: projection({ status: "clean", summary: "**bold** [x](http://evil)" }),
-      prTitle: null,
       links: LINKS,
     });
     const summary = payload.embeds?.[0]?.fields?.find((f) => f.name === "Summary");
@@ -247,9 +248,8 @@ describe("buildRunCard", () => {
       finding({ severity: "critical", title: `f${i} ${"x".repeat(1000)}` }),
     );
     const payload = buildRunCard({
-      run: run({ status: "blocked_pending" }),
+      run: run({ status: "blocked_pending", prTitle: "z".repeat(5_000) }),
       projection: projection({ status: "blocked_pending", findings, summary: "y".repeat(20_000) }),
-      prTitle: "z".repeat(5_000),
       links: LINKS,
     });
     expectWithinDiscordLimits(payload);
@@ -257,21 +257,84 @@ describe("buildRunCard", () => {
 
   it("shows no findings for a superseded run", () => {
     const payload = buildRunCard({
-      run: run({ status: "superseded" }),
+      run: run({ status: "superseded", prTitle: null }),
       projection: projection({
         status: "superseded",
         findings: [finding({ severity: "critical", title: "stale" })],
       }),
-      prTitle: null,
       links: LINKS,
     });
     const names = payload.embeds?.[0]?.fields?.map((f) => f.name) ?? [];
-    expect(names).toEqual(["Head"]);
+    // Who opened the pull request survives: it cannot go stale the way a
+    // finding about a commit nobody is looking at can.
+    expect(names).toEqual(["Head", "Opened by"]);
+  });
+
+  describe("the two parties a card names", () => {
+    const embedOf = (patch: Partial<RunRecord> = {}) =>
+      buildRunCard({ run: run(patch), projection: projection(), links: LINKS }).embeds?.[0];
+
+    it.each(STATUSES)("names Cujo in the author line on %s", (status) => {
+      const embed = embedOf({ status });
+      expect(embed?.author?.name).toBe("Cujo");
+      expect(embed?.author?.icon_url).toContain("avatar-64.png");
+      // The title already points at the run; a second link to it is noise.
+      expect(embed?.author?.url).toBeUndefined();
+    });
+
+    it.each(STATUSES)("names who opened the pull request on %s", (status) => {
+      const embed = embedOf({ status });
+      const field = embed?.fields?.find((f) => f.name === "Opened by");
+      expect(field?.value).toBe("[@octocat](https://github.com/octocat)");
+      expect(field?.inline).toBe(true);
+      // Beside Head, and above everything the clamp is allowed to drop.
+      expect(embed?.fields?.[1]).toBe(field);
+      expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/583231?s=64");
+    });
+
+    it("builds the avatar from the account id, never from the login", () => {
+      const embed = embedOf({ prAuthorLogin: "../../evil", prAuthorId: 42 });
+      expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/42?s=64");
+    });
+
+    it("names a bot without linking it, since its profile is not /<login>", () => {
+      const embed = embedOf({ prAuthorLogin: "dependabot[bot]", prAuthorId: 49699333 });
+      const field = embed?.fields?.find((f) => f.name === "Opened by");
+      expect(field?.value).toBe("@dependabot\\[bot\\]");
+      expect(field?.value).not.toContain("github.com");
+      // Still shown with its avatar: only the link is withheld.
+      expect(embed?.footer?.icon_url).toContain("49699333");
+    });
+
+    it("links no login the allowlist rejects, however it is spelled", () => {
+      for (const login of ["a b", "-lead", "x".repeat(40), "o/r", "a_b", "https://evil"]) {
+        const field = embedOf({ prAuthorLogin: login })?.fields?.find(
+          (f) => f.name === "Opened by",
+        );
+        expect(field?.value, login).not.toContain("github.com/");
+      }
+    });
+
+    it("falls back to today's card when the author was never stored", () => {
+      const embed = embedOf({ prAuthorLogin: null, prAuthorId: null });
+      expect(embed?.fields?.map((f) => f.name)).not.toContain("Opened by");
+      // No fallback to the Cujo mark: the same icon twice reads as a bug.
+      expect(embed?.footer?.icon_url).toBeUndefined();
+      expect(embed?.author?.name).toBe("Cujo");
+    });
+
+    it("counts the author line against the 6000 total", () => {
+      // Discord counts it, so a clamp that did not would fit a payload the API
+      // then rejects — and a 400 loses the card for the whole run.
+      const embed = embedOf();
+      const withoutAuthor = { ...embed, author: undefined };
+      expect(embedLength(embed ?? {})).toBe(embedLength(withoutAuthor) + "Cujo".length);
+    });
   });
 
   it("renders only threads the folder matched to a check name", () => {
     const payload = buildRunCard({
-      run: run({ status: "clean" }),
+      run: run({ status: "clean", prTitle: null }),
       projection: projection({
         status: "clean",
         checks: [
@@ -297,7 +360,6 @@ describe("buildRunCard", () => {
           },
         ],
       }),
-      prTitle: null,
       links: LINKS,
     });
     const checks = payload.embeds?.[0]?.fields?.find((f) => f.name === "Checks");
@@ -308,9 +370,8 @@ describe("buildRunCard", () => {
 
   it("names the approver on a decided run", () => {
     const payload = buildRunCard({
-      run: run({ status: "blocked_posted", approver: "op@example.com" }),
+      run: run({ status: "blocked_posted", approver: "op@example.com", prTitle: null }),
       projection: projection({ status: "blocked_posted" }),
-      prTitle: null,
       links: LINKS,
     });
     expect(payload.embeds?.[0]?.description).toContain("op@example.com");
@@ -360,9 +421,8 @@ describe("buildPing", () => {
 describe("where a card links", () => {
   it("sends a public run to the public board", () => {
     const payload = buildRunCard({
-      run: run({ isPublic: true }),
+      run: run({ isPublic: true, prTitle: null }),
       projection: projection(),
-      prTitle: null,
       links: LINKS,
     });
     expect(payload.embeds?.[0]?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
@@ -370,9 +430,8 @@ describe("where a card links", () => {
 
   it("gives a private run no link, and still a title", () => {
     const payload = buildRunCard({
-      run: run({ isPublic: false }),
+      run: run({ isPublic: false, prTitle: null }),
       projection: projection(),
-      prTitle: null,
       links: LINKS,
     });
     const [embed] = payload.embeds ?? [];
@@ -382,9 +441,8 @@ describe("where a card links", () => {
 
   it("links nowhere at all when no board is configured", () => {
     const payload = buildRunCard({
-      run: run({ isPublic: true }),
+      run: run({ isPublic: true, prTitle: null }),
       projection: projection(),
-      prTitle: null,
       links: { publicBaseUrl: "" },
     });
     expect(payload.embeds?.[0] && "url" in payload.embeds[0]).toBe(false);

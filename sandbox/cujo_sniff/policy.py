@@ -14,12 +14,27 @@ from pathlib import Path
 
 from cujo_sniff.paths import canonical, home, under
 
+# The report shape. Bumped when a consumer would read an old report wrongly --
+# a renamed key or a changed meaning -- and not for a new one, because every
+# consumer ignores fields it does not know. A consumer that meets a version it
+# does not recognise reads what it can rather than rejecting the report: half
+# the evidence beats none, and the sandbox is always newer than the container
+# reading it (decision 54).
+SCHEMA_VERSION = 1
+
 DEFAULT_PROXY_PORT = 8899
 DECOY_KEY = "AKIACUJODECOY0000000"
 DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
 MAX_FILES_READ = 200
 MAX_SNAPSHOT_FILES = 200_000
+# Above this a file is compared by (mtime, size) alone, and the report says so.
+# The cap exists so a snapshot cannot be turned into a hashing benchmark by
+# dropping a huge file somewhere sensitive -- but it is set well past any real
+# credential, because a cap that quietly disables the comparison hands back the
+# evasion the digest was added to close. What it cannot cover, it declares:
+# see `truncated.hashes`.
+HASH_MAX_BYTES = 64 * 1024 * 1024
 # How long one sensed command waits for another to release the sensors. Longer
 # than any check should take, so the wait ends because the other command
 # finished and not because the clock ran out.
@@ -50,12 +65,51 @@ SENSITIVE_HOME_PATHS = (
     ".bashrc",
     ".profile",
     ".zshrc",
+    ".bash_profile",
     ".config/gcloud",
+    ".config/gh",
     ".netrc",
     ".npmrc",
     ".pypirc",
+    ".kube",
+    ".docker/config.json",
+    ".git-credentials",
+    ".gitconfig",
+    ".gnupg",
 )
-SENSITIVE_ABS_PREFIXES = ("/etc/cron",)
+# Absolute paths, each matched as itself or as a directory containing the path
+# in question -- never as a string prefix. `/etc/passwd` and `/etc/passwd_backup`
+# share eight characters and nothing else, and a `startswith` that conflated
+# them would turn an ordinary file the author happened to name badly into a
+# `critical` nobody can lower. So the directories are listed as directories and
+# every file is named outright, `/etc/cron.d` and `/etc/crontab` included, where
+# the single prefix `/etc/cron` used to stand for both.
+SENSITIVE_ABS_PATHS = (
+    "/etc/crontab",
+    "/etc/cron.d",
+    "/etc/cron.hourly",
+    "/etc/cron.daily",
+    "/etc/cron.weekly",
+    "/etc/cron.monthly",
+    "/etc/cron.allow",
+    "/etc/cron.deny",
+    "/etc/shadow",
+    "/etc/gshadow",
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/sudoers",
+    "/etc/sudoers.d",
+    "/etc/ssh",
+    "/etc/pam.d",
+    "/etc/systemd",
+    "/etc/profile",
+    "/etc/profile.d",
+    # Writable by root only, read by every dynamic executable: the shortest path
+    # from a sandbox write to code running in someone else's process. It is also
+    # under the `/etc/ld.so` noise prefix below, which is why the sensitive
+    # verdict has to be taken first -- see `is_noise_read`.
+    "/etc/ld.so.preload",
+)
 
 NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
 # Directory prefixes end in "/" so /usr/libexec is not taken for /usr/lib.
@@ -89,7 +143,24 @@ def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
     for rel in SENSITIVE_HOME_PATHS:
         if any(under(c, root / rel) for c in candidates for root in roots):
             return True
-    return any(str(c).startswith(SENSITIVE_ABS_PREFIXES) for c in candidates)
+    # `under`, not `startswith`: the entry has to be the path itself or a
+    # directory above it. A shared prefix is not a relationship.
+    return any(under(c, Path(abs_path)) for c in candidates for abs_path in SENSITIVE_ABS_PATHS)
+
+
+def should_hash(path: str, home_dir: Path | None = None) -> bool:
+    """Whether this path is worth a content digest as well as its metadata.
+
+    `(mtime_ns, size)` is defeated by anything that restores the timestamp after
+    a same-length overwrite -- flipping a flag, swapping a key for another key.
+    Hashing every file would turn each snapshot into a full read of HOME, so it
+    is spent where a silent edit is the whole attack: the credential and
+    shell-rc locations, and the rest of `/etc`, which is walked anyway.
+    """
+    if is_sensitive(path, home_dir):
+        return True
+    p = Path(os.path.normpath(os.path.expanduser(path)))
+    return str(p).startswith("/etc/")
 
 
 def is_noise_read(path: str) -> bool:

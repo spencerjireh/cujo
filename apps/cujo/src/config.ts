@@ -1,4 +1,5 @@
 import { type Level, parseLevel } from "@cujo/log";
+import { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 
 /**
  * Environment for the apps/cujo process. Every name here is fixed by the build
@@ -53,9 +54,6 @@ export interface Config {
    */
   modelReasoningEffort: string;
   githubMcpUrl: string;
-  /** Superseded by `sniffTarballUrl` and no longer read; deleted once every
-   * deployed container fetches the tarball (decision 46). */
-  sniffUrl: string;
   /** Where the agent fetches the source archive holding `sandbox/`. */
   sniffTarballUrl: string;
   turnTimeoutMs: number;
@@ -91,9 +89,41 @@ export interface Config {
       apiKey: string;
       /** `name` is the TrueForge model name; `modelId` is the provider's id. */
       models: { name: string; modelId: string }[];
+      /**
+       * Reasoning efforts these models accept, declared on every one of them
+       * (decision 56).
+       *
+       * One list rather than a value per model, because there is no
+       * provider-level field to send: the declaration lives on each
+       * `ConfiguredModel.properties`, so this is fanned out at registration.
+       * Empty declares nothing, which is what every deploy did before — and
+       * what made `CUJO_MODEL_REASONING_EFFORT` unusable.
+       */
+      reasoningEfforts: TrueForgeApi.ReasoningEffort[];
     } | null;
     daytonaApiKey: string | null;
   };
+}
+
+/**
+ * The efforts TrueForge knows, taken from the SDK rather than retyped, so the
+ * list cannot drift from the server that validates against it.
+ *
+ * Checked here and not merely at registration: an unknown value is accepted by
+ * every string type between here and the wire, and the server then rejects the
+ * *provider*, which `bootstrapUntilReady` retries forever. That leaves the
+ * webhook answering 503 for good — the same shape of silent outage this whole
+ * change exists to remove, just moved one step earlier.
+ */
+const EFFORTS = Object.values(TrueForgeApi.ReasoningEffort) as string[];
+
+function effort(raw: string, name: string): TrueForgeApi.ReasoningEffort {
+  if (!EFFORTS.includes(raw)) {
+    throw new Error(
+      `${name} has ${JSON.stringify(raw)}, which is not a reasoning effort. Valid values: ${EFFORTS.join(", ")}.`,
+    );
+  }
+  return raw as TrueForgeApi.ReasoningEffort;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -151,6 +181,38 @@ function tarballUrl(raw: string): string {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const modelProviderBaseUrl = env.MODEL_PROVIDER_BASE_URL;
   const modelProviderApiKey = env.MODEL_PROVIDER_API_KEY;
+  // MODEL_PROVIDER_REASONING_EFFORTS: `<effort>,...`, declared on every model
+  // this process registers (decision 56).
+  const reasoningEfforts = (env.MODEL_PROVIDER_REASONING_EFFORTS ?? "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((e) => effort(e, "MODEL_PROVIDER_REASONING_EFFORTS"));
+  const chosen = (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim();
+  // Validated on its own before the membership check below, so a typo shared by
+  // both variables is caught rather than agreeing with itself.
+  const modelReasoningEffort = chosen ? effort(chosen, "CUJO_MODEL_REASONING_EFFORT") : "";
+  // Refuse to start rather than answer 502 to every pull request.
+  //
+  // An effort the registration does not declare is rejected when the session is
+  // created, which is after this process is up and reporting healthy: `/readyz`
+  // stays green, the model provider is registered, and every review silently
+  // stops. Failing here turns that into a container that visibly will not boot.
+  //
+  // Only when this process is the thing that registers the provider. With the
+  // provider configured in the operator console instead, Cujo does not know what
+  // it declares, and refusing on a guess would block a working deploy.
+  if (
+    modelReasoningEffort &&
+    modelProviderBaseUrl &&
+    modelProviderApiKey &&
+    !reasoningEfforts.includes(modelReasoningEffort)
+  ) {
+    const declared = reasoningEfforts.length ? reasoningEfforts.join(", ") : "it is empty";
+    throw new Error(
+      `CUJO_MODEL_REASONING_EFFORT is ${JSON.stringify(modelReasoningEffort)}, which MODEL_PROVIDER_REASONING_EFFORTS does not declare (${declared}). TrueForge refuses a session whose model asks for an undeclared effort, so every review would fail to start.`,
+    );
+  }
   return {
     port: Number(env.PORT ?? 8080),
     logLevel: parseLevel(env.CUJO_LOG_LEVEL),
@@ -168,11 +230,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     defaultDiscordGuild: env.CUJO_DEFAULT_DISCORD_GUILD || null,
     dbPath: env.CUJO_DB_PATH ?? "/data/cujo.db",
     model: required(env, "CUJO_MODEL"),
-    modelReasoningEffort: (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim(),
+    modelReasoningEffort,
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
-    sniffUrl:
-      env.CUJO_SNIFF_URL ??
-      "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
     // `||`, not `??`: an unset compose optional arrives as the empty string,
     // and an empty URL would reach the sandbox as a `curl` with no argument.
     sniffTarballUrl: tarballUrl(
@@ -207,6 +266,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
                   if (eq === -1) return { name: pair, modelId: pair };
                   return { name: pair.slice(0, eq).trim(), modelId: pair.slice(eq + 1).trim() };
                 }),
+              reasoningEfforts,
             }
           : null,
       daytonaApiKey: env.DAYTONA_API_KEY ?? null,

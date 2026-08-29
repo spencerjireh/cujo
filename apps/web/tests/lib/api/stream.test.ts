@@ -8,6 +8,7 @@ const summary: RunSummary = {
   pr_number: 7,
   head_sha: "a1f9c3e",
   status: "running",
+  pr_title: "Add a thing",
   created_at: "2026-08-28T10:00:00.000Z",
   updated_at: "2026-08-28T10:00:00.000Z",
 };
@@ -16,6 +17,8 @@ const run = (over: Partial<Run> = {}): Run => ({
   ...summary,
   session_id: "s1",
   turn_ids: ["t1"],
+  pr_author_login: "octocat",
+  pr_author_id: 583231,
   checks: [],
   findings: [],
   hard_rule_hits: [],

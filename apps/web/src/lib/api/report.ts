@@ -32,7 +32,14 @@ export interface SubprocessEntry {
 
 export interface SecretProbe {
   decoy_read?: boolean;
-  decoy_in_egress?: boolean;
+  /**
+   * `null` on every report the current sandbox writes: the proxy counts bytes
+   * and never reads a payload, so nothing in there can tell whether the decoy's
+   * value left the box. Distinct from `false`, which claimed an observation
+   * nobody made, and from `undefined`, which is a report that predates the
+   * field.
+   */
+  decoy_in_egress?: boolean | null;
 }
 
 export interface Derived {
@@ -40,6 +47,37 @@ export interface Derived {
   wrote_outside_workspace?: boolean;
   wrote_sensitive?: boolean;
   spawned_subprocess?: boolean;
+}
+
+/**
+ * Whether one sensor was watching, and what the sandbox said about it. Absent
+ * for a report written before the block existed, which is "unknown" and not
+ * "off" — the UI shows the difference rather than guessing.
+ */
+export interface SensorHealth {
+  armed?: boolean;
+  detail?: string;
+}
+
+/**
+ * The four sensors, by the names `sandbox/cujo_sniff/report.py` gives them.
+ * Read as a map rather than four fields so a sensor added there renders here
+ * without a change on this side.
+ */
+export type Sensors = Record<string, SensorHealth>;
+
+/** Which caps cut this report short. A cut list is not an empty one. */
+export interface Truncated {
+  stdout_tail?: boolean;
+  stderr_tail?: boolean;
+  files_read?: boolean;
+  snapshot?: boolean;
+  /**
+   * Some in-scope file was too large to hash, so it was compared by
+   * `(mtime, size)` alone — which is exactly what a restored timestamp
+   * defeats. The filesystem comparison ran; it did not run on everything.
+   */
+  hashes?: boolean;
 }
 
 /** One sensor block, plus whatever identifying fields sat beside it. */
@@ -50,6 +88,8 @@ export interface SensorBlock {
   fs_changes: FsChangeEntry[];
   subprocesses: SubprocessEntry[];
   secret_probe: SecretProbe | null;
+  sensors: Sensors | null;
+  truncated: Truncated | null;
   derived: Derived | null;
 }
 
@@ -121,7 +161,33 @@ function subprocesses(value: unknown): SubprocessEntry[] {
 
 function secretProbe(value: unknown): SecretProbe | null {
   if (!isRecord(value)) return null;
-  return { decoy_read: bool(value.decoy_read), decoy_in_egress: bool(value.decoy_in_egress) };
+  return {
+    decoy_read: bool(value.decoy_read),
+    // `null` survives as `null`: it is the report saying it could not know,
+    // which is a different thing from a `false` it measured.
+    decoy_in_egress: value.decoy_in_egress === null ? null : bool(value.decoy_in_egress),
+  };
+}
+
+function sensors(value: unknown): Sensors | null {
+  if (!isRecord(value)) return null;
+  const out: Sensors = {};
+  for (const [name, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) continue;
+    out[name] = { armed: bool(entry.armed), detail: str(entry.detail) ?? undefined };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function truncated(value: unknown): Truncated | null {
+  if (!isRecord(value)) return null;
+  return {
+    stdout_tail: bool(value.stdout_tail),
+    stderr_tail: bool(value.stderr_tail),
+    files_read: bool(value.files_read),
+    snapshot: bool(value.snapshot),
+    hashes: bool(value.hashes),
+  };
 }
 
 function derived(value: unknown): Derived | null {
@@ -134,12 +200,20 @@ function derived(value: unknown): Derived | null {
   };
 }
 
+/**
+ * What makes a record a sensor block rather than something no contract
+ * describes. Any one of them is enough, so the list only ever grows: dropping
+ * a name here sends a report that carries it to the raw view instead, with
+ * nothing failing to say so.
+ */
 const SENSOR_KEYS = [
   "egress",
   "files_read",
   "fs_changes",
   "subprocesses",
   "secret_probe",
+  "sensors",
+  "truncated",
   "derived",
 ] as const;
 
@@ -155,6 +229,8 @@ function toBlock(value: Record<string, unknown>): SensorBlock {
     fs_changes: fsChanges(value.fs_changes),
     subprocesses: subprocesses(value.subprocesses),
     secret_probe: secretProbe(value.secret_probe),
+    sensors: sensors(value.sensors),
+    truncated: truncated(value.truncated),
     derived: derived(value.derived),
   };
 }
@@ -178,6 +254,14 @@ export function parseReport(report: unknown): ParsedReport {
   return { kind: "sensor", blocks, raw: report };
 }
 
+/** The daemons whose being off makes the rest of the block worth less. */
+const WATCHED_SENSORS = ["proxy", "decoy"] as const;
+
+/** The sensors that were not watching, by name. Empty when the block is absent. */
+export function unarmed(block: SensorBlock): string[] {
+  return WATCHED_SENSORS.filter((name) => block.sensors?.[name]?.armed === false);
+}
+
 /** The flags worth surfacing above the tables, in severity order. */
 export function alarms(block: SensorBlock): string[] {
   const out: string[] = [];
@@ -187,4 +271,20 @@ export function alarms(block: SensorBlock): string[] {
   if (block.derived?.wrote_sensitive) out.push("wrote to a sensitive path");
   if (block.derived?.wrote_outside_workspace) out.push("wrote outside the workspace");
   return out;
+}
+
+/**
+ * Whether this check is worth opening without being asked.
+ *
+ * A sensor that was off qualifies even though nothing tripped: it is the one
+ * case where the tables are empty for a reason that has nothing to do with the
+ * pull request, and a reader who leaves the card shut would take them at face
+ * value. It is deliberately not one of `alarms`, though. A report renders one
+ * card for the roll-up and one per run, and the roll-up is the pessimistic
+ * summary of the runs -- so a single blind interval would raise the same chip
+ * twice, counting one gap as two. The health strip says it once per card, and
+ * says which run it was.
+ */
+export function needsAttention(block: SensorBlock): boolean {
+  return alarms(block).length > 0 || unarmed(block).length > 0;
 }

@@ -23,10 +23,48 @@ export const LIMITS = {
   fieldName: 256,
   fieldValue: 1024,
   footer: 2048,
+  author: 256,
   fields: 25,
   /** Across title, description, field names and values, footer, and author. */
   total: 6000,
 } as const;
+
+/**
+ * The two parties a card names (decision 55).
+ *
+ * Cujo takes the author line, which is a fixed string and a fixed URL, both
+ * ours. The person who opened the pull request takes an `Opened by` field and
+ * the footer icon, because a field value cannot carry an image and the footer
+ * icon is the only slot left once the author line is spent.
+ *
+ * The mark is served from the repository over `raw.githubusercontent.com`
+ * rather than from `apps/web`: Discord's media proxy has to fetch it
+ * anonymously, and the operator hostname is gated while the public one is
+ * configuration this process cannot depend on. `avatar-64.png` is committed
+ * for exactly this (see `brand/tools/render.mjs`).
+ */
+const CUJO_NAME = "Cujo";
+const CUJO_ICON_URL =
+  "https://raw.githubusercontent.com/spencerjireh/cujo/main/brand/logo/avatar-64.png";
+
+/**
+ * A GitHub login, and nothing else. Alphanumeric with interior hyphens, 39
+ * characters at most — GitHub cannot issue a login outside this set, so the
+ * check should never fire; it is here so rule 7 of Contract 7 is enforced by
+ * code rather than assumed. A bot login (`dependabot[bot]`) fails it by
+ * design: its profile is at `/apps/<name>`, a second URL shape nobody needs,
+ * so a bot is named and not linked.
+ */
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+/**
+ * Built from the numeric account id, never from the login: an avatar is a URL
+ * and a login is a string somebody else chose. `s=64` because the footer icon
+ * renders around 20px and the extra pixels cost nothing.
+ */
+function avatarUrl(authorId: number | null): string | undefined {
+  return authorId === null ? undefined : `https://avatars.githubusercontent.com/u/${authorId}?s=64`;
+}
 
 /**
  * Controls, and the zero-width and bidi ranges. Escaping does not defuse a
@@ -174,10 +212,28 @@ function textField(name: string, text: string | null): DiscordEmbedField | null 
   return { name, value: clean(text, LIMITS.fieldValue) };
 }
 
+/**
+ * Who opened the pull request. Null for a run recorded before the author was
+ * stored, or one whose PR read never completed, in which case the card is
+ * exactly the shape it had before this field existed.
+ *
+ * The link is assembled rather than escaped: `clean` defangs `://`, which is
+ * the whole point of it, so the login goes through the escape pass and the URL
+ * is concatenated after — and only for a login the allowlist above accepts.
+ */
+function openedByField(login: string | null): DiscordEmbedField | null {
+  if (!login) return null;
+  const name = clean(login, 120);
+  const value = LOGIN.test(login) ? `[@${name}](https://github.com/${login})` : `@${name}`;
+  return { name: "Opened by", value: truncate(value, LIMITS.fieldValue), inline: true };
+}
+
 /** Everything Discord counts against the 6000-character embed budget. */
 export function embedLength(embed: DiscordEmbed): number {
   let total = (embed.title?.length ?? 0) + (embed.description?.length ?? 0);
   total += embed.footer?.text.length ?? 0;
+  // Counted by Discord like any other text. Neither icon URL is.
+  total += embed.author?.name.length ?? 0;
   for (const field of embed.fields ?? []) total += field.name.length + field.value.length;
   return total;
 }
@@ -203,8 +259,6 @@ function clamp(embed: DiscordEmbed): DiscordEmbed {
 export interface CardInput {
   run: RunRecord;
   projection: Projection;
-  /** From GitHub, so untrusted. Null when the PR read never completed. */
-  prTitle: string | null;
   links: UiLinks;
 }
 
@@ -212,13 +266,16 @@ export interface CardInput {
  * One embed per run, edited in place as the run's status moves. The `running`
  * card carries only immutable facts, because the card is rewritten on a status
  * change and any progress count would freeze and then lie.
+ *
+ * The title and the author come off the run, which joins them from the store,
+ * so this stays pure and every status renders from one read.
  */
 export function buildRunCard(input: CardInput): DiscordMessagePayload {
-  const { run, projection, prTitle, links } = input;
+  const { run, projection, links } = input;
   const status = run.status;
   const heading = escapeMarkdown(`${run.repo} #${run.prNumber}`);
-  const title = prTitle
-    ? truncate(`${heading} — ${escapeMarkdown(prTitle)}`, LIMITS.title)
+  const title = run.prTitle
+    ? truncate(`${heading} — ${escapeMarkdown(run.prTitle)}`, LIMITS.title)
     : truncate(heading, LIMITS.title);
 
   let description = DESCRIPTION[status];
@@ -232,6 +289,12 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
   const fields: DiscordEmbedField[] = [
     { name: "Head", value: `\`${run.headSha.slice(0, 7)}\``, inline: true },
   ];
+  // Second, so it renders inline beside Head and sits above everything the
+  // clamp can drop. On every status, `running` and `superseded` included: who
+  // opened the pull request cannot change under the card, so the reason those
+  // two carry nothing else does not apply to it.
+  const openedBy = openedByField(run.prAuthorLogin);
+  if (openedBy) fields.push(openedBy);
   // A superseded run describes a commit nobody is looking at any more, so it
   // shows no findings: acting on them would mean acting on a stale review.
   if (status !== "running" && status !== "superseded") {
@@ -259,8 +322,17 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
     ...(url ? { url } : {}),
     description: truncate(description, LIMITS.description),
     color: COLOR[status],
+    // Both fixed strings. The line is deliberately unlinked: the title already
+    // points at the run, and a second link to the same place is noise.
+    author: { name: truncate(CUJO_NAME, LIMITS.author), icon_url: CUJO_ICON_URL },
     fields,
-    footer: { text: truncate(footer, LIMITS.footer) },
+    footer: {
+      text: truncate(footer, LIMITS.footer),
+      // Built from the account id, so nothing derived from a login is in it.
+      // Absent with the field above, rather than falling back to the mark,
+      // which would put the same icon on one card twice.
+      icon_url: avatarUrl(run.prAuthorId),
+    },
     timestamp: run.updatedAt,
   });
 

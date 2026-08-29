@@ -38,6 +38,8 @@ export const prOf = (headSha: string) => ({
   headSha,
   cloneUrl: "https://github.com/o/r.git",
   changedFiles: ["a.py"],
+  authorLogin: "octocat",
+  authorId: 583231,
 });
 
 export function build(

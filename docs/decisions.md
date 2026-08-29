@@ -59,6 +59,9 @@ that is reversed after it was built or shown is noted here rather than deleted
 51. [A shipped design document is deleted, and the log carries its own reversals](#51-a-shipped-design-document-is-deleted-and-the-log-carries-its-own-reversals)
 52. [`apps/cujo` dismisses its own stale blocking reviews when a clean run supersedes them](#52-appscujo-dismisses-its-own-stale-blocking-reviews-when-a-clean-run-supersedes-them)
 53. [Reasoning effort is a deployment setting, not a constant](#53-reasoning-effort-is-a-deployment-setting-not-a-constant)
+54. [The report says what it could not observe](#54-the-report-says-what-it-could-not-observe)
+55. [A card names both parties, and a login reaches a URL only through an allowlist](#55-a-card-names-both-parties-and-a-login-reaches-a-url-only-through-an-allowlist)
+56. [A provider must declare the reasoning efforts it will accept](#56-a-provider-must-declare-the-reasoning-efforts-it-will-accept)
 57. [The operator plane is deleted; every route is signature-gated or anonymous](#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)
 
 ## 1. Build on stock TrueForge — no fork
@@ -2115,6 +2118,314 @@ pinned when the session is created, so `CUJO_MODEL_REASONING_EFFORT` — like
 `CUJO_MODEL` and like `agent/SKILL.md` before it — changes nothing for a pull
 request that has already been reviewed once. Verifying a change to any of the
 three means opening a new pull request, not pushing to an old one.
+
+## 54. The report says what it could not observe
+
+`agent/SKILL.md` has always ended the hard rules with one honest sentence: "the
+rules are tripwires, not proofs of absence: `false` means 'not observed'." The
+report had no way to say the rest of it. `decoy_read: false` is what a report
+says when nobody touched the decoy, and it is equally what a report says when
+the watcher died in its first second — and nothing in a check report told the
+two apart. Four sensors, four ways to be quiet for the wrong reason:
+
+- The decoy watcher chooses inotify or an atime poll at startup and announces
+  the choice in one log row that no report could ever reach: `run_sensed` takes
+  its log offset after that row was written. Which backend armed is not a
+  detail — the atime fallback is close to useless under `relatime`, which this
+  spec already said and no reader of a report could see.
+- `cmd_setup`'s `ok` covered the proxy alone; the watcher's pid was discarded.
+  Neither was re-checked afterwards, so a proxy that died during the first
+  check left the three that followed with an empty `egress` and a clean
+  `egress_to_unknown_host` — a clean bill of health from a blind sensor.
+- The Python audit hook produced an empty log both when it never loaded and
+  when the command did nothing. `sensors/pyhook.py` named this gap in its own
+  docstring and pointed at a block that did not exist.
+- `secret_probe.decoy_in_egress` was hardcoded `false` and nothing has ever
+  computed it. The proxy counts bytes and never reads a payload.
+
+So every report now carries `sensors`: one `{armed, detail}` per sensor, with
+the daemons re-checked per command rather than taken on `setup`'s word, and the
+hook writing an `armed` row as it installs itself. `decoy_in_egress` becomes
+`null`. And `apps/cujo` turns an unarmed proxy or watcher into one `warn`
+(`sensor_unarmed`) alongside the rules it already re-derives (decision 21).
+
+**A `warn` and not a `critical`, and not a gate.** The rule says the evidence is
+thin, not that the code did anything, so it stays out of `MALICE_RULES` and
+cannot put a review through the human gate.
+
+That the block is forgeable is not an objection to it. The code being measured
+runs as the sensors' own user and can write the pid files, the audit log, and
+`proxy.jsonl` alike; this block is evidence at the same level as every row it
+describes, and it closes the accident rather than the adversary. The direction
+is what matters: every rule fires on a sensor reporting *false*, so forging
+health suppresses a warn and cannot invent a finding against anyone. Only the two long-running daemons
+are ruled on at all: a check that runs `npm test` has no Python process to hook,
+so warning on an unarmed `audit` would fire on every JavaScript repository, and
+`fs_diff` is never off, only short — which is what `truncated` is for. Those two
+are reported and the agent weighs them. Code senses, the agent judges.
+
+Three smaller things ride along, all of the same kind — a report that was
+quietly claiming more than it knew.
+
+**`truncated`.** Four caps cut a report short and none of them left a mark. A
+`files_read` of two hundred read as a command that touched two hundred files.
+Worse, `MAX_SNAPSHOT_FILES` stopped the two filesystem walks in different
+places, and every path the second walk never reached became a `deleted` row —
+invented evidence, on the sensor with no way to be argued with.
+
+The rule that replaced it took two goes, and the first was wrong in the other
+direction: suppressing every absence whenever *either* walk was capped also
+threw away real deletions from a command that shrinks a tree past the cap. The
+two flags are not interchangeable. A `created` row reads the before walk's
+silence, so it needs that walk complete; a `deleted` row reads the after walk's,
+so it needs the other one. A path both walks hold is always compared, because no
+absence is being read.
+
+**Escaping.** Every string in a report is written by the code under review, and
+it is read by the parent agent, quoted into a review, and rendered in a browser.
+`errors="replace"` on the subprocess capture was the only defensive step in the
+whole pipeline; terminal escapes, carriage returns, and bidirectional overrides
+reached the prompt untouched, in output, in `argv`, and in filenames the author
+chose. They are escaped now as visible `\xNN` and `\uNNNN` — escaped, not
+stripped, because a dropped byte quietly rewrites the record and an escape is
+its own account of itself. `subprocesses[].argv` is also coerced and capped: it
+came off a file the audited process can write to, so `json.loads` will hand back
+whatever is in there.
+
+**Content hashing, scoped.** A file was identified by `(mtime_ns, size)`, which
+`os.utime` defeats: overwrite a key with another key of the same length, restore
+the timestamp, and two `lstat` calls agree. A SHA-256 digest closes it, but
+hashing all of `$HOME` would make each snapshot a full read of it, so the digest
+is spent where a silent edit is the whole attack — the credential locations and
+`/etc`.
+
+Four details in that decide whether it works at all, and all four are the same
+mistake: a digest that was not taken must never be mistaken for one that
+matched — and, in the last of them, must not be mistaken for a mismatch either. A read that failed is recorded as its own value rather than as "no
+digest here", or the evasion closes back up — restore the timestamp, then
+`chmod 000`, and a failed digest read as out-of-scope falls back to the metadata
+that was just forged. A file over the size cap is a third value again, counted
+by the walk and declared as `truncated.hashes`, because a cap that silently
+turns the comparison off is the same hole wearing a limit; the cap itself sits
+well past any real credential. And the hash opens with `O_NOFOLLOW | O_NONBLOCK`
+and checks the descriptor rather than the name — the command under test owns
+this tree, and a FIFO dropped in between the `lstat` and the open would block
+the snapshot, and with it the check, for as long as nobody writes to it; the
+descriptor's device and inode are checked against the measurement for the same
+reason, since a file swapped in only for the duration of the open would pair an
+innocent digest with the metadata of whatever replaced it.
+
+The fourth runs the other way, and is the one place this design declines to
+tighten. Where *neither* snapshot could hash a file, the comparison falls back
+to metadata rather than declaring a change. Much of `/etc` is root-owned and
+unreadable to the sensors from one run to the next, and `wrote_sensitive` is a
+`critical` the agent may not lower — so "unreadable twice means modified" would
+put a non-lowerable accusation on every check of every repository, which is a
+worse failure than the one it closes.
+
+Nor does it flag them. The first version of this counted every file without a
+digest into `truncated.hashes`, and CI is what showed that up: on any Linux box
+`/etc/shadow` is unreadable to the sensors, so the flag was true on every run
+ever. A flag that is always true is not evidence, it is furniture. So the count
+is the files this walk *could* have compared and did not — past the size cap, or
+swapped under it — and a file the sensors have never been able to read is
+treated as what it is: outside their reach, like a directory the walk cannot
+descend into and has always skipped in silence.
+
+That leaves one thing genuinely missed, and Contract 2 says so out loud rather
+than leaving it implied: a file held unreadable across both snapshots and edited
+in between, with size and timestamp restored. It is not observable from inside
+the sandbox in either direction. Saying which measurement did not happen is this
+decision's whole thesis, and the boundary of the thesis is that some of them
+cannot be measured *or* usefully flagged — at which point the honest move is to
+write the gap down where a reader will find it.
+
+The sensitive set grew at the same time and for the same reason: it held nine
+`$HOME` paths and `/etc/cron`, so a write to `/etc/sudoers.d/` or
+`~/.kube/config` was `sensitive: false`. Every path added is one no benign
+installer writes — and each is matched as itself or as a directory above the
+path in question, never as a string prefix, because `/etc/passwd` and
+`/etc/passwd_backup` share eight characters and nothing else.
+
+### Additive only, which is what let this be one pull request
+
+`schema_version` is new, and it is the smaller half of the compatibility story.
+The larger half is a rule this change had to obey to ship at all: **no renames,
+no removals, and no nesting of the six existing sensor keys.**
+
+Two things force it. There is no schema — `check.report` is `unknown` in both
+apps and every consumer duck-types — so a shape change raises no compile error
+anywhere; it produces fewer findings and emptier tables, silently.
+`apps/web/src/lib/api/report.ts` decides "is this a sensor block?" from those
+six key names, so nesting them under `sensors` would have dropped the entire
+forensic view to a raw JSON dump with nothing going red. And merging is the
+deploy while the tarball is `main`-relative (decision 35): the sandbox is
+`main`-fresh at turn time while `apps/cujo` keeps its old image until the swap,
+so between merge and deploy the *old* consumer reads the *new* report. Additive
+changes make that window a non-event, and the reverse direction cannot happen.
+
+`decoy_in_egress` is the case that proves it. Deleting the field would have been
+tidier and is exactly what the rule forbids; `null` reads identically to `false`
+through `bool(x) === true`, so the pre-deploy container is untouched. The hard
+rule stays too, firing on a `true` nothing emits, so a later sandbox that can
+measure it needs no change on the trusted side.
+
+`docs/contracts/report.example.json` is the other half of not having a schema.
+One file carries the whole shape, and each of the three consumers has a test
+that loads it, so a field added on one side and forgotten on another fails
+somewhere. The six hand-written fixtures in the two apps stay: several of them
+are deliberately partial, and what they prove — that the parser and the rules
+degrade gracefully on a shape nobody promised — is load-bearing, because an LLM
+writes the envelope.
+
+Rejected: **`armed: false` as a `critical`**, which makes a sandbox flake into
+an accusation against a pull request. **Warning on all four sensors**, which
+fires on every repository that runs no Python. **Stripping the control
+characters** instead of escaping them, which hides from the reviewer what the
+code actually did. **Hashing every file in the walk**, which turns each of the
+two snapshots per command into a full read of `$HOME`. And **holding the
+contract change back for a second release** the way decision 46 had to: that
+sequencing exists because a `main`-relative URL is read by a container that has
+not deployed yet, and it buys nothing once every field is additive.
+
+## 55. A card names both parties, and a login reaches a URL only through an allowlist
+
+A Discord card said `spencerjireh/orders-api #7 — Add refund endpoint` and
+nothing else identified either side of it. Cujo appeared only as the bot avatar
+above the embed, and the person who opened the pull request was not named at
+all — so a channel watching four repos read a wall of near-identical grey
+blocks, and answering "whose is this" meant opening GitHub.
+
+**Cujo takes the embed's author line; the pull request's author takes a field
+and the footer icon.** An embed has one author slot, and it goes to the fixed
+party rather than the variable one, because the alternative spends the only
+avatar affordance on an identity already visible in the message header. That
+leaves the person a field — `Opened by`, second so it renders inline beside
+`Head` — and the footer icon, which is the one image slot left once the author
+line is spent. A field value cannot carry an image, which is the whole reason
+the two are split across three slots rather than one.
+
+Both are on every status, `running` and `superseded` included. The rule that
+keeps those two cards sparse is that the card is rewritten only on a status
+change, so anything that moves under it would freeze and then lie. Who opened a
+pull request does not move.
+
+**The mark is served from this repository, not from `apps/web`.** Discord's
+media proxy fetches the icon anonymously, and the operator hostname is gated
+while the public one is deploy configuration this process cannot depend on.
+`raw.githubusercontent.com` is neither. That needs a committed PNG —
+`brand/logo/png/` is gitignored — so `brand/tools/render.mjs` now also writes
+`brand/logo/avatar-64.png` beside the SVG, and a mark change cannot leave the
+icon stale. It renders `avatar.svg` and not `mark.svg`: the mark is
+`currentColor` on transparent, which disappears on one of Discord's two themes,
+while the avatar carries its own dark ground.
+
+**Contract 7's rule 7 is amended, not dropped.** It said no derived string is
+ever written into an embed URL field. It now says none reaches one without
+passing a strict allowlist first, and there are exactly two:
+
+- The avatar is `https://avatars.githubusercontent.com/u/<id>?s=64`, built from
+  the numeric account id. A login is a string somebody else chose; an id is not.
+- The profile link is built only from a login matching
+  `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`. GitHub cannot issue a login outside
+  that set, so the check should never fire — it is there so the rule is enforced
+  by code rather than assumed. A bot login (`dependabot[bot]`) fails it by
+  design: its profile is at `/apps/<name>`, a second URL shape nothing else
+  needs, so a bot is named with its avatar and no link.
+
+The field value is assembled rather than escaped whole, because `clean()`
+defangs `://` — that is its job. The login goes through the escape pass and the
+URL is concatenated after it.
+
+**The store joins, rather than the caller looking up.** The title already lived
+in `run_pr_meta`, read by one explicit call in the notifier. The author needed
+to reach the card *and* two serializers *and* the SSE stream, so instead of
+three more lookups every run read is now a `LEFT JOIN` and `RunRecord` carries
+`prTitle`, `prAuthorLogin` and `prAuthorId`. That also buys the public plane's
+allowlist test for free: a field on `RunRecord` is a red build until somebody
+classifies it (decision 34). Two migrations, both nullable with no default, for
+the same reason 2 and 3 were — a run recorded before them has no author, and a
+deleted account has none either, neither of which is an empty string.
+
+**The public board now names one kind of person.** It publishes `pr_title`,
+`pr_author_login` and `pr_author_id`, and the run page renders the author with
+their avatar. Every row that plane serves is one where `is_public` is true, so
+all three are already world-readable on the pull request itself — a different
+fact from `approver`, which names a Cujo operator and appears nowhere else and
+stays withheld. The summary carries only the title: a list row names a pull
+request, not a person.
+
+**The web app loads avatars through `next/image`.** They are fetched and
+resized by the Next server, so opening a run on the anonymous board does not
+make a request to github.com carrying the visitor's address. That costs a pinned
+`sharp` dependency, which the standalone build traces. A plain `<img>` would
+have cost nothing and leaked exactly that.
+
+Rejected: **the author line for Cujo *and* a thumbnail for the person**, which
+puts a large image on every card and squeezes the fields on a narrow client.
+**Naming the person in the footer text**, which reads better but cannot carry
+the link, since Discord renders no markdown in a footer. **Falling back to the
+Cujo mark when there is no author avatar**, which puts the same icon on one card
+twice and reads as a bug rather than as an absence. **An `Author` column on the
+runs list**, which repeats a face down a table that is scanned for status.
+
+## 56. A provider must declare the reasoning efforts it will accept
+
+Decision 53 added `CUJO_MODEL_REASONING_EFFORT` and shipped it unusable. Setting
+it to `low` made **every** pull request webhook answer 502 —
+`createSession` throwing with `reason: "session_create_failed"` — and no review
+started on any repository. It did that twice in one afternoon.
+
+The cause was one line. `clients/trueforge.ts` registered every model with
+`properties: {}`, and `ModelProperties` carries `reasoningEfforts`. So the
+server was told each model supports no reasoning effort at all, and then refused
+any session spec that named one. Decision 53 named the seven values correctly
+and never said who had to declare them.
+
+**The provider was never the problem, and this was measured.** Calling
+OpenRouter directly with the deploy's own key: `z-ai/glm-5.3-flash` answers 200
+with `reasoning_tokens: 11`, and the same call with `reasoning: {effort: "low"}`
+answers 200 with `reasoning_tokens: 0`. Low effort works, and does the thing it
+was wanted for. The model call simply never happened, because validation failed
+first.
+
+So `MODEL_PROVIDER_REASONING_EFFORTS` joins `MODEL_PROVIDER_MODELS`, and every
+model this process registers carries it.
+
+**One list, fanned out per model.** There is no provider-level field:
+`CustomModelProvider` has only `auth`, `baseUrl`, `models`, `name` and `type`,
+and the declaration lives on each `ConfiguredModel.properties`. The catalog's
+`supportedReasoningEfforts` reads like the right field and is not — it is
+read-only, carries no models, and cannot be sent. A per-model syntax was
+rejected in favour of one list because `MODEL_PROVIDER_MODELS` is parsed by one
+`indexOf("=")` and is a value the deployment cannot read back to check.
+
+**An undeclared effort now stops the process, not the reviews.** This is the
+half that matters more than the fix. Nothing failed at boot: bootstrap
+succeeded, `/readyz` reported `harness: ready`, both hostnames answered 200, and
+the only evidence anywhere was the GitHub App's delivery log — which nobody
+watches, and which GitHub does not retry from. A configuration error that
+silently stops all work while every health signal stays green is worse than a
+crash, so `loadConfig` now refuses.
+
+It refuses **only when this process is the one registering the provider**. With
+the provider configured in the operator console instead, Cujo cannot know what
+it declares, and blocking a working deploy on a guess would be the same mistake
+in the other direction.
+
+**The values are checked against the SDK's own enum, not just against each
+other.** A first cut compared the chosen effort only to the declared list, which
+a typo in both variables satisfies by agreeing with itself; the bad value then
+reached the server, which rejects the *provider*, and `bootstrapUntilReady`
+retries that forever. The webhook would have answered 503 for good — the same
+silent outage, moved one step earlier. `Object.values(ReasoningEffort)` is the
+source of truth so the list cannot drift from the server validating against it.
+
+**The contract test now asks for an effort.** It created a session with
+`model: { name }` and no `params`, so the one job it exists for — catching a
+spec the real server rejects — did not cover the field that broke production.
+CI was green throughout. That gap, not the missing declaration, is why this
+reached a deploy.
 
 ## 57. The operator plane is deleted; every route is signature-gated or anonymous
 

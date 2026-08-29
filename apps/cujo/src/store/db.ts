@@ -48,12 +48,25 @@ export const MIGRATIONS: readonly string[] = [
   //     this column existed genuinely has no delivery, which is not the same
   //     fact as an empty one.
   "ALTER TABLE runs ADD COLUMN delivery_id TEXT",
-  // 4 — the operator override of Contract 8's authorization, deleted with the
+  // 4, 5 — who opened the pull request (decision 55). The login is what a card
+  //     and a run page name; the id is what an avatar URL is built from,
+  //     because a login is a string somebody else chose and no derived string
+  //     may reach a URL without passing an allowlist first. Both nullable: a
+  //     run recorded before these columns existed has no author, and neither
+  //     does a pull request whose account was deleted. Two statements rather
+  //     than one, because SQLite's ALTER TABLE adds a single column.
+  "ALTER TABLE run_pr_meta ADD COLUMN author_login TEXT",
+  "ALTER TABLE run_pr_meta ADD COLUMN author_id INTEGER",
+  // 6 — the operator override of Contract 8's authorization, deleted with the
   //     plane that was its only write path (decision 57). A repo's own
   //     `.cujo.yml` is the authority now, so a table nothing reads would be a
   //     trap: the next person to find rows in it would conclude the override
   //     still works. Removing it from SCHEMA alone would not touch a deployed
   //     database, because every statement there is IF NOT EXISTS.
+  //
+  //     Last, and that is not cosmetic. `migrate()` walks `user_version`
+  //     forward, so a database that already ran the two above would never see
+  //     this one if it were inserted before them.
   "DROP TABLE IF EXISTS discord_guild_repos",
 ];
 
@@ -133,8 +146,10 @@ export const SCHEMA = `
   -- interactions endpoint will need, enforced now while it is free.
   CREATE UNIQUE INDEX IF NOT EXISTS run_discord_message_id
     ON run_discord_messages (message_id) WHERE message_id IS NOT NULL;
-  -- The PR title for the card. RunRecord has no title and the webhook is
-  -- the only place it is ever read.
+  -- What the pull request itself says: its title, and who opened it. The
+  -- webhook is the only place either is read. Kept at its original shape
+  -- here, like every other table above; the author columns arrive through
+  -- the migrations, so a fresh database and a deployed one converge.
   CREATE TABLE IF NOT EXISTS run_pr_meta (
     run_id TEXT PRIMARY KEY REFERENCES runs (id),
     title TEXT NOT NULL,
