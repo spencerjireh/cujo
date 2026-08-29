@@ -74,6 +74,10 @@ const BY_STATUS: Record<RunStatus, readonly Reaction[] | null> = {
   /** No critical finding. */
   clean: ["hooray"],
   /** The blocking review posted. */
+  // The same set as `blocked_posted`: the reactions describe what happened to
+  // the pull request, and what happened is identical — a REQUEST_CHANGES is on
+  // it. `PrReactor` keys its cache on the set, so sharing one costs no call.
+  blocked_unattended: ["-1"],
   blocked_posted: ["-1"],
   /** A human rejected the block, so the pull request is clear to proceed. */
   denied: ["+1"],

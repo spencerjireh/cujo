@@ -226,6 +226,11 @@ export class RunStore {
   }
 
   listUnfinishedRuns(scope?: { repo: string; prNumber: number }): RunRecord[] {
+    // A SQL string, so the type system cannot check it and a missing status is
+    // silent: a run in one nobody added here is never rehydrated on restart and
+    // never superseded by a newer head. `blocked_unattended` is left out on
+    // purpose — that run posted its review and is done, so re-following it or
+    // cancelling its turn would act on a finished run.
     const where = "status IN ('running', 'blocked_pending')";
     const rows = (
       scope

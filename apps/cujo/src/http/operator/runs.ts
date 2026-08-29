@@ -35,6 +35,10 @@ function serialize(view: RunView) {
     findings: projection.findings,
     hard_rule_hits: projection.hardRuleHits,
     review: projection.review,
+    // Unconditional, unlike the public plane's copy. This is the surface where
+    // a human reads what they are being asked to confirm, so it has to show
+    // the accusation before it is published, not after.
+    gated_review: projection.gatedReview ?? null,
     approval: run.status === "blocked_pending" ? projection.approval : null,
     external_resume: projection.externalResume,
     error: projection.error,

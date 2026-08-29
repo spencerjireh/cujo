@@ -19,18 +19,19 @@ import { useEffect, useState } from "react";
 export function ReviewPanel({ review, posted }: { review: DraftedReview; posted: boolean }) {
   const [html, setHtml] = useState<string | null>(null);
   useEffect(() => setHtml(renderMarkdown(review.body)), [review.body]);
-  const blocking = review.tool === "post_blocking_review";
+  const blocking = review.tool !== "post_advisory_review";
+  const gated = review.tool === "post_gated_review";
 
   return (
-    <section aria-label="Review">
+    <section aria-label={gated ? "Held review" : "Review"}>
       <h2 className="mb-3 flex flex-wrap items-center gap-3 text-lg">
-        {posted ? "Review" : "Drafted review"}
+        {gated ? "Held for a human" : posted ? "Review" : "Drafted review"}
         <span
           className={`rounded-md px-2.5 py-0.5 font-mono text-xs font-medium ${
             blocking ? "bg-sev-critical-bg text-sev-critical" : "bg-sev-info-bg text-sev-info"
           }`}
         >
-          {blocking ? "request changes" : "comment"}
+          {gated ? "request changes — held" : blocking ? "request changes" : "comment"}
         </span>
       </h2>
 

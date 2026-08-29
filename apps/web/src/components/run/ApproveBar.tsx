@@ -43,7 +43,11 @@ export function ApproveBar({ run }: { run: Run }) {
   if (mode === "public") return <PointAtOperator run={run} adminBaseUrl={adminBaseUrl} />;
   if (!decidable) return <ExplainWhyNot run={run} />;
 
-  const blocking = run.review?.tool === "post_blocking_review";
+  // Keyed on the held review, never on `run.review`. `run.review` is what
+  // already posted, so reading the tool off it would describe the advisory
+  // while asking the human to confirm the accusation — a worse rubber stamp
+  // than an unexplained button.
+  const gated = !!run.gated_review;
   const target = `${run.repo} #${run.pr_number}`;
 
   return (
@@ -51,10 +55,14 @@ export function ApproveBar({ run }: { run: Run }) {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="h-8 w-1 shrink-0 rounded-sm bg-accent-fill" aria-hidden="true" />
         <p className="min-w-48 flex-1 text-sm">
-          {blocking
-            ? `Approving posts a blocking review on ${target} and holds the merge.`
+          {gated
+            ? `Approving posts the held review on ${target} as REQUEST_CHANGES and holds the merge.`
             : `Approving posts this review on ${target}.`}{" "}
-          <span className="text-fg-muted">Denying ends the run without posting it.</span>
+          <span className="text-fg-muted">
+            {gated && run.review
+              ? "The advisory review is already on the pull request; denying leaves it standing and posts nothing more."
+              : "Denying ends the run without posting it."}
+          </span>
         </p>
         <div className="flex gap-2">
           <button
@@ -124,13 +132,15 @@ function ExplainWhyNot({ run }: { run: Run }) {
       ? "This run paused on a thread that is not allowed to post reviews, so it cannot be approved."
       : run.status === "superseded"
         ? "A newer commit replaced this run. Decide on the newest run for this pull request."
-        : run.status === "blocked_posted"
-          ? `Approved${run.approver ? ` by ${run.approver}` : ""}. The blocking review is on the pull request.`
-          : run.status === "denied"
-            ? `Denied${run.approver ? ` by ${run.approver}` : ""}. No review was posted.`
-            : run.status === "running"
-              ? "Still running. Nothing to decide yet."
-              : null;
+        : run.status === "blocked_unattended"
+          ? "Cujo blocked this merge on its own authority: the finding is a correctness one, so nothing was held for a human."
+          : run.status === "blocked_posted"
+            ? `Approved${run.approver ? ` by ${run.approver}` : ""}. The blocking review is on the pull request.`
+            : run.status === "denied"
+              ? `Denied${run.approver ? ` by ${run.approver}` : ""}. No review was posted.`
+              : run.status === "running"
+                ? "Still running. Nothing to decide yet."
+                : null;
 
   if (!reason) return null;
 
