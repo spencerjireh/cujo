@@ -57,6 +57,16 @@ class _ProxyHandler(socketserver.BaseRequestHandler):
                 initial = rewritten + b"\r\n" + head.split(b"\r\n", 1)[1]
         except OSError:
             client.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+            append_jsonl(
+                self.log_path,
+                {
+                    "ts": time.time(),
+                    "host": host,
+                    "port": port,
+                    "bytes": 0,
+                    "error": "connect_failed",
+                },
+            )
             return
         sent = len(initial)
         if initial:

@@ -14,6 +14,7 @@ NOT_TRUNCATED = {
     "stderr_tail": False,
     "snapshot": False,
     "hashes": False,
+    "sensor_logs": False,
 }
 
 
@@ -174,3 +175,37 @@ def test_merge_reports_unions_the_blocks_and_ors_the_signals(home_dir: Path) -> 
     assert merged["secret_probe"] == {"decoy_read": True, "decoy_in_egress": None}
     assert merged["derived"]["egress_to_unknown_host"] is True
     assert merged["derived"]["wrote_sensitive"] is False
+
+
+def test_merge_egress_carries_error_count() -> None:
+    rows = [
+        {"host": "evil.example", "port": 443, "bytes": 0, "error": "connect_failed"},
+        {"host": "evil.example", "port": 443, "bytes": 100},
+        {"host": "evil.example", "port": 443, "bytes": 0, "error": "connect_failed"},
+    ]
+    merged = merge_egress(rows)
+    assert len(merged) == 1
+    assert merged[0]["host"] == "evil.example"
+    assert merged[0]["bytes"] == 100
+    assert merged[0]["errors"] == 2
+
+
+def test_merge_egress_omits_errors_key_when_all_succeeded() -> None:
+    rows = [{"host": "ok.example", "port": 80, "bytes": 500}]
+    merged = merge_egress(rows)
+    assert "errors" not in merged[0]
+
+
+def test_merge_reports_carries_sensor_logs_truncation(home_dir: Path) -> None:
+    clean = _block(home_dir)
+    torn = _block(home_dir)
+    torn["truncated"]["sensor_logs"] = True
+    merged = merge_reports([clean, torn])
+    assert merged["truncated"]["sensor_logs"] is True
+
+
+def test_merge_reports_sensor_logs_false_when_all_clean(home_dir: Path) -> None:
+    a = _block(home_dir)
+    b = _block(home_dir)
+    merged = merge_reports([a, b])
+    assert merged["truncated"]["sensor_logs"] is False

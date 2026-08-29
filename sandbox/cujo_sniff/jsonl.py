@@ -11,20 +11,38 @@ from pathlib import Path
 from typing import Any
 
 
-def read_jsonl(path: Path, offset: int = 0) -> list[dict[str, Any]]:
+class JsonlResult:
+    """Parsed JSONL rows with a count of lines that could not be decoded."""
+
+    __slots__ = ("rows", "dropped")
+
+    def __init__(self, rows: list[dict[str, Any]], dropped: int) -> None:
+        self.rows = rows
+        self.dropped = dropped
+
+    def __iter__(self):
+        return iter(self.rows)
+
+    def __len__(self):
+        return len(self.rows)
+
+
+def read_jsonl(path: Path, offset: int = 0) -> JsonlResult:
     """Read the JSON lines written after byte `offset`; skip a torn last line."""
     if not path.exists():
-        return []
+        return JsonlResult([], 0)
     with path.open("rb") as fh:
         fh.seek(offset)
         data = fh.read()
     rows: list[dict[str, Any]] = []
+    dropped = 0
     for line in data.splitlines():
         try:
             rows.append(json.loads(line))
         except ValueError:
+            dropped += 1
             continue
-    return rows
+    return JsonlResult(rows, dropped)
 
 
 def file_size(path: Path) -> int:
