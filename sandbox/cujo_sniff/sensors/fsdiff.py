@@ -1,18 +1,88 @@
 """Sensor: the filesystem snapshot, taken either side of a sensed command.
 
 Two walks of HOME, the workspace, and /etc, compared. This is the one sensor
-that needs nothing of the process under test — it sees a write however it was
+that needs nothing of the process under test -- it sees a write however it was
 made, including from a language runtime with no audit hook at all.
+
+A file is identified by `(mtime_ns, size)`, plus a content digest where a silent
+edit is the point of the exercise (`policy.should_hash`). Metadata alone is
+defeated by `os.utime`: overwrite a key with another key of the same length,
+put the timestamp back, and the file is unchanged as far as two `lstat` calls
+are concerned. Hashing everything would make each snapshot a full read of HOME,
+so the digest is spent on credentials and `/etc` and nowhere else.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
+import stat
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from cujo_sniff.paths import canonical, display_path, home, in_any
-from cujo_sniff.policy import MAX_SNAPSHOT_FILES, is_sensitive
+from cujo_sniff.policy import HASH_MAX_BYTES, MAX_SNAPSHOT_FILES, is_sensitive, should_hash
+from cujo_sniff.scrub import scrub
+
+# A file that is in scope for hashing but could not be read. Distinct from
+# `None`, which means the file was never in scope, because the two must not
+# compare equal: overwrite a credential with something the same length, restore
+# the timestamp, then `chmod 000` it, and treating the failed digest as
+# out-of-scope would let the metadata comparison call it unchanged.
+UNREADABLE = "unreadable"
+# In scope, and past HASH_MAX_BYTES.
+UNHASHED = "unhashed"
+# In scope, opened, and not the file that was measured -- swapped between the
+# `lstat` and the `open`, or no longer a regular file by then. Separate from
+# UNREADABLE because it is a thing that happened during this walk rather than a
+# standing fact about the filesystem.
+UNVERIFIED = "unverified"
+
+# The three ways a file in scope ends up without a digest. None is a content
+# verdict, so two of them are not agreement: where both snapshots land here the
+# comparison falls back to metadata rather than declaring a change.
+#
+# It has to be a fallback. Plenty of `/etc` is root-owned and unreadable to this
+# process from one run to the next -- `/etc/shadow` most of all -- and calling
+# those modified every time would put a non-lowerable `wrote_sensitive` critical
+# on every check of every repository. Whether an unreadable file's contents
+# changed is genuinely not observable from here.
+NO_DIGEST = (UNHASHED, UNREADABLE, UNVERIFIED)
+
+# Which of those the report counts into `truncated.hashes`: the ones where this
+# walk could have compared the file and did not. A file the sensors have never
+# been able to read is not a gap that opened, it is a part of the filesystem
+# outside their reach -- the same standing condition as a directory `os.walk`
+# cannot descend into, which it already skips without comment. Counting it would
+# raise the flag on every run on every Linux box, and a flag that is always true
+# says nothing at all. See docs/spec.md Contract 2 for what that leaves open.
+UNCOMPARED = (UNHASHED, UNVERIFIED)
+
+# (mtime_ns, size, digest). The digest is None where the file was not in scope
+# for hashing, UNREADABLE where it was but could not be read, and UNHASHED where
+# it was in scope but too large.
+Entry = tuple[int, int, str | None]
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """One walk, and whether the file cap cut it short.
+
+    `truncated` travels with the map because a truncated walk cannot be
+    compared like a complete one: two walks that stop at different points
+    disagree about files neither of them reached, and the difference looks
+    exactly like a deletion. `diff_snapshots` needs to know; so does the report.
+    """
+
+    entries: dict[str, Entry]
+    truncated: bool
+    # In-scope files that got no usable digest: too large, unreadable, or swapped
+    # under the walk. Not the same kind of loss as `truncated` -- those paths were
+    # walked and recorded, just not compared by content -- but it is a loss, and
+    # the report says so rather than presenting a metadata-only verdict as a
+    # content one.
+    uncompared: int = 0
 
 
 def _snapshot_roots(workspace_roots: list[Path], home_dir: Path | None = None) -> list[Path]:
@@ -33,18 +103,79 @@ def _snapshot_roots(workspace_roots: list[Path], home_dir: Path | None = None) -
     return unique
 
 
+def _digest(path: Path, st: os.stat_result) -> str | None:
+    """A content digest, UNREADABLE if it could not be taken, None if unwanted.
+
+    A symlink is digested by its target rather than by the file it points at:
+    `lstat` already describes the link itself, and repointing a link somewhere
+    new is a change the snapshot should see. Following it would instead hash
+    whatever it aims at, which the walk records separately anyway.
+
+    The open is deliberately awkward. `lstat` said this was a regular file, but
+    the command under test owns this tree and can swap the name for a FIFO
+    before the open happens -- and a FIFO with no writer blocks forever, which
+    would hang the snapshot and with it the whole check. `O_NOFOLLOW` refuses a
+    symlink put in the way, `O_NONBLOCK` makes the FIFO case return instead of
+    wait, and the `fstat` afterwards is on the descriptor actually opened, so
+    what is hashed is what was checked.
+    """
+    try:
+        if stat.S_ISLNK(st.st_mode):
+            return hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        if st.st_size > HASH_MAX_BYTES:
+            return UNHASHED
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            opened = os.fstat(fd)
+            # The same name, but is it the same file? `lstat` and `open` are two
+            # lookups, and between them the command under test can put the
+            # original file back just long enough to be hashed, then restore its
+            # own -- pairing an innocent digest with the metadata of the file
+            # that replaced it. Comparing the descriptor's identity against what
+            # was measured closes that; a mismatch is not a digest anyone should
+            # trust, so it is recorded as one that could not be taken.
+            if not stat.S_ISREG(opened.st_mode):
+                return UNVERIFIED
+            if (opened.st_ino, opened.st_dev) != (st.st_ino, st.st_dev):
+                return UNVERIFIED
+            h = hashlib.sha256()
+            read = 0
+            while chunk := os.read(fd, 65536):
+                read += len(chunk)
+                # The size that let this file through the cap came from an
+                # `lstat` taken before the open, and a background process is
+                # free to have grown the file since. Reading to EOF on that
+                # promise is an unbounded read of a file the command controls,
+                # which is the snapshot never finishing. The cap is enforced
+                # here, on what was actually read, and the file falls back to
+                # the metadata it would have had a size ago.
+                if read > HASH_MAX_BYTES:
+                    return UNHASHED
+                h.update(chunk)
+            return h.hexdigest()
+        finally:
+            os.close(fd)
+    except OSError:
+        # In scope and not readable, which is its own fact: a file that hashed
+        # before and does not now has changed, whatever its metadata says.
+        return UNREADABLE
+
+
 def snapshot(
     workspace_roots: list[Path],
     *,
     state_dir: Path,
     home_dir: Path | None = None,
-) -> dict[str, tuple[int, int]]:
-    """Map path -> (mtime_ns, size) for HOME, the workspace, and /etc.
+) -> Snapshot:
+    """Walk HOME, the workspace, and /etc, recording an `Entry` per file.
 
     Skips our own state dir and .git internals; stops at a file cap so a huge
     tree cannot turn a check into a snapshot benchmark.
     """
-    seen: dict[str, tuple[int, int]] = {}
+    seen: dict[str, Entry] = {}
+    uncompared = 0
     for root in _snapshot_roots(workspace_roots, home_dir):
         for dirpath, dirnames, filenames in os.walk(root, onerror=lambda e: None):
             d = Path(dirpath)
@@ -57,15 +188,50 @@ def snapshot(
                     st = p.lstat()
                 except OSError:
                     continue
-                seen[str(p)] = (st.st_mtime_ns, st.st_size)
-                if len(seen) >= MAX_SNAPSHOT_FILES:
-                    return seen
-    return seen
+                digest = _digest(p, st) if should_hash(str(p), home_dir) else None
+                if digest in UNCOMPARED:
+                    uncompared += 1
+                seen[str(p)] = (st.st_mtime_ns, st.st_size, digest)
+                # One past the cap, not at it. A tree holding exactly
+                # MAX_SNAPSHOT_FILES files was walked to the end, and calling
+                # that truncated made `diff_snapshots` disbelieve creations and
+                # deletions it could in fact prove. Finding an extra file is
+                # what proves there was more; that file is then dropped, so the
+                # cap still bounds what a snapshot costs.
+                if len(seen) > MAX_SNAPSHOT_FILES:
+                    del seen[str(p)]
+                    return Snapshot(seen, truncated=True, uncompared=uncompared)
+    return Snapshot(seen, truncated=False, uncompared=uncompared)
+
+
+def _unchanged(before: Entry, after: Entry) -> bool:
+    """Same metadata, and the same content wherever both sides have a digest.
+
+    `None` on either side means the path was never in hashing scope, so there is
+    nothing to compare and metadata is the whole answer -- which is what it was
+    before there were digests at all.
+
+    A file that has a digest on one side and none on the other has changed, and
+    that is the important half: readable before and not now, or hashed before
+    and swapped since, are both events, and both are what a command does to a
+    file *while it runs*. Where neither side has one there is nothing to compare
+    either, so it falls back to metadata. That case is not observable from in
+    here, and a report that says so beats one that guesses -- in either
+    direction.
+    """
+    if before[:2] != after[:2]:
+        return False
+    b, a = before[2], after[2]
+    if b is None or a is None:
+        return True
+    if b in NO_DIGEST and a in NO_DIGEST:
+        return True
+    return b == a
 
 
 def diff_snapshots(
-    before: dict[str, tuple[int, int]],
-    after: dict[str, tuple[int, int]],
+    before: Snapshot,
+    after: Snapshot,
     workspace_roots: list[Path],
     home_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
@@ -75,25 +241,46 @@ def diff_snapshots(
     as interesting as creating one, so before-only paths get a `deleted` row
     with the same workspace and sensitivity classification.
 
+    Which of the two walks was truncated decides which absences can be believed,
+    and they are not interchangeable. A path only the *after* walk holds is
+    `created` if the before walk was complete -- a complete walk would have seen
+    it already, so its absence is real -- and says nothing if the before walk
+    stopped early, because it may simply be a path that walk never reached.
+    A path only the *before* walk holds is `deleted` on the same argument, run
+    the other way round, so it needs the after walk to be the complete one.
+    Getting this wrong in either direction invents evidence, and `wrote_sensitive`
+    is a `critical` the agent may not lower.
+
+    A change to a path both walks hold is always reported: no absence is being
+    read, only two readings of the same file.
+
     The workspace roots are canonicalised once, here, rather than per row: the
     snapshot walks canonical roots, so a caller that passes an unresolved root
     would otherwise see every one of its own files as outside the workspace.
     """
     roots = [canonical(r) for r in workspace_roots]
+    trust_creations = not before.truncated
+    trust_deletions = not after.truncated
     changes: list[dict[str, Any]] = []
-    for path in sorted(before.keys() | after.keys()):
-        if path in before and path in after and before[path] == after[path]:
-            continue
-        if path not in after:
-            kind = "deleted"
-        elif path in before:
+    for path in sorted(before.entries.keys() | after.entries.keys()):
+        in_before, in_after = path in before.entries, path in after.entries
+        if in_before and in_after:
+            if _unchanged(before.entries[path], after.entries[path]):
+                continue
             kind = "modified"
-        else:
+        elif in_after:
+            if not trust_creations:
+                continue
             kind = "created"
+        else:
+            if not trust_deletions:
+                continue
+            kind = "deleted"
         p = Path(path)
         changes.append(
             {
-                "path": display_path(p, home_dir),
+                # The filename is the pull request's own choice of words.
+                "path": scrub(display_path(p, home_dir)),
                 "type": kind,
                 "in_workspace": in_any(p, roots),
                 "sensitive": is_sensitive(path, home_dir),

@@ -55,12 +55,9 @@ describe("loadConfig", () => {
       devNoAccess: false,
       bootstrap: { modelProvider: null, daytonaApiKey: null },
     });
-    // The whole path, not just the basename. `toContain("sniff.py")` stayed
-    // true when the file moved into sandbox/, so it would have watched the
-    // default 404 without failing — and nothing in CI fetches this URL.
-    expect(config.sniffUrl).toBe(
-      "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
-    );
+    // The whole path, not just the basename. `toContain("cujo")` would stay
+    // true if the archive moved, so it would have watched the default 404
+    // without failing — and nothing in CI fetches this URL.
     expect(config.sniffTarballUrl).toBe(
       "https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main",
     );

@@ -207,7 +207,10 @@ describe("buildAgentSpec", () => {
     // Quoted, so a URL with `&` between query parameters is one word rather
     // than a truncated fetch and a stray background job.
     expect(chain[1]).toBe('curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&');
-    expect(chain.at(-1)).toBe("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo");
+    expect(chain.at(-2)).toBe("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo &&");
+    // The sensors' own test suite is part of the repository, not of what runs
+    // in the sandbox: it is shipped by the archive and dropped on arrival.
+    expect(chain.at(-1)).toBe("rm -rf /tmp/cujo/tests");
     // No unchained step: every line but the last ends in `&&`.
     for (const line of chain.slice(0, -1)) expect(line.endsWith("&&")).toBe(true);
   });

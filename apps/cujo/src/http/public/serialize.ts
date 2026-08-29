@@ -27,7 +27,7 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "status",
   "createdAt",
   "updatedAt",
-  // What the pull request says about itself (decision 54). Published because
+  // What the pull request says about itself (decision 55). Published because
   // every row this plane serves is one where `is_public` is true, so the title
   // and the author are already world-readable on GitHub — a different fact
   // from `approver` below, which names a Cujo operator and appears nowhere
