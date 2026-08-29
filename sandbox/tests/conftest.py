@@ -72,6 +72,22 @@ class Cli:
             **kwargs,
         )
 
+    def script(self, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        """The same commands through `sniff.py`, which is what the rubric runs.
+
+        Deliberately not `cwd=CODE_DIR`: the only thing that may put the
+        package on the path here is `sys.path[0]`, the directory holding the
+        script. Running from somewhere else is what proves that.
+        """
+        return subprocess.run(
+            [sys.executable, str(CODE_DIR / "sniff.py"), *args],
+            cwd=str(Path(self.env["HOME"])),
+            env=self.env,
+            capture_output=True,
+            text=True,
+            **kwargs,
+        )
+
     def __call__(self, args: list[str]) -> dict[str, Any]:
         proc = self.raw(args, check=True)
         return json.loads(proc.stdout)
