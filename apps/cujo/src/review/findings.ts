@@ -252,6 +252,16 @@ export function invalidReportFindings(checks: readonly CheckState[]): Finding[] 
   return findings;
 }
 
+const OPERATIONAL_RULES = new Set<HardRule>(["check_missing", "sensor_unarmed", "report_invalid"]);
+
+/**
+ * Operational rules say the evidence is thin, not that the code did anything.
+ * Neither an accusation (malice) nor a defect report (correctness).
+ */
+export function isOperationalRule(finding: Finding): boolean {
+  return finding.rule !== undefined && OPERATIONAL_RULES.has(finding.rule);
+}
+
 /** The checks every review must delegate; `detonation` depends on the PR. */
 export const REQUIRED_CHECKS = ["tests", "probes", "smoke"] as const;
 
