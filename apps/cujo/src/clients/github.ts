@@ -19,6 +19,21 @@ export interface PullRequestInfo {
 
 /** The bot the App posts as. Shared with `github-reactions.ts`, so "ours" means one thing. */
 export const BOT_LOGIN = "cujo-guard[bot]";
+
+/**
+ * How much of a reply reaches the pull request. GitHub accepts 65536, so this
+ * is not the API's limit but Cujo's: a comment long enough to bury the thread
+ * is a worse answer than a short one plus a link, and the text can come from a
+ * model.
+ */
+export const COMMENT_BODY_CAP = 8000;
+
+const TRUNCATION_NOTE = "\n\n_(truncated)_";
+
+function capComment(body: string): string {
+  if (body.length <= COMMENT_BODY_CAP) return body;
+  return body.slice(0, COMMENT_BODY_CAP - TRUNCATION_NOTE.length) + TRUNCATION_NOTE;
+}
 const API = "https://api.github.com";
 /** Long enough to survive a burst of autocomplete, short enough to notice a new install. */
 const REPO_CACHE_MS = 60_000;
@@ -297,6 +312,37 @@ export class GitHubReader {
     if (res.status === 404) return null;
     if (!res.ok) throw new GitHubError(res.status, `/repos/${repo}/contents/${path}`);
     return res.text();
+  }
+
+  /**
+   * Reply on the pull request, as a plain issue comment (decision 43).
+   *
+   * The only text `apps/cujo` writes to GitHub, and it is written from the
+   * trusted plane rather than through `github-mcp` on purpose: every caller is
+   * answering a person who addressed Cujo directly, so the reply is
+   * human-initiated by construction. It states no finding nobody asked for,
+   * which is the property decision 38 protects.
+   *
+   * `body` is capped rather than trusted. GitHub's own limit is far higher, and
+   * a reply that reaches this method may quote a model's prose, so a bound here
+   * is cheaper than discovering the limit through a 422 on the one call that
+   * was supposed to explain a refusal.
+   */
+  async createComment(repo: string, prNumber: number, body: string): Promise<number> {
+    const path = `/repos/${repo}/issues/${prNumber}/comments`;
+    const res = await this.fetchImpl(`${API}${path}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${await this.token(repo)}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "cujo",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ body: capComment(body) }),
+    });
+    if (!res.ok) throw new GitHubError(res.status, path);
+    const created = (await res.json()) as { id: number };
+    return created.id;
   }
 
   /** Contract 5: skip the turn when the bot already reviewed this head SHA. */
