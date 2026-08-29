@@ -5,7 +5,7 @@
 # cujo.spencerjireh.com to `web` (3000), and cujo-ingress.spencerjireh.com to
 # `cujo` (8080). Three hostnames, and `web` answers exactly one of them: the
 # anonymous board. The operator hostname was deleted with its plane
-# (decision 52). For a local run with ports on your host, see the local stack
+# (decision 54). For a local run with ports on your host, see the local stack
 # section of AGENTS.md. Secrets come from the deploy environment, never this
 # file.
 
@@ -82,7 +82,7 @@ services:
   # the read API. Two hostnames and two planes from one process (spec
   # Contract 6): the signature-gated ingress host, and the internal name that
   # carries the anonymous `/public` group. No authenticated route at all
-  # (decision 52).
+  # (decision 54).
   # Hardened: non-root image, read-only rootfs except the SQLite volume, no
   # extra capabilities.
   cujo:
@@ -98,7 +98,7 @@ services:
       # The name `web` addresses this service by on the compose network, and
       # the only name the read plane answers on. Node's fetch always sends the
       # target's own authority as Host, so the UI's proxy could never present a
-      # published hostname anyway (decision 52).
+      # published hostname anyway (decision 54).
       CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: ${CUJO_WEBHOOK_HOST}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
@@ -119,7 +119,7 @@ services:
       CUJO_DEFAULT_DISCORD_GUILD: ${CUJO_DEFAULT_DISCORD_GUILD:-}
       # The board a Discord card links to, and the only origin there is. A
       # private run has no page, so its card carries no link; empty means no
-      # card carries one at all (decision 52).
+      # card carries one at all (decision 54).
       CUJO_PUBLIC_BASE_URL: ${CUJO_PUBLIC_BASE_URL:-}
       # Concurrent anonymous run streams this process will hold, and how often
       # it re-asks GitHub whether each repo with a run is still public.
@@ -173,7 +173,7 @@ services:
   # The UI (apps/web), on the one public hostname; `cujo` is API-only and is
   # reached from here over the compose network. Browser calls go through this
   # service's /api proxy, which forwards `/public/*` and no credential — there
-  # is none to forward (decision 52). No Cujo API route is published directly.
+  # is none to forward (decision 54). No Cujo API route is published directly.
   web:
     build:
       context: .

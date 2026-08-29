@@ -15,7 +15,7 @@ import type { Run } from "@/lib/api/types";
  * anywhere: one gate, in one place, with one audit trail.
  *
  * There used to be two versions of this, one per plane, and the public one
- * pointed at the other hostname. Decision 52 deleted that hostname, so there is
+ * pointed at the other hostname. Decision 54 deleted that hostname, so there is
  * one panel and it is keyed only on what the board publishes: `status`, the
  * pull request it belongs to, and whether a review has posted. Not `approval`,
  * which is withheld, and not `approver`, which names a person.

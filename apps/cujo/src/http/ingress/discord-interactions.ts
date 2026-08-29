@@ -251,7 +251,7 @@ async function repoChoices(
   // missing row in a dropdown.
   //
   // The fallback for an unreachable GitHub is what this server already has
-  // bound. It used to be the operator authorization table, which decision 52
+  // bound. It used to be the operator authorization table, which decision 54
   // deleted; the bindings are the nearest thing left that is local, and they
   // are the repos whose names the person typing already knows.
   const bound = deps.store

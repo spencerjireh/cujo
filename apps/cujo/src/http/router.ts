@@ -13,7 +13,7 @@ export interface AppOptions {
    * name the read plane answers on. Node's fetch always sends the target's own
    * authority as `Host`, so the UI's proxy cannot present a published hostname;
    * accepting the internal name is what lets the read routes stay reachable
-   * behind it (decision 52).
+   * behind it (decision 54).
    */
   internalHost: string;
   /** The anonymous read-only plane under `/public` (decision 34). */
@@ -82,7 +82,7 @@ function readyz(options: AppOptions, limit: StreamLimit) {
  *
  * Neither plane has a credential. The ingress host takes signed requests and
  * nothing else; the read host serves the anonymous board and nothing else.
- * There is no third, authenticated plane — decision 52 deleted it, so a route
+ * There is no third, authenticated plane — decision 54 deleted it, so a route
  * that is not on this list is not reachable at all rather than reachable to
  * whoever holds a token.
  *
@@ -90,7 +90,7 @@ function readyz(options: AppOptions, limit: StreamLimit) {
  * that app reaches over the compose network under `internalHost`. Because that
  * hop rewrites `Host` to the target's own authority, this process never sees a
  * published hostname, so the read plane is a path on the internal name rather
- * than a host of its own (decision 34, decision 52).
+ * than a host of its own (decision 34, decision 54).
  */
 export function createApp(options: AppOptions): Hono<RequestEnv> {
   // Every instance the outer router delegates to re-derives the ray from the
@@ -117,7 +117,7 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
   // Everything else on this host is 404. That is the whole rule now: there is
   // no credential to present and no plane behind this line, so a path that is
   // not `/public` is not served rather than served to whoever authenticates
-  // (decision 52).
+  // (decision 54).
   read.all("*", (c) => c.json({ ok: false, error: "not found" }, 404));
 
   const webhook = new Hono<RequestEnv>();

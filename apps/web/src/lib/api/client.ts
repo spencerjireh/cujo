@@ -7,7 +7,7 @@ import type { Run, RunList } from "./types";
  * own route handler is a wasted hop. In the browser it goes to `/api/cujo/*`,
  * same-origin, so no CORS is involved.
  *
- * Neither carries a credential. There is none to carry since decision 52:
+ * Neither carries a credential. There is none to carry since decision 54:
  * every route this app reads is the anonymous board.
  */
 

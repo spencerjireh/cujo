@@ -11,7 +11,7 @@
  * really holding it, so this covers exactly the two secrets the composed test
  * app is configured with — the webhook HMAC secret, injected for real, and the
  * Access assertion, which arrives on the request. The assertion no longer
- * names a gate (decision 52 deleted the last one), but a client can still send
+ * names a gate (decision 54 deleted the last one), but a client can still send
  * the header, and a credential-shaped value on an anonymous request is exactly
  * the thing that must not end up in a line. The App private key, the
  * Discord token and the provider keys are held by clients this harness fakes,

@@ -9,7 +9,7 @@ import type { MetadataRoute } from "next";
  * of it. A link someone chooses to share is a different thing from a result
  * that surfaces beside the repository itself.
  *
- * There is one hostname since decision 52, so this needs no per-host branch.
+ * There is one hostname since decision 54, so this needs no per-host branch.
  * One line to reverse if the board should ever be indexed.
  */
 export default function robots(): MetadataRoute.Robots {

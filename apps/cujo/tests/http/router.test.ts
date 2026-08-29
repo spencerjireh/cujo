@@ -43,7 +43,7 @@ describe("host dispatch", () => {
   });
 
   /**
-   * The invariant that replaced the gate (decision 52).
+   * The invariant that replaced the gate (decision 54).
    *
    * There is no credential to present any more, so "not `/public`" can no
    * longer mean "behind the check" — it has to mean "not served". A 401 here
