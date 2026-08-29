@@ -18,6 +18,21 @@ const config: NextConfig = {
   transpilePackages: ["@cujo/log"],
   poweredByHeader: false,
   reactStrictMode: true,
+  // The only remote images this app loads: a PR author's GitHub avatar
+  // (decision 52). Routed through `/_next/image` rather than loaded straight
+  // from the browser, so opening a run on the anonymous board does not make a
+  // request to github.com carrying the visitor's address. The path is
+  // `/u/<numeric id>` and nothing else, because the id is the only part of an
+  // author this app is willing to put in a URL.
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "avatars.githubusercontent.com",
+        pathname: "/u/**",
+      },
+    ],
+  },
   // No `rewrites` for the API: rewrites are baked into routes-manifest.json at
   // build time, so a destination read from the environment would freeze the
   // build machine's value into the image. The proxy is a route handler instead

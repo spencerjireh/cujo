@@ -108,6 +108,13 @@ export interface RunSummary {
   approver?: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * What the pull request calls itself. Both planes send it on every row, so
+   * it is required here and nullable rather than optional: null is a run
+   * recorded before titles were stored, or one whose PR read never completed,
+   * and every render falls back to `repo #N` (decision 52).
+   */
+  pr_title: string | null;
 }
 
 export interface RunList {
@@ -138,6 +145,15 @@ export interface Run extends RunSummary {
    * `canDecide` is false there and no decision is ever offered.
    */
   approval?: PendingApproval | null;
+  /**
+   * Who opened the pull request, on the run page only — a list row names the
+   * pull request, not the person. Both planes send both, so both are required
+   * and nullable; they are null together for a run recorded before the author
+   * was stored, and for a deleted account. The id is what an avatar URL is
+   * built from, never the login.
+   */
+  pr_author_login: string | null;
+  pr_author_id: number | null;
   error: string | null;
   summary: string | null;
 }

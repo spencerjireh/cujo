@@ -84,6 +84,9 @@ const base = {
   turn_ids: [],
   approver: null,
   decided_at: null,
+  pr_title: "Add a thing",
+  pr_author_login: "octocat",
+  pr_author_id: 583231,
   created_at: "2026-08-28T10:00:00Z",
   updated_at: "2026-08-28T10:00:00Z",
   checks: [],
@@ -226,6 +229,9 @@ describe("the public wire shape tracks apps/cujo", () => {
     "status",
     "created_at",
     "updated_at",
+    // What the pull request says about itself: already world-readable on
+    // GitHub for every repo this plane serves (decision 52).
+    "pr_title",
   ];
 
   it("keeps the summary shape to what a public list can carry", () => {
@@ -260,6 +266,9 @@ describe("the public wire shape tracks apps/cujo", () => {
       status: "blocked_pending",
       created_at: "2026-08-28T00:00:00.000Z",
       updated_at: "2026-08-28T00:01:00.000Z",
+      pr_title: "Add a thing",
+      pr_author_login: "octocat",
+      pr_author_id: 583231,
       checks: [],
       findings: [],
       hard_rule_hits: [],
@@ -275,6 +284,18 @@ describe("the public wire shape tracks apps/cujo", () => {
   it("carries every emitted key the shared components read", () => {
     for (const field of [...REQUIRED_ON_BOTH_PLANES, "checks", "findings", "review", "summary"]) {
       expect(PUBLIC_RUN_FIELDS).toContain(field);
+    }
+  });
+
+  /**
+   * The author is on the run and not on the summary, so the run page can name
+   * a person and a list row cannot. Asserted rather than assumed: the two
+   * lists are edited in different places and would otherwise drift.
+   */
+  it("names the author on a run but never on a list row", () => {
+    for (const field of ["pr_author_login", "pr_author_id"]) {
+      expect(PUBLIC_RUN_FIELDS).toContain(field);
+      expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
     }
   });
 });

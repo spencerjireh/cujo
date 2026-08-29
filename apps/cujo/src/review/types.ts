@@ -155,6 +155,20 @@ export interface RunRecord {
    * serializer withholds it.
    */
   deliveryId: string | null;
+  /**
+   * What the pull request says about itself: its title, and who opened it
+   * (decision 52). Read from GitHub once when the run is claimed and joined
+   * onto every run read, so a card and a run page name the same two parties
+   * without either asking GitHub again.
+   *
+   * All three are null for a run recorded before the columns existed, or one
+   * whose PR read never completed; `authorLogin` and `authorId` are also both
+   * null when the account has since been deleted. Untrusted, like every other
+   * string GitHub hands over.
+   */
+  prTitle: string | null;
+  prAuthorLogin: string | null;
+  prAuthorId: number | null;
   createdAt: string;
   updatedAt: string;
 }

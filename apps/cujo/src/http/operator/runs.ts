@@ -31,6 +31,9 @@ function serialize(view: RunView) {
     decided_at: run.decidedAt,
     created_at: run.createdAt,
     updated_at: run.updatedAt,
+    pr_title: run.prTitle,
+    pr_author_login: run.prAuthorLogin,
+    pr_author_id: run.prAuthorId,
     checks: projection.checks,
     findings: projection.findings,
     hard_rule_hits: projection.hardRuleHits,
@@ -59,6 +62,7 @@ export function runRoutes(deps: RunRoutesDeps): Hono<Env> {
       approver: run.approver,
       created_at: run.createdAt,
       updated_at: run.updatedAt,
+      pr_title: run.prTitle,
     }));
     return c.json({ runs });
   });

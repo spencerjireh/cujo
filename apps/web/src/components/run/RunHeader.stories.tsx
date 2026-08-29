@@ -44,3 +44,17 @@ export const Errored: Story = {
 export const NoSummaryYet: Story = {
   args: { run: run({ status: "running", approval: null, summary: null, review: null }) },
 };
+
+/**
+ * A run claimed before the title and the author were stored, or one whose PR
+ * read never completed. The heading falls back to `repo #N` and the author line
+ * is absent, which is exactly the header every run had before decision 52.
+ */
+export const NoTitleOrAuthor: Story = {
+  args: { run: run({ pr_title: null, pr_author_login: null, pr_author_id: null }) },
+};
+
+/** A bot opened it: named with its avatar, and not linked (decision 52). */
+export const OpenedByABot: Story = {
+  args: { run: run({ pr_author_login: "dependabot[bot]", pr_author_id: 49699333 }) },
+};

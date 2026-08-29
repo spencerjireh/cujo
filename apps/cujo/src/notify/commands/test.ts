@@ -27,11 +27,15 @@ export async function test(deps: CommandDeps, guildId: string, repo: string): Pr
       decidedAt: null,
       isPublic: true,
       deliveryId: null,
+      prTitle: "Sample card",
+      // GitHub's own account, so the sample shows a real avatar and a real
+      // profile link without naming anybody who did not ask to be named.
+      prAuthorLogin: "github",
+      prAuthorId: 9919,
       createdAt: now,
       updatedAt: now,
     },
     projection: { ...emptyProjection(), status: "clean", summary: "Sample card from /cujo test." },
-    prTitle: "Sample card",
     links: deps.links,
   });
   try {
