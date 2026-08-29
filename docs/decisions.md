@@ -1371,3 +1371,56 @@ question nobody needed to answer. Neither is preventable: the review is already
 public under the bot's name by the time the fold sees it. Accepted, because the
 alternative is keeping every REQUEST_CHANGES gated, which is the ceremony this
 change removes.
+
+## 43. `apps/cujo` may reply on a pull request, because a person asked it to
+
+Decision 38 let `apps/cujo` write a reaction, on the argument that the rule
+being protected is that **nothing states a finding on a pull request without a
+human allowing it** — and that a reaction states no finding, carries no text and
+names no file. A comment does carry text, so that argument does not extend to
+it, and this needs its own.
+
+The argument is that a reply is **human-initiated by construction**. Every
+caller of `createComment` is answering a person who addressed Cujo directly: a
+maintainer who typed `/cujo confirm` and is owed the outcome, one whose command
+was refused and is owed the reason, or one who asked `@cujo-guard` a question.
+Cujo never opens a thread. The thing decision 38 protects is an *unprompted*
+statement about someone's code, and a reply to a direct question is a different
+act — the same distinction that makes answering the door not the same as
+knocking on it.
+
+Two properties keep that honest. The write lives in `apps/cujo`, not in
+`github-mcp`, so the agent has no path to it and no tool that could be
+prompt-injected into using one; the conversation agent in particular holds no
+write authority at all, and its answer reaches the pull request only because the
+trusted plane read it out of the turn and posted it. And the body is capped at
+8000 characters here rather than at GitHub's 65536, because the text can be a
+model's and a reply long enough to bury a thread is a worse answer than a short
+one — the one call that must never fail with a 422 is the one explaining why
+something was refused.
+
+`GitHubReactions.addToComment` is a separate method rather than a parameter on
+`set`, and the reason is not tidiness. `set` deletes every bot reaction on its
+target that it did not ask for, and `PrReactor` caches by run id, so a reaction
+cleared through that path would never be restored: acknowledging a comment
+through the pull request's reaction endpoint would silently strip the run's
+verdict off the pull request for the rest of its life. The comment method is
+add-only, because there is nothing to reconcile — a comment does not change
+state, and "seen" is said once.
+
+**Checked against the live App, not read off the docs**, because decision 38
+already found that the docs are wrong about this family of endpoints — they name
+`issues: write` for a target that a pull request permission reaches. The
+installation on `spencerjireh/orders-api` holds exactly `contents: read`,
+`metadata: read`, `pull_requests: write`, and with that token:
+
+- `POST /repos/{repo}/issues/{n}/comments` — created, and deleted again.
+- `POST /repos/{repo}/issues/comments/{id}/reactions` — 201.
+- `GET /repos/{repo}/collaborators/{user}/permission` — 200, `permission: admin`.
+  Included here because Design 2's authorization rests on it and it is the one
+  most likely to have needed a grant; GitHub's own documentation states no
+  permission requirement for it at all. It is reachable with `metadata: read`.
+
+So no installation has to re-approve, which is the bar decision 38 set when it
+rejected a Check Run for needing `checks: write`. The script that established
+this is worth re-running if the App's permissions are ever narrowed.

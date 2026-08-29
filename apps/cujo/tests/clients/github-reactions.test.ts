@@ -127,3 +127,40 @@ describe("GitHubReactions.set", () => {
     );
   });
 });
+
+describe("GitHubReactions.addToComment", () => {
+  it("reacts on the comment and nowhere else", async () => {
+    const { impl, log } = server();
+    await new GitHubReactions("1", "pem", impl).addToComment("o/r", 55, "eyes");
+    expect(log).toEqual(["POST /repos/o/r/issues/comments/55/reactions"]);
+  });
+
+  it("leaves the run's own status reaction on the pull request alone", async () => {
+    // The hazard this method exists for. `set` clears every bot reaction on
+    // its target that it did not want, and `PrReactor` caches by run id, so a
+    // reaction cleared through that path would never be put back — the pull
+    // request would silently lose the run's verdict for the rest of its life.
+    const { impl, rows, log } = server([ours("eyes", 1), ours("rocket", 2)]);
+    await new GitHubReactions("1", "pem", impl).addToComment("o/r", 55, "+1");
+    expect(rows).toContainEqual(ours("eyes", 1));
+    expect(rows).toContainEqual(ours("rocket", 2));
+    expect(log.some((line) => line.startsWith("DELETE"))).toBe(false);
+    expect(log.some((line) => line.includes("/issues/7/"))).toBe(false);
+  });
+
+  it("treats a reaction that already stands as done", async () => {
+    const { impl } = server([ours("+1", 9)]);
+    await expect(
+      new GitHubReactions("1", "pem", impl).addToComment("o/r", 55, "+1"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws when GitHub refuses, so the caller can say the ack failed", async () => {
+    const refusing = vi.fn(
+      async () => new Response("no", { status: 403 }),
+    ) as unknown as typeof fetch;
+    await expect(
+      new GitHubReactions("1", "pem", refusing).addToComment("o/r", 55, "eyes"),
+    ).rejects.toThrow(/403/);
+  });
+});

@@ -7,7 +7,7 @@ vi.mock("@cujo/gh-app-auth", () => ({
   getAppJwt: vi.fn(async () => "app_jwt"),
 }));
 
-import { GitHubReader, parseDeclaredGuild } from "../../src/clients/github";
+import { COMMENT_BODY_CAP, GitHubReader, parseDeclaredGuild } from "../../src/clients/github";
 
 type Route = (url: URL) => { status?: number; body: unknown };
 
@@ -316,5 +316,45 @@ describe("GitHubReader.repoIsPublic", () => {
     await r.repoIsPublic("o/r");
     await r.repoIsPublic("o/r");
     expect(impl).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("GitHubReader.createComment", () => {
+  function commentServer(status = 201) {
+    const bodies: string[] = [];
+    const paths: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      paths.push(new URL(String(input)).pathname);
+      bodies.push(String(init?.body));
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+      return new Response(JSON.stringify({ id: 4242 }), { status });
+    });
+    return { impl: impl as unknown as typeof fetch, bodies, paths };
+  }
+
+  it("posts to the pull request's comment list and returns the new id", async () => {
+    const { impl, paths, bodies } = commentServer();
+    const id = await new GitHubReader("1", "pem", impl).createComment("o/r", 7, "hello");
+    expect(id).toBe(4242);
+    expect(paths).toEqual(["/repos/o/r/issues/7/comments"]);
+    expect(JSON.parse(bodies[0] ?? "{}")).toEqual({ body: "hello" });
+  });
+
+  it("caps a long body rather than letting GitHub refuse the whole reply", async () => {
+    // The text can be a model's, and the one call that must not fail is the
+    // one explaining why something was refused.
+    const { impl, bodies } = commentServer();
+    await new GitHubReader("1", "pem", impl).createComment("o/r", 7, "x".repeat(20_000));
+    const sent = (JSON.parse(bodies[0] ?? "{}") as { body: string }).body;
+    expect(sent.length).toBe(COMMENT_BODY_CAP);
+    expect(sent.endsWith("_(truncated)_")).toBe(true);
+  });
+
+  it("throws a typed GitHubError so the caller can log a status, not a body", async () => {
+    const { impl } = commentServer(403);
+    await expect(
+      new GitHubReader("1", "pem", impl).createComment("o/r", 7, "hello"),
+    ).rejects.toMatchObject({ status: 403, path: "/repos/o/r/issues/7/comments" });
   });
 });
