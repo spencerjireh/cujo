@@ -43,7 +43,7 @@ export async function watch(
   // server already claimed is not this server's to redirect.
   const existing = deps.store.getDiscordChannel(input.repo);
   if (existing?.guildId && existing.guildId !== input.guildId) {
-    return `\`${input.repo}\` is already being sent to another server. A Cujo operator can move it.`;
+    return `\`${input.repo}\` is already being sent to another server. Change \`discord_guild\` in its \`.cujo.yml\` to move it.`;
   }
 
   // `expectGuildId`, because the option comes from this server's picker but a

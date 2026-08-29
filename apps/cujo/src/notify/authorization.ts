@@ -2,14 +2,15 @@
  * May this Discord server manage this repo's review notifications
  * (spec Contract 8)?
  *
- * The answer comes from the repository first. A repo names its server in
- * `.cujo.yml` on the default branch, which makes the authority repo write
- * access — the thing that actually correlates with owning the repo — rather
- * than "someone holds a Cujo login". It is self-serve, auditable in git
- * history, and revoked by a commit (decision 31).
+ * The answer comes from the repository. A repo names its server in `.cujo.yml`
+ * on the default branch, which makes the authority repo write access — the
+ * thing that actually correlates with owning the repo — rather than "someone
+ * holds a Cujo login". It is self-serve, auditable in git history, and revoked
+ * by a commit (decision 31).
  *
- * The operator table stays as an override, for moving a repo between servers
- * or allowing one whose `.cujo.yml` cannot be changed.
+ * There is no operator override any more. It was written only over the plane
+ * decision 52 deleted, so keeping the table would have left a row nothing
+ * reads and a rule nobody could exercise.
  *
  * A deploy that serves one Discord server can name it in
  * `CUJO_DEFAULT_DISCORD_GUILD`, and a repo that declares nothing then belongs
@@ -35,7 +36,7 @@ import type { NotificationStore } from "../store";
  * would let a GitHub hiccup silence a team's reviews.
  */
 export type Authorization =
-  | { allowed: true; source: "repo" | "operator" | "default" }
+  | { allowed: true; source: "repo" | "default" }
   | { allowed: false; reason: "not_declared" | "declared_elsewhere" | "unknown" };
 
 export interface AuthorizationDeps {
@@ -58,7 +59,6 @@ export async function authorizationFor(
   repo: string,
   options: { fresh?: boolean } = {},
 ): Promise<Authorization> {
-  if (deps.store.isGuildAuthorized(guildId, repo)) return { allowed: true, source: "operator" };
   let declared: string | null;
   try {
     declared = await deps.github.declaredGuild(repo, options);
@@ -96,7 +96,7 @@ export function explain(
     return `Cujo could not read \`${repo}\`'s \`.cujo.yml\` just now. Try again in a moment.`;
   }
   if (authorization.reason === "declared_elsewhere") {
-    return `\`${repo}\` names a different Discord server in its \`.cujo.yml\`. Change it there, or ask a Cujo operator to move it.`;
+    return `\`${repo}\` names a different Discord server in its \`.cujo.yml\`. Change it there, on the default branch — merging that is what proves you control the repo.`;
   }
   return [
     `\`${repo}\` has not named this server. Add this to \`.cujo.yml\` on its default branch:`,

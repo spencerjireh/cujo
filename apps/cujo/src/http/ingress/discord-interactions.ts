@@ -249,8 +249,16 @@ async function repoChoices(
   // every keystroke. `watch` does one targeted read and says exactly what to
   // add if the repo has not named this server, which teaches more than a
   // missing row in a dropdown.
-  const known = new Set(deps.store.listGuildRepos(guildId).map((a) => a.repo));
-  const candidates = installed.length > 0 ? installed : [...known];
+  //
+  // The fallback for an unreachable GitHub is what this server already has
+  // bound. It used to be the operator authorization table, which decision 52
+  // deleted; the bindings are the nearest thing left that is local, and they
+  // are the repos whose names the person typing already knows.
+  const bound = deps.store
+    .listDiscordChannels()
+    .filter((binding) => binding.guildId === guildId)
+    .map((binding) => binding.repo);
+  const candidates = installed.length > 0 ? installed : bound;
   const typed = focusedValue(interaction).toLowerCase();
   return (
     candidates
