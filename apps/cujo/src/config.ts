@@ -84,6 +84,11 @@ export interface Config {
    * `apps/cujo` writes to a stranger's repository.
    */
   prReactions: boolean;
+  /**
+   * The GitHub login the App posts as. Configurable so a dev App with a
+   * different name still finds its own reviews (idempotency, stale dismissal).
+   */
+  botLogin: string;
   devNoAccess: boolean;
   bootstrap: {
     modelProvider: {
@@ -209,6 +214,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // Only an explicit "0" turns it off, so an unset or misspelt value keeps
     // the pull request answering rather than going quiet without saying why.
     prReactions: env.CUJO_PR_REACTIONS !== "0",
+    botLogin: env.CUJO_BOT_LOGIN || "cujo-guard[bot]",
     devNoAccess,
     bootstrap: {
       modelProvider:
