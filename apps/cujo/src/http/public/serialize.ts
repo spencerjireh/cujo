@@ -92,7 +92,16 @@ export const WITHHELD_SOURCE_FIELDS: readonly SourceField[] = [
   "gatedResponseSeen",
 ];
 
-/** Exactly the keys `serializePublicRun` emits. */
+/**
+ * Exactly the keys `serializePublicRun` emits — every one of them, on every
+ * response.
+ *
+ * A field with nothing to report is `null` and never absent. That is not style:
+ * `JSON.stringify` drops an `undefined`, so a value read straight off a stored
+ * projection that predates its field takes the key out of the payload with it,
+ * and this list stops being a promise precisely where a client is least able to
+ * see it coming. Every optional source field is therefore read with `?? null`.
+ */
 export const PUBLIC_RUN_FIELDS = [
   "id",
   "repo",
