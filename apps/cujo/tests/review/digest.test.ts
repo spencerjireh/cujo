@@ -112,6 +112,25 @@ describe("deriveDigest", () => {
     expect(digest.durationMs).toBeNull();
   });
 
+  /**
+   * A check stamped backwards reports `ms: null` on its own, but a second
+   * check stamped forwards can still drag the aggregate envelope positive. The
+   * envelope has to refuse whatever `checkMs` refuses, per check.
+   */
+  it("refuses an envelope when one check ends before it starts", () => {
+    const digest = deriveDigest(
+      projection({
+        checks: [
+          check({ title: "tests", startedAt: T90, endedAt: T0 }),
+          check({ title: "probes", startedAt: T0, endedAt: T90 }),
+        ],
+      }),
+    );
+    expect(digest.checks.tests?.ms).toBeNull();
+    expect(digest.checks.probes?.ms).toBe(90_000);
+    expect(digest.durationMs).toBeNull();
+  });
+
   it("keeps a check that errored, with whatever it managed to measure", () => {
     const digest = deriveDigest(
       projection({ checks: [check({ title: "detonation", status: "error", startedAt: T0 })] }),
