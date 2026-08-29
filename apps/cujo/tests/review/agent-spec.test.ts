@@ -158,12 +158,29 @@ describe("buildAgentSpec", () => {
   it("extracts the archive so sniff.py and cujo_sniff land as siblings", () => {
     // Nothing in CI fetches the URL, so the shape of the fetch is only ever
     // checked here. `--strip-components=1` drops the archive's top directory,
-    // whose name depends on the branch, and the copy puts the whole of
+    // whose name depends on the branch, and the move puts the whole of
     // sandbox/ in one place -- which is what makes sys.path[0] find the
     // package with no install (decision 46).
     const rubric = loadRubric();
     expect(rubric).toContain("curl -fsSL {{CUJO_SNIFF_TARBALL_URL}} -o /tmp/cujo-src.tgz");
     expect(rubric).toContain("--strip-components=1");
-    expect(rubric).toContain("cp -R /tmp/cujo-src/sandbox/. /tmp/cujo/");
+    expect(rubric).toContain("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo");
+  });
+
+  it("delivers the sensors from one archive or not at all", () => {
+    // A retry within a turn must not mix two fetches. Staging is cleared
+    // first, every step is chained so a failure stops delivery, and the
+    // destination is replaced rather than merged into -- otherwise a module
+    // deleted upstream survives in /tmp/cujo and gets imported.
+    const step = loadRubric().split("2. `git clone")[0];
+    expect(step).toContain("rm -rf /tmp/cujo-src /tmp/cujo-src.tgz");
+    // No unchained step: every line of the block ends in `&&` bar the last.
+    const chain = step
+      .split("```")[1]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    expect(chain.length).toBeGreaterThan(1);
+    for (const line of chain.slice(0, -1)) expect(line.endsWith("&&")).toBe(true);
   });
 });
