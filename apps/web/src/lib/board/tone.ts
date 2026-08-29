@@ -85,7 +85,11 @@ export const TONE_CHAMBER_VAR: Record<Tone, string> = {
   critical: "--chamber-critical",
   amber: "--chamber-amber",
   info: "--chamber-info",
-  inert: "--chamber-line",
+  // `--chamber-inert`, not `--chamber-line`: this tone colours the *core* of a
+  // superseded or denied run, and the wireframe value is three shades off the
+  // background — those verdicts would be a dot nobody can see. The wireframe
+  // has its own token because it is a different job.
+  inert: "--chamber-inert",
   bone: "--chamber-fg-muted",
 };
 
@@ -136,6 +140,16 @@ export function checkOutcome(check: DigestCheck | undefined): CheckOutcome {
  * is the same restraint brand.md asks of amber, applied to the whole ramp — a
  * calm review is nearly colourless, and the eye goes straight to the one arm
  * that is not.
+ *
+ * A check still running is info blue rather than inert, and that is the one
+ * place an arm takes a signal colour for something that is not a problem: bone
+ * and inert are a shade apart by design, so a running arm drawn inert would be
+ * indistinguishable from one that finished. Blue reads as "in flight" here and
+ * as a verdict on a core; they are different objects and never adjacent.
+ *
+ * `absent` never reaches a renderer — an arm of length zero is not drawn, in
+ * the scene or in the flat elevation — so its tone is what a gap would be
+ * rather than something the eye is asked to read.
  */
 export const OUTCOME_TONE: Record<CheckOutcome, Tone> = {
   done: "bone",
