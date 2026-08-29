@@ -1425,6 +1425,10 @@ So no installation has to re-approve, which is the bar decision 38 set when it
 rejected a Check Run for needing `checks: write`. The script that established
 this is worth re-running if the App's permissions are ever narrowed.
 
+*Corrected by decision 50: that held for the API calls tested here, and not for
+the event subscription the same design needs. The App now also holds
+`issues: read`, and the installation did have to re-approve.*
+
 ## 44. Repo write is the principal that may publish an accusation
 
 [hitl.md](hitl.md) ends by naming the question it does not answer: *who, exactly,
@@ -1840,3 +1844,39 @@ the Discord admin forms. And **making the whole plane public**, which is
 tempting now that `approver` is a GitHub login already visible on the pull
 request, but publishes `session_id`, `turn_ids` and `delivery_id` and hands the
 Discord bindings to anyone.
+
+## 50. `issue_comment` costs the App a permission, and decision 43's check did not cover it
+
+Decision 43 established, against the live App rather than the documentation,
+that `apps/cujo` could comment and react on a pull request with the permissions
+it already held, and concluded: "So no installation has to re-approve, which is
+the bar decision 38 set." That conclusion was correct about what it tested and
+wrong about what it implied.
+
+It tested **API calls**. Subscribing to an **event** is a separate gate, and
+GitHub applies it separately. `issue_comment` is released by the `issues`
+permission and by nothing else — including for a comment on a pull request,
+which is the only kind Cujo acts on. The App settings page will not even render
+the checkbox while `issues` is `none`, and a form that carries the value anyway
+is rejected server-side. There is no REST route for the subscription either, so
+this is the one piece of Cujo's configuration that cannot be scripted.
+
+So the App now holds `issues: read`, and the installation was asked to accept it
+on 2026-08-29. The bar decision 38 set was cleared for the wrong reason and then
+crossed anyway; the honest reading is that decision 38's rule — a new permission
+is a real cost, weigh it against the feature — applies here and the feature
+wins, because `/cujo confirm` *is* the human gate (decision 44) and a gate that
+never receives its event is not a gate.
+
+Read-only, and it grants nothing the review needs: nothing in `apps/cujo` or the
+agent reads an issue. It exists to make one webhook arrive.
+
+`pull_request_review_comment` needed no such grant — it is released by
+`pull_requests`, which the App already held for the review itself.
+
+The rejected alternative was **`author_association` from the payload**, which
+arrives free and needs no permission. `hitl.md` had already ruled it out for
+authorization, and it is ruled out here for the same reason: `COLLABORATOR` does
+not distinguish triage from push, so it is not the repo-write check decision 44
+requires. Trading the accuracy of the principal for a permission grant is the
+wrong side of that trade.

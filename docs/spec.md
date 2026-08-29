@@ -62,6 +62,12 @@ The Cujo GitHub App subscribes to `pull_request` events (`opened`,
 (`created`). The signature is checked before the event type, so all four arrive
 on the same route with the same one gate in front of them.
 
+Two of those subscriptions are not free. GitHub releases `issue_comment` on the
+`issues` permission and on nothing else, even though every comment Cujo acts on
+is on a pull request, so the App holds `issues: read` for delivery alone and no
+code reads an issue (decision 50). `pull_request_review_comment` is released by
+`pull_requests`, which the App already held.
+
 A `repository` event re-stamps `is_public` on every run of that repo and does
 nothing else; it is the fast path for decision 34's public board, and matching
 is case-insensitive because `runs.repo` holds whatever casing GitHub sent.
