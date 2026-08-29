@@ -404,6 +404,20 @@ describe("where a card links", () => {
     expect(private_).toBe(private_?.trimEnd());
   });
 
+  it("escapes a repo name Discord would read as emphasis", () => {
+    // A repo name may hold `_`, and the ping is the one payload that was
+    // interpolating it with only a length bound.
+    const content = buildPing({
+      run: run({ status: "blocked_pending", repo: "o/my_repo_name", isPublic: true }),
+      links: LINKS,
+      roleId: null,
+    }).content;
+    expect(content).toContain("o/my\\_repo\\_name");
+    // And the link is still a link: escapeMarkdown defangs URLs, so running it
+    // over the finished string would have broken Cujo's own.
+    expect(content).toContain(`${PUBLIC_UI}/runs/`);
+  });
+
   it("names the pull request in a private run's resolved ping, and links nothing", () => {
     const resolved = buildPing({
       run: run({ status: "denied", isPublic: false }),
