@@ -15,6 +15,7 @@ import { buildAgentSpec, buildConverseSpec, specFingerprint } from "./review/age
 import { publicRunId } from "./review/links";
 import { PrCommandService } from "./review/pr-command.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
+import { startRun } from "./review/start-run";
 import type { RunRecord } from "./review/types";
 import { VisibilityService } from "./review/visibility.service";
 import { Store } from "./store";
@@ -116,10 +117,86 @@ async function main(): Promise<void> {
   // same runner the operator route resumes. It reuses the reactor's write
   // client for the acknowledgement, and goes without one when reactions are
   // off — the reply is the answer, and the reaction is decoration.
+  // What every path that claims a run stamps on it. Read from the spec rather
+  // than from `config`, so the digest is of the string a session would actually
+  // be handed, tarball URL substituted and all.
+  const provenance = { model: config.model, rubricSha256: specFingerprint(spec) };
+
+  /**
+   * `/cujo review` (decision 63): claim the current head and start a turn on it.
+   *
+   * The same pieces the webhook route uses, composed once here so
+   * `pr-command.service.ts` stays a policy module. Two differences from a
+   * webhook claim, and both are the point of the verb: the head's existing run
+   * is reclaimed, because `runs_head` is unique and a finished run is exactly
+   * what a re-review displaces; and `startRun` is forced past the
+   * already-reviewed guard, which exists to stop a redelivery reviewing the
+   * same commit twice and would otherwise refuse this every time.
+   */
+  const startReview = async (input: {
+    repo: string;
+    prNumber: number;
+    headSha: string;
+    actor: string;
+  }): Promise<{ ok: true } | { ok: false; detail: string }> => {
+    // A repo GitHub will not answer about is one this run cannot decide the
+    // visibility of, and `isPublic` decides whether the run gets a public page
+    // at all (decision 34). Refuse rather than guess private and quietly
+    // publish nothing.
+    const visibility = await github.repoIsPublic(input.repo);
+    if (visibility === "unknown") {
+      return {
+        ok: false,
+        detail: "I could not tell whether this repository is public. Try again.",
+      };
+    }
+    let sessionId = store.runs.getSession(input.repo, input.prNumber);
+    if (!sessionId) {
+      sessionId = store.runs.putSession(
+        input.repo,
+        input.prNumber,
+        await harness.createSession(spec),
+      );
+    }
+    store.runs.reclaimRunForHead(input.repo, input.prNumber, input.headSha);
+    const { run, created } = store.runs.createRun({
+      repo: input.repo,
+      prNumber: input.prNumber,
+      headSha: input.headSha,
+      sessionId,
+      isPublic: visibility === "public",
+      deliveryId: null,
+      ...provenance,
+    });
+    if (!created) return { ok: false, detail: "A run for this commit is already starting." };
+    log.info("run.claimed", {
+      run_id: run.id,
+      repo: run.repo,
+      pr_number: run.prNumber,
+      head_sha: run.headSha,
+      reason: "pr_command",
+    });
+    reactor?.markClaimed(run);
+    void startRun(
+      {
+        github,
+        store: store.runs,
+        runner,
+        reviewRunId: (r: RunRecord) => publicRunId(r),
+        log,
+        ...(reactor ? { onClaimed: (r: RunRecord) => reactor.markClaimed(r) } : {}),
+      },
+      run,
+      { force: true },
+    );
+    return { ok: true };
+  };
+
   const prCommands = new PrCommandService({
     runs: store.runs,
     runner,
     github,
+    startReview,
     reactions: config.prReactions
       ? new GitHubReactions(
           config.githubAppId,
@@ -217,10 +294,7 @@ async function main(): Promise<void> {
       reviewRunId: (run: RunRecord) => publicRunId(run),
       ...(reactor ? { onClaimed: (run: RunRecord) => reactor.markClaimed(run) } : {}),
       createSession: () => harness.createSession(spec),
-      // Stamped on every run this process claims. Read from the spec rather
-      // than from `config` so the digest is of the string a session would
-      // actually be handed, tarball URL substituted and all.
-      provenance: { model: config.model, rubricSha256: specFingerprint(spec) },
+      provenance,
       isReady: () => harness.ready,
       prCommands,
       ...(converse ? { converse } : {}),
