@@ -92,7 +92,10 @@ function modelRef(config: Pick<Config, "model" | "modelReasoningEffort">): TrueF
 }
 
 export function buildAgentSpec(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "sniffTarballUrl">,
+  config: Pick<
+    Config,
+    "model" | "modelReasoningEffort" | "sniffTarballUrl" | "compactionThresholdTokens"
+  >,
   rubric = loadRubric(),
 ): TrueForgeApi.AgentSpec {
   return {
@@ -104,7 +107,20 @@ export function buildAgentSpec(
     // ceremony. Only the accusation waits (decision 42).
     mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
     config: {
-      sandbox: { enabled: true },
+      // `fileDownloads` is on by default and would let a file written inside
+      // the box be fetched back out through the harness's download endpoint.
+      // Nothing in this design ever does that — a check report comes back as
+      // text on a thread event — so the crossing is closed rather than left
+      // open because nobody has asked.
+      sandbox: { enabled: true, fileDownloads: false },
+      // Raised well above the harness default of 50,000. The parent holds four
+      // full check reports and then writes the review body from them, so a
+      // compaction in between is a review argued from a summary of the
+      // evidence. The hard rules survive it either way — Cujo re-derives those
+      // from the reports on its own side — but the prose would not.
+      contextManagement: {
+        compaction: { enabled: true, compactionThresholdTokens: config.compactionThresholdTokens },
+      },
       // The review runs headless; nothing can answer a question or view a card.
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
@@ -139,7 +155,10 @@ export function buildConverseSpec(
     instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
     mcpServers: [],
     config: {
-      sandbox: { enabled: true },
+      // Closed here too, and for the same reason. No `contextManagement`: this
+      // answers one question against a brief already collected, so it never
+      // holds the evidence a compaction would summarise away.
+      sandbox: { enabled: true, fileDownloads: false },
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
       // Lower than the review's 150: this answers one question against a brief
