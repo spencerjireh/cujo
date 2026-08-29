@@ -1258,7 +1258,7 @@ along with Contract 8; **dropping the declaration entirely** for Manage Server
 plus the App's installation list, which is the alternative rejected twice and
 would be actively wrong while Public Bot is on.
 
-## 41. One sensed command at a time, and every audit row says whose it is
+## 41. One sensed command at a time, and one audit log per command
 
 A check report is the slice of the shared sensor logs written while one command
 ran, bounded by the byte offset `run_sensed` took before starting it. Every
@@ -1279,12 +1279,28 @@ window, and the timeout is longer than any check should take.
 
 The lock cannot fix attribution on its own, because a process a check leaves
 running keeps appending after that check's window closes. So `run_sensed` also
-mints a run id, passes it to the sensed child as `CUJO_RUN_ID`, and the audit
-hook stamps it on every row; rows carrying another id are dropped even when the
-offsets place them inside the window. The env that `setup` prints carries no
-run id, so a command the agent runs with that environment but outside a wrapper
-writes rows no report claims — which is correct, and previously those rows were
-claimed by whichever report came next.
+gives each sensed command its own audit log, `CUJO_DIR/audit/<random>.jsonl`,
+and points that command's `CUJO_AUDIT_LOG` at it. Attribution is then which
+file a row landed in. A process an earlier check left running holds that
+check's log and cannot write into this one; a command the agent runs with the
+environment `setup` printed holds the shared `audit.jsonl`, which no report
+reads. Previously those rows were claimed by whichever report came next.
+
+**The first attempt tagged rows instead, and was wrong in the dangerous
+direction.** `run_sensed` minted a run id, passed it as `CUJO_RUN_ID`, and
+dropped rows carrying any other value. But the tag lives in the environment of
+the process being measured, so a child that kept `CUJO_AUDIT_LOG` and dropped
+`CUJO_RUN_ID` still wrote rows — and those rows were then filtered out of the
+report. A sensor that can be silenced by unsetting a variable is worse than no
+filter at all, because the report still reads as complete. Naming the file is
+the same idea with the trust moved: the child cannot write into a log it was
+never told about. Caught by Qodo on the pull request.
+
+That change also removed a rule that had been added alongside the tag, which
+treated every read under `CUJO_DIR` as sensor noise. With per-command logs the
+wrapper's own reads of the sensor logs never reach a report anyway, so the rule
+bought nothing — and it hid a command reading `decoy.backup`, which is where
+`setup` parks the real credentials file the decoy displaced. Also Qodo's.
 
 Chosen over **tagging the proxy and watcher rows the same way**, which cannot
 work: those are long-lived daemons serving every check, and nothing in a
@@ -1298,4 +1314,5 @@ least reliable.
 
 Known limit: the proxy rows are still bounded only by offsets. Under the lock
 that is correct, and outside it — after a timeout — the report may carry
-another command's hosts. The run id makes the audit rows exact in both cases.
+another command's hosts. The per-command log makes the audit rows exact in
+both cases.

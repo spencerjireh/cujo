@@ -388,35 +388,35 @@ def test_sensitive_survives_traversal_and_symlink(tmp_path: Path, home_dir: Path
     assert not sniff.is_sensitive(f"{home_dir}/.ssh/../project/app.py", home_dir)
 
 
-def test_our_own_state_dir_is_noise(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reads_of_our_own_state_dir_are_still_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     state = tmp_path / "cujo"
     monkeypatch.setattr(sniff, "CUJO_DIR", state)
-    # run_sensed reads these three to build the report, with the audit hook
-    # installed in its own process.
-    assert sniff.is_noise_read(str(state / "proxy.jsonl"))
-    assert sniff.is_noise_read(str(state / "audit.jsonl"))
-    assert sniff.is_noise_read(str(state / "pyhook" / "sitecustomize.py"))
-    # The detonation environments live beside the state dir, not inside it,
-    # and what an install reads there is evidence.
+    # setup parks the real credentials file here when it seeds the decoy, so a
+    # command reading it is stealing a credential, not making sensor noise.
+    assert not sniff.is_noise_read(str(state / "decoy.backup"))
+    assert not sniff.is_noise_read(str(state / "proxy.jsonl"))
     assert not sniff.is_noise_read(str(tmp_path / "cujo-envs" / "lib" / "payload.py"))
 
 
 def test_daemon_env_disarms_the_hook_and_the_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CUJO_AUDIT_LOG", "/tmp/cujo/audit.jsonl")
-    monkeypatch.setenv("CUJO_RUN_ID", "deadbeef")
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:8899")
     monkeypatch.setenv("http_proxy", "http://127.0.0.1:8899")
     monkeypatch.setenv("PATH", os.environ["PATH"])
     env = sniff._daemon_env()
-    for gone in ("CUJO_AUDIT_LOG", "CUJO_RUN_ID", "HTTPS_PROXY", "http_proxy"):
+    for gone in ("CUJO_AUDIT_LOG", "HTTPS_PROXY", "http_proxy"):
         assert gone not in env
     assert env["PATH"] == os.environ["PATH"]
 
 
-def test_sensor_env_carries_a_run_id_only_when_sensed() -> None:
+def test_sensor_env_points_the_hook_at_the_log_the_report_reads(tmp_path: Path) -> None:
     config = {"proxy_port": 8899, "allow_hosts": []}
-    assert "CUJO_RUN_ID" not in sniff.sensor_env(config)
-    assert sniff.sensor_env(config, "abc123")["CUJO_RUN_ID"] == "abc123"
+    # The env setup prints names the shared log, which no report reads.
+    assert sniff.sensor_env(config)["CUJO_AUDIT_LOG"] == str(sniff.state_paths()["audit_log"])
+    per_run = tmp_path / "audit" / "abc123.jsonl"
+    assert sniff.sensor_env(config, per_run)["CUJO_AUDIT_LOG"] == str(per_run)
 
 
 def test_sensed_window_is_exclusive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -450,20 +450,20 @@ def test_sensed_window_is_exclusive(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         assert held is True
 
 
-def test_run_ignores_audit_rows_from_another_window(tmp_path: Path, home_dir: Path) -> None:
+def test_run_reads_only_its_own_audit_log(tmp_path: Path, home_dir: Path) -> None:
     env = {**os.environ, "HOME": str(home_dir), "CUJO_DIR": str(tmp_path / "cujo")}
     env.pop("PYTHONPATH", None)
     _run(["setup", "--proxy-port", "0"], env)
     try:
-        # A process the previous check left running keeps appending to the
-        # shared audit log. The offsets put those rows inside this window; only
-        # the run id says they are not this command's.
-        stray = json.dumps(
-            {"event": "open", "path": str(home_dir / "stray.txt"), "mode": "r", "run": "not-ours"}
-        )
+        # A process an earlier check left running still holds the log it was
+        # given, and a command run outside a wrapper holds the shared one.
+        # Neither is this command's log, so neither reaches this report.
+        shared = tmp_path / "cujo" / "audit.jsonl"
+        stray = json.dumps({"event": "open", "path": str(home_dir / "stray.txt"), "mode": "r"})
         script = (
             "import os\n"
-            f"open(os.environ['CUJO_AUDIT_LOG'], 'a').write({stray!r} + '\\n')\n"
+            f"assert os.environ['CUJO_AUDIT_LOG'] != {str(shared)!r}\n"
+            f"open({str(shared)!r}, 'a').write({stray!r} + '\\n')\n"
             f"open({str(home_dir / 'mine.txt')!r}, 'w').write('x')\n"
             f"open({str(home_dir / 'mine.txt')!r}).read()\n"
         )
