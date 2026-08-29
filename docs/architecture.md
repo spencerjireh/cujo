@@ -240,11 +240,13 @@ from a separate session that holds no write tool (Contract 10, decision 47).
 
 **D. The accusation.** Detonation sees egress to an unknown host during an
 install. The advisory posts with the observation as a `warn`, plus the line
-saying what to do about it. Then `/cujo confirm` from someone with repo write
-who is not the author, on the current head, resumes `allow` and the gated
-REQUEST_CHANGES review posts. Or `/cujo dismiss` resumes `deny` and the warn
-stands. Or nobody answers: the warn stands, the merge is not blocked, and there
-is no deadline.
+saying what to do about it. Then `/cujo confirm` from someone with repo write,
+on the current head, resumes `allow` and the gated REQUEST_CHANGES review posts;
+the author may confirm, because acting against your own interest needs no guard.
+Or `/cujo dismiss` resumes `deny` and the warn stands — and that verb the author
+may **not** use, since it is the direction that buries an accusation against
+one's own change (decision 44). Or nobody answers: the warn stands, the merge is
+not blocked, and there is no deadline.
 
 **E. Teaching.** Three pull requests in a row flag the same host, a maintainer
 says `@cujo-guard that host is ours`, and Cujo opens a `.cujo.yml` pull request
