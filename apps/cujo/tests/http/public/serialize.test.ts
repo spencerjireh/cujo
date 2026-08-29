@@ -240,16 +240,20 @@ describe("serializePublicSummary", () => {
 });
 
 /**
- * The one rule here that no type system expresses: the public module must not
- * reach into the operator one.
+ * The one rule here that no type system expresses: what this module is allowed
+ * to depend on at all.
  *
- * It is also the rule that makes the allowlist meaningful — importing the
- * operator `serialize()` and deleting fields from its result would pass every
- * other test in this file while restoring exactly the public-by-default
- * behaviour decision 34 rejected. Biome 1.9's `noRestrictedImports` is a
- * nursery rule that matches exact module specifiers rather than a directory,
- * so this reads the source instead. Unusual, and better than a comment nobody
- * is obliged to obey.
+ * It used to be stated as "never import from `../operator/`", because the way
+ * to defeat the allowlist was to import the operator serializer and delete
+ * fields from its result. Decision 52 deleted that directory, which would have
+ * left a guard that passes because its target no longer exists — a green test
+ * proving nothing. So the rule is inverted into a positive allowlist: these
+ * are the modules the public plane may reach, and anything else is a new
+ * dependency somebody has to write down here first.
+ *
+ * Biome 1.9's `noRestrictedImports` is a nursery rule matching exact module
+ * specifiers rather than a directory, so this reads the source instead.
+ * Unusual, and better than a comment nobody is obliged to obey.
  */
 describe("the public module's imports", () => {
   const dir = join(import.meta.dirname, "../../../src/http/public");
@@ -260,11 +264,27 @@ describe("the public module's imports", () => {
     return [...source.matchAll(IMPORT)].map(([, specifier]) => specifier ?? "");
   };
 
-  it("never reaches into the operator plane", () => {
+  /**
+   * Every specifier the plane may name. Anything reaching further — a client,
+   * the runner's own dependencies, a notify module — is how a field nobody
+   * classified arrives in a public response.
+   */
+  const ALLOWED = new Set([
+    "hono",
+    "hono/streaming",
+    "./serialize",
+    "./stream-limit",
+    "../request-log",
+    "../../review/runner.service",
+    "../../review/types",
+    "../../store",
+  ]);
+
+  it("reaches only the modules named here", () => {
     const offenders: string[] = [];
     for (const file of readdirSync(dir).filter((name) => name.endsWith(".ts"))) {
       for (const specifier of specifiersIn(file)) {
-        if (specifier.includes("operator")) offenders.push(`${file} -> ${specifier}`);
+        if (!ALLOWED.has(specifier)) offenders.push(`${file} -> ${specifier}`);
       }
     }
     expect(offenders).toEqual([]);

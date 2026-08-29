@@ -13,9 +13,8 @@ import { Store } from "../../src/store";
 /** Tests assert on behaviour, not on log output; the sink swallows it. */
 const silentLog = createLogger({ service: "cujo", sink: () => {} });
 
-const UI = "https://cujo-admin.example.com";
 const PUBLIC_UI = "https://cujo.example.com";
-const LINKS = { uiBaseUrl: UI, publicBaseUrl: PUBLIC_UI };
+const LINKS = { publicBaseUrl: PUBLIC_UI };
 
 function fakeClient() {
   let created = 0;

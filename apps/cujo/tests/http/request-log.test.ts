@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { GENERATED_RAY_PREFIX, rayFrom } from "../../src/http/request-log";
-import { HOOK, INTERNAL, UI, build, req } from "./helpers";
+import { HOOK, INTERNAL, build, req } from "./helpers";
 
 describe("rayFrom", () => {
   it("takes Cloudflare's id when the edge sent one", () => {
@@ -31,24 +31,26 @@ describe("rayFrom", () => {
 describe("one line per request", () => {
   it("carries the plane, method, path, status and duration", async () => {
     const { app, logged } = build();
-    await app.fetch(req(UI, "/runs"));
+    await app.fetch(req(INTERNAL, "/public/runs"));
     const [line] = logged("http.request");
     expect(line).toMatchObject({
       event: "http.request",
-      plane: "operator",
+      plane: "public",
       method: "GET",
-      path: "/runs",
-      http_status: 401,
+      path: "/public/runs",
+      http_status: 200,
     });
     expect(typeof line?.duration_ms).toBe("number");
   });
 
   it("names the plane that answered, not the host that was asked", async () => {
     const { app, logged } = build();
-    await app.fetch(req(UI, "/public/runs"));
+    await app.fetch(req(INTERNAL, "/public/runs"));
     await app.fetch(req(HOOK, "/webhook", { method: "POST" }));
+    // Not `/public`, so not the read plane — and since decision 52 there is no
+    // third plane for it to be, which is what "unknown" says here.
     await app.fetch(req(INTERNAL, "/runs"));
-    expect(logged("http.request").map((l) => l.plane)).toEqual(["public", "ingress", "operator"]);
+    expect(logged("http.request").map((l) => l.plane)).toEqual(["public", "ingress", "unknown"]);
   });
 
   it("logs the unknown-host 404, which is the request most likely to be queried", async () => {
@@ -59,28 +61,28 @@ describe("one line per request", () => {
 
   it("uses the edge ray when there is one, on every plane", async () => {
     const { app, logged } = build();
-    await app.fetch(req(UI, "/runs", { headers: { "cf-ray": "abc123-LHR" } }));
+    await app.fetch(req(INTERNAL, "/public/runs", { headers: { "cf-ray": "abc123-LHR" } }));
     await app.fetch(req(HOOK, "/nope", { headers: { "cf-ray": "def456-LHR" } }));
     expect(logged("http.request").map((l) => l.ray)).toEqual(["abc123-LHR", "def456-LHR"]);
   });
 
   it("generates a ray when the edge sent none", async () => {
     const { app, logged } = build();
-    await app.fetch(req(UI, "/runs"));
+    await app.fetch(req(INTERNAL, "/public/runs"));
     expect(String(logged("http.request")[0]?.ray)).toContain(GENERATED_RAY_PREFIX);
   });
 
   it("gives each request its own ray", async () => {
     const { app, logged } = build();
-    await app.fetch(req(UI, "/runs"));
-    await app.fetch(req(UI, "/runs"));
+    await app.fetch(req(INTERNAL, "/public/runs"));
+    await app.fetch(req(INTERNAL, "/public/runs"));
     const [first, second] = logged("http.request");
     expect(first?.ray).not.toBe(second?.ray);
   });
 
   it("emits exactly one line per request", async () => {
     const { app, logged } = build();
-    await app.fetch(req(UI, "/runs"));
+    await app.fetch(req(INTERNAL, "/public/runs"));
     expect(logged("http.request")).toHaveLength(1);
   });
 
@@ -98,7 +100,7 @@ describe("one line per request", () => {
       sessionId: "s",
       isPublic: true,
     }).run;
-    await app.fetch(req(UI, `/public/runs/${run.id}`, { headers: { "cf-ray": "edge-1" } }));
+    await app.fetch(req(INTERNAL, `/public/runs/${run.id}`, { headers: { "cf-ray": "edge-1" } }));
     // The outer line and the plane's own view of the ray must agree.
     expect(logged("http.request")[0]?.ray).toBe("edge-1");
   });
@@ -107,17 +109,17 @@ describe("one line per request", () => {
     // The header is this process's own channel between routers. A client that
     // sets it must not be able to choose what its request is filed under.
     const { app, logged } = build();
-    await app.fetch(req(UI, "/runs", { headers: { "x-cujo-ray": "forged" } }));
+    await app.fetch(req(INTERNAL, "/public/runs", { headers: { "x-cujo-ray": "forged" } }));
     expect(logged("http.request")[0]?.ray).not.toBe("forged");
   });
 
   it("does not call a path public just because it starts with those letters", async () => {
-    // /publicity falls through to the gated router, so calling it public would
-    // put the wrong trust boundary on the line.
+    // /publicity is a 404, not the board, so calling it public would file the
+    // wrong path under the plane that serves run data.
     const { app, logged } = build();
-    await app.fetch(req(UI, "/publicity"));
-    await app.fetch(req(UI, "/public/runs"));
-    expect(logged("http.request").map((l) => l.plane)).toEqual(["operator", "public"]);
+    await app.fetch(req(INTERNAL, "/publicity"));
+    await app.fetch(req(INTERNAL, "/public/runs"));
+    expect(logged("http.request").map((l) => l.plane)).toEqual(["unknown", "public"]);
   });
 
   it("logs a probe path asked of an unknown host, because that is a 404", async () => {
@@ -133,7 +135,9 @@ describe("one line per request", () => {
     // on the event that records a decision, not on every request.
     const { app, lines } = build();
     await app.fetch(
-      req(UI, "/runs", { headers: { "cf-access-jwt-assertion": "good", cookie: "s=secret" } }),
+      req(INTERNAL, "/public/runs", {
+        headers: { "cf-access-jwt-assertion": "good", cookie: "s=secret" },
+      }),
     );
     const body = JSON.stringify(lines);
     expect(body).not.toContain("good");

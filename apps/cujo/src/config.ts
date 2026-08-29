@@ -17,19 +17,16 @@ export interface Config {
   githubWebhookSecret: string;
   githubAppId: string;
   githubAppPrivateKey: string;
-  uiHost: string;
+  /**
+   * The compose service name `apps/web` addresses this process by, and since
+   * decision 52 the only name the read plane answers on.
+   */
   internalHost: string;
   webhookHost: string;
   /**
-   * Origin of the Access-gated operator UI. Since decision 34 that is
-   * `cujo-admin`, not `cujo`: it is where a Discord card sends someone who has
-   * to decide, and the read-only board has no buttons.
-   */
-  uiBaseUrl: string;
-  /**
-   * Origin of the anonymous board. A card for a public run links here instead,
-   * so a repo's channel is not answered with a login page. Empty falls back to
-   * `uiBaseUrl`.
+   * Origin of the anonymous board — the only origin there is (decision 52).
+   * A Discord card for a public run links here; a private run has no page, so
+   * its card carries no link. Empty means no card carries one.
    */
   publicBaseUrl: string;
   /** Null turns Discord notifications off; the service runs without them. */
@@ -46,15 +43,6 @@ export interface Config {
    * a server that invited the bot on its own is refused exactly as before.
    */
   defaultDiscordGuild: string | null;
-  cfAccessTeamDomain: string;
-  cfAccessAud: string;
-  /**
-   * The shared operator token (decision 49). Optional while both gates are
-   * accepted: empty disables the bearer path rather than accepting an empty
-   * credential, which is the difference between "not configured yet" and
-   * "open". It becomes required when Access is removed.
-   */
-  operatorToken: string;
   dbPath: string;
   model: string;
   githubMcpUrl: string;
@@ -84,7 +72,6 @@ export interface Config {
    * `apps/cujo` writes to a stranger's repository.
    */
   prReactions: boolean;
-  devNoAccess: boolean;
   bootstrap: {
     modelProvider: {
       name: string;
@@ -150,15 +137,8 @@ function tarballUrl(raw: string): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const devNoAccess = env.CUJO_DEV_NO_ACCESS === "1";
-  // Trimmed once, and read only from here after: the login form trims what an
-  // operator pastes, and a secret normalised on one side of a comparison but
-  // not the other is a token that disables the Access requirement while being
-  // impossible to present through the UI. Whitespace-only is no token at all.
-  const operatorToken = (env.CUJO_OPERATOR_TOKEN ?? "").trim();
   const modelProviderBaseUrl = env.MODEL_PROVIDER_BASE_URL;
   const modelProviderApiKey = env.MODEL_PROVIDER_API_KEY;
-  const uiHost = env.CUJO_UI_HOST ?? "cujo.spencerjireh.com";
   return {
     port: Number(env.PORT ?? 8080),
     logLevel: parseLevel(env.CUJO_LOG_LEVEL),
@@ -166,27 +146,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     githubWebhookSecret: required(env, "GITHUB_WEBHOOK_SECRET"),
     githubAppId: required(env, "GITHUB_APP_ID"),
     githubAppPrivateKey: required(env, "GITHUB_APP_PRIVATE_KEY"),
-    uiHost,
     internalHost: env.CUJO_INTERNAL_HOST ?? "cujo",
     webhookHost: env.CUJO_WEBHOOK_HOST ?? "cujo-ingress.spencerjireh.com",
     // `||`, not `??`: compose passes an unset optional as `${X:-}`, which is
     // the empty string, and `??` would keep it.
-    uiBaseUrl: (env.CUJO_UI_BASE_URL || `https://${uiHost}`).replace(/\/+$/, ""),
     publicBaseUrl: (env.CUJO_PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
     discordBotToken: env.DISCORD_BOT_TOKEN || null,
     discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
     defaultDiscordGuild: env.CUJO_DEFAULT_DISCORD_GUILD || null,
-    // The Access check is skipped only in dev, so the values are required
-    // otherwise — and required *unless a token is configured*, which is what
-    // makes the two gates orderable: a deploy that has set the token no longer
-    // has to keep the Access variables around to start.
-    cfAccessTeamDomain:
-      devNoAccess || operatorToken
-        ? (env.CF_ACCESS_TEAM_DOMAIN ?? "")
-        : required(env, "CF_ACCESS_TEAM_DOMAIN"),
-    cfAccessAud:
-      devNoAccess || operatorToken ? (env.CF_ACCESS_AUD ?? "") : required(env, "CF_ACCESS_AUD"),
-    operatorToken,
     dbPath: env.CUJO_DB_PATH ?? "/data/cujo.db",
     model: required(env, "CUJO_MODEL"),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
@@ -209,7 +176,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // Only an explicit "0" turns it off, so an unset or misspelt value keeps
     // the pull request answering rather than going quiet without saying why.
     prReactions: env.CUJO_PR_REACTIONS !== "0",
-    devNoAccess,
     bootstrap: {
       modelProvider:
         modelProviderBaseUrl && modelProviderApiKey

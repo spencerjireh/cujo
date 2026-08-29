@@ -2,23 +2,20 @@ import { type Logger, logFailureCount } from "@cujo/log";
 import { Hono } from "hono";
 import { type InteractionDeps, interactionRoutes } from "./ingress/discord-interactions";
 import { type WebhookDeps, webhookRoutes } from "./ingress/github-webhook";
-import { type OperatorDeps, operatorRoutes } from "./operator";
 import { type PublicDeps, publicRoutes } from "./public";
 import type { StreamLimit } from "./public/stream-limit";
 import { type Plane, type RequestEnv, requestLogger, withRay } from "./request-log";
 
 export interface AppOptions {
-  uiHost: string;
   webhookHost: string;
   /**
-   * The compose service name `apps/web` addresses this process by. Node's fetch
-   * always sends the target's own authority as `Host`, so the operator UI's
-   * proxy cannot present the public hostname; accepting the internal name is
-   * what lets the API routes stay reachable behind it. The Access check still
-   * applies to every one of those routes.
+   * The compose service name `apps/web` addresses this process by, and the only
+   * name the read plane answers on. Node's fetch always sends the target's own
+   * authority as `Host`, so the UI's proxy cannot present a published hostname;
+   * accepting the internal name is what lets the read routes stay reachable
+   * behind it (decision 52).
    */
-  internalHost?: string;
-  api: OperatorDeps;
+  internalHost: string;
   /** The anonymous read-only plane under `/public` (decision 34). */
   public: PublicDeps;
   webhook: WebhookDeps;
@@ -55,7 +52,7 @@ const PROBE_PATHS = new Set(["/healthz", "/readyz"]);
  */
 function readyz(options: AppOptions, limit: StreamLimit) {
   const harnessReady = options.webhook.isReady?.() ?? true;
-  const storeOk = options.api.runs.ping();
+  const storeOk = options.public.runs.ping();
   const ready = harnessReady && storeOk;
   return {
     body: {
@@ -80,29 +77,26 @@ function readyz(options: AppOptions, limit: StreamLimit) {
 
 /**
  * One process, two hostnames and two planes (Contract 6). The split is enforced
- * here, not only at the edge: the webhook host never serves /runs and the UI
- * host never serves /webhook. Any other Host gets 404.
+ * here, not only at the edge: the webhook host never serves /public and the
+ * read host never serves /webhook. Any other Host gets 404.
+ *
+ * Neither plane has a credential. The ingress host takes signed requests and
+ * nothing else; the read host serves the anonymous board and nothing else.
+ * There is no third, authenticated plane — decision 52 deleted it, so a route
+ * that is not on this list is not reachable at all rather than reachable to
+ * whoever holds a token.
  *
  * The UI itself is `apps/web`; this process serves only the JSON API, which
  * that app reaches over the compose network under `internalHost`. Because that
- * hop rewrites `Host` to the target's own authority, this process never sees
- * the public hostname, so the public plane is a path and not a fourth host
- * (decision 34).
+ * hop rewrites `Host` to the target's own authority, this process never sees a
+ * published hostname, so the read plane is a path on the internal name rather
+ * than a host of its own (decision 34, decision 52).
  */
 export function createApp(options: AppOptions): Hono<RequestEnv> {
-  // The gated plane is its own instance and is delegated to, rather than being
-  // layered under the same router as the public routes. operatorRoutes applies
-  // its Access check with `app.use("*")`, which would otherwise also match
-  // /public/* and leave the split resting on Hono's handler ordering — true
-  // today, invisible to a reviewer, and one `await next()` from being false.
   // Every instance the outer router delegates to re-derives the ray from the
   // request, because `fetch` on a Hono instance builds a fresh context and
   // nothing set on the outer one survives the hop. They agree because the ray
   // travels on the request, not because they each guess the same way.
-  const gated = new Hono<RequestEnv>();
-  gated.use("*", requestLogger(options.log, "delegated"));
-  gated.route("/", operatorRoutes(options.api));
-
   const publicPlane = publicRoutes(options.public);
 
   const ui = new Hono<RequestEnv>();
@@ -118,10 +112,11 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
   ui.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
   ui.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
   ui.route("/public", publicPlane.app);
-  // Everything else on this host is behind the Access check. The raw request
-  // already carries the ray header, so the gated instance re-derives the same
-  // one rather than inventing a second.
-  ui.all("*", (c) => gated.fetch(c.req.raw));
+  // Everything else on this host is 404. That is the whole rule now: there is
+  // no credential to present and no plane behind this line, so a path that is
+  // not `/public` is not served rather than served to whoever authenticates
+  // (decision 52).
+  ui.all("*", (c) => c.json({ ok: false, error: "not found" }, 404));
 
   const webhook = new Hono<RequestEnv>();
   webhook.use("*", requestLogger(options.log, "delegated"));
@@ -151,11 +146,11 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
 
     const answer = async (): Promise<Response> => {
       const forwarded = withRay(c.req.raw, ray);
-      if (host === options.uiHost || (options.internalHost && host === options.internalHost)) {
+      if (host === options.internalHost) {
         // Exactly the mount, not every path that starts with those characters:
-        // `/publicity` falls through to the gated router, so calling it public
-        // would put the wrong trust boundary on the line.
-        plane = path === "/public" || path.startsWith("/public/") ? "public" : "operator";
+        // `/publicity` is a 404 and not the board, so calling it public would
+        // file the wrong path under the plane that serves run data.
+        plane = path === "/public" || path.startsWith("/public/") ? "public" : "unknown";
         probe = PROBE_PATHS.has(path);
         return ui.fetch(forwarded);
       }
