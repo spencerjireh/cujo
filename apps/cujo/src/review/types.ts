@@ -7,6 +7,14 @@ export type RunStatus =
   | "running"
   | "clean"
   | "blocked_pending"
+  /**
+   * A blocking review Cujo posted on its own authority: a correctness
+   * critical, which no human was asked about. Distinct from `blocked_posted`,
+   * where somebody confirmed an accusation — telling those two apart is what
+   * the gate exists for, and `approver` alone cannot, because it is also null
+   * on a run nobody ever looked at.
+   */
+  | "blocked_unattended"
   | "blocked_posted"
   | "denied"
   | "error"
@@ -42,6 +50,22 @@ export interface ReviewComment {
 
 export type Severity = "info" | "warn" | "critical";
 
+/**
+ * Which Layer 1 rule produced a hard-rule finding. Present so the trusted side
+ * can tell a correctness claim from a malice claim without matching on prose:
+ * `tests_failed` says the pull request broke something, and the other four
+ * accuse code of acting against the person running it. Optional because a
+ * projection stored before this field existed rehydrates without it, and
+ * because an agent finding has no rule at all.
+ */
+export type HardRule =
+  | "tests_failed"
+  | "decoy_read"
+  | "decoy_in_egress"
+  | "wrote_sensitive"
+  | "egress_to_unknown_host"
+  | "check_missing";
+
 /** One finding (Contract 3). `source` says which layer produced it. */
 export interface Finding {
   source: "hard_rule" | "agent";
@@ -49,13 +73,17 @@ export interface Finding {
   severity: Severity;
   title: string;
   evidence: string;
+  rule?: HardRule;
   path?: string;
   line?: number;
   side?: "LEFT" | "RIGHT";
 }
 
+/** The three review tools (Contract 4). Two of them post REQUEST_CHANGES. */
+export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+
 export interface DraftedReview {
-  tool: "post_advisory_review" | "post_blocking_review";
+  tool: ReviewTool;
   toolCallId: string;
   body: string;
   comments: ReviewComment[];
@@ -73,7 +101,20 @@ export interface Projection {
   status: RunStatus;
   turnIds: string[];
   checks: CheckState[];
+  /**
+   * The review that reached the pull request. Only ever an ungated call, so a
+   * recorded call is a posted review: `post_advisory_review` and
+   * `post_blocking_review` post the moment the model calls them.
+   */
   review: DraftedReview | null;
+  /**
+   * A `post_gated_review` call: drafted, and not on the pull request until
+   * `gatedResponseSeen`. Its own slot because the run can hold both at once —
+   * on the malice path the observation posts as an advisory and the conclusion
+   * waits — and one field cannot hold both without the second destroying the
+   * record of the first.
+   */
+  gatedReview: DraftedReview | null;
   /** Hard-rule hits re-derived from the check reports (decision 21). */
   hardRuleHits: Finding[];
   /** Hard-rule hits merged with the agent's findings, critical first. */

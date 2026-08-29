@@ -103,6 +103,7 @@ const COLOR: Record<RunStatus, number> = {
   running: 0xe6cf4a, // --sev-medium
   clean: 0xa39b90, // --fg-muted
   blocked_pending: 0xf2a900, // --accent / --sev-high
+  blocked_unattended: 0xff5c45, // --sev-critical
   blocked_posted: 0xff5c45, // --sev-critical
   denied: 0x958d82, // --sev-low
   error: 0x66b0f0, // --sev-info
@@ -113,6 +114,8 @@ const DESCRIPTION: Record<RunStatus, string> = {
   running: "Review running: tests, probes, a smoke boot, and dependency detonation.",
   clean: "No critical finding. The advisory review posted.",
   blocked_pending: "**Blocked — waiting for a human.** Approve or reject in Cujo.",
+  blocked_unattended:
+    "Blocking review posted as REQUEST_CHANGES. A correctness finding: no human was asked.",
   blocked_posted: "Blocking review posted as REQUEST_CHANGES.",
   denied: "The block was rejected. Nothing was posted.",
   error: "The run ended in error.",

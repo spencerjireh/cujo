@@ -3,7 +3,7 @@
 import { usePlane } from "@/app/providers";
 import { useRunStream } from "@/hooks/useRunStream";
 import { runOptions } from "@/lib/api/queries";
-import { reviewPosted } from "@/lib/api/types";
+import { gatedReviewPosted, reviewPosted } from "@/lib/api/types";
 import { useQuery } from "@tanstack/react-query";
 import { ApproveBar } from "./ApproveBar";
 import { CheckReports } from "./CheckReports";
@@ -41,6 +41,14 @@ export function RunView({ id }: { id: string }) {
       <ChecksTimeline checks={run.checks} findings={run.findings} />
       <FindingsList findings={run.findings} status={run.status} />
       {run.review ? <ReviewPanel review={run.review} posted={reviewPosted(run)} /> : null}
+      {/*
+        Both, when there are both. The advisory is already on the pull request
+        while the accusation waits, and showing only one of them is how a human
+        ends up confirming a body they never read.
+      */}
+      {run.gated_review ? (
+        <ReviewPanel review={run.gated_review} posted={gatedReviewPosted(run)} />
+      ) : null}
       <CheckReports checks={run.checks} />
       <ApproveBar run={run} />
     </article>
