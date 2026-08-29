@@ -162,7 +162,7 @@ describe("buildAgentSpec", () => {
     // sandbox/ in one place -- which is what makes sys.path[0] find the
     // package with no install (decision 46).
     const rubric = loadRubric();
-    expect(rubric).toContain("curl -fsSL {{CUJO_SNIFF_TARBALL_URL}} -o /tmp/cujo-src.tgz");
+    expect(rubric).toContain('curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz');
     expect(rubric).toContain("--strip-components=1");
     expect(rubric).toContain("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo");
   });
@@ -181,6 +181,9 @@ describe("buildAgentSpec", () => {
       .map((line) => line.trim())
       .filter(Boolean);
     expect(chain[0]).toBe("rm -rf /tmp/cujo-src /tmp/cujo-src.tgz &&");
+    // Quoted, so a URL with `&` between query parameters is one word rather
+    // than a truncated fetch and a stray background job.
+    expect(chain[1]).toBe('curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&');
     expect(chain.at(-1)).toBe("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo");
     // No unchained step: every line but the last ends in `&&`.
     for (const line of chain.slice(0, -1)) expect(line.endsWith("&&")).toBe(true);

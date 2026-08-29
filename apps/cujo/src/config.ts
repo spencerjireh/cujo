@@ -105,16 +105,30 @@ function count(
 }
 
 /**
- * The sensor archive URL, rejected at boot if it names a single script.
- * `CUJO_SNIFF_TARBALL_URL` replaced `CUJO_SNIFF_URL` (decision 46), so the
- * mistake to expect is the old value pasted into the new key. Failing here
- * says so once, on the server; the same value reaching the sandbox fails as a
- * `tar` error inside a box nobody is reading the logs of.
+ * The sensor archive URL, checked at boot because the sandbox cannot check it.
+ *
+ * The rubric interpolates this value into a shell command, inside double
+ * quotes, so `&` and `;` are safe but `"`, `` ` ``, `$`, `\` and whitespace are
+ * not: a value carrying one changes the command the sandbox runs rather than
+ * the URL it fetches. No URL needs them. This is operator input rather than
+ * anything a pull request can reach, so the risk is a broken fetch and not an
+ * injection — but a broken fetch is every check failing to start.
+ *
+ * `.py` is rejected separately because `CUJO_SNIFF_TARBALL_URL` replaced
+ * `CUJO_SNIFF_URL` (decision 46), so the mistake to expect is the old value
+ * pasted into the new key. Failing here says so once, on the server; the same
+ * value reaching the sandbox fails as a `tar` error inside a box nobody is
+ * reading the logs of.
  */
 function tarballUrl(raw: string): string {
-  if (raw.endsWith(".py")) {
-    throw new Error(`CUJO_SNIFF_TARBALL_URL must be a source archive, not a script; got ${raw}`);
-  }
+  const reject = (why: string): never => {
+    throw new Error(`CUJO_SNIFF_TARBALL_URL ${why}; got ${JSON.stringify(raw)}`);
+  };
+  if (raw.endsWith(".py")) reject("must be a source archive, not a script");
+  if (/["`$\\]|\s/.test(raw)) reject("must not contain quotes, backslashes, $ or whitespace");
+  if (!URL.canParse(raw)) reject("must be an absolute URL");
+  const { protocol } = new URL(raw);
+  if (protocol !== "https:" && protocol !== "http:") reject("must be http or https");
   return raw;
 }
 

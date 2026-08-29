@@ -128,7 +128,7 @@ the entry point and `cujo_sniff/` is the package behind it. The rubric copies
 the whole of `sandbox/` into `/tmp/cujo`, so the two are siblings and
 `sys.path[0]` finds the package — there is no install step, nothing may import
 a third-party module, and it runs with the sandbox's `python3`, not `uv`
-(decision 42). Report shapes live in `docs/spec.md` Contract 2.
+(decision 46). Report shapes live in `docs/spec.md` Contract 2.
 
 ## Repo rules
 
