@@ -546,9 +546,13 @@ membership and `COLLABORATOR` does not distinguish triage from push, so it is
 **not** the permission check this design claims. If the endpoint is unavailable,
 the honest fallback is an approver list in `.cujo.yml`.
 
-**`issue_comment` is not subscribed.** `spec.md:58` records `pull_request`
-(`opened`, `synchronize`) only. A GitHub App settings change, ordered against the
-deploy (decision 35). The ingress dispatch is a flat if-chain
+**`issue_comment` has to be subscribed, and that is not free.** When this was
+written `spec.md:58` recorded `pull_request` (`opened`, `synchronize`) only. A
+GitHub App settings change, ordered against the deploy (decision 35).
+*Subscribed on 2026-08-29 together with `pull_request_review_comment`, and it
+cost more than a checkbox: GitHub releases `issue_comment` on the `issues`
+permission alone, so the App took `issues: read` and the installation had to
+accept it (decision 50).* The ingress dispatch is a flat if-chain
 (`github-webhook.ts:124-131`) and `handleRepository` (`:65-91`) is the template:
 narrow local interface, action allowlist, one store write, domain log, 200 — with
 the delivery-scoped `log` passed as a parameter (`:69-72`). The 202 must still
