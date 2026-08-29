@@ -99,24 +99,26 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
   // travels on the request, not because they each guess the same way.
   const publicPlane = publicRoutes(options.public);
 
-  const ui = new Hono<RequestEnv>();
-  ui.use("*", requestLogger(options.log, "delegated"));
-  ui.get("/healthz", (c) => c.json(HEALTHZ));
-  ui.get("/readyz", (c) => {
+  // Named for what it serves, not for who reads it: `apps/web` is the UI, and
+  // this is the read plane it calls.
+  const read = new Hono<RequestEnv>();
+  read.use("*", requestLogger(options.log, "delegated"));
+  read.get("/healthz", (c) => c.json(HEALTHZ));
+  read.get("/readyz", (c) => {
     const { body, status } = readyz(options, publicPlane.limit);
     return c.json(body, status);
   });
-  // The webhook is never reachable on the UI host, not even as a 401. The same
-  // goes for the Discord interactions endpoint: both are signature-gated
-  // ingress, and neither belongs behind Access.
-  ui.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
-  ui.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
-  ui.route("/public", publicPlane.app);
+  // Spelled out rather than left to the catch-all below, because these two are
+  // the paths somebody will try here: signature-gated ingress belongs on the
+  // webhook host and is not reachable from this one at all.
+  read.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
+  read.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
+  read.route("/public", publicPlane.app);
   // Everything else on this host is 404. That is the whole rule now: there is
   // no credential to present and no plane behind this line, so a path that is
   // not `/public` is not served rather than served to whoever authenticates
   // (decision 52).
-  ui.all("*", (c) => c.json({ ok: false, error: "not found" }, 404));
+  read.all("*", (c) => c.json({ ok: false, error: "not found" }, 404));
 
   const webhook = new Hono<RequestEnv>();
   webhook.use("*", requestLogger(options.log, "delegated"));
@@ -152,7 +154,7 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
         // file the wrong path under the plane that serves run data.
         plane = path === "/public" || path.startsWith("/public/") ? "public" : "unknown";
         probe = PROBE_PATHS.has(path);
-        return ui.fetch(forwarded);
+        return read.fetch(forwarded);
       }
       if (host === options.webhookHost) {
         plane = "ingress";
