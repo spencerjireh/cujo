@@ -191,12 +191,22 @@ Each check runs in its own subagent with fresh context. The subagent has the
 check's instructions and the sandbox tools, nothing else; only its final JSON
 report returns to the parent.
 
+They all start at once. No check reads another's report, and the two facts that
+decide which checks run at all — whether a test command could be inferred, and
+whether the manifest changed — are both settled during setup, before any
+subagent exists. The sensors serialise themselves (decision 41), so the wrapped
+commands still run one at a time whatever the parent does; what runs in parallel
+is the subagents' own reasoning, which is where almost all of a run's wall clock
+goes.
+
 - **`tests`** — run the suite on base and on head. Report per-test status for
   both, and the derived set `base_pass_head_fail`. If no suite is found and
-  `.cujo.yml` names none, the report says so, the parent emits a single `warn`
-  finding ("no test suite found") and stops: no probes, no smoke, no review
-  beyond that finding. Without a suite the regression tripwire cannot fire, and
-  the missing suite is itself the finding.
+  `.cujo.yml` names none, the parent emits a single `warn` finding ("no test
+  suite found") and stops: no checks are spawned at all, and no review beyond
+  that finding. That is settled at setup, from the inference, and not from a
+  `tests` report — which is why it does not make `tests` a gate the other checks
+  wait behind. Without a suite the regression tripwire cannot fire, and the
+  missing suite is itself the finding.
 - **`probes`** — the subagent reads the diff, writes small scripts that call the
   changed functions with inputs it chooses, and runs them against head. Report
   each probe's script, the expectation the subagent stated before running it,
