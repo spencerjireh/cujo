@@ -89,7 +89,7 @@ flowchart LR
   Cujo -- "create session / turn" --> TF
   TF -- "events by thread_id" --> Cujo
   Cujo -- "user.tool_approval" --> TF
-  TF -- "post_blocking_review - paused" --> MCP
+  TF -- "post_gated_review - paused" --> MCP
   TF -- "model API - key stays on server" --> LLM
   TF --> DB
   TF -- "commands" --> SB
@@ -114,7 +114,7 @@ Every crossing, with what it carries and what protects it:
 | Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block | None; treated as untrusted data |
 | Sandbox → internet | Through the in-sandbox proxy | Whatever the PR or a dependency tries to reach; logged, becomes evidence | None; the decoy secret is the only "secret" it can find |
 | TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
-| TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` (free) or `post_blocking_review` (paused until a human allows) | Internal |
+| TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` and `post_blocking_review` (free) or `post_gated_review` (paused until a human confirms) | Internal |
 | `github-mcp` → GitHub | REST API | The review: summary body plus inline comments, as `cujo-guard[bot]` | Installation token minted from the App private key |
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
 | Human → `apps/cujo` | HTTPS through Cloudflare Access on `cujo.spencerjireh.com` | Reads runs, check cards, findings, the drafted review. Writes one thing: approve or reject | Email OTP; the approve route checks the Access JWT and records the approver |
@@ -143,23 +143,40 @@ sequenceDiagram
   TF-->>C: thread.created (title = check name)
   Sub-->>TF: JSON report
   TF-->>C: thread.done (state.output = report)
-  Note over TF: hard rules force critical
-  TF->>M: post_blocking_review(body, comments)
+  Note over TF: a malice hard rule forces critical
+  TF->>M: post_advisory_review(the observation)
+  M->>GH: COMMENT review as cujo-guard[bot]
+  TF->>M: post_gated_review(the accusation)
   Note over TF,M: tool is gated - turn pauses
   TF-->>C: tool.approval_required (thread main, tool_call id)
   C->>C: run status = blocked_pending
-  H->>C: opens run, reads drafted review
-  H->>C: Approve
+  H->>C: reads the observation on the pull request
+  H->>C: /cujo confirm
   C->>TF: createTurn(user.tool_approval allow) + subscribeToTurn
-  TF->>M: post_blocking_review proceeds
+  TF->>M: post_gated_review proceeds
   M->>GH: REQUEST_CHANGES review as cujo-guard[bot]
   TF-->>C: tool.response, turn.done
   C->>C: run status = blocked_posted
 ```
 
-On Reject, step 14 sends `deny`; the agent posts nothing and the run ends
-`denied`. With no `critical` finding the agent calls `post_advisory_review`
-instead, which is not gated, and steps 8 to 14 do not happen. If a new head
+On Reject, the resume sends `deny`; the agent posts nothing further and the run
+ends `denied` — the advisory observation posted before the pause and stands, so
+a denial leaves the evidence on the pull request and drops only the claim about
+a person.
+
+**A held approval has no deadline.** The thirty-minute watchdog bounds a turn
+that is still streaming and is cleared the moment `turn.done` arrives, which is
+exactly what the pause produces, so nothing expires an unanswered accusation. It
+waits on `blocked_pending` until a new head supersedes it or a `/cujo` command
+decides it, and it stays in the set that rehydrates on restart. The direction is
+the safe one — the merge is not blocked and the observation is already
+public — but it is a wait, not an expiry, and no code says otherwise.
+
+With no `critical` finding the
+agent calls `post_advisory_review` alone; with a `critical` that says the pull
+request is broken rather than malicious it calls `post_blocking_review` alone,
+which is not gated and ends the run `blocked_unattended`. Neither pauses
+(decision 42). If a new head
 is pushed while a run is still going, that run ends `superseded` and the new
 head gets its own run on the same session; only the newest head is reviewed.
 Superseding a run that was waiting on a human also answers its approval, since

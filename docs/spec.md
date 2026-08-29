@@ -363,17 +363,31 @@ pulled in only for the consequential action. Three tool paths on `github-mcp`:
 
 | Tool | When | GitHub review | Gated? |
 |------|------|---------------|--------|
-| `post_advisory_review` | no `critical` finding | COMMENT | No — posts automatically |
-| `post_blocking_review` | any `critical` finding | REQUEST_CHANGES (blocks merge) | **Yes** — pauses for human approval |
-| `post_gated_review` | registered, not yet selected | REQUEST_CHANGES (blocks merge) | Not yet — see below |
+| `post_advisory_review` | no `critical` finding, **or** the observation half of a malice finding | COMMENT | No — posts automatically |
+| `post_blocking_review` | every `critical` is a correctness finding | REQUEST_CHANGES (blocks merge) | No — posts automatically |
+| `post_gated_review` | any `critical` is a malice finding | REQUEST_CHANGES (blocks merge) | **Yes** — pauses for human approval |
 
-`post_gated_review` exists and posts, but nothing selects it: the rubric still
-routes every `critical` to `post_blocking_review`, and that is still the one
-name in `require_approval_for_tools`. It ships first and alone because a tool
-`apps/cujo` names in that list but `github-mcp` has not registered is a gate
-that silently never fires — the same "two releases, not two minutes" shape as
-decision 35, one container apart. The release that moves the gate onto it
-rewrites this table and the rubric together.
+**The gate is on the accusation, not on the block** (decision 42). Blocking a
+merge is consequential but reversible: anyone with write access dismisses a
+`REQUEST_CHANGES` in one click, and "your tests fail" is mechanical enough that
+no reasonable person answers "no" to it, so asking is ceremony. Naming code as
+malicious is not reversible — the text is in the record permanently and it harms
+someone if it is wrong — and it is the one judgment where a human holds
+information the sandbox cannot observe. Contract 3's table says which rule makes
+which kind of claim.
+
+**A malice finding posts twice, in order: observation, then conclusion.** The
+advisory goes first and always, stating what the sensors recorded as fact, marked
+`warn`, and ending with the two commands a maintainer can reply with. Then the
+gated call drafts the accusation and the turn pauses. So a run that nobody
+answers still leaves the evidence on the pull request, a denial drops the
+escalation while the observation stands, and the merge is never blocked by a
+claim no human confirmed. Contract 5 says why two reviews on one head is not
+double-posting.
+
+Which kind a finding is, is a decision the model expresses by choosing a tool
+name — see Contract 3 for what `apps/cujo` can and cannot verify about it after
+the fact.
 
 All three tools take the same input: a summary body and a `comments[]` array. The
 summary body lists what ran (checks, commands, durations), the results, and the
@@ -413,9 +427,12 @@ approves, so it can never satisfy branch protection and wave a bad merge through
 (Posting a formal APPROVE on a clean run for a green check is a later option if
 we want the nicer UX.)
 
-The gate is the harness's `require_approval_for_tools` on `post_blocking_review`
-(and the tool is annotated `@destructive`). When any finding is `critical` the
-agent calls that tool and the turn pauses with a `tool.approval_required`
+The gate is the harness's `require_approval_for_tools` on `post_gated_review`,
+and that one name is the whole mechanism: the annotation `@destructive` marks
+what a tool does, but it is the explicit list that decides what pauses, so
+`post_blocking_review` stays annotated destructive and is no longer gated. When
+a finding accuses code of acting maliciously the agent calls the gated tool,
+after posting the observation, and the turn pauses with a `tool.approval_required`
 event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
 `apps/cujo` reads the drafted review (the tool call's `body` and `comments[]`)
 from the `model.message` event that `source_event_id` names, marks the run
@@ -424,10 +441,12 @@ the Cujo UI. A human approves or rejects there. `apps/cujo` resumes the turn
 with `sessions.createTurn(sessionId, {input: [{type:
 'user.tool_approval', threadId: 'main', toolCallId, approval: {status:
 'allow' | 'deny'}}]})` and then `subscribeToTurn` on the returned id, which it
-records as its own before any event arrives. On `allow` the blocking review posts as
-`cujo-guard[bot]`. On `deny` the agent posts nothing and ends the turn; the
-rubric says so explicitly, so a denied block never degrades into an advisory
-review nobody asked for.
+records as its own before any event arrives. On `allow` the gated review posts as
+`cujo-guard[bot]`. On `deny` the agent posts nothing further and ends the turn;
+the rubric says so explicitly, so a dismissed accusation never degrades into a
+second review nobody asked for. The advisory observation posted before the pause
+and is unaffected either way, which is what makes a denial and a timeout both
+safe: the evidence stands, and only the claim about a person is dropped.
 
 The deny is not always a human's. The approval is outstanding on the session
 rather than on the turn that raised it, and while one is pending TrueForge
