@@ -42,13 +42,16 @@ class Context:
 
     @classmethod
     def from_env(cls) -> Context:
-        # The default is under the code directory, not equal to it. The rubric
-        # extracts `sandbox/` into /tmp/cujo and then never writes there again,
-        # so a state dir of /tmp/cujo mixed our logs, the decoy backup, and the
-        # sensed lock in among the modules being imported. Nested keeps the
-        # code directory a listing of code, which is what makes "did anything
-        # change in /tmp/cujo?" a question with a meaning.
-        state_dir = Path(os.environ.get("CUJO_DIR", "/tmp/cujo/state"))
+        # Beside the code directory, not inside it and not equal to it. The
+        # rubric's fetch ends in `rm -rf /tmp/cujo && mv ... /tmp/cujo`, which
+        # replaces that directory wholesale -- so anything the commands write
+        # under it is destroyed by a refetch while the thing it describes
+        # survives. `proxy.pid` and `watcher.pid` would go while the daemons
+        # they name kept running and kept holding the proxy port, and
+        # `decoy.backup` would go while it was still the only copy of the real
+        # credentials file `setup` displaced. State that outlives the code it
+        # was written by has to sit outside the code.
+        state_dir = Path(os.environ.get("CUJO_DIR", "/tmp/cujo-state"))
         return cls(
             state_dir=state_dir,
             # Detonation environments live beside the state dir, not inside it:

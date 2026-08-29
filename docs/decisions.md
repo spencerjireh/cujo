@@ -1739,18 +1739,32 @@ replacement suite arrived whole in the previous release for exactly this
 moment, so nothing is uncovered by the deletion — the duplication was the
 price of not having a gap.
 
-`CUJO_DIR` now defaults to `/tmp/cujo/state` rather than to `/tmp/cujo`. The
-rubric extracts the archive into `/tmp/cujo` and then never writes there again,
-so with the old default the pid files, the JSONL logs, the decoy backup, the
-audit directory, and the sensed lock all churned in the same listing as the
-modules being imported. Nesting them keeps the code directory a listing of
-code. Nothing outside the process observes the change: the rubric never names
-the state directory, it reads every path it needs out of `setup`'s JSON, and
+`CUJO_DIR` now defaults to `/tmp/cujo-state` rather than to `/tmp/cujo`. The
+old default put every runtime file — the pid files, the JSONL logs, the decoy
+backup, the audit directory, the sensed lock — in the same directory as the
+modules being imported, which made the code directory unreadable and "did
+anything change in `/tmp/cujo`?" a question with no meaning.
+
+Beside, and not merely nested, because of what the fetch is: the rubric's step
+1 ends in `rm -rf /tmp/cujo && mv .../sandbox /tmp/cujo`, which replaces that
+directory **wholesale**. Anything written underneath it is destroyed by a
+refetch while the thing it describes survives — `proxy.pid` and `watcher.pid`
+would go while the daemons they name kept running and kept holding the proxy
+port, so the next `setup` could neither stop them nor bind; and `decoy.backup`
+would go while it was still the only copy of the real credentials file `setup`
+displaced, which is data loss in the one direction Cujo must never cause. The
+same hazard was there under the old default — `/tmp/cujo` *is* the replaced
+directory — so this fixes it rather than introducing it. Nesting the state one
+level down would have moved it without fixing anything. State that outlives
+the code it was written by has to sit outside the code.
+
+Nothing outside the process observes the move: the rubric never names the state
+directory, it reads every path it needs out of `setup`'s JSON, and
 `CUJO_ENVS_DIR` keeps deriving from whatever `CUJO_DIR` is — so this is a
 defaults-only change and an operator who set either variable is unaffected.
 
 `envs_dir` stays *beside* the state directory and not inside it, at
-`/tmp/cujo/state-envs`. The snapshot prunes the state directory because our own
+`/tmp/cujo-state-envs`. The snapshot prunes the state directory because our own
 logs change on every check; a detonation environment must stay visible, because
 what an install writes into it is the evidence.
 

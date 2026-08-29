@@ -78,10 +78,12 @@ the bot.
 - Pin dependencies; an unpinned or `git+` spec needs a reason in the PR.
 - Keep pull requests small and focused: one concern each.
 - Run Python with `uv` in this repo (tests, tooling, scripts run on a developer
-  machine or CI). The one exception is `sandbox/` inside the sandbox: it is
-  stdlib-only, imported from `sys.path[0]` with no install, and the rubric runs
-  it with the sandbox's `python3`, because the sandbox image is not ours and
-  does not carry `uv`.
+  machine or CI). The one exception is what actually executes in the sandbox --
+  `sandbox/sniff.py` and `sandbox/cujo_sniff/`: stdlib-only, imported from
+  `sys.path[0]` with no install, run with the sandbox's `python3`, because the
+  sandbox image is not ours and does not carry `uv`. `sandbox/tests/` is not
+  covered by that rule and imports `pytest` like every other test in the repo;
+  it is shipped along with the rest of `sandbox/` but never runs there.
 - Never install `evil-package` outside the Daytona sandbox — it is an
   intentional malicious sample. Keep the name out of `apps/` and `packages/`
   entirely, tests included, so the tripwire stays a tripwire.

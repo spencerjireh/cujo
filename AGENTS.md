@@ -143,8 +143,9 @@ a third-party module, and it runs with the sandbox's `python3`, not `uv`
 - Pin dependencies; a `git+` or unpinned spec needs a reason in the PR.
 - Commit subjects use Conventional Commits (`type(scope): summary`, imperative,
   no trailing period); explain the why in the body. See `CONTRIBUTING.md`.
-- Run Python with `uv` everywhere except `sandbox/`, which runs inside
-  the sandbox with its `python3`.
+- Run Python with `uv` everywhere except what runs in the sandbox (`sniff.py`
+  and `cujo_sniff/`), which uses the sandbox's own `python3`; `sandbox/tests/`
+  runs here under `uv` like any other test.
 - Never install `evil-package` outside the Daytona sandbox; it is an intentional
   malicious sample.
 - `*.pem` and `.env` are gitignored; real values live in the Coolify deploy.
