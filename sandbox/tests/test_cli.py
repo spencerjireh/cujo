@@ -239,6 +239,7 @@ def test_a_report_says_the_sensors_were_watching(cli: Cli, home_dir: Path) -> No
             "stderr_tail": False,
             "files_read": False,
             "snapshot": False,
+            "hashes": False,
         }
         # `true` is not a Python process, so there is no hook to arm and that
         # is not a fault -- it is the difference the block exists to record.

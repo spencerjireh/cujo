@@ -60,7 +60,8 @@
         "stdout_tail": false,
         "stderr_tail": false,
         "files_read": true,
-        "snapshot": false
+        "snapshot": false,
+        "hashes": false
       },
       "derived": {
         "egress_to_unknown_host": true,
@@ -92,7 +93,8 @@
         "stdout_tail": false,
         "stderr_tail": false,
         "files_read": false,
-        "snapshot": false
+        "snapshot": false,
+        "hashes": true
       },
       "derived": {
         "egress_to_unknown_host": false,
@@ -112,7 +114,8 @@
     "stdout_tail": false,
     "stderr_tail": false,
     "files_read": true,
-    "snapshot": false
+    "snapshot": false,
+    "hashes": true
   },
   "derived": {
     "egress_to_unknown_host": true,

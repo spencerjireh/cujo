@@ -2176,14 +2176,18 @@ hashing all of `$HOME` would make each snapshot a full read of it, so the digest
 is spent where a silent edit is the whole attack — the credential locations and
 `/etc`.
 
-Two details in that decide whether it works at all. A digest that was wanted and
-failed is recorded as its own value rather than as "no digest here", because
-otherwise the evasion closes back up: restore the timestamp and then `chmod 000`,
-and a failed digest read as out-of-scope falls back to the metadata that was
-just forged. And the hash opens with `O_NOFOLLOW | O_NONBLOCK` and checks the
-descriptor rather than the name — the command under test owns this tree, and a
-FIFO dropped in between the `lstat` and the open would block the snapshot, and
-with it the check, for as long as nobody writes to it.
+Three details in that decide whether it works at all, and all three are the
+same mistake: a digest that was not taken must never be mistaken for one that
+matched. A read that failed is recorded as its own value rather than as "no
+digest here", or the evasion closes back up — restore the timestamp, then
+`chmod 000`, and a failed digest read as out-of-scope falls back to the metadata
+that was just forged. A file over the size cap is a third value again, counted
+by the walk and declared as `truncated.hashes`, because a cap that silently
+turns the comparison off is the same hole wearing a limit; the cap itself sits
+well past any real credential. And the hash opens with `O_NOFOLLOW | O_NONBLOCK`
+and checks the descriptor rather than the name — the command under test owns
+this tree, and a FIFO dropped in between the `lstat` and the open would block
+the snapshot, and with it the check, for as long as nobody writes to it.
 
 The sensitive set grew at the same time and for the same reason: it held nine
 `$HOME` paths and `/etc/cron`, so a write to `/etc/sudoers.d/` or

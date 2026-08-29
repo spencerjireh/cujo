@@ -28,10 +28,13 @@ DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
 MAX_FILES_READ = 200
 MAX_SNAPSHOT_FILES = 200_000
-# Files above this are compared by (mtime, size) alone. A credential nobody can
-# read in one gulp is not a credential; the cap is here so a snapshot cannot be
-# turned into a hashing benchmark by dropping a large file somewhere sensitive.
-HASH_MAX_BYTES = 1_048_576
+# Above this a file is compared by (mtime, size) alone, and the report says so.
+# The cap exists so a snapshot cannot be turned into a hashing benchmark by
+# dropping a huge file somewhere sensitive -- but it is set well past any real
+# credential, because a cap that quietly disables the comparison hands back the
+# evasion the digest was added to close. What it cannot cover, it declares:
+# see `truncated.hashes`.
+HASH_MAX_BYTES = 64 * 1024 * 1024
 # How long one sensed command waits for another to release the sensors. Longer
 # than any check should take, so the wait ends because the other command
 # finished and not because the clock ran out.

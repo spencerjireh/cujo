@@ -30,7 +30,7 @@ from cujo_sniff.scrub import scrub, scrub_argv
 # The sensors a report describes, in the order they are reported.
 SENSOR_NAMES = ("proxy", "decoy", "audit", "fs_diff")
 # The caps a report says whether it hit.
-TRUNCATION_KEYS = ("stdout_tail", "stderr_tail", "files_read", "snapshot")
+TRUNCATION_KEYS = ("stdout_tail", "stderr_tail", "files_read", "snapshot", "hashes")
 
 
 def health(armed: bool, detail: str) -> dict[str, Any]:

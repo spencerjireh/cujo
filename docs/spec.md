@@ -405,10 +405,15 @@ between here and there.
 
 #### `truncated` — where the evidence was cut
 
-Four caps bound what a report can cost: `TAIL_CHARS` on each output tail,
-`MAX_FILES_READ` on `files_read` (a sensitive read is never dropped), and
-`MAX_SNAPSHOT_FILES` on each filesystem walk. `truncated` carries one boolean
-per cap, because a list that was cut is not a list that was empty.
+Five caps bound what a report can cost: `TAIL_CHARS` on each output tail,
+`MAX_FILES_READ` on `files_read` (a sensitive read is never dropped),
+`MAX_SNAPSHOT_FILES` on each filesystem walk, and `HASH_MAX_BYTES` on the file a
+digest will be taken over. `truncated` carries one boolean per cap, because a
+list that was cut is not a list that was empty — and because a comparison that
+was never made must not read like one that came back clean. `truncated.hashes`
+is that last case: over the size limit there is no digest on either side, so the
+file falls back to the `(mtime, size)` a restored timestamp defeats. The limit
+sits well past any real credential for exactly that reason.
 
 A capped walk also changes what the filesystem diff may conclude, and which of
 the two walks was capped decides which half. A `created` row reads the *before*

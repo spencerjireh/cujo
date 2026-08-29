@@ -90,7 +90,7 @@ function CutOutput({ block }: { block: SensorBlock }) {
   if (cut.length === 0) return null;
   return (
     <p className="mb-3 font-mono text-xs text-sev-high">
-      {cut.join(" and ")} was cut at the tail limit; the raw report holds what survived
+      {cut.join(" and ")} was cut at the tail limit; the raw report below holds what survived
     </p>
   );
 }
