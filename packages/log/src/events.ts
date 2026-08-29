@@ -55,6 +55,7 @@ export const EVENT_NAMES = [
   "run.skipped",
   "run.superseded",
   "run.supersede.deferred",
+  "run.approval.reraised",
   "run.prepare.failed",
   "run.turn.started",
   "run.turn.start.failed",

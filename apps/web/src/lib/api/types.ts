@@ -161,13 +161,18 @@ export function canDecide(run: Run): boolean {
 /**
  * Whether `review` is already on the pull request.
  *
- * It always is, once the turn stops running: `review` only ever holds an
- * ungated call, and both ungated tools post during the turn (decision 6), so
- * calling it a draft on a `clean` or `blocked_unattended` run is wrong. The
- * held accusation lives in `gated_review` and has its own predicate.
+ * `review` only ever holds an **ungated** call, and both ungated tools post the
+ * moment the model calls them (decision 6). So `blocked_pending` says nothing
+ * about this slot: that run is waiting on the *accusation* in `gated_review`
+ * while its observation is already public, and `isLive` — which covers both
+ * live states — labelled that posted observation "Drafted review".
+ *
+ * `running` stays conservative, and it is the only state that needs to be: the
+ * fold records the call from the model message, which can arrive a moment
+ * before the POST it describes comes back.
  */
 export function reviewPosted(run: Run): boolean {
-  return !!run.review && !isLive(run.status);
+  return !!run.review && run.status !== "running";
 }
 
 /** Whether the accusation was confirmed and posted, rather than still waiting. */
