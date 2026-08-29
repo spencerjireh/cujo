@@ -76,7 +76,7 @@ src/
     router.ts       the host split, in one place
     ingress/        INTERNET. A signature is the only gate. Cannot approve.
     operator/       a bearer token. Reads and Discord bindings; decides no review.
-    public/         INTERNET, no gate. Read-only, public repos, names nobody.
+    public/         INTERNET, no gate. Read-only, public repos, no operator named.
   review/           a PR becomes a run: start, follow, fold, hard rules
   converse/         @cujo-guard: its own session, no write tool, never Runner
   notify/           Discord cards, pings, /cujo commands, the PR reaction
@@ -92,7 +92,8 @@ at the edge — the gated plane is a separate Hono instance the UI host delegate
 to, so its `app.use("*")` gate cannot compose with the public handlers. The
 public split is a path and not a third hostname because this process never
 receives the public name (decision 34); `http/public/serialize.ts` is an
-allowlist, and adding a field to `Projection` fails its test until classified.
+allowlist, and adding a field to `Projection` or `RunRecord` fails its test
+until classified.
 
 `apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the
 MCP server whose one destructive tool is the entire human gate; `agent/SKILL.md`

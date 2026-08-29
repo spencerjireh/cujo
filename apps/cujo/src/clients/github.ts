@@ -15,6 +15,17 @@ export interface PullRequestInfo {
   headSha: string;
   cloneUrl: string;
   changedFiles: string[];
+  /**
+   * Who opened the pull request. Both null for a deleted account, which GitHub
+   * reports as no `user` at all — the same case `pullRequestHead` already
+   * handles below.
+   *
+   * The id is carried beside the login because it, and not the login, is what
+   * an avatar URL is built from: a login is a string somebody else chose and
+   * the card may never derive a URL from one of those (decision 55).
+   */
+  authorLogin: string | null;
+  authorId: number | null;
 }
 
 /** The bot the App posts as in production. Other consumers that do not yet
@@ -142,6 +153,7 @@ export class GitHubReader {
       body: string | null;
       base: { sha: string; repo: { clone_url: string } };
       head: { sha: string };
+      user: { login: string; id: number } | null;
     }>(repo, `/repos/${repo}/pulls/${prNumber}`);
     const changedFiles: string[] = [];
     for (let page = 1; page <= 30; page++) {
@@ -162,6 +174,8 @@ export class GitHubReader {
       // The base repo's public clone URL; the sandbox gets no token.
       cloneUrl: pr.base.repo.clone_url,
       changedFiles,
+      authorLogin: pr.user?.login ?? null,
+      authorId: pr.user?.id ?? null,
     };
   }
 

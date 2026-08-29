@@ -21,9 +21,17 @@ const helper = createColumnHelper<typeof features, RunSummary>();
 const columns = helper.columns([
   helper.accessor("repo", {
     header: "Pull request",
+    // The identifier stays monospaced and the title trails it in prose, so a
+    // row still scans as a list of pull requests rather than of sentences. A
+    // run recorded before titles were stored simply has no trailing half.
     cell: (cell) => (
-      <span className="font-mono">
-        {cell.row.original.repo} #{cell.row.original.pr_number}
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="shrink-0 font-mono">
+          {cell.row.original.repo} #{cell.row.original.pr_number}
+        </span>
+        {cell.row.original.pr_title ? (
+          <span className="truncate text-fg-muted">{cell.row.original.pr_title}</span>
+        ) : null}
       </span>
     ),
   }),

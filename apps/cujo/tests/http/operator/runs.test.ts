@@ -49,6 +49,9 @@ function blockedView(): RunView {
       sessionId: "s",
       isPublic: true,
       deliveryId: null,
+      prTitle: null,
+      prAuthorLogin: null,
+      prAuthorId: null,
       turnIds: ["t1"],
       status: "blocked_pending",
       approver: null,
@@ -83,6 +86,7 @@ describe("operator runs API", () => {
           approver: null,
           created_at: run.createdAt,
           updated_at: run.updatedAt,
+          pr_title: null,
         },
       ],
     });

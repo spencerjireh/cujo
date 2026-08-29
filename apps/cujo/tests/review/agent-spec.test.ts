@@ -60,6 +60,10 @@ describe("buildTurnMessage", () => {
       headSha: "h".repeat(40),
       cloneUrl: "https://github.com/o/r.git",
       changedFiles: ["requirements.txt", "app.py"],
+
+      authorLogin: null,
+
+      authorId: null,
     });
     expect(message.startsWith("Review this pull request. Input:\n```json\n")).toBe(true);
     const json = /```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "";
@@ -85,6 +89,10 @@ describe("buildTurnMessage", () => {
     headSha: "h".repeat(40),
     cloneUrl: "https://github.com/o/r.git",
     changedFiles: ["app.py"],
+
+    authorLogin: null,
+
+    authorId: null,
   };
 
   const payloadOf = (message: string) =>

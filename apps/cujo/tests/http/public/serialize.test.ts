@@ -40,6 +40,9 @@ const EVERY_RUN_FIELD: Record<keyof RunRecord, true> = {
   decidedAt: true,
   isPublic: true,
   deliveryId: true,
+  prTitle: true,
+  prAuthorLogin: true,
+  prAuthorId: true,
   createdAt: true,
   updatedAt: true,
 };
@@ -78,6 +81,18 @@ describe("the public field allowlist", () => {
     expect(WITHHELD_SOURCE_FIELDS).toContain("turnIds");
     expect(WITHHELD_SOURCE_FIELDS).toContain("approval");
   });
+
+  /**
+   * The one class of person this plane does name. Every row it serves is a run
+   * where `isPublic` is true, so the title and the author are already
+   * world-readable on the pull request itself — unlike `approver`, which names
+   * a Cujo operator and appears nowhere else (decision 55).
+   */
+  it("publishes what the pull request already says about itself", () => {
+    expect(PUBLIC_SOURCE_FIELDS).toContain("prTitle");
+    expect(PUBLIC_SOURCE_FIELDS).toContain("prAuthorLogin");
+    expect(PUBLIC_SOURCE_FIELDS).toContain("prAuthorId");
+  });
 });
 
 /**
@@ -97,6 +112,9 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
     decidedAt: "SENTINEL_decidedAt",
     isPublic: true,
     deliveryId: "SENTINEL_deliveryId",
+    prTitle: "SENTINEL_prTitle",
+    prAuthorLogin: "SENTINEL_prAuthorLogin",
+    prAuthorId: 4242,
     createdAt: "SENTINEL_createdAt",
     updatedAt: "SENTINEL_updatedAt",
   };
@@ -232,10 +250,16 @@ describe("serializePublicSummary", () => {
     expect(Object.keys(body).sort()).toEqual([...PUBLIC_SUMMARY_FIELDS].sort());
   });
 
-  it("names nobody", () => {
+  it("names no Cujo operator", () => {
     const json = JSON.stringify(serializePublicSummary(sentinelView().run));
     expect(json).not.toContain("SENTINEL_approver");
     expect(json).not.toContain("SENTINEL_decidedAt");
+  });
+
+  it("carries the title but not the author, which belongs to the run page", () => {
+    const body = serializePublicSummary(sentinelView().run);
+    expect(body.pr_title).toBe("SENTINEL_prTitle");
+    expect(JSON.stringify(body)).not.toContain("SENTINEL_prAuthorLogin");
   });
 });
 
