@@ -112,6 +112,10 @@ services:
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
       CUJO_MODEL: ${CUJO_MODEL}
+      # How hard the model is asked to think: none, minimal, low, medium, high,
+      # xhigh, max. Unset leaves the provider's default, which is what a model
+      # that does not reason at all needs (decision 53).
+      CUJO_MODEL_REASONING_EFFORT: ${CUJO_MODEL_REASONING_EFFORT:-}
       CUJO_SNIFF_TARBALL_URL: ${CUJO_SNIFF_TARBALL_URL:-https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main}
       # Superseded by the line above and no longer read (decision 46).
       CUJO_SNIFF_URL: ${CUJO_SNIFF_URL:-https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py}
