@@ -12,6 +12,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Logger, errorFields } from "@cujo/log";
 import { type Context, Hono } from "hono";
+import type { ConverseService } from "../../converse/converse.service";
 import type { PrCommandService } from "../../review/pr-command.service";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
@@ -50,6 +51,8 @@ export interface WebhookDeps extends StartRunDeps {
   isReady?: () => boolean;
   /** Absent means `/cujo` on a pull request is off; deliveries are still 200. */
   prCommands?: Pick<PrCommandService, "handle">;
+  /** Absent means `@cujo-guard` is off; deliveries are still 200. */
+  converse?: Pick<ConverseService, "handle">;
 }
 
 interface IssueCommentEvent {
@@ -147,32 +150,141 @@ function handleIssueComment(
     log.debug("webhook.ignored", { event_type: "issue_comment", reason: "not_a_pull_request" });
     return c.json({ ok: true, ignored: "issue" }, 200);
   }
-  if (!deps.prCommands) {
+  if (!deps.prCommands && !deps.converse) {
     log.debug("webhook.ignored", { event_type: "issue_comment", reason: "not_configured" });
     return c.json({ ok: true, ignored: "not_configured" }, 200);
   }
 
+  // Both, and each ignores what is not its shape. A comment is a command or a
+  // question and never both — the two syntaxes were chosen to be unmistakable
+  // for each other — so dispatching to both costs one parse and keeps the
+  // question of which one it was where it belongs, in the service that owns
+  // the syntax.
+  const comment = {
+    repo: event.repository.full_name,
+    prNumber: event.issue.number,
+    commentId: event.comment.id,
+    actor: event.comment.user?.login ?? "",
+    body: event.comment.body,
+    log,
+  };
   // `handle` is built never to throw — every outcome speaks on the pull
   // request — but the delivery is already answered by the time it runs, so an
   // unhandled rejection here would be a person waiting on a reply that never
   // comes, with nothing in the log to say why.
-  void deps.prCommands
+  void deps.prCommands?.handle(comment).catch((error: unknown) => {
+    log.error("comment.command.failed", {
+      repo: comment.repo,
+      pr_number: comment.prNumber,
+      error_kind: error instanceof Error ? error.name : "unknown",
+    });
+  });
+  void deps.converse?.handle({ ...comment, surface: { kind: "issue" } }).catch((error: unknown) => {
+    log.error("converse.failed", {
+      repo: comment.repo,
+      pr_number: comment.prNumber,
+      error_kind: error instanceof Error ? error.name : "unknown",
+    });
+  });
+  return c.json({ ok: true, accepted: "comment" }, 200);
+}
+
+/**
+ * A reply inside a review thread — the comments hanging off one line of the
+ * diff, where Cujo's own inline findings are.
+ *
+ * A separate GitHub event from `issue_comment`, and the one flow C actually
+ * needs: "prove it" is asked under the finding it doubts, not at the bottom of
+ * the page. Only conversation is dispatched here. A privileged `/cujo` verb
+ * stays on the pull request's own thread, where it is about the run rather than
+ * about one line, and narrowing the surface that can decide a review is free.
+ */
+function handleReviewComment(
+  deps: WebhookDeps,
+  c: Context<RequestEnv>,
+  body: string,
+  log: Logger,
+): Response {
+  const event = parseReviewComment(body);
+  if (!event) {
+    log.debug("webhook.ignored", {
+      event_type: "pull_request_review_comment",
+      reason: "malformed",
+    });
+    return c.json({ ok: true, ignored: "malformed" }, 200);
+  }
+  if (event.action !== "created") {
+    log.debug("webhook.ignored", {
+      event_type: "pull_request_review_comment",
+      action: event.action,
+      reason: "action",
+    });
+    return c.json({ ok: true, ignored: "action" }, 200);
+  }
+  if (!deps.converse) {
+    log.debug("webhook.ignored", {
+      event_type: "pull_request_review_comment",
+      reason: "not_configured",
+    });
+    return c.json({ ok: true, ignored: "not_configured" }, 200);
+  }
+  void deps.converse
     .handle({
       repo: event.repository.full_name,
-      prNumber: event.issue.number,
+      prNumber: event.pull_request.number,
       commentId: event.comment.id,
       actor: event.comment.user?.login ?? "",
       body: event.comment.body,
+      surface: { kind: "review_thread", commentId: event.comment.id },
       log,
     })
     .catch((error: unknown) => {
-      log.error("comment.command.failed", {
+      log.error("converse.failed", {
         repo: event.repository.full_name,
-        pr_number: event.issue.number,
+        pr_number: event.pull_request.number,
         error_kind: error instanceof Error ? error.name : "unknown",
       });
     });
-  return c.json({ ok: true, accepted: "comment" }, 200);
+  return c.json({ ok: true, accepted: "review_comment" }, 200);
+}
+
+interface ReviewCommentEvent {
+  action: string;
+  repository: { full_name: string };
+  pull_request: { number: number };
+  comment: { id: number; body: string; user: { login: string } | null };
+}
+
+/** The same boundary check `parseIssueComment` makes, for the other shape. */
+function parseReviewComment(body: string): ReviewCommentEvent | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!isRecord(raw)) return null;
+  const { action, repository, pull_request: pull, comment } = raw;
+  if (typeof action !== "string") return null;
+  if (!isRecord(repository) || typeof repository.full_name !== "string") return null;
+  if (!isRecord(pull) || typeof pull.number !== "number") return null;
+  if (!isRecord(comment) || typeof comment.id !== "number" || typeof comment.body !== "string") {
+    return null;
+  }
+  const user = comment.user;
+  if (user !== null && user !== undefined && !(isRecord(user) && typeof user.login === "string")) {
+    return null;
+  }
+  return {
+    action,
+    repository: { full_name: repository.full_name },
+    pull_request: { number: pull.number },
+    comment: {
+      id: comment.id,
+      body: comment.body,
+      user: isRecord(user) && typeof user.login === "string" ? { login: user.login } : null,
+    },
+  };
 }
 
 interface RepositoryEvent {
@@ -250,6 +362,9 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     const eventType = c.req.header("x-github-event");
     if (eventType === "repository") return handleRepository(deps, c, body, log);
     if (eventType === "issue_comment") return handleIssueComment(deps, c, body, log);
+    if (eventType === "pull_request_review_comment") {
+      return handleReviewComment(deps, c, body, log);
+    }
     if (eventType !== "pull_request") {
       // `debug`, because the App is subscribed to events it does not act on
       // and this is the branch that would otherwise dominate the log.

@@ -438,6 +438,41 @@ export class GitHubReader {
     return created.id;
   }
 
+  /**
+   * Reply inside a review thread, under the comment being answered.
+   *
+   * A separate endpoint from `createComment` because GitHub keeps the two
+   * conversations apart: an issue comment is the pull request's bottom-of-page
+   * thread, and this is the thread hanging off one line of the diff. A question
+   * asked under a finding is answered under that finding, which is the whole
+   * value of the surface — a reply that lands at the bottom of the page makes
+   * the reader match it back up themselves.
+   *
+   * Same cap and the same argument as `createComment`: a person addressed Cujo
+   * directly, and the text may be a model's.
+   */
+  async replyToReviewComment(
+    repo: string,
+    prNumber: number,
+    commentId: number,
+    body: string,
+  ): Promise<number> {
+    const path = `/repos/${repo}/pulls/${prNumber}/comments/${commentId}/replies`;
+    const res = await this.fetchImpl(`${API}${path}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${await this.token(repo)}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "cujo",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ body: capComment(body) }),
+    });
+    if (!res.ok) throw new GitHubError(res.status, path);
+    const created = (await res.json()) as { id: number };
+    return created.id;
+  }
+
   /** Contract 5: skip the turn when the bot already reviewed this head SHA. */
   async alreadyReviewed(repo: string, prNumber: number, headSha: string): Promise<boolean> {
     for (let page = 1; page <= 30; page++) {

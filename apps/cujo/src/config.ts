@@ -59,6 +59,16 @@ export interface Config {
   turnTimeoutMs: number;
   /** Concurrent public run streams this process will hold (decision 34). */
   publicStreamLimit: number;
+  /**
+   * How many `@cujo-guard` questions one pull request may ask per window, and
+   * how long that window is (decision 46). This is the one path where a comment
+   * provisions a sandbox, so it is the one that needs a ceiling; `0` turns
+   * conversation off entirely, which is why it is `zeroOk`.
+   */
+  converseLimit: number;
+  converseWindowMs: number;
+  /** How long one answer may take before the person is told it did not finish. */
+  converseTimeoutMs: number;
   /** How often to re-ask GitHub whether each repo with a run is still public. */
   visibilityRecheckMs: number;
   /**
@@ -173,6 +183,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ),
     turnTimeoutMs: Number(env.CUJO_TURN_TIMEOUT_MS ?? 30 * 60 * 1000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
+    converseLimit: count(env.CUJO_CONVERSE_LIMIT, 3, { zeroOk: true }),
+    converseWindowMs: count(env.CUJO_CONVERSE_WINDOW_MS, 60 * 60 * 1000),
+    converseTimeoutMs: count(env.CUJO_CONVERSE_TIMEOUT_MS, 10 * 60 * 1000),
     // 0 disables the sweep; the webhook still carries a flip in seconds.
     visibilityRecheckMs: count(env.CUJO_VISIBILITY_RECHECK_MS, 15 * 60 * 1000, { zeroOk: true }),
     // Only an explicit "0" turns it off, so an unset or misspelt value keeps

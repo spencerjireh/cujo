@@ -134,6 +134,10 @@ export function renderedLines(body: string): string[] {
     if (BLANK.test(line)) {
       inQuote = false;
       inHtmlBlock = false;
+      // Kept rather than dropped. A blank line can never be a command, so this
+      // costs `parseCommand` nothing, and it is the paragraph break in the
+      // question `parseMention` hands to the agent.
+      out.push(line);
       continue;
     }
     if (inHtmlBlock) continue;
@@ -170,4 +174,37 @@ export function parseCommand(body: string): CommandParse {
   // Exactly one, and `verbs.size === 1` guarantees the iterator yields it.
   const [verb] = verbs;
   return verb ? { kind: "command", verb } : { kind: "none" };
+}
+
+/** The bot's own handle, as GitHub renders a mention of the App. */
+const MENTION = /@cujo-guard\b/i;
+
+/**
+ * How much of a comment is passed to the conversation agent. Generous — the
+ * whole point is that a person supplies context the sandbox could not
+ * observe — but finite, because it is model input that anyone can write.
+ */
+export const MENTION_BODY_CAP = 4000;
+
+/**
+ * The question a comment asks Cujo, or null.
+ *
+ * Unlike a command this may sit anywhere on the line: a mention is a sentence a
+ * human writes, and requiring column zero would reject the natural phrasing.
+ * That is affordable **only because a mention authorizes nothing** — its worst
+ * case is a wasted sandbox, where a misread verb is the gate. It still has to
+ * be somewhere a reader can see, so it goes through the same block scan; a
+ * mention quoted back inside a fence or an HTML comment starts nothing.
+ *
+ * The question is the whole visible comment rather than the rest of the line.
+ * "@cujo-guard" on its own line above three lines of context is how people
+ * write, and taking one line would throw the context away — which is the only
+ * thing this feature has that re-reading the diff does not.
+ */
+export function parseMention(body: string): string | null {
+  const lines = renderedLines(body);
+  if (!lines.some((line) => MENTION.test(line))) return null;
+  const text = lines.join("\n").trim();
+  if (!text) return null;
+  return text.length <= MENTION_BODY_CAP ? text : text.slice(0, MENTION_BODY_CAP);
 }

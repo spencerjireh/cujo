@@ -84,6 +84,7 @@ src/
     operator/       Cloudflare Access. Where a human decides.
     public/         INTERNET, no gate. Read-only, public repos, names nobody.
   review/           a PR becomes a run: start, follow, fold, hard rules
+  converse/         @cujo-guard: its own session, no write tool, never Runner
   notify/           Discord cards, pings, /cujo commands, the PR reaction
   clients/          the only outbound IO; imports from nothing else here
   store/            SQLite, split into runs and notifications
