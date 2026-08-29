@@ -148,7 +148,29 @@ def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
     return any(under(c, Path(abs_path)) for c in candidates for abs_path in SENSITIVE_ABS_PATHS)
 
 
-def should_hash(path: str, home_dir: Path | None = None) -> bool:
+def decoy_spellings(home_dir: Path | None = None) -> set[Path]:
+    """Both names the seeded decoy answers to.
+
+    The audit hook records a path as the program passed it, which need not be
+    the one `setup` seeded, and HOME itself can be a symlink. Either reading is
+    the decoy, so both are kept and compared against.
+    """
+    decoy = (home_dir or home()) / DECOY_REL
+    return {decoy, canonical(decoy)}
+
+
+def is_decoy(path: str | Path, decoy_paths: set[Path]) -> bool:
+    """Whether `path` names the seeded decoy, under either spelling.
+
+    `decoy_paths` is passed in rather than derived here because the callers
+    that ask this most -- once per audit row -- would otherwise resolve the
+    decoy again for every row.
+    """
+    p = Path(os.path.expanduser(str(path)))
+    return p in decoy_paths or canonical(p) in decoy_paths
+
+
+def should_hash(path: str, home_dir: Path | None = None, *, symlink: bool = False) -> bool:
     """Whether this path is worth a content digest as well as its metadata.
 
     `(mtime_ns, size)` is defeated by anything that restores the timestamp after
@@ -156,9 +178,24 @@ def should_hash(path: str, home_dir: Path | None = None) -> bool:
     Hashing every file would turn each snapshot into a full read of HOME, so it
     is spent where a silent edit is the whole attack: the credential and
     shell-rc locations, and the rest of `/etc`, which is walked anyway.
+
+    The seeded decoy is the one sensitive path excluded, and it has to be. A
+    digest means an open, the watcher is armed on that inode for exactly that
+    event, and it cannot tell the snapshot's read from the read it exists to
+    catch -- so hashing it made `decoy_read` true on every command, on the
+    unmodified base commit included. Nothing is lost: the entry still carries
+    metadata, `decoy_intact` follows the inode, and a command that overwrites
+    the decoy has to open it, which the watcher sees.
+
+    `symlink` is why the caller has to say what it `lstat`ed. A link is digested
+    by its target string, which is a `readlink` and never opens what it points
+    at, so a link that merely *resolves* to the decoy trips nothing and is
+    hashed like any other. Excluding it would give up the retargeted-link case
+    -- repoint it at another target of the same length, put the timestamp back,
+    and two `lstat` calls agree -- in exchange for nothing at all.
     """
     if is_sensitive(path, home_dir):
-        return True
+        return symlink or not is_decoy(path, decoy_spellings(home_dir))
     p = Path(os.path.normpath(os.path.expanduser(path)))
     return str(p).startswith("/etc/")
 

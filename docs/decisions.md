@@ -2548,3 +2548,57 @@ of nothing**, which is defensible — `https://github.com/$repo/pull/$number` is
 derivable from two structural values — and was left out because a card that
 names a private repo's run should not also advertise a route into it; the
 channel's members already know where the pull request is.
+
+## 58. A sensor may not read the tripwire it is watching
+
+`secret_probe.decoy_read` came back `true` on every sensed command of every
+check — on the unmodified base commit too, which cannot have read anything. It
+is a hard rule and a malice claim (see 21), so Cujo accused every pull request
+of a supply-chain attack, and drove every run into the gated path where a human
+has to answer for it. Not intermittent: 100% of runs, from the moment it
+shipped.
+
+The cause was two sensors meeting. Decision 54 added a SHA-256 digest to the
+filesystem snapshot for the paths where a silent edit is the whole attack — the
+credential locations — because `(mtime_ns, size)` alone is defeated by a
+restored timestamp. `~/.aws/credentials` is a credential location. It is also
+the decoy. So the snapshot opened and read it, twice per command, at both ends
+of the sensed window; the inotify watch armed on that inode logged both opens;
+and the report counted them as the command's, because the window's offsets are
+taken before the first snapshot.
+
+`should_hash` now excludes the decoy, and it is the exclusion rather than the
+digest that has to be argued for. Nothing is lost: the entry still carries
+metadata, the `decoy` health check follows the inode, and a command that
+overwrites the decoy has to open it — the same event by another route. What
+would be lost by keeping the digest is the sensor's only claim on the value of
+its own evidence, since a signal that fires on every input is not a signal.
+
+**The exclusion is the watched file, not every name that reaches it.** A
+symlink is digested by `os.readlink`, which never opens what it points at, so a
+link that merely resolves to the decoy trips nothing and is hashed like any
+other — which is why `should_hash` takes the caller's `lstat` verdict rather
+than deciding from the path alone. Skipping links too would have handed back the
+retargeted link: aim it at another target of the same length, restore the
+timestamp, and `lstat` sees nothing, since a link's `st_size` is the length of
+its target string. That is the case decision 54's digest was added to close, and
+it would have been given up for no gain at all.
+
+**The tests said it was fine.** Every end-to-end test of the decoy asserted
+`decoy_read is True`; the only `False` assertions were pure unit tests that
+hand-wrote an empty `decoy_rows`, which is the one arrangement in which no
+sensor can trip itself. One harness test even ran a no-op command through the
+real daemons and never looked at the field. The negative case — a command that
+touches nothing reports nothing — is now a harness test, and it is the shape of
+every clean pull request.
+
+Rejected: **narrowing the sensed window** so the offsets are taken after the
+`before` snapshot and the rows are read before the `after` one. It fixes the
+same bug and fixes it more generally — no sensor work of any kind would be
+attributed to the command — but it needs a settle delay to cover the watcher's
+flush and the atime backend's poll interval, which makes a timing constant
+load-bearing where a predicate is exact. Worth revisiting if a second sensor
+ever reads a watched path. **Dropping `.aws` from the sensitive list**, which
+would stop the hashing and also stop `wrote_sensitive` firing on a real
+credentials write. **Filtering the decoy's rows by which process caused them**,
+which inotify does not report.

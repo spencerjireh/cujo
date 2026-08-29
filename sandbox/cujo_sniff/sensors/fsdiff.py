@@ -188,7 +188,8 @@ def snapshot(
                     st = p.lstat()
                 except OSError:
                     continue
-                digest = _digest(p, st) if should_hash(str(p), home_dir) else None
+                link = stat.S_ISLNK(st.st_mode)
+                digest = _digest(p, st) if should_hash(str(p), home_dir, symlink=link) else None
                 if digest in UNCOMPARED:
                     uncompared += 1
                 seen[str(p)] = (st.st_mtime_ns, st.st_size, digest)
