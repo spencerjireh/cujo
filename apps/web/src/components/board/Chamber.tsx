@@ -52,66 +52,95 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
     const canvas = canvasRef.current;
     const frame = frameRef.current;
     if (!canvas || !frame) return;
-    if (frame.clientWidth < MIN_WIDTH) return;
 
     let disposed = false;
+    let starting = false;
     let handle: ChamberHandle | null = null;
+    let onScreen = true;
     const reducedMotion = prefersReducedMotion();
 
-    // The whole startup, import included, is inside the promise chain: a
-    // rejected `import()` is the same outcome as a refused WebGL context — no
-    // scene, and the fallback already on screen stays there. Without the
-    // terminal `.catch()` it would instead be an unhandled rejection, since
-    // the `try` below begins after the await.
-    void (async () => {
-      const { createChamber } = await import("./chamber/scene");
-      if (disposed) return;
-      try {
-        handle = createChamber({
-          canvas,
-          capacity: CAPACITY,
-          reducedMotion,
-          onHover: setFocusedRun,
-          onSelect: (id) => router.push(`/runs/${id}`),
-        });
-      } catch {
-        // No WebGL context, or a driver that refused one. The fallback is
-        // already on screen underneath; leaving `live` false keeps it there.
-        return;
-      }
-      handleRef.current = handle;
-      handle.setSpecimens(specimensRef.current);
-      // The store may already hold a focused run: a row can be hovered or
-      // focused while the import is in flight, and that effect cannot replay,
-      // because assigning a ref does not re-run one.
-      handle.setFocus(focusStore.state.runId);
-      handle.resize(frame.clientWidth, frame.clientHeight);
-      setLive(true);
-      if (!reducedMotion) handle.start();
-    })().catch(() => {
-      // Nothing to recover: the fallback is the design for exactly this.
-    });
+    // Two gates on the loop, for the same reason the run list stops polling in
+    // a background tab: a canvas nobody is looking at should not hold a core.
+    const runIfWanted = () => {
+      if (reducedMotion || !handle) return;
+      if (onScreen && document.visibilityState === "visible") handle.start();
+      else handle.stop();
+    };
+
+    /**
+     * Build the scene, once, the first time the frame is wide enough.
+     *
+     * The width test cannot be a guard at the top of this effect. The narrow
+     * layout hides this component with CSS rather than unmounting it, so a
+     * page loaded narrow and then widened would keep a frame of zero width
+     * and never run the effect again — the scene would stay unbuilt for the
+     * rest of the session and the flat fallback would be all a desktop
+     * visitor ever saw.
+     */
+    const startWhenWideEnough = () => {
+      if (handle || starting || disposed) return;
+      if (frame.clientWidth < MIN_WIDTH) return;
+      starting = true;
+      // The whole startup, import included, is inside the promise chain: a
+      // rejected `import()` is the same outcome as a refused WebGL context —
+      // no scene, and the fallback already on screen stays there. Without the
+      // terminal `.catch()` it would instead be an unhandled rejection, since
+      // the `try` below begins after the await.
+      void (async () => {
+        const { createChamber } = await import("./chamber/scene");
+        if (disposed) return;
+        let built: ChamberHandle;
+        try {
+          built = createChamber({
+            canvas,
+            capacity: CAPACITY,
+            reducedMotion,
+            onHover: setFocusedRun,
+            onSelect: (id) => {
+              // Cleared before leaving: the store outlives this component, so
+              // a run left focused here is still focused when the board is
+              // next opened, with the pointer nowhere near it.
+              setFocusedRun(null);
+              router.push(`/runs/${id}`);
+            },
+          });
+        } catch {
+          // No WebGL context, or a driver that refused one. The fallback is
+          // already on screen underneath; leaving `live` false keeps it there.
+          return;
+        }
+        handle = built;
+        handleRef.current = built;
+        built.setSpecimens(specimensRef.current);
+        // The store may already hold a focused run: a row can be hovered or
+        // focused while the import is in flight, and that effect cannot
+        // replay, because assigning a ref does not re-run one.
+        built.setFocus(focusStore.state.runId);
+        built.resize(frame.clientWidth, frame.clientHeight);
+        setLive(true);
+        // Through the gates rather than started outright: the frame may have
+        // scrolled away or the tab been hidden while the import was in
+        // flight, and no observer will fire again to correct it.
+        runIfWanted();
+      })().catch(() => {
+        // Nothing to recover: the fallback is the design for exactly this.
+      });
+    };
 
     const resize = new ResizeObserver(([entry]) => {
       if (!entry) return;
+      startWhenWideEnough();
       handle?.resize(entry.contentRect.width, entry.contentRect.height);
     });
     resize.observe(frame);
 
-    // Two gates on the loop, for the same reason the run list stops polling in
-    // a background tab: a canvas nobody is looking at should not hold a core.
-    let onScreen = true;
-    const runIfWanted = () => {
-      if (reducedMotion) return;
-      if (onScreen && document.visibilityState === "visible") handle?.start();
-      else handle?.stop();
-    };
     const visible = new IntersectionObserver(([entry]) => {
       onScreen = entry?.isIntersecting ?? true;
       runIfWanted();
     });
     visible.observe(frame);
     document.addEventListener("visibilitychange", runIfWanted);
+    startWhenWideEnough();
 
     return () => {
       disposed = true;
@@ -120,6 +149,8 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
       document.removeEventListener("visibilitychange", runIfWanted);
       handleRef.current = null;
       handle?.dispose();
+      // The store is module state and outlives this component.
+      setFocusedRun(null);
     };
     // Mount-scoped. `specimens` and `focused` are pushed in by the effects
     // below rather than rebuilding the scene, and `router` is stable.
