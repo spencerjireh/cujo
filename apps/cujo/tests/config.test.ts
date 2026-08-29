@@ -44,6 +44,24 @@ describe("loadConfig", () => {
     expect(config.sniffUrl).toBe(
       "https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py",
     );
+    expect(config.sniffTarballUrl).toBe(
+      "https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main",
+    );
+  });
+
+  it("falls back when the tarball URL is empty, and refuses a script URL", () => {
+    // The key that replaced CUJO_SNIFF_URL, so the mistake to expect is the old
+    // value pasted into the new name. Better a boot failure than a `tar` error
+    // inside a sandbox nobody reads the logs of (decision 46).
+    expect(loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "" }).sniffTarballUrl).toBe(
+      "https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main",
+    );
+    expect(
+      loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "https://x/y.tar.gz" }).sniffTarballUrl,
+    ).toBe("https://x/y.tar.gz");
+    expect(() =>
+      loadConfig({ ...base, CUJO_SNIFF_TARBALL_URL: "https://x/sandbox/sniff.py" }),
+    ).toThrow(/must be a source archive/);
   });
 
   it("treats an empty Discord token as no token, which is what compose sends", () => {
