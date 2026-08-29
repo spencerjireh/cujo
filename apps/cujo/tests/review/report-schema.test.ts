@@ -72,6 +72,29 @@ describe("what the sandbox is allowed to leave out", () => {
     expect(validateReport(report({ runs: [run] }))).toEqual({ ok: true });
   });
 
+  it("accepts a roll-up that gives `armed` without the prose beside it", () => {
+    // What the first production run actually sent. `sniff.py` writes both in
+    // every runs[] entry; the envelope's block is the sub-agent's own roll-up,
+    // and `armed` is the only half any rule reads.
+    const rollup = {
+      proxy: { armed: true },
+      decoy: { armed: true },
+      audit: { armed: true },
+      fs_diff: { armed: true },
+    };
+    expect(validateReport(report({ sensors: rollup }))).toEqual({ ok: true });
+    const run = runEntry();
+    run.sensors = rollup;
+    expect(validateReport(report({ runs: [run] }))).toEqual({ ok: true });
+  });
+
+  it("still wants `armed` to be there and to be a boolean", () => {
+    // The half that carries the meaning: a sensor that cannot say whether it
+    // was watching is exactly what `sensor_unarmed` exists to surface.
+    expect(validateReport(report({ sensors: { proxy: { detail: "port 8899" } } })).ok).toBe(false);
+    expect(validateReport(report({ sensors: { proxy: { armed: "yes" } } })).ok).toBe(false);
+  });
+
   it("accepts a sensors block missing a sensor entirely", () => {
     // merge_reports `continue`s past a sensor no report in the batch carried
     // (report.py:192-199), so a merged block can be short a key.
