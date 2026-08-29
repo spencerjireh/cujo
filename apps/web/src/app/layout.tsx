@@ -37,6 +37,49 @@ export const metadata: Metadata = {
 const THEME_SCRIPT = `try{var t=localStorage.getItem("cujo-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}`;
 
 /**
+ * The page's last word, and the only place the product explains itself in
+ * prose. Three columns and not one line, because the one line it replaced had
+ * to carry the scope, the mechanism and the credit at once and so said none of
+ * them.
+ *
+ * No external links. Deliberately: this build records no repository or App URL
+ * anywhere, and a footer link is not the place to guess one. The names are
+ * here; the addresses can join them when they exist.
+ */
+function SiteFooter() {
+  return (
+    <footer className="border-t border-line px-4 py-10 md:px-6">
+      <div className="grid max-w-5xl grid-cols-1 gap-8 sm:grid-cols-3">
+        <div>
+          <div className="flex items-center gap-2 text-fg">
+            <Mark className="h-5 w-5" />
+            <span className="font-display text-base font-bold lowercase tracking-tight">cujo</span>
+          </div>
+          <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
+            An execution-backed pull request reviewer. It clones the head into a disposable sandbox,
+            runs it, and reviews what happened.
+          </p>
+        </div>
+        <div>
+          <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">What this is</h2>
+          <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
+            A read-only view of Cujo&rsquo;s reviews of public pull requests. It writes nothing and
+            decides nothing — a held finding is confirmed on the pull request itself.
+          </p>
+        </div>
+        <div>
+          <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">Built on</h2>
+          <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
+            TrueForge, unforked, for the agent harness. Daytona for the sandbox each pull request is
+            executed in, and thrown away with.
+          </p>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+/**
  * One hostname, one plane. This used to read the request's own `Host` to decide
  * which of two planes it was rendering (decision 34); decision 57 deleted the
  * other one, so the layout is static again.
@@ -70,9 +113,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <ThemeToggle />
             </header>
             <main className="flex-1">{children}</main>
-            <footer className="border-t border-line px-4 py-4 text-xs text-fg-muted md:px-6">
-              A read-only view of Cujo&rsquo;s reviews of public pull requests. Built on TrueForge.
-            </footer>
+            <SiteFooter />
           </div>
         </Providers>
       </body>

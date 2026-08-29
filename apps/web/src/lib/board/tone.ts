@@ -12,7 +12,7 @@
  * that Cujo fell over, so a run that errors is info blue.
  */
 
-import type { CheckName, DigestCheck, RunStatus, RunSummary } from "@/lib/api/types";
+import type { CheckName, DigestCheck, RunStatus, RunSummary, Severity } from "@/lib/api/types";
 
 /**
  * Four tones, not eight. Several statuses are the same claim about the pull
@@ -165,4 +165,54 @@ export const OUTCOME_TONE: Record<CheckOutcome, Tone> = {
 /** The digest's checks, or an empty map for a run that never folded one. */
 export function checksOf(run: RunSummary): Partial<Record<CheckName, DigestCheck>> {
   return run.digest?.checks ?? {};
+}
+
+/**
+ * What the run *found*, as opposed to how its checks ended.
+ *
+ * `digest.findings` is a `Record<Severity, number>` and the board draws it in
+ * three places — a specimen's marks, a record row, the rack's fifth panel. This
+ * is the one place a severity becomes a tone, so those three cannot disagree
+ * about which count is the dangerous one.
+ *
+ * `warn` is amber and not its own hue, per brand.md: the product emits three
+ * severities and `warn` renders on the `high` ramp, which is the amber one.
+ * That puts amber on a second thing in the chamber — a `blocked_pending` core,
+ * the sweep, and now a warn mark — and it stays within the restraint the brand
+ * asks for, because a warn mark is a two-pixel quad and a calm run has none.
+ */
+export const SEVERITY_TONE: Record<Severity, Tone> = {
+  critical: "critical",
+  warn: "amber",
+  info: "info",
+};
+
+/** Worst first, which is the order marks are strung and legends are listed. */
+export const SEVERITY_ORDER: readonly Severity[] = ["critical", "warn", "info"];
+
+/** What `digest.findings` is, named so the three readers can say it. */
+export type FindingCounts = Record<Severity, number>;
+
+/** Null when the run found nothing, which is a result and not a missing value. */
+export function worstSeverity(counts: FindingCounts | undefined): Severity | null {
+  if (!counts) return null;
+  return SEVERITY_ORDER.find((severity) => (counts[severity] ?? 0) > 0) ?? null;
+}
+
+/**
+ * One number to sort a record column by, and to scale a core with.
+ *
+ * Ranked rather than summed: a run with one critical outranks a run with nine
+ * infos, and adding the counts would say the opposite. The gaps are wide enough
+ * that no realistic number of a lower severity can climb past a higher one.
+ */
+export function findingWeight(counts: FindingCounts | undefined): number {
+  if (!counts) return 0;
+  return (counts.critical ?? 0) * 10_000 + (counts.warn ?? 0) * 100 + (counts.info ?? 0);
+}
+
+/** How many findings a run produced, across every severity. */
+export function findingTotal(counts: FindingCounts | undefined): number {
+  if (!counts) return 0;
+  return SEVERITY_ORDER.reduce((sum, severity) => sum + (counts[severity] ?? 0), 0);
 }

@@ -7,8 +7,10 @@ import { TONE_CHAMBER_VAR } from "@/lib/board/tone";
  * Rendered on the server, and kept on screen for anyone the WebGL scene will
  * not serve: no context, a driver that refused one, or a viewport too small to
  * be worth a renderer. It draws the same facts in the same colours — the chain,
- * one specimen per run, arms sized by check duration — so the page never
- * degrades to an empty rectangle where the hero was.
+ * one specimen per run, arms sized by check duration, the core sized by the
+ * worst thing the run found, and a mark on the drop line for each finding — so
+ * the page never degrades to an empty rectangle where the hero was, and never
+ * to a *different drawing* of the same runs.
  *
  * Two orientations, because the record is a long thin thing and a viewport is
  * not always wide. `horizontal` stands in for the scene under the hero;
@@ -90,16 +92,37 @@ export function ChamberFallback({
         const at = step * (index + 1);
         const cx = vertical ? box.base : at;
         const cy = vertical ? at : box.base - 52;
+        // Where the drop line starts, which is also where the finding marks
+        // are strung: on the chain end, worst nearest the core.
+        const fromX = vertical ? box.chain : cx;
+        const fromY = vertical ? cy : box.chain;
         return (
           <g key={spec.id} opacity={scale}>
             <line
-              x1={vertical ? box.chain : cx}
-              y1={vertical ? cy : box.chain}
+              x1={fromX}
+              y1={fromY}
               x2={cx}
               y2={cy}
               stroke="var(--chamber-line)"
               strokeWidth="1"
             />
+            {/* One mark per finding, walking down the drop line from the core.
+                The scene strings them on the same line for the same reason:
+                what a run produced hangs off what produced it. */}
+            {spec.marks.map((mark, i) => {
+              const step = (i + 1) / (spec.marks.length + 1);
+              const size = 2.6 * scale;
+              return (
+                <rect
+                  key={`${spec.id}-mark-${i}`}
+                  x={cx + (fromX - cx) * step - size}
+                  y={cy + (fromY - cy) * step - size}
+                  width={size * 2}
+                  height={size * 2}
+                  fill={`var(${TONE_CHAMBER_VAR[mark.tone]})`}
+                />
+              );
+            })}
             {spec.bars.map((bar, i) => {
               // Length zero is a check that never appeared: no arm, and the
               // gap is the fact.
@@ -120,7 +143,14 @@ export function ChamberFallback({
                 />
               );
             })}
-            <circle cx={cx} cy={cy} r={4.5 * scale} fill={`var(${TONE_CHAMBER_VAR[spec.tone]})`} />
+            {/* The core, at the size the worst finding gives it. The scene
+                scales its octahedron by the same factor. */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={4.5 * scale * spec.coreScale}
+              fill={`var(${TONE_CHAMBER_VAR[spec.tone]})`}
+            />
           </g>
         );
       })}
