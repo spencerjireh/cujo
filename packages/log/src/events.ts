@@ -118,6 +118,7 @@ export const EVENT_NAMES = [
   "github.page_cap",
   // github-mcp: the only outward write in the system.
   "review.posted",
+  "review.duplicate.skipped",
   "review.failed",
   "review.anchor.moved",
   // Stale review dismissal (decision 52).

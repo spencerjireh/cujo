@@ -15,7 +15,7 @@
 import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { appendConfirmPrompt, appendRunFooter } from "./body";
+import { appendConfirmPrompt, appendReviewMarker, appendRunFooter, reviewMarker } from "./body";
 import { appendMovedComments, validateAnchors } from "./diff";
 import type { GitHubClient } from "./github";
 
@@ -139,6 +139,40 @@ export async function postReview(
   }
 
   async function post(): Promise<ReviewResult> {
+    // Before anything else, because everything else costs an API call and a
+    // GitHub review. `post_advisory_review` and `post_blocking_review` post the
+    // moment the model calls them, so a model that calls one twice has already
+    // posted twice by the time anything downstream notices — `fold` records one
+    // review and the pull request carries two.
+    const marker = reviewMarker(tool, input.head_sha, input.run_id);
+    if (marker) {
+      const existing = await github.listReviews(input.repo, input.pr_number);
+      // `type === "Bot"` and not just the marker text. A marker is copyable: a
+      // stranger who pastes one into their own review body would otherwise
+      // suppress Cujo's. This server holds no bot login of its own, so the
+      // account type is the check available without new configuration.
+      const already = existing.find(
+        (review) => review.user?.type === "Bot" && (review.body ?? "").includes(marker),
+      );
+      if (already) {
+        log.info("review.duplicate.skipped", {
+          repo: input.repo,
+          pr_number: input.pr_number,
+          head_sha: input.head_sha,
+          tool,
+          review_id: String(already.id),
+        });
+        // The review that is already there, rather than an error. A thrown
+        // tool error is something the model may work around or retry, and
+        // "idempotent" means the second call answers like the first.
+        return {
+          review_id: already.id,
+          html_url: already.html_url,
+          posted_inline: 0,
+          moved_to_body: 0,
+        };
+      }
+    }
     const files = await github.listPullFiles(input.repo, input.pr_number);
     const { inline, moved } = validateAnchors(files, input.comments);
     for (const { comment, reason } of moved) {
@@ -160,13 +194,19 @@ export async function postReview(
       // their diff anchor rather than between them and the body (decision 36).
       // The maintainer prompt goes directly above it — both are ours, and a
       // call to action reads better next to the evidence it points at.
-      body: appendRunFooter(
-        appendConfirmPrompt(
-          appendMovedComments(input.body, moved),
-          "accusation_follows" in input && input.accusation_follows,
+      // Outward-in, and the marker is outside even the footer: a private
+      // repository has no run id, so `appendRunFooter` returns the body
+      // unchanged there, and a marker composed inside it would vanish with it.
+      body: appendReviewMarker(
+        appendRunFooter(
+          appendConfirmPrompt(
+            appendMovedComments(input.body, moved),
+            "accusation_follows" in input && input.accusation_follows,
+          ),
+          publicBaseUrl,
+          input.run_id,
         ),
-        publicBaseUrl,
-        input.run_id,
+        marker,
       ),
       comments: inline,
     });
