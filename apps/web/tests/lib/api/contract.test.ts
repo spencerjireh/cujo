@@ -232,16 +232,18 @@ describe("the public wire shape tracks apps/cujo", () => {
     expect([...PUBLIC_SUMMARY_FIELDS].sort()).toEqual([...REQUIRED_ON_BOTH_PLANES].sort());
   });
 
-  it("never publishes a field this app treats as operator-only", () => {
-    for (const field of [
-      "approver",
-      "decided_at",
-      "session_id",
-      "turn_ids",
-      "approval",
-      "external_resume",
-    ]) {
+  it("never publishes a field that names a person or the state of the gate", () => {
+    for (const field of ["approver", "decided_at", "approval", "decision", "is_public"]) {
       expect(PUBLIC_RUN_FIELDS).not.toContain(field);
+      expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
+    }
+  });
+
+  it("publishes the harness and GitHub handles on the detail, never on the list", () => {
+    // Decision 52 moved these into the public projection. The list stays as
+    // narrow as it was: a board of every run is not the place for them.
+    for (const field of ["session_id", "turn_ids", "external_resume", "delivery_id"]) {
+      expect(PUBLIC_RUN_FIELDS).toContain(field);
       expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
     }
   });

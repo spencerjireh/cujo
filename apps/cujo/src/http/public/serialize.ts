@@ -34,25 +34,32 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "gatedReview",
   "error",
   "summary",
+  // Handles into TrueForge and GitHub, published deliberately (decision 52).
+  // They authorize nothing: the console they name keeps its own Access
+  // application, which is the thing standing between a reader and a session.
+  "sessionId",
+  "turnIds",
+  "externalResume",
+  "deliveryId",
 ];
 
 /**
- * Deliberately not read. `approver` and `decidedAt` name a person; `sessionId`
- * and `turnIds` are harness handles and `deliveryId` is GitHub's; `approval`, `decision`, `externalResume`
- * and `gatedResponseSeen` are the state of a gate no anonymous visitor can
- * touch; `isPublic` is the filter itself and says nothing to a caller who only
- * ever sees rows where it is true.
+ * Deliberately not read. `approver` and `decidedAt` name a person, which is
+ * the one rule this board has always kept: the confirming `/cujo confirm`
+ * comment is on the pull request for anyone to read, and Cujo does not become
+ * the publisher of somebody's GitHub login on top of that.
+ *
+ * `approval` and `decision` are the state of a gate no anonymous visitor can
+ * touch, and `gatedResponseSeen` is how the fold knows the gate was answered.
+ * `isPublic` is the filter itself and says nothing to a caller who only ever
+ * sees rows where it is true.
  */
 export const WITHHELD_SOURCE_FIELDS: readonly SourceField[] = [
-  "sessionId",
-  "turnIds",
-  "deliveryId",
   "approver",
   "decidedAt",
   "isPublic",
   "approval",
   "decision",
-  "externalResume",
   "gatedResponseSeen",
 ];
 
@@ -72,6 +79,10 @@ export const PUBLIC_RUN_FIELDS = [
   "gated_review",
   "error",
   "summary",
+  "session_id",
+  "turn_ids",
+  "external_resume",
+  "delivery_id",
 ] as const;
 
 /** Exactly the keys `serializePublicSummary` emits. */
@@ -141,6 +152,13 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     gated_review: run.status === "blocked_posted" ? publicReview(projection.gatedReview) : null,
     error: projection.error,
     summary: projection.summary,
+    // `turnIds` is a key of both `RunRecord` and `Projection`. The run's is the
+    // durable one — the projection's is rebuilt by the fold — so that is the
+    // one published, and the projection's stays unread.
+    session_id: run.sessionId,
+    turn_ids: run.turnIds,
+    external_resume: projection.externalResume,
+    delivery_id: run.deliveryId,
   };
 }
 

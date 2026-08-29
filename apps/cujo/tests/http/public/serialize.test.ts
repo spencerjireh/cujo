@@ -70,13 +70,22 @@ describe("the public field allowlist", () => {
     expect(classified).toHaveLength(new Set(classified).size);
   });
 
-  it("withholds the fields that name a person or a harness handle", () => {
+  it("withholds the fields that name a person, and the state of the gate", () => {
     expect(WITHHELD_SOURCE_FIELDS).toContain("approver");
     expect(WITHHELD_SOURCE_FIELDS).toContain("decidedAt");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("sessionId");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("deliveryId");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("turnIds");
     expect(WITHHELD_SOURCE_FIELDS).toContain("approval");
+    expect(WITHHELD_SOURCE_FIELDS).toContain("decision");
+    expect(WITHHELD_SOURCE_FIELDS).toContain("gatedResponseSeen");
+  });
+
+  it("publishes the harness and GitHub handles, which it used to withhold", () => {
+    // Decision 52. They authorize nothing on their own: the TrueForge console
+    // these name keeps its own Access application, and `delivery_id` is what
+    // correlates a board page with a log line.
+    for (const field of ["sessionId", "turnIds", "externalResume", "deliveryId"] as const) {
+      expect(PUBLIC_SOURCE_FIELDS).toContain(field);
+      expect(WITHHELD_SOURCE_FIELDS).not.toContain(field);
+    }
   });
 });
 
@@ -171,10 +180,10 @@ describe("serializePublicRun", () => {
     for (const leaked of [
       "SENTINEL_approver",
       "SENTINEL_decidedAt",
-      "SENTINEL_sessionId",
-      "SENTINEL_turnIds",
-      // A GitHub-side handle, the same class as the two above.
-      "SENTINEL_deliveryId",
+      // The projection's own turn ids, which are rebuilt by the fold. The
+      // run's are published (decision 52); these are a second copy of the same
+      // fact and stay unread, so a leak here would mean the serializer started
+      // reading the projection where it should read the record.
       "SENTINEL_projectionTurnIds",
       "SENTINEL_approvalThreadId",
       "SENTINEL_approvalToolCallId",
@@ -220,6 +229,11 @@ describe("serializePublicRun", () => {
       "SENTINEL_comment",
       "SENTINEL_report",
       "SENTINEL_summary",
+      // Published since decision 52, and from the record rather than the
+      // projection.
+      "SENTINEL_sessionId",
+      "SENTINEL_turnIds",
+      "SENTINEL_deliveryId",
     ]) {
       expect(json).toContain(kept);
     }
