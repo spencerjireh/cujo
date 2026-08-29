@@ -188,8 +188,12 @@ export function registerReviewTools(
     {
       title: "Post blocking review",
       description:
-        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], which blocks the merge under branch protection. Use only when at least one finding is critical. This action pauses for human approval.",
+        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], which blocks the merge under branch protection. Use when a critical finding says the pull request is broken — a failing test, a contradicted probe, an endpoint that stopped answering. Posts at once; nobody is asked.",
       inputSchema: reviewInputShape,
+      // Destructive, and no longer gated. It blocks a merge, which is real but
+      // reversible in one click; the gate moved to the claim that is not
+      // (decision 42). The gate is the name in `require_approval_for_tools`,
+      // never this hint, so the two can disagree without surprising anyone.
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     async (args) =>
@@ -210,7 +214,7 @@ export function registerReviewTools(
     {
       title: "Post gated review",
       description:
-        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], for a critical finding that accuses code of acting maliciously. Identical to post_blocking_review except that it is held until a human confirms it. Cujo's rubric says exactly when to use this; do not choose it on your own reading of the tool list.",
+        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], for a critical finding that accuses code of acting against the person running it: reading or leaking a secret, writing outside the workspace, or calling an unknown host. Identical to post_blocking_review except that it pauses and posts nothing until a maintainer confirms it, because an accusation that is wrong harms someone. Post the observation as an advisory review first.",
       inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },

@@ -68,7 +68,7 @@ export class Harness {
           name: "github-mcp",
           type: "remote",
           url: this.config.githubMcpUrl,
-          description: "Posts PR reviews as the Cujo GitHub App. post_blocking_review is gated.",
+          description: "Posts PR reviews as the Cujo GitHub App. post_gated_review is gated.",
         },
       }),
     );
