@@ -486,3 +486,45 @@ def test_run_ignores_audit_rows_from_another_window(tmp_path: Path, home_dir: Pa
         assert "~/mine.txt" in read
     finally:
         _run(["teardown"], env)
+
+
+def test_an_aliased_home_is_still_one_directory(
+    tmp_path: Path, home_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `--cwd` reaches the snapshot resolved and $HOME does not, so a HOME
+    # behind a symlink was walked as two directories. Every file got two rows,
+    # and because only one of them matched the workspace root, a write inside
+    # the workspace set wrote_outside_workspace.
+    alias = tmp_path / "home-link"
+    alias.symlink_to(home_dir)
+    monkeypatch.setenv("HOME", str(alias))
+    assert sniff._snapshot_roots([home_dir]) == sniff._snapshot_roots([alias])
+    assert sniff._snapshot_roots([home_dir]).count(home_dir) == 1
+
+    after = {str(home_dir / "x.txt"): (1, 1)}
+    changes = sniff.diff_snapshots({}, after, [home_dir])
+    assert changes == [
+        {"path": "~/x.txt", "type": "created", "in_workspace": True, "sensitive": False}
+    ]
+
+
+def test_decoy_is_recognised_by_either_spelling(
+    tmp_path: Path, home_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alias = tmp_path / "home-link"
+    alias.symlink_to(home_dir)
+    monkeypatch.setenv("HOME", str(alias))
+    (home_dir / ".aws").mkdir()
+    (home_dir / ".aws" / "credentials").write_text(sniff.DECOY_KEY)
+    # setup seeds the decoy under one name; the audit hook reports whichever
+    # name the program opened.
+    for spelling in (alias / ".aws" / "credentials", home_dir / ".aws" / "credentials"):
+        block = sniff.build_sensor_block(
+            proxy_rows=[],
+            audit_rows=[{"event": "open", "path": str(spelling), "mode": "r"}],
+            decoy_rows=[],
+            fs_changes=[],
+            allow_hosts=[],
+            check="tests",
+        )
+        assert block["secret_probe"]["decoy_read"] is True, spelling

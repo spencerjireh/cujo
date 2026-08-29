@@ -149,6 +149,16 @@ def append_jsonl(path: Path, row: dict[str, Any]) -> None:
         fh.write(json.dumps(row) + "\n")
 
 
+def canonical(path: Path) -> Path:
+    """The one spelling of `path` every comparison uses: symlinks resolved.
+
+    A directory reachable by two names — `/tmp` and `/private/tmp`, a HOME
+    behind a symlink — is one directory, and a sensor that walks it under both
+    names reports each file twice and classifies the two rows differently.
+    """
+    return Path(os.path.realpath(path))
+
+
 def _under(path: Path, target: Path) -> bool:
     return path == target or target in path.parents
 
@@ -168,10 +178,10 @@ def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
     p = Path(os.path.expanduser(path))
     if not p.is_absolute():
         p = Path.cwd() / p
-    candidates = {Path(os.path.normpath(p)), Path(os.path.realpath(p))}
+    candidates = {Path(os.path.normpath(p)), canonical(p)}
     # HOME itself can be a symlink (macOS puts /tmp under /private), so the
     # targets are resolved the same way the candidates are.
-    roots = {h, Path(os.path.realpath(h))}
+    roots = {h, canonical(h)}
     for rel in SENSITIVE_HOME_PATHS:
         if any(_under(c, root / rel) for c in candidates for root in roots):
             return True
@@ -214,14 +224,23 @@ def is_noise_read(path: str) -> bool:
 def display_path(path: Path, home_dir: Path | None = None) -> str:
     """Render a path with `~` for HOME so reports read the same on any box."""
     h = home_dir or home()
-    try:
-        return "~/" + str(path.relative_to(h))
-    except ValueError:
-        return str(path)
+    for root in (h, canonical(h)):
+        try:
+            return "~/" + str(path.relative_to(root))
+        except ValueError:
+            continue
+    return str(path)
 
 
 def in_any(path: Path, roots: list[Path]) -> bool:
-    return any(path == r or r in path.parents for r in roots)
+    """True when `path` is one of `roots` or under one.
+
+    Both sides must already be canonical. Comparing a resolved path against an
+    unresolved root is how a write inside the workspace came to be reported as
+    `wrote_outside_workspace`: one spelling of the directory matched and the
+    other did not.
+    """
+    return any(_under(path, r) for r in roots)
 
 
 # ---------------------------------------------------------------------------
@@ -461,10 +480,18 @@ def write_pyhook(pyhook_dir: Path) -> None:
 
 
 def _snapshot_roots(workspace_roots: list[Path]) -> list[Path]:
-    roots = [home(), *workspace_roots, Path("/etc")]
+    """HOME, the workspace, and /etc, each by one name and each walked once.
+
+    Canonical, because HOME and the workspace are routinely the same directory
+    reached two ways: `--cwd` arrives resolved and `$HOME` does not. Walking
+    both spellings put every file in the report twice, and the two rows
+    disagreed about `in_workspace`, which turned one write inside the
+    workspace into `wrote_outside_workspace`.
+    """
+    roots = [canonical(r) for r in (home(), *workspace_roots, Path("/etc"))]
     unique: list[Path] = []
     for r in roots:
-        if r.exists() and r not in unique:
+        if r.exists() and r not in unique and not in_any(r, unique):
             unique.append(r)
     return unique
 
@@ -505,7 +532,12 @@ def diff_snapshots(
     A deletion is a write too: removing a credential or a shell rc is at least
     as interesting as creating one, so before-only paths get a `deleted` row
     with the same workspace and sensitivity classification.
+
+    The workspace roots are canonicalised once, here, rather than per row: the
+    snapshot walks canonical roots, so a caller that passes an unresolved root
+    would otherwise see every one of its own files as outside the workspace.
     """
+    roots = [canonical(r) for r in workspace_roots]
     changes: list[dict[str, Any]] = []
     for path in sorted(before.keys() | after.keys()):
         if path in before and path in after and before[path] == after[path]:
@@ -521,7 +553,7 @@ def diff_snapshots(
             {
                 "path": display_path(p, home_dir),
                 "type": kind,
-                "in_workspace": in_any(p, workspace_roots),
+                "in_workspace": in_any(p, roots),
                 "sensitive": is_sensitive(path, home_dir),
             }
         )
@@ -530,6 +562,10 @@ def diff_snapshots(
 
 # ---------------------------------------------------------------------------
 # Sensor merge
+
+
+def _is_decoy(path: Path, decoy_paths: set[Path]) -> bool:
+    return path in decoy_paths or canonical(path) in decoy_paths
 
 
 def build_sensor_block(
@@ -550,7 +586,10 @@ def build_sensor_block(
     against that directory, before it is classified.
     """
     base = Path(cwd) if cwd is not None else Path.cwd()
-    decoy = str((home_dir or home()) / DECOY_REL)
+    # Both spellings of the decoy, because the audit hook records the path the
+    # program passed and that need not be the one `setup` seeded.
+    decoy = (home_dir or home()) / DECOY_REL
+    decoy_paths = {decoy, canonical(decoy)}
     egress = _merge_egress(proxy_rows)
     files_read: list[dict[str, Any]] = []
     subprocesses: list[dict[str, Any]] = []
@@ -562,7 +601,7 @@ def build_sensor_block(
             path = str(row.get("path", ""))
             if path and not os.path.isabs(path):
                 path = str(base / path)
-            if path == decoy:
+            if path and _is_decoy(Path(path), decoy_paths):
                 decoy_read = True
             if any(ch in mode for ch in "wax+"):
                 continue
