@@ -57,6 +57,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 49. [The operator plane swaps an email for a shared token, because it no longer decides anything](#49-the-operator-plane-swaps-an-email-for-a-shared-token-because-it-no-longer-decides-anything)
 50. [`issue_comment` costs the App a permission, and decision 43's check did not cover it](#50-issue_comment-costs-the-app-a-permission-and-decision-43s-check-did-not-cover-it)
 51. [A shipped design document is deleted, and the log carries its own reversals](#51-a-shipped-design-document-is-deleted-and-the-log-carries-its-own-reversals)
+52. [The operator plane is deleted; every route is signature-gated or anonymous](#52-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -68,8 +69,9 @@ configuration and the SDK.
 
 ## 2. Hosted mode on Hetzner via Coolify, gated by Cloudflare Access
 
-**Superseded in part by 34 and 49.** The operator plane's Access gate is
-gone; the `cujo-harness` console gate stands.
+**Superseded in part by 34, 49 and 52.** The operator plane is gone
+entirely, and its Access gate with it; the `cujo-harness` console gate
+stands and is now the only one anywhere in this system.
 
 TrueForge runs in hosted mode (Postgres + Redis) on one Hetzner server, deployed
 by Coolify. Its bundled UI is reachable at `cujo-harness.spencerjireh.com` as an
@@ -626,6 +628,9 @@ that is already out there.
 
 ## 31. The repo declares its Discord server; the operator route becomes an override
 
+**Superseded in part by 52.** The declaration stands and is now the whole
+authority; the override route and its table are deleted.
+
 Decision 28 made a Cujo operator vouch that a Discord server may see a repo.
 That was wrong in two ways at once. The authority was misplaced — a Cujo
 operator is not necessarily anyone who owns the repo, so the check confirmed
@@ -784,6 +789,10 @@ certificate on the box and loses browser trust the moment the proxy is turned
 off; and restricting port 22 to a guessed control-plane address.
 
 ## 34. The run board is public and read-only; the operator surface moves hosts
+
+**Superseded in part by 52.** The board, the allowlist serializer, the
+`is_public` stamping and the stream cap all stand. The second hostname and
+everything that linked to it do not.
 
 `cujo.spencerjireh.com` sat behind Cloudflare Access, so nobody could see what
 Cujo does without being admitted one email at a time. The board is a projection
@@ -1859,6 +1868,8 @@ a command reading it is exactly the thing worth seeing.
 
 ## 49. The operator plane swaps an email for a shared token, because it no longer decides anything
 
+**Superseded by 52.** The token is deleted with the plane it gated.
+
 **This is the downward swap of principal decision 28 refused**, and the entry
 has to say so first rather than last. Decision 28 rejected Discord channel
 membership as a principal because "a Cloudflare Access email is a policy-checked
@@ -2011,3 +2022,112 @@ buys a second narration of what `spec.md` and this file already hold, and
 guarantees a third contradiction later. **Leaving the reversals unmarked and
 relying on "newest context wins"**, which is a rule about how to resolve a
 conflict, not a way to notice there is one.
+
+## 52. The operator plane is deleted; every route is signature-gated or anonymous
+
+`cujo-admin.spencerjireh.com`, the operator API behind it, the shared token
+that gated it, the Cloudflare Access verifier still accepted beside it, and the
+`.cujo.yml` authorization override that had no other write path — all gone.
+`apps/cujo` now has **no authenticated route at all**: the ingress host takes
+requests whose HMAC or Ed25519 signature verifies, the internal compose name
+serves the anonymous board, and everything else is 404. Cujo publishes three
+hostnames, and the only gate a person passes anywhere in the system is the
+Access application on `cujo-harness`, which is untouched (see 2).
+
+**Both of the plane's premises had already been retired, one entry at a time.**
+Decision 44 moved the decision to the pull request, where the principal is repo
+write and the trail is a GitHub login. Decision 49 deleted `POST
+/runs/:id/approve` outright and replaced the Access email with a token that
+names nobody, on the reasoning that the plane "now holds none" of the
+attributable actions. What was left was reads the public plane already served
+in redacted form, plus a `/discord/*` API with no UI in front of it. A gate
+over that is not protecting a decision; it is a second surface to keep correct.
+
+**This executes decision 49's own rejected alternative, and has to say so.**
+That entry rejected "making the whole plane public" because it "publishes
+`session_id`, `turn_ids` and `delivery_id` and hands the Discord bindings to
+anyone". Both halves are answered rather than ignored. The bindings move to
+`/cujo watch`, which gates on Manage Server in the Discord server *and* on the
+repo's own `.cujo.yml` — two independent facts about the two parties involved,
+which is a stronger check than one shared secret. The handles are published
+deliberately, below. Naming the alternative is what stops this log reading as
+if 49 were simply forgotten.
+
+**404, not 401, outside `/public`.** A 401 would leave a route that somebody
+could still reach with the right header, and would mean the gate had been
+inverted rather than removed. The absence is the point, and the router test
+pins it: a request carrying a bearer token, one carrying an Access assertion,
+and one carrying neither get byte-identical answers.
+
+**The four handles are published.** `session_id`, `turn_ids`, `external_resume`
+and `delivery_id` move into the public projection. They authorize nothing on
+their own — `cujo-harness` keeps its Access application, which is what stands
+between a reader and a session — and `delivery_id` is what lets a reader
+correlate a board page with a log line. The known cost, recorded once: decision
+33 records an origin that turned out to be reachable in a way it was not meant
+to be, and these are the identifiers that would make such reachability
+immediately useful. That is a real limit of the change, not a reason it was not
+made.
+
+**What does not change, because a reader will assume it went with the plane.**
+`approver` and `decided_at` stay withheld: the board still names nobody, and
+the confirming `/cujo confirm` comment is on the pull request for anyone to
+read, so nothing is hidden that a reader cannot find. The `is_public` filter
+and the fifteen-minute visibility recheck stay, which makes them the *sole*
+thing keeping a private repo off the board — worth stating plainly, since there
+is no longer a second plane behind which a private run could be read. The
+allowlist in `http/public/serialize.ts` stays, and adding a field to
+`Projection` still fails its test until it is classified. `publicRunId`'s rule
+(see 36) is unchanged, and `runUrl` has now converged on it.
+
+**A private run has no page at all, so its Discord card carries no link.**
+`runUrl` used to fall back to the gated hostname for a private run; there is
+nothing to fall back to. The embed omits the `url` key rather than setting it
+to null, which Discord refuses, so the title still renders and is simply not a
+hyperlink.
+
+**`CUJO_UI_HOST` is deleted rather than repointed**, which answers decision
+27's note that setting it to the service name "makes that variable mean the
+internal name and its documentation misleading". The objection is moot once the
+variable does not exist: there is one host variable for this plane and it is
+honestly named `CUJO_INTERNAL_HOST`. It was already matched by zero production
+requests, because `apps/web` reaches this process at `http://cujo:8080` and
+Node's `fetch` overwrites `Host` with the target's own authority.
+
+**Decision 7 is generalized, not reversed.** It put the webhook on a non-Access
+hostname as an exception to a system that was otherwise gated. That is now the
+whole rule: no hostname this process serves has an Access policy.
+
+**The override table is dropped by a migration, not merely removed from the
+schema.** Every statement in `SCHEMA` is `IF NOT EXISTS`, so deleting the
+`CREATE` would leave the deployed volume holding `discord_guild_repos` forever,
+and the next person to find rows in it would conclude the override still works.
+Migration index 3 is `DROP TABLE IF EXISTS`, and `IF EXISTS` because a fresh
+database never created it and index 3 has to be a no-op there rather than an
+error that rolls back the version bump.
+
+**Sequencing.** Merging is the deploy (see 35), and this one is easy in a way
+49's was not: the new code simply stops reading `CUJO_UI_HOST`,
+`CUJO_UI_BASE_URL`, `CUJO_OPERATOR_TOKEN`, `CF_ACCESS_*`, `CUJO_PUBLIC_HOST`,
+`CUJO_ADMIN_BASE_URL` and `CUJO_DEV_NO_ACCESS`. Leftover values are inert, so
+no variable has to be removed before the merge. One value does have to be right
+beforehand: `CUJO_PUBLIC_BASE_URL`, which used to fall back to
+`CUJO_UI_BASE_URL` when empty and now means "no card carries a link". The
+`cujo-admin` DNS record and its entry in the ACME bypass application (see 33)
+are removed after the deploy is confirmed, in that order, so a name that is
+about to stop resolving is not left with Traefik attempting HTTP-01 renewal for
+it.
+
+Rejected: **keeping the plane behind the token and deleting only the
+hostname**, which is a gate with nothing behind it and one more surface to keep
+correct. **Moving `/public` to the router root** now that it is the only plane
+— the prefix is a live URL contract on both sides of the proxy, it is still the
+discriminator the request log files a line under, and the mount was moved to
+its own router precisely so handler ordering could not decide a boundary;
+undoing that to save a word is churn against the reason it exists. **Keeping
+the override table for one release**, which is exactly the orphan the migration
+exists to prevent. **Linking a private run's card to the pull request instead
+of nothing**, which is defensible — `https://github.com/$repo/pull/$number` is
+derivable from two structural values — and was left out because a card that
+names a private repo's run should not also advertise a route into it; the
+channel's members already know where the pull request is.
