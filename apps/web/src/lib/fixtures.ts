@@ -1,4 +1,4 @@
-import type { CheckState, DraftedReview, Finding, Run, RunSummary } from "./api/types";
+import type { CheckState, DraftedReview, Finding, Run, RunDigest, RunSummary } from "./api/types";
 
 /**
  * The three demo runs from docs/demo.md, plus the states that are awkward to
@@ -99,6 +99,23 @@ export const findings: Finding[] = [
   },
 ];
 
+/**
+ * The digest of the detonation run: four checks that all reported, and the
+ * findings above counted by severity. Written out rather than derived from
+ * `detonationChecks`, because a fixture that computes its own expected value
+ * proves nothing about the shape it is standing in for.
+ */
+export const detonationDigest: RunDigest = {
+  checks: {
+    tests: { status: "done", ms: 108_000 },
+    probes: { status: "done", ms: 52_000 },
+    smoke: { status: "done", ms: 70_000 },
+    detonation: { status: "done", ms: 150_000 },
+  },
+  findings: { critical: 2, warn: 1, info: 1 },
+  durationMs: 156_000,
+};
+
 export const summary: RunSummary = {
   id: "run-1",
   repo: "spencerjireh/orders-api",
@@ -108,6 +125,7 @@ export const summary: RunSummary = {
   pr_title: "Add a refund endpoint",
   created_at: T0,
   updated_at: at(160),
+  digest: detonationDigest,
 };
 
 /** Non-nullable, so stories can build on it without asserting it exists. */
@@ -155,6 +173,11 @@ export function run(over: Partial<Run> = {}): Run {
   };
 }
 
+/**
+ * Five rows spanning every digest a board row can meet: four checks that all
+ * reported, a clean sweep, a run whose detonation errored, a run still going,
+ * and one with no digest at all.
+ */
 export const runs: RunSummary[] = [
   summary,
   {
@@ -165,6 +188,16 @@ export const runs: RunSummary[] = [
     head_sha: "b2e8d4f",
     status: "clean",
     updated_at: at(-3_600),
+    digest: {
+      checks: {
+        tests: { status: "done", ms: 41_000 },
+        probes: { status: "done", ms: 22_000 },
+        smoke: { status: "done", ms: 31_000 },
+        detonation: { status: "done", ms: 48_000 },
+      },
+      findings: { critical: 0, warn: 0, info: 1 },
+      durationMs: 52_000,
+    },
   },
   {
     ...summary,
@@ -174,6 +207,17 @@ export const runs: RunSummary[] = [
     head_sha: "c3d7e5a",
     status: "blocked_posted",
     updated_at: at(-7_200),
+    digest: {
+      // A check that errored, and one that never appeared at all — the two
+      // cases a sensor strip has to draw differently.
+      checks: {
+        tests: { status: "done", ms: 96_000 },
+        probes: { status: "done", ms: 34_000 },
+        detonation: { status: "error", ms: null },
+      },
+      findings: { critical: 1, warn: 0, info: 0 },
+      durationMs: 101_000,
+    },
   },
   {
     ...summary,
@@ -183,6 +227,17 @@ export const runs: RunSummary[] = [
     head_sha: "d4c6f2b",
     status: "running",
     updated_at: at(-30),
+    digest: {
+      // Mid-flight: no duration, because a partial envelope would read as a
+      // run that finished fast.
+      checks: {
+        tests: { status: "running", ms: null },
+        probes: { status: "done", ms: 19_000 },
+        smoke: { status: "running", ms: null },
+      },
+      findings: { critical: 0, warn: 0, info: 0 },
+      durationMs: null,
+    },
   },
   {
     ...summary,
@@ -193,5 +248,8 @@ export const runs: RunSummary[] = [
     head_sha: "e5b5a1c",
     status: "superseded",
     updated_at: at(-10_800),
+    // Claimed but never folded, so there is nothing to reduce. Not four zeroed
+    // checks — the board must not draw this as a run that passed.
+    digest: null,
   },
 ];

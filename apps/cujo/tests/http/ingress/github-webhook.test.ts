@@ -512,7 +512,7 @@ describe("webhook", () => {
     it("hides a repo's runs when it is privatized, whatever the casing", async () => {
       const { app, store, nextSettled } = build();
       const runId = await publicRun(app, nextSettled);
-      expect(store.runs.listPublicRuns().map((r) => r.id)).toEqual([runId]);
+      expect(store.runs.listPublicRuns().map((r) => r.run.id)).toEqual([runId]);
 
       // GitHub sends the name in the casing it holds; the runs stored another.
       const res = await send(app, repoEvent("privatized", "owner/repo"));

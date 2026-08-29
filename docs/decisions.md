@@ -2877,3 +2877,59 @@ outright when the context fills — the wrong direction, since the hard rules
 survive a compaction and nothing survives a failed turn. **Leaving the threshold
 at the default and adding nothing**, which keeps a known hazard for no reason
 now that the setting is one line.
+## 65. A public list row carries what the checks measured, not only the verdict
+
+`GET /public/runs` served eight scalars per run: the pull request, the SHA, a
+status word and two timestamps. Everything that makes Cujo different from a
+linter — that four sensors watched code execute, for this long, and one of them
+is why the run is blocked — lived only on the detail route, one request per run.
+The board could therefore say a run was `blocked` and could not say by what.
+
+The list now also carries `digest`: `checks` keyed by check name with each one's
+status and duration, `findings` as counts by severity, and `durationMs`.
+
+**This discloses nothing new.** Every value is a reduction of `checks` or
+`findings`, which `GET /public/runs/:id` already serves in full to the same
+anonymous caller. Decision 34's allowlist is what makes that claim checkable
+rather than asserted: `RunDigest` gets its own classification list
+(`PUBLIC_DIGEST_FIELDS`) with the same `Record<keyof T, true>` compile guard as
+`RunRecord` and `Projection`, so a future field on it that is *not* such a
+reduction goes red before it can ship. It is a third list and not a third arm of
+`SourceField` because `checks` and `findings` are already keys of `Projection`,
+and the no-duplicate assertion could not otherwise be stated.
+
+**It is stored, not computed per request.** A `Projection` holds every sensor
+report in full — the thing Contract 2 truncates in-sandbox precisely because it
+is large. Deriving the digest on read would parse one of those per row, up to a
+hundred, on a list the board polls every five seconds. `deriveDigest` runs once
+inside `putProjection`, in the same method as the write it describes, so the two
+cannot drift; `run_digests` is a new table rather than a column, which reaches a
+deployed database on open and needs no rung on the migration ladder
+(decision 25).
+
+**A run folded before that table existed is backfilled on read.** A terminal run
+never refolds, so the digest would otherwise be null forever on exactly the runs
+already on the board. `listPublicRuns` derives and stores the missing one from
+the run's stored projection. Bounded by the list's own limit, paid once per run.
+
+**Absence is a fact, never a zero.** A check name missing from `checks` never
+appeared, which the hard rule `check_missing` exists because it differs from a
+check that failed. `ms` and `durationMs` are null while a check runs rather than
+measured against now, and `digest` is null for a run claimed but never folded —
+not an empty digest, which a board would draw as four checks that reported
+nothing. `durationMs` is the envelope across the checks and deliberately not
+`updated_at − created_at`, which on a `blocked_pending` run measures how long a
+person took to answer.
+
+The field is nested under one key rather than spread across three, because
+`checks` at the top level would be the same word for a different shape than the
+detail route's `checks` — an array of what each check said, against a reduction
+of how each one ended.
+
+Rejected: **fanning out detail requests from the browser** to aggregate
+client-side, which is up to a hundred requests for a page load and goes stale
+silently, since detail queries have an infinite `staleTime` and no poll.
+**Putting the reduction on the detail route too**, which would be a second copy
+of a fact already there in full. **An aggregate endpoint** returning counts
+across all runs, which answers one page's question and not the next one's, and
+which the board does not need while the whole list fits in one response.

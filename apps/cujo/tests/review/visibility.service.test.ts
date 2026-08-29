@@ -46,7 +46,7 @@ describe("VisibilityService.sweep", () => {
     expect(store.runs.listPublicRuns()).toEqual([]);
     await service.sweep();
     expect(store.runs.getRun(run.id)?.isPublic).toBe(true);
-    expect(store.runs.listPublicRuns().map((r) => r.id)).toEqual([run.id]);
+    expect(store.runs.listPublicRuns().map((r) => r.run.id)).toEqual([run.id]);
   });
 
   it("leaves the stamp alone when GitHub could not be asked", async () => {
