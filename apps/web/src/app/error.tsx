@@ -15,7 +15,7 @@ export default function ErrorBoundary({
   reset: () => void;
 }) {
   return (
-    <div>
+    <div className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="mb-2 text-2xl">Something went wrong</h1>
       <p className="mb-4 max-w-[60ch] text-sm text-fg-muted">
         This page could not be built. The Cujo API may be unreachable; the stack logs will say which
