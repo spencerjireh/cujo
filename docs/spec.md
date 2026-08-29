@@ -1005,7 +1005,7 @@ longer than Discord's 100-character choice limit is not offered by autocomplete
 the same host as the GitHub webhook and for the same reason (decision 7):
 Discord can answer no login challenge, so
 a gated host could never receive it. It is signature-gated
-ingress, so the UI host answers 404 for it, in the process and not only at the
+ingress, so the read host answers 404 for it, in the process and not only at the
 edge.
 
 Each request is verified with Ed25519 over `timestamp + rawBody`, from
