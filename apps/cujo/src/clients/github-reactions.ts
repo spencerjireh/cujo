@@ -1,6 +1,6 @@
 /**
- * The one thing `apps/cujo` writes to GitHub: a reaction on the pull request
- * it is reviewing (decision 38).
+ * Reactions: on the pull request `apps/cujo` is reviewing (decision 38), and on
+ * a comment that addressed Cujo directly (decision 43).
  *
  * A reaction carries no content, names no finding, and approves nothing, so it
  * is outside what the `@destructive` approval selector guards — reviews still
@@ -117,6 +117,30 @@ export class GitHubReactions {
     }
   }
 
+  /**
+   * Acknowledge one comment. Add-only, and a separate method rather than a
+   * parameter on `set`, for two reasons that are easy to miss:
+   *
+   * - `set` clears every bot reaction on its target that it did not want.
+   *   Pointing it at a comment would be harmless; pointing the comment path at
+   *   the pull request, or sharing one method that could be handed either id,
+   *   would clear the run's status reaction — and `PrReactor` caches by run id,
+   *   so it would never be put back.
+   * - There is nothing to clear here anyway. A reaction on a command comment
+   *   says "seen", once, about a comment that never changes state.
+   */
+  async addToComment(repo: string, commentId: number, content: Reaction): Promise<void> {
+    const token = await this.token(repo);
+    const path = `/repos/${repo}/issues/comments/${commentId}/reactions`;
+    const res = await this.fetchImpl(`${API}${path}`, {
+      method: "POST",
+      headers: { ...this.headers(token), "content-type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    // 201 created, 200 it already stood. Both are the goal.
+    if (!res.ok) throw new Error(`GitHub POST ${path} (${content}) returned ${res.status}`);
+  }
+
   /** Every reaction on the pull request posted by the bot, across pages. */
   private async mine(repo: string, prNumber: number, token: string): Promise<ReactionRow[]> {
     const path = `/repos/${repo}/issues/${prNumber}/reactions`;
@@ -131,8 +155,7 @@ export class GitHubReactions {
       // same thing on both sides of the client.
       for (const row of body) if (row.user?.login === BOT_LOGIN) rows.push(row);
       if (body.length < 100) break;
-      if (page === MAX_PAGES)
-        this.log.warn("github.page_cap", { path: "/issues/comments/reactions" });
+      if (page === MAX_PAGES) this.log.warn("github.page_cap", { path });
     }
     return rows;
   }
