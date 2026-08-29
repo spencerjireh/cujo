@@ -58,8 +58,9 @@ whole design protects, so keep it in mind when reading the flow below.
 
 Three zones. TrueForge is one box in the middle zone: it runs the agent, but
 nothing outside the server talks to it. `apps/cujo` is the only thing GitHub
-touches; a person only ever reads the board. Thick edges are the one path a
-human is on — the answer to a held review, which travels over GitHub.
+touches, and no person reaches it directly: a human reads the evidence on the
+board and answers a held review on the pull request. Thick edges are that
+answer's path.
 
 ```mermaid
 flowchart LR
@@ -83,7 +84,7 @@ flowchart LR
     Canary[Unknown host<br/>where evil-package phones]
   end
 
-  GH -- "pull_request + issue_comment<br/>webhooks - HMAC" --> Cujo
+  GH -- "pull_request, issue_comment,<br/>pull_request_review_comment<br/>webhooks - HMAC" --> Cujo
   MCP -- "POST review as cujo-guard[bot]<br/>installation token" --> GH
   Human -- "reads the evidence" --> Web
   Web -- "/api/* to /public" --> Cujo
