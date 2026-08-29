@@ -65,6 +65,36 @@ describe("invalidReportFindings", () => {
   });
 });
 
+describe("missingCheckFindings says why, not only that", () => {
+  const noReport = (over: Partial<CheckState>): CheckState => ({
+    ...check("tests", null),
+    status: "done",
+    ...over,
+  });
+
+  it("blames the output limit when the message was cut off", () => {
+    const [f] = missingCheckFindings([noReport({ finishReason: "length" })]);
+    expect(f?.rule).toBe("check_missing");
+    expect(f?.evidence).toContain("output limit");
+    expect(f?.evidence).toContain("cut off rather than never written");
+  });
+
+  it("says so when the model refused", () => {
+    const [f] = missingCheckFindings([noReport({ refused: true })]);
+    expect(f?.evidence).toContain("refusal");
+  });
+
+  it("falls back to the thread's own state when neither applies", () => {
+    const [f] = missingCheckFindings([noReport({ status: "error" })]);
+    expect(f?.evidence).toContain("ended error");
+  });
+
+  it("keeps the old wording when no thread was ever created", () => {
+    const [f] = missingCheckFindings([]);
+    expect(f?.evidence).toContain("no sub-agent thread named for it");
+  });
+});
+
 describe("hardRuleFindings", () => {
   it("is empty for clean reports, missing fields, and non-check threads", () => {
     expect(hardRuleFindings([])).toEqual([]);

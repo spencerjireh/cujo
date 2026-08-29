@@ -489,6 +489,39 @@ describe("hard rules in the fold", () => {
     ]);
   });
 
+  it("carries why the sub-agent's message ended into the missing-check warn", () => {
+    // A report cut off at the model's output limit and a report never written
+    // both parse to null. Only one of them is a cap somebody should raise.
+    const cutOff: Ev = {
+      type: "thread.done",
+      id: "thd-cut",
+      createdAt: at,
+      threadId: "th-tests",
+      title: "tests",
+      state: {
+        status: "done",
+        output: {
+          type: "model.message",
+          id: "out",
+          createdAt: at,
+          threadId: "th-tests",
+          content: '```json\n{"check":"tests","runs":[',
+          finishReason: "length",
+        },
+      },
+    };
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      cutOff,
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks[0]?.finishReason).toBe("length");
+    expect(p.findings.find((f) => f.check === "tests")?.evidence).toContain("output limit");
+  });
+
   it("says nothing about the shape of a report that never arrived", () => {
     // `check_missing` already covers that, and saying both would be saying the
     // same thing twice.

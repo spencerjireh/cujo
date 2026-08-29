@@ -260,18 +260,39 @@ export const REQUIRED_CHECKS = ["tests", "probes", "smoke"] as const;
  * The rubric forbids the parent from running a check itself; when it does,
  * the hard rules have nothing to read, and the review has to say so.
  */
+/**
+ * Why a check has no report, in the words that tell an operator what to do
+ * about it. All three end the same way — the rules had nothing to read — and
+ * differ in what to change: raise a cap, look at a refusal, or find out why the
+ * parent never delegated the check at all.
+ */
+function missingEvidence(check: CheckState | undefined): string {
+  if (!check) {
+    return "no sub-agent thread named for it ended with a report; the hard rules had nothing to read";
+  }
+  if (check.finishReason === "length") {
+    return "its sub-agent's final message stopped at the model's output limit, so the report was cut off rather than never written; the hard rules had nothing to read";
+  }
+  if (check.refused) {
+    return "its sub-agent returned a refusal instead of a report; the hard rules had nothing to read";
+  }
+  return `its sub-agent thread ended ${check.status} without a report the fold could parse; the hard rules had nothing to read`;
+}
+
 export function missingCheckFindings(checks: readonly CheckState[]): Finding[] {
   // A thread counts only once it returned a report: one still running or
   // ended in error without one gave the rules nothing either.
   const seen = new Set(checks.filter((c) => c.isCheck && c.report !== null).map((c) => c.title));
+  // The thread itself, when there was one, so the evidence can say which of the
+  // several ways to have no report this was.
+  const byTitle = new Map(checks.filter((c) => c.isCheck).map((c) => [c.title, c]));
   return REQUIRED_CHECKS.filter((name) => !seen.has(name)).map((name) => ({
     source: "hard_rule",
     check: name,
     severity: "warn",
     rule: "check_missing",
     title: `the ${name} check returned no report`,
-    evidence:
-      "no sub-agent thread named for it ended with a report; the hard rules had nothing to read",
+    evidence: missingEvidence(byTitle.get(name)),
   }));
 }
 
