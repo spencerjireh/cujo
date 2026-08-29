@@ -739,6 +739,7 @@ list in order.
 | `approver`, `decided_at` | Who decided and when. `github:<login>` for a decision made with `/cujo confirm` or `/cujo dismiss` on the pull request, which is the only way a held finding is answered (decisions 45 and 49); the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
+| `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 55). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
 | `created_at`, `updated_at` | Timestamps. |
 
 Status moves on events from the session's turn streams, with one exception
@@ -909,14 +910,25 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 
 | Status | Colour | The card says | Fields |
 |--------|--------|---------------|--------|
-| `running` | blurple | Review running. | `Head`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
+| `running` | blurple | Review running. | `Head`, `Opened by`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
 | `clean` | green | No critical finding; the advisory review posted. | `Checks`, `Findings` (counts by severity), `Summary`. |
 | `blocked_pending` | yellow | Blocked, waiting for a human. | Up to three critical findings with their anchor and a clipped line of evidence, then `Checks`. Also sends the ping below. |
 | `blocked_unattended` | red | The blocking review posted. A correctness finding: nobody was asked. | Critical findings, `Checks`. |
 | `blocked_posted` | red | The blocking review posted, and who decided. | Critical findings, `Checks`. |
 | `denied` | grey | The block was rejected; nothing was posted. | Critical findings, `Checks`. |
 | `error` | orange | The run ended in error. | `Error`. |
-| `superseded` | dark grey | Replaced by a newer commit. | `Head` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
+| `superseded` | dark grey | Replaced by a newer commit. | `Head` and `Opened by` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
+
+**The card names both parties** (decision 55). Cujo takes the embed's author
+line — a fixed name and its own mark, served from this repository so Discord's
+media proxy can fetch it anonymously. The person who opened the pull request
+takes an `Opened by` field beside `Head` and the footer icon, because a field
+value cannot carry an image and the footer is the only image slot left. Both
+are on every status, including `running` and `superseded`: who opened a pull
+request cannot change under the card, so the rule that keeps those two sparse
+does not reach it. A run recorded before the author was stored, or one whose
+account has since been deleted, shows neither the field nor the icon and is
+otherwise exactly the card above.
 
 Two runs get no card at all: a run whose repo has no binding, and an `error`
 run with no turn. The second is the "lost before its turn started" case, which
@@ -968,7 +980,14 @@ request. So, without exception:
    are dropped in reverse priority until the payload fits. Exceeding it is a
    400 that loses the card for the whole run, since every later edit then has
    no message id to edit.
-7. No derived string is ever written into an embed URL field.
+7. No derived string reaches an embed URL field unless it passed a strict
+   allowlist first (decision 55). There are exactly two, both about the pull
+   request's author: the avatar is built from the numeric account id, and the
+   profile link only from a login matching
+   `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`. GitHub cannot issue a login outside
+   that set, so the check should never fire; it is there so the rule is
+   enforced by code rather than assumed. A bot login (`dependabot[bot]`) fails
+   it by design and is named without a link.
 8. The ping's `content` is structural only — the repo (validated when the
    channel was bound), the PR number, and Cujo's own link.
 

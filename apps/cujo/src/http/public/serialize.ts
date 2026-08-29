@@ -27,6 +27,14 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "status",
   "createdAt",
   "updatedAt",
+  // What the pull request says about itself (decision 55). Published because
+  // every row this plane serves is one where `is_public` is true, so the title
+  // and the author are already world-readable on GitHub — a different fact
+  // from `approver` below, which names a Cujo operator and appears nowhere
+  // else.
+  "prTitle",
+  "prAuthorLogin",
+  "prAuthorId",
   "checks",
   "findings",
   "hardRuleHits",
@@ -65,6 +73,9 @@ export const PUBLIC_RUN_FIELDS = [
   "status",
   "created_at",
   "updated_at",
+  "pr_title",
+  "pr_author_login",
+  "pr_author_id",
   "checks",
   "findings",
   "hard_rule_hits",
@@ -83,6 +94,9 @@ export const PUBLIC_SUMMARY_FIELDS = [
   "status",
   "created_at",
   "updated_at",
+  // The title alone. A list row names the pull request; the author belongs to
+  // the page that is about one run, not to a column repeated down a table.
+  "pr_title",
 ] as const;
 
 /**
@@ -129,6 +143,9 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     status: run.status,
     created_at: run.createdAt,
     updated_at: run.updatedAt,
+    pr_title: run.prTitle,
+    pr_author_login: run.prAuthorLogin,
+    pr_author_id: run.prAuthorId,
     checks: projection.checks.map(publicCheck),
     findings: projection.findings,
     hard_rule_hits: projection.hardRuleHits,
@@ -154,5 +171,6 @@ export function serializePublicSummary(run: RunRecord) {
     status: run.status,
     created_at: run.createdAt,
     updated_at: run.updatedAt,
+    pr_title: run.prTitle,
   };
 }

@@ -1,4 +1,13 @@
-import { bytes, duration, elapsedMs, prUrl, relativeTime, shortSha } from "@/lib/format";
+import {
+  avatarUrl,
+  bytes,
+  duration,
+  elapsedMs,
+  prUrl,
+  profileUrl,
+  relativeTime,
+  shortSha,
+} from "@/lib/format";
 import { describe, expect, it } from "vitest";
 
 describe("duration", () => {
@@ -56,5 +65,39 @@ describe("misc formatting", () => {
 
   it("builds the pull request url", () => {
     expect(prUrl("o/r", 7)).toBe("https://github.com/o/r/pull/7");
+  });
+});
+
+describe("the author of a pull request", () => {
+  it("builds an avatar url from the account id, at twice the rendered width", () => {
+    expect(avatarUrl(583231, 20)).toBe("https://avatars.githubusercontent.com/u/583231?s=40");
+  });
+
+  it("has no avatar without an id, including for a deleted account", () => {
+    expect(avatarUrl(null)).toBeNull();
+    expect(avatarUrl(undefined)).toBeNull();
+  });
+
+  it("links a login GitHub could actually have issued", () => {
+    expect(profileUrl("octocat")).toBe("https://github.com/octocat");
+    expect(profileUrl("a-b-9")).toBe("https://github.com/a-b-9");
+  });
+
+  it("links nothing else, so no login of any shape becomes a url", () => {
+    // A bot is the real case: its profile is at /apps/<name>, not /<login>.
+    for (const login of [
+      "dependabot[bot]",
+      "a b",
+      "-lead",
+      "a_b",
+      "o/r",
+      "https://evil.example",
+      "x".repeat(40),
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(profileUrl(login), String(login)).toBeNull();
+    }
   });
 });

@@ -9,6 +9,7 @@ const summary: RunSummary = {
   head_sha: "a1f9c3e",
   status: "running",
   approver: null,
+  pr_title: "Add a thing",
   created_at: "2026-08-28T10:00:00.000Z",
   updated_at: "2026-08-28T10:00:00.000Z",
 };
@@ -18,6 +19,8 @@ const run = (over: Partial<Run> = {}): Run => ({
   session_id: "s1",
   turn_ids: ["t1"],
   decided_at: null,
+  pr_author_login: "octocat",
+  pr_author_id: 583231,
   checks: [],
   findings: [],
   hard_rule_hits: [],
@@ -105,6 +108,7 @@ describe("reduceList", () => {
       pr_number: 7,
       head_sha: "a1f9c3e",
       status: "running",
+      pr_title: "Add a thing",
       created_at: "2026-08-28T10:00:00.000Z",
       updated_at: "2026-08-28T10:00:00.000Z",
     };
@@ -112,6 +116,8 @@ describe("reduceList", () => {
       ...publicRow,
       status: "blocked_pending",
       updated_at: "2026-08-28T10:05:00.000Z",
+      pr_author_login: "octocat",
+      pr_author_id: 583231,
       checks: [],
       findings: [],
       hard_rule_hits: [],

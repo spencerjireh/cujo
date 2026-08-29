@@ -1,7 +1,7 @@
 /**
  * The run store: the PR-to-session map, one row per run, the folded projection
- * of each run, the resume turns Cujo itself sent, and the PR title the card
- * needs.
+ * of each run, the resume turns Cujo itself sent, and what the pull request
+ * says about itself — its title, and who opened it.
  *
  * It takes a NotificationStore because deleting a run has to delete the card
  * posted for it, and that is not optional: on the stale-reclaim path inside
@@ -30,7 +30,26 @@ interface RunRow {
   delivery_id: string | null;
   created_at: string;
   updated_at: string;
+  /** From the join below, not from `runs`. Null until the PR read completed. */
+  pr_title: string | null;
+  pr_author_login: string | null;
+  pr_author_id: number | null;
 }
+
+/**
+ * Every run read, so `RunRecord` always carries what the pull request says
+ * about itself (decision 55). A LEFT JOIN rather than a second lookup: a card
+ * and a run page both want the title and the author, and one of them is on the
+ * SSE path where a second query per event would be a second query per event.
+ *
+ * `meta.updated_at` is deliberately not selected — `runs.updated_at` is the one
+ * every caller means — and columns are qualified below wherever both tables
+ * have them, `rowid` included.
+ */
+const RUN_SELECT =
+  "SELECT runs.*, meta.title AS pr_title, meta.author_login AS pr_author_login, " +
+  "meta.author_id AS pr_author_id FROM runs " +
+  "LEFT JOIN run_pr_meta meta ON meta.run_id = runs.id";
 
 function toRecord(row: RunRow): RunRecord {
   return {
@@ -47,6 +66,9 @@ function toRecord(row: RunRow): RunRecord {
     // existed, or by a path that never learned the answer, is not public.
     isPublic: row.is_public === 1,
     deliveryId: row.delivery_id,
+    prTitle: row.pr_title,
+    prAuthorLogin: row.pr_author_login,
+    prAuthorId: row.pr_author_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -178,7 +200,7 @@ export class RunStore {
         now,
       );
     const row = this.db
-      .prepare("SELECT * FROM runs WHERE repo = ? AND pr_number = ? AND head_sha = ?")
+      .prepare(`${RUN_SELECT} WHERE runs.repo = ? AND runs.pr_number = ? AND runs.head_sha = ?`)
       .get(input.repo, input.prNumber, input.headSha) as RunRow | undefined;
     if (!row) throw new Error("run vanished after insert");
     return { run: toRecord(row), created: Number(result.changes) === 1 };
@@ -208,19 +230,19 @@ export class RunStore {
   /** Every run that shares a session, so one run can skip the others' turns. */
   listRunsForSession(sessionId: string): RunRecord[] {
     const rows = this.db
-      .prepare("SELECT * FROM runs WHERE session_id = ? ORDER BY created_at")
+      .prepare(`${RUN_SELECT} WHERE runs.session_id = ? ORDER BY runs.created_at`)
       .all(sessionId) as RunRow[];
     return rows.map(toRecord);
   }
 
   getRun(id: string): RunRecord | null {
-    const row = this.db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as RunRow | undefined;
+    const row = this.db.prepare(`${RUN_SELECT} WHERE runs.id = ?`).get(id) as RunRow | undefined;
     return row ? toRecord(row) : null;
   }
 
   listRuns(limit = 100): RunRecord[] {
     const rows = this.db
-      .prepare("SELECT * FROM runs ORDER BY created_at DESC LIMIT ?")
+      .prepare(`${RUN_SELECT} ORDER BY runs.created_at DESC LIMIT ?`)
       .all(limit) as RunRow[];
     return rows.map(toRecord);
   }
@@ -233,7 +255,7 @@ export class RunStore {
    */
   listPublicRuns(limit = 100): RunRecord[] {
     const rows = this.db
-      .prepare("SELECT * FROM runs WHERE is_public = 1 ORDER BY created_at DESC LIMIT ?")
+      .prepare(`${RUN_SELECT} WHERE runs.is_public = 1 ORDER BY runs.created_at DESC LIMIT ?`)
       .all(limit) as RunRow[];
     return rows.map(toRecord);
   }
@@ -277,7 +299,7 @@ export class RunStore {
   latestRunForPr(repo: string, prNumber: number): RunRecord | null {
     const row = this.db
       .prepare(
-        "SELECT * FROM runs WHERE repo = ? COLLATE NOCASE AND pr_number = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        `${RUN_SELECT} WHERE runs.repo = ? COLLATE NOCASE AND runs.pr_number = ? ORDER BY runs.created_at DESC, runs.rowid DESC LIMIT 1`,
       )
       .get(repo, prNumber) as RunRow | undefined;
     return row ? toRecord(row) : null;
@@ -299,8 +321,7 @@ export class RunStore {
   runForPrHead(repo: string, prNumber: number, headSha: string): RunRecord | null {
     const row = this.db
       .prepare(
-        "SELECT * FROM runs WHERE repo = ? COLLATE NOCASE AND pr_number = ? AND head_sha = ? " +
-          "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        `${RUN_SELECT} WHERE runs.repo = ? COLLATE NOCASE AND runs.pr_number = ? AND runs.head_sha = ? ORDER BY runs.created_at DESC, runs.rowid DESC LIMIT 1`,
       )
       .get(repo, prNumber, headSha) as RunRow | undefined;
     return row ? toRecord(row) : null;
@@ -317,10 +338,10 @@ export class RunStore {
       scope
         ? this.db
             .prepare(
-              `SELECT * FROM runs WHERE ${where} AND repo = ? AND pr_number = ? ORDER BY created_at`,
+              `${RUN_SELECT} WHERE ${where} AND runs.repo = ? AND runs.pr_number = ? ORDER BY runs.created_at`,
             )
             .all(scope.repo, scope.prNumber)
-        : this.db.prepare(`SELECT * FROM runs WHERE ${where} ORDER BY created_at`).all()
+        : this.db.prepare(`${RUN_SELECT} WHERE ${where} ORDER BY runs.created_at`).all()
     ) as RunRow[];
     return rows.map(toRecord);
   }
@@ -384,20 +405,23 @@ export class RunStore {
     return row ? (JSON.parse(row.projection) as Projection) : null;
   }
 
-  putRunPrTitle(runId: string, title: string): void {
+  /**
+   * What the pull request says about itself, written once when the run is
+   * claimed. There is no matching getter: `RUN_SELECT` joins this row onto
+   * every run read, so a caller that has a `RunRecord` already has it.
+   */
+  putRunPrMeta(
+    runId: string,
+    meta: { title: string; authorLogin: string | null; authorId: number | null },
+  ): void {
     this.db
       .prepare(
-        "INSERT INTO run_pr_meta (run_id, title, updated_at) VALUES (?, ?, ?) " +
+        "INSERT INTO run_pr_meta (run_id, title, author_login, author_id, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?) " +
           "ON CONFLICT (run_id) DO UPDATE SET title = excluded.title, " +
+          "author_login = excluded.author_login, author_id = excluded.author_id, " +
           "updated_at = excluded.updated_at",
       )
-      .run(runId, title, new Date().toISOString());
-  }
-
-  getRunPrTitle(runId: string): string | null {
-    const row = this.db.prepare("SELECT title FROM run_pr_meta WHERE run_id = ?").get(runId) as
-      | { title: string }
-      | undefined;
-    return row?.title ?? null;
+      .run(runId, meta.title, meta.authorLogin, meta.authorId, new Date().toISOString());
   }
 }
