@@ -103,6 +103,27 @@ describe("parseCommand", () => {
     expect(verbOf("use `a` here\n/cujo confirm")).toBe("confirm");
   });
 
+  it("does not match a command inside raw HTML", () => {
+    // GitHub renders markdown with raw HTML in it. `<pre>` shows its contents
+    // as code, and a block tag wraps them in markup — neither reads as an
+    // instruction somebody gave.
+    expect(verbOf("<pre>\n/cujo dismiss\n</pre>")).toBe("none");
+    expect(verbOf("<details>\n/cujo confirm\n</details>")).toBe("none");
+    expect(verbOf("<table>\n<tr><td>\n/cujo dismiss\n</td></tr>\n</table>")).toBe("none");
+  });
+
+  it("keeps a pre block open across a blank line, unlike a block tag", () => {
+    // §4.6 condition 1 ends on the closing tag; condition 6 ends on a blank
+    // line. Reading `<pre>` the second way would let the command out.
+    expect(verbOf("<pre>\n\n/cujo confirm\n</pre>")).toBe("none");
+    expect(verbOf("<div>\nmarkup\n\n/cujo confirm")).toBe("confirm");
+  });
+
+  it("does not treat an autolink at the start of a line as HTML", () => {
+    // The tag list is CommonMark's for exactly this: `<h…>` is not `<h1>`.
+    expect(verbOf("<https://example.com/x>\n\n/cujo confirm")).toBe("confirm");
+  });
+
   it("refuses a comment that says both things", () => {
     expect(verbOf("/cujo confirm\n/cujo dismiss")).toBe("ambiguous");
   });

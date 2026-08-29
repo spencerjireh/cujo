@@ -83,14 +83,15 @@ carry a privileged verb. Comments authored by `cujo-guard[bot]` are ignored
 outright, because Cujo's own replies print the verbs.
 
 **A line only counts if a reader can see it.** The scan drops fenced code,
-blockquotes and HTML comments before matching, following CommonMark where it
-matters: a closing fence uses its opener's character, is at least as long, and
-carries nothing after it; four spaces opens an indented code block and no fence
-at all; a blockquote holds unmarked continuation lines until a blank line
-(§5.1); and anything between `<!--` and `-->` renders as nothing. Where the
-scan and GitHub might disagree, the scan skips the line. Skipping a real
-command costs a person one retry; matching one nobody can see hands a stranger
-the gate.
+blockquotes, HTML comments and raw HTML before matching, following CommonMark
+where it matters: a closing fence uses its opener's character, is at least as
+long, and carries nothing after it; four spaces opens an indented code block
+and no fence at all; a blockquote holds unmarked continuation lines until a
+blank line (§5.1); anything between `<!--` and `-->` renders as nothing; a
+`<pre>` runs to its closing tag and a block-level tag such as `<details>` runs
+to the next blank line (§4.6 conditions 1 and 6). Where the scan and GitHub
+might disagree, the scan skips the line. Skipping a real command costs a person
+one retry; matching one nobody can see hands a stranger the gate.
 
 Authorization is repo `write` or `admin`, read from GitHub on every command,
 and the pull request's author may not `dismiss` (decision 44). `unknown` — the

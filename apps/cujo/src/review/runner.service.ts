@@ -511,7 +511,12 @@ export class Runner {
       // answered the approval first: `claimDecision` sets `approver` but leaves
       // the run `blocked_pending`, so a decision can be in flight and invisible
       // to the status check above.
-      if (run.approver) {
+      //
+      // Re-read rather than trusting `run`. That snapshot predates both the
+      // refold and the await just above, and the whole point of this branch is
+      // a decision that lands during exactly that window — the stale copy would
+      // still say `approver` is null and cancel the turn anyway.
+      if (this.store.getRun(runId)?.approver) {
         // Leave it alone. The cancel would kill the turn that decision started,
         // while the row — and the reply already on the pull request — record
         // the person as having decided. Silently discarding an answer somebody

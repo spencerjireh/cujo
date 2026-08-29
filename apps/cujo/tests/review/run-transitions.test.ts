@@ -566,4 +566,50 @@ describe("healing a wedged session", () => {
     });
     runner.stopAll();
   });
+
+  it("cannot have a decision claimed after it has refolded, so the guard reads the row", async () => {
+    // Why the guard above only has to look once. `supersede` refolds before it
+    // awaits the stale deny, and the refold writes `superseded`; `claimDecision`
+    // is a compare-and-set on `status = 'blocked_pending'`, so a claim arriving
+    // inside that await loses and `approve` refuses rather than half-applying.
+    // The window is therefore strictly before the snapshot, which is where the
+    // guard catches it. The re-read is kept because it is free and the snapshot
+    // predates the await either way.
+    const store = new Store(":memory:");
+    const { log } = sink();
+    let claimedDuringDeny: boolean | null = null;
+    const runner = new Runner(
+      store.runs,
+      {
+        resume: async () => {
+          claimedDuringDeny = store.runs.claimDecision(
+            "will-be-set",
+            "github:maintainer",
+            new Date().toISOString(),
+          );
+          throw new Error("approval already answered");
+        },
+        cancelTurn: async () => {},
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    const { run } = store.runs.createRun(claim());
+    await runner.consume(
+      run.id,
+      streamOf([turnCreated("t1"), approvalRequired("c1"), turnDone("t1")]),
+    );
+    // Point the claim at the real run now that it exists.
+    const realClaim = () =>
+      store.runs.claimDecision(run.id, "github:maintainer", new Date().toISOString());
+    expect(realClaim()).toBe(true);
+    store.runs.clearDecision(run.id);
+
+    await runner.supersede(run.id);
+
+    expect(store.runs.getRun(run.id)?.status).toBe("superseded");
+    expect(realClaim()).toBe(false);
+    expect(claimedDuringDeny).toBe(false);
+    runner.stopAll();
+  });
 });
