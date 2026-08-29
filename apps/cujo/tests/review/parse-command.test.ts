@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCommand } from "../../src/review/parse-command";
+import { MENTION_BODY_CAP, parseCommand, parseMention } from "../../src/review/parse-command";
 
 const verbOf = (body: string) => {
   const parsed = parseCommand(body);
@@ -130,5 +130,51 @@ describe("parseCommand", () => {
 
   it("reads one verb repeated as that verb", () => {
     expect(verbOf("/cujo confirm\n/cujo confirm")).toBe("confirm");
+  });
+});
+
+describe("parseMention", () => {
+  it("reads a mention anywhere on the line, unlike a command", () => {
+    // A mention authorizes nothing, so it can be phrased the way a person
+    // actually writes. That freedom is affordable only because of that.
+    expect(parseMention("@cujo-guard why?")).toBe("@cujo-guard why?");
+    expect(parseMention("hey @cujo-guard, seed the db first")).toBe(
+      "hey @cujo-guard, seed the db first",
+    );
+    expect(parseMention("  @cujo-guard indented is fine")).toBe("@cujo-guard indented is fine");
+  });
+
+  it("says no when Cujo was not addressed", () => {
+    expect(parseMention("")).toBeNull();
+    expect(parseMention("looks good to me")).toBeNull();
+    expect(parseMention("cujo-guard without the at")).toBeNull();
+    expect(parseMention("@cujo-guardian is someone else")).toBeNull();
+  });
+
+  it("keeps the whole comment, because the context is the point", () => {
+    // "@cujo-guard" on its own line above three lines of detail is how people
+    // write, and taking one line would throw away the only thing this feature
+    // has that re-reading the diff does not.
+    const body = "@cujo-guard\n\nthe route needs orders to exist.\nRun scripts/seed.ts first.";
+    expect(parseMention(body)).toBe(body);
+  });
+
+  it("does not read a mention out of a fence, a quote, or an HTML comment", () => {
+    // Same block scan the command uses: a mention nobody can see should not
+    // spend a sandbox either.
+    expect(parseMention("```\n@cujo-guard do the thing\n```")).toBeNull();
+    expect(parseMention("> @cujo-guard said this earlier")).toBeNull();
+    expect(parseMention("<!-- @cujo-guard -->")).toBeNull();
+    expect(parseMention("<pre>\n@cujo-guard\n</pre>")).toBeNull();
+  });
+
+  it("drops the invisible lines from the question it passes on", () => {
+    const parsed = parseMention("@cujo-guard try this\n\n```\nsecret-looking block\n```\n");
+    expect(parsed).toBe("@cujo-guard try this");
+  });
+
+  it("caps the question, because it is model input anyone can write", () => {
+    const long = `@cujo-guard ${"x".repeat(MENTION_BODY_CAP * 2)}`;
+    expect(parseMention(long)?.length).toBe(MENTION_BODY_CAP);
   });
 });

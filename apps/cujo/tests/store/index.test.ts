@@ -55,6 +55,24 @@ describe("store", () => {
     expect(store.runs.getSession("o/r", 7)).toBe("s1");
   });
 
+  it("holds the conversation session apart from the review's", () => {
+    // The whole of decision 46 rests on these never being the same id: a turn
+    // on the review's session cancels a live review, is refused while its
+    // approval is pending, and corrupts the run's projection.
+    const store = new Store(":memory:");
+    store.runs.putSession("o/r", 7, "review");
+    expect(store.runs.getConversationSession("o/r", 7)).toBeNull();
+    expect(store.runs.putConversationSession("o/r", 7, "talk")).toBe("talk");
+    expect(store.runs.getSession("o/r", 7)).toBe("review");
+    expect(store.runs.getConversationSession("o/r", 7)).toBe("talk");
+    // First writer wins here too, so two questions at once agree on one.
+    expect(store.runs.putConversationSession("o/r", 7, "other")).toBe("talk");
+    // `repo` is whatever casing GitHub sent, and a comment delivery is not
+    // guaranteed to match the pull request delivery that made the review.
+    expect(store.runs.getConversationSession("O/R", 7)).toBe("talk");
+    expect(store.runs.getConversationSession("o/r", 8)).toBeNull();
+  });
+
   it("lets exactly one caller claim the decision, and can release it", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun(head);

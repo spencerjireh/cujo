@@ -130,6 +130,11 @@ services:
       # it re-asks GitHub whether each repo with a run is still public.
       CUJO_PUBLIC_STREAM_LIMIT: ${CUJO_PUBLIC_STREAM_LIMIT:-200}
       CUJO_VISIBILITY_RECHECK_MS: ${CUJO_VISIBILITY_RECHECK_MS:-900000}
+      # `@cujo-guard` (decision 46). The one path where a comment provisions a
+      # sandbox, so it has a ceiling; 0 turns conversation off entirely.
+      CUJO_CONVERSE_LIMIT: ${CUJO_CONVERSE_LIMIT:-3}
+      CUJO_CONVERSE_WINDOW_MS: ${CUJO_CONVERSE_WINDOW_MS:-3600000}
+      CUJO_CONVERSE_TIMEOUT_MS: ${CUJO_CONVERSE_TIMEOUT_MS:-600000}
       # Does Cujo react on the pull requests it reviews (decision 38)? Only an
       # explicit 0 turns it off.
       CUJO_PR_REACTIONS: ${CUJO_PR_REACTIONS:-1}
