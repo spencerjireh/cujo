@@ -110,7 +110,7 @@ async function main(): Promise<void> {
   // Design 3, and the only service that shares the harness client with the
   // reviewer without sharing anything else. Not built with `runner`: a
   // conversation turn must never reach `refold`, which writes run status and
-  // repaints the pull request reaction (decision 46). `converseLimit: 0` turns
+  // repaints the pull request reaction (decision 47). `converseLimit: 0` turns
   // the whole feature off and the webhook still answers 200.
   const converse =
     config.converseLimit > 0

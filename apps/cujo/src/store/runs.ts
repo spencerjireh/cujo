@@ -98,7 +98,7 @@ export class RunStore {
    *
    * Separate from `getSession` above and never interchangeable with it: a turn
    * on the review's session cancels a live review, is refused while its
-   * approval is pending, and corrupts the run's projection (decision 46). Two
+   * approval is pending, and corrupts the run's projection (decision 47). Two
    * accessors that look alike is the point — the type system cannot tell these
    * ids apart, so the names have to.
    *

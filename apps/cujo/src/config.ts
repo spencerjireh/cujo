@@ -61,7 +61,7 @@ export interface Config {
   publicStreamLimit: number;
   /**
    * How many `@cujo-guard` questions one pull request may ask per window, and
-   * how long that window is (decision 46). This is the one path where a comment
+   * how long that window is (decision 47). This is the one path where a comment
    * provisions a sandbox, so it is the one that needs a ceiling; `0` turns
    * conversation off entirely, which is why it is `zeroOk`.
    */

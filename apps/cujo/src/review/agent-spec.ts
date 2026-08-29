@@ -99,12 +99,12 @@ export function buildAgentSpec(
  * paraphrase the report it was handed.
  */
 export function buildConverseSpec(
-  config: Pick<Config, "model" | "sniffUrl">,
+  config: Pick<Config, "model" | "sniffTarballUrl">,
   rubric = loadRubric("CONVERSE.md"),
 ): TrueForgeApi.AgentSpec {
   return {
     model: { name: config.model },
-    instructions: rubric.replaceAll("{{CUJO_SNIFF_URL}}", config.sniffUrl),
+    instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
     mcpServers: [],
     config: {
       sandbox: { enabled: true },

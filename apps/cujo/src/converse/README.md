@@ -3,7 +3,7 @@
 `@cujo-guard <anything>` on a pull request runs one turn and posts what the
 agent said last. It is the only path where a comment provisions a sandbox.
 
-**Its own TrueForge session, always** (decision 46). A second turn on the
+**Its own TrueForge session, always** (decision 47). A second turn on the
 review's session cancels a live review without telling its subscriber, is
 refused `422` while an approval is pending — the exact state a maintainer wants
 to talk in — and corrupts the projection, because `fold` dedupes checks by
