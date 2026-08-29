@@ -110,12 +110,15 @@ describe("buildTurnMessage", () => {
 });
 
 describe("buildAgentSpec", () => {
-  const config = { model: "p/m", sniffUrl: "https://x/sniff.py" } as Config;
+  const config = { model: "p/m", sniffTarballUrl: "https://x/src.tar.gz" } as Config;
 
   it("injects the sensor URL into the rubric and gates the accusation alone", () => {
-    const spec = buildAgentSpec(config, "fetch {{CUJO_SNIFF_URL}} then {{CUJO_SNIFF_URL}}");
+    const spec = buildAgentSpec(
+      config,
+      "fetch {{CUJO_SNIFF_TARBALL_URL}} then {{CUJO_SNIFF_TARBALL_URL}}",
+    );
     expect(spec.model).toEqual({ name: "p/m" });
-    expect(spec.instructions).toBe("fetch https://x/sniff.py then https://x/sniff.py");
+    expect(spec.instructions).toBe("fetch https://x/src.tar.gz then https://x/src.tar.gz");
     // The one line that decides what a human is asked about. `post_blocking_review`
     // is absent on purpose: blocking a merge on a broken test is mechanical and
     // reversible, and asking about it is ceremony (decision 42).
@@ -139,14 +142,28 @@ describe("buildAgentSpec", () => {
       githubAppPrivateKey: "SENTINEL-PEM",
       githubWebhookSecret: "SENTINEL-HMAC",
     } as unknown as Config;
-    const serialized = JSON.stringify(buildAgentSpec(withSecrets, "rubric {{CUJO_SNIFF_URL}}"));
+    const serialized = JSON.stringify(
+      buildAgentSpec(withSecrets, "rubric {{CUJO_SNIFF_TARBALL_URL}}"),
+    );
     expect(serialized).not.toContain("SENTINEL");
     expect(serialized).not.toContain("discordBotToken");
   });
 
   it("loads the real rubric, which carries the sensor URL placeholder", () => {
     const rubric = loadRubric();
-    expect(rubric).toContain("{{CUJO_SNIFF_URL}}");
-    expect(buildAgentSpec(config, rubric).instructions).not.toContain("{{CUJO_SNIFF_URL}}");
+    expect(rubric).toContain("{{CUJO_SNIFF_TARBALL_URL}}");
+    expect(buildAgentSpec(config, rubric).instructions).not.toContain("{{CUJO_SNIFF_TARBALL_URL}}");
+  });
+
+  it("extracts the archive so sniff.py and cujo_sniff land as siblings", () => {
+    // Nothing in CI fetches the URL, so the shape of the fetch is only ever
+    // checked here. `--strip-components=1` drops the archive's top directory,
+    // whose name depends on the branch, and the copy puts the whole of
+    // sandbox/ in one place -- which is what makes sys.path[0] find the
+    // package with no install (decision 46).
+    const rubric = loadRubric();
+    expect(rubric).toContain("curl -fsSL {{CUJO_SNIFF_TARBALL_URL}} -o /tmp/cujo-src.tgz");
+    expect(rubric).toContain("--strip-components=1");
+    expect(rubric).toContain("cp -R /tmp/cujo-src/sandbox/. /tmp/cujo/");
   });
 });
