@@ -31,7 +31,7 @@ from cujo_sniff.scrub import scrub, scrub_argv
 # The sensors a report describes, in the order they are reported.
 SENSOR_NAMES = ("proxy", "decoy", "audit", "fs_diff")
 # The caps a report says whether it hit.
-TRUNCATION_KEYS = ("stdout_tail", "stderr_tail", "files_read", "snapshot", "hashes")
+TRUNCATION_KEYS = ("stdout_tail", "stderr_tail", "files_read", "snapshot", "hashes", "sensor_logs")
 
 
 def health(armed: bool, detail: str) -> dict[str, Any]:
@@ -155,9 +155,12 @@ def build_sensor_block(
 def merge_egress(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     totals: dict[tuple[str, int], int] = {}
     known: dict[tuple[str, int], bool] = {}
+    errors: dict[tuple[str, int], int] = {}
     for r in rows:
         key = (str(r.get("host", "")), int(r.get("port", 0)))
         totals[key] = totals.get(key, 0) + int(r.get("bytes", 0))
+        if r.get("error"):
+            errors[key] = errors.get(key, 0) + 1
         # Carried through the merge rather than recomputed: `known` is set from
         # the allowlist the run was configured with, and merging rows from
         # several runs must not quietly drop the verdict. A row that never had
@@ -169,6 +172,8 @@ def merge_egress(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row: dict[str, Any] = {"host": h, "port": p, "bytes": b}
         if (h, p) in known:
             row["known"] = known[(h, p)]
+        if (h, p) in errors:
+            row["errors"] = errors[(h, p)]
         merged.append(row)
     return merged
 

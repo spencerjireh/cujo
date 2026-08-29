@@ -61,7 +61,8 @@
         "stderr_tail": false,
         "files_read": true,
         "snapshot": false,
-        "hashes": false
+        "hashes": false,
+        "sensor_logs": false
       },
       "derived": {
         "egress_to_unknown_host": true,
@@ -94,7 +95,8 @@
         "stderr_tail": false,
         "files_read": false,
         "snapshot": false,
-        "hashes": true
+        "hashes": true,
+        "sensor_logs": false
       },
       "derived": {
         "egress_to_unknown_host": false,
@@ -115,7 +117,8 @@
     "stderr_tail": false,
     "files_read": true,
     "snapshot": false,
-    "hashes": true
+    "hashes": true,
+    "sensor_logs": false
   },
   "derived": {
     "egress_to_unknown_host": true,
