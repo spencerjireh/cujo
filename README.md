@@ -48,17 +48,18 @@ used as published — no fork. The harness supplies the model runtime, the Dayto
 sandbox, the subagents, the MCP tool the agent calls to post a review, and the
 human-approval gate that holds the blocking review. Cujo is the agent, the
 review rubric, the in-sandbox sensor script, and the service built on top:
-webhook in, a UI that shows each run and holds the approve button, and the SDK
-calls that drive the harness. Cujo's UI is a client of the harness API; the
-bundled TrueForge UI is used only as an operator console.
+webhook in, an anonymous board that shows each run's evidence, and the SDK calls
+that drive the harness. A held review is confirmed on the pull request itself,
+with `/cujo confirm` (decision 49). Cujo's UI is a client of the harness API;
+the bundled TrueForge UI is used only as an operator console.
 
 ## Layout
 
 | Path | What |
 |------|------|
 | `docs/` | Canonical spec. The code follows these docs; a design change lands here first. |
-| `apps/web/` | The operator UI: the run list, the run page with its check timeline and forensic reports, and the approve control. Proxies `/api/*` to `apps/cujo`. |
-| `apps/cujo/` | The Cujo service: webhook receiver, run store, TrueForge event folder, the JSON API, and the approve endpoint. |
+| `apps/web/` | The board: the run list, and the run page with its check timeline and forensic reports. Read-only and anonymous. Proxies `/api/*` to `apps/cujo`. |
+| `apps/cujo/` | The Cujo service: webhook receiver, run store, TrueForge event folder, and the read API. |
 | `apps/github-mcp/` | MCP server the agent calls to post a review as the GitHub App. |
 | `packages/gh-app-auth/` | Shared GitHub App installation-token auth. |
 | `agent/SKILL.md` | The rubric: the parent agent's instructions, sent as the agent spec on every session. |
@@ -86,8 +87,7 @@ make up-local          # docker compose up with the local overlay
 Required before the stack comes up: `POSTGRES_*`, `GITHUB_APP_ID`,
 `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, and `CUJO_MODEL`. Without
 them `cujo` and `github-mcp` exit at start and restart until they are set.
-`CF_ACCESS_*` is also required unless `CUJO_DEV_NO_ACCESS=1`, which the local
-overlay sets. `PUBLIC_BASE_URL` is overridden locally.
+`PUBLIC_BASE_URL` is overridden locally.
 
 `make up-local` is shorthand for:
 
@@ -97,11 +97,13 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 
 That publishes the TrueForge operator console + API on `http://localhost:8790`,
 plus `cujo` (8080), `github-mcp` (8081), Postgres (5432), and Redis (6379) for
-inspection. `cujo` dispatches on the `Host` header: `http://cujo.localhost:8080`
-is the UI and API, `http://cujo-ingress.localhost:8080/webhook` is the webhook
-receiver, and the Cloudflare Access check is off (`CUJO_DEV_NO_ACCESS=1`). All ports bind to `127.0.0.1` (loopback) only. Other targets:
-`make down`, `make logs`, `make ps`, `make clean` (drops the database volume).
-Run `make help` for the full list.
+inspection. `cujo` dispatches on the `Host` header: `-H 'Host: cujo'` reaches
+the read API under `/public`, and `http://cujo-ingress.localhost:8080/webhook`
+is the webhook receiver. Nothing is behind a credential — there is none
+(decision 52) — and anything outside `/public` on the read host is 404. All
+ports bind to `127.0.0.1` (loopback) only. Other targets: `make down`,
+`make logs`, `make ps`, `make clean` (drops the database volume). Run
+`make help` for the full list.
 
 > On Linux, loopback isolation of published ports relies on Docker Engine
 > `>= 28.0`; older engines can route `127.0.0.1`-published ports from the LAN.
@@ -113,27 +115,23 @@ sandbox providers too. Without them, open the operator console at
 http://localhost:8790 and add them under Settings. Then point a GitHub App
 webhook at `/webhook` (a tunnel such as `cloudflared tunnel --url
 http://localhost:8080` works locally; set the `Host` to the webhook hostname)
-and open a PR on a repo where the App is installed. The Cujo UI that shows runs
-and holds the approve button is a placeholder in this milestone; the API under
-`/runs` is complete.
-
-Discord notifications are optional (see [docs/spec.md](docs/spec.md) Contract
-7). Set `DISCORD_BOT_TOKEN` to the bot token of a Discord application, invite
-the bot with the `bot` scope and the View Channel, Send Messages and Embed
-Links permissions, then bind a repo to a channel:
+and open a PR on a repo where the App is installed. Watch it land on the board
+at http://localhost:3000, or read it directly:
 
 ```bash
-curl -X PUT http://localhost:8080/discord/channels/OWNER/NAME \
-  -H 'Host: cujo.localhost' -H 'content-type: application/json' \
-  -d '{"channel_id":"<channel id>","notify_role_id":"<role id>"}'
+curl -s -H 'Host: cujo' http://localhost:8080/public/runs
 ```
 
-`GET /discord/guilds` and `GET /discord/guilds/:id/channels` list what the bot
-can see, so the ids need not be copied out of Discord by hand. A repo with no
-binding is never notified, and with no token set the service runs as before.
+Discord notifications are optional (see [docs/spec.md](docs/spec.md) Contract
+7). Set `DISCORD_BOT_TOKEN` to the bot token of a Discord application, and
+invite the bot with the `bot` scope and the View Channel, Send Messages and
+Embed Links permissions. A repo with no binding is never notified, and with no
+token set the service runs as before.
 
-Better, let each repo and each server sort it out between themselves
-(Contract 8). Once, for the deploy: set `DISCORD_PUBLIC_KEY` to the
+Bindings are made from inside Discord and nowhere else — the HTTP admin routes
+went with the operator plane (decision 52). Each repo and each server sort it
+out between themselves (Contract 8). Once, for the deploy: set
+`DISCORD_PUBLIC_KEY` to the
 application's public key, point its **Interactions Endpoint URL** at
 `https://$CUJO_WEBHOOK_HOST/discord/interactions`, and invite the bot with the
 `applications.commands` scope alongside `bot`.
