@@ -893,6 +893,15 @@ the process, not only at the edge:
   fetch surface as an unhandled `500` that says nothing (decision 37). It also
   forwards `Cf-Ray`, so a line from the UI and a line from this process share
   one correlation id.
+- A path the board does not serve renders the board's own 404 and not the
+  framework's, so a link left over from the deleted operator plane — `/login`
+  before any other — lands on a Cujo page with a way back rather than on a
+  page that names nothing (decision 57). It is a real 404 and not a soft one:
+  the status is what tells a crawler, a `curl` or a proxy that the page is
+  gone, and markup alone cannot say it. The copy names no removed operator
+  area, because what a reader arriving on a dead link needs is what *is*
+  served. A run id that is not in the store keeps its own narrower answer,
+  which is the nearer boundary and wins for that segment.
 - The webhook route on `cujo-ingress.spencerjireh.com` accepts only a request
   whose HMAC verifies (Contract 1), and `/discord/interactions` only one whose
   Ed25519 signature does (Contract 8). Those two signatures are the only
