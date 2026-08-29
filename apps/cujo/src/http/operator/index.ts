@@ -49,7 +49,10 @@ export interface OperatorDeps {
  * sees the one they were actually meant to pass.
  */
 async function authorize(deps: OperatorDeps, headers: Headers): Promise<AccessResult> {
-  const bearer = headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
+  // Case-insensitive: HTTP authentication scheme names are (RFC 9110 §11.1),
+  // and refusing `bearer` would turn a correct token into a 401 for anyone
+  // whose client spells it that way.
+  const bearer = headers.get("authorization")?.match(/^Bearer[ \t]+(.+)$/i)?.[1];
   if (deps.operatorToken) {
     const result = verifyOperatorToken(deps.operatorToken, bearer);
     // A presented token that is wrong is a refusal, not a reason to fall

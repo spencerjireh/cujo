@@ -65,7 +65,7 @@ export function build(view: RunView | null, discord?: DiscordClient, github?: Gi
     runner,
     verify: async (t) =>
       t === "good"
-        ? { operator: "op@example.com", reason: null }
+        ? { operator: "operator", reason: null }
         : { operator: null, reason: "no_assertion" as const },
     ...(discord ? { discord } : {}),
     ...(github ? { github } : {}),

@@ -120,8 +120,16 @@ export function createAccessVerifier(options: {
       const email = payload.email;
       // A token that verifies but names nobody is its own case: the signature
       // was good, so this is a configuration problem rather than an attack.
+      // Still checked, because its absence says the assertion is not the shape
+      // Access issues — but the email is not what gets recorded.
       if (typeof email !== "string" || !email) return { operator: null, reason: "no_email" };
-      return { operator: email, reason: null };
+      // The fixed identity, not the email, even though one is right here.
+      // `authorized_by` must not depend on which transitional credential a
+      // request happened to carry: a reader would have to know which gate was
+      // configured on the day to know what a row means. The plane records
+      // `operator` because that is what it can prove about anyone who reaches
+      // it — an accusation is decided on the pull request now (decision 48).
+      return { operator: OPERATOR_IDENTITY, reason: null };
     } catch (error) {
       return { operator: null, reason: reasonFor(error) };
     }
