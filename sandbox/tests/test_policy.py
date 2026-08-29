@@ -136,3 +136,28 @@ def test_hashing_is_spent_on_credentials_and_etc(home_dir: Path) -> None:
     assert should_hash("/etc/hostname", home_dir)
     assert not should_hash(str(home_dir / "work" / "app.py"), home_dir)
     assert not should_hash("/usr/lib/libc.so", home_dir)
+
+
+def test_the_decoy_is_the_one_credential_not_worth_hashing(home_dir: Path) -> None:
+    """Taking its digest means opening it, and that is the event being watched.
+
+    The walk covers HOME and hashes every sensitive path in it, so it hashed
+    the decoy -- twice per sensed command, at both ends of the window. The
+    watch armed on that inode logged both opens and the report counted them as
+    the command's, so `decoy_read` came back true on every check of every pull
+    request, on the unmodified base commit included.
+
+    Excluding it costs nothing. The entry still carries metadata, `decoy_intact`
+    follows the inode, and a command that overwrites the decoy has to open it,
+    which is the same event by a different route.
+    """
+    decoy = home_dir / ".aws" / "credentials"
+    assert not should_hash(str(decoy), home_dir)
+    # By either spelling, the way every other path here is classified.
+    assert not should_hash(str(home_dir / "x" / ".." / ".aws" / "credentials"), home_dir)
+    # One file, not the directory: its neighbours are hashed as they always were.
+    assert should_hash(str(home_dir / ".aws" / "config"), home_dir)
+    assert should_hash(str(home_dir / ".ssh" / "id_rsa"), home_dir)
+    # And it stays sensitive for every other purpose. A read of it by the code
+    # under test is the whole point of it being there.
+    assert is_sensitive(str(decoy), home_dir)
