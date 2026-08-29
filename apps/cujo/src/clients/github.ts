@@ -32,7 +32,14 @@ const TRUNCATION_NOTE = "\n\n_(truncated)_";
 
 function capComment(body: string): string {
   if (body.length <= COMMENT_BODY_CAP) return body;
-  return body.slice(0, COMMENT_BODY_CAP - TRUNCATION_NOTE.length) + TRUNCATION_NOTE;
+  let end = COMMENT_BODY_CAP - TRUNCATION_NOTE.length;
+  // `slice` counts UTF-16 code units, so a cut can land between the halves of
+  // a surrogate pair and post a lone surrogate — a replacement character right
+  // where the reader is already being told something is missing. Step back one
+  // unit when it does; the cap stays an upper bound either way.
+  const last = body.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return body.slice(0, end) + TRUNCATION_NOTE;
 }
 const API = "https://api.github.com";
 /** Long enough to survive a burst of autocomplete, short enough to notice a new install. */

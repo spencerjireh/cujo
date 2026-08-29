@@ -20,18 +20,21 @@ export function ReviewPanel({ review, posted }: { review: DraftedReview; posted:
   const [html, setHtml] = useState<string | null>(null);
   useEffect(() => setHtml(renderMarkdown(review.body)), [review.body]);
   const blocking = review.tool !== "post_advisory_review";
-  const gated = review.tool === "post_gated_review";
+  // Gated is what the tool *is*; held is what it still is. A confirmed
+  // accusation is on the pull request like any other review, and calling it
+  // held after somebody answered describes the tool rather than the run.
+  const held = review.tool === "post_gated_review" && !posted;
 
   return (
-    <section aria-label={gated ? "Held review" : "Review"}>
+    <section aria-label={held ? "Held review" : "Review"}>
       <h2 className="mb-3 flex flex-wrap items-center gap-3 text-lg">
-        {gated ? "Held for a human" : posted ? "Review" : "Drafted review"}
+        {held ? "Held for a human" : posted ? "Review" : "Drafted review"}
         <span
           className={`rounded-md px-2.5 py-0.5 font-mono text-xs font-medium ${
             blocking ? "bg-sev-critical-bg text-sev-critical" : "bg-sev-info-bg text-sev-info"
           }`}
         >
-          {gated ? "request changes — held" : blocking ? "request changes" : "comment"}
+          {held ? "request changes — held" : blocking ? "request changes" : "comment"}
         </span>
       </h2>
 

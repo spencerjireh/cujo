@@ -427,13 +427,23 @@ information the sandbox cannot observe. Contract 3's table says which rule makes
 which kind of claim.
 
 **A malice finding posts twice, in order: observation, then conclusion.** The
-advisory goes first and always, stating what the sensors recorded as fact, marked
-`warn`, and ending with the two commands a maintainer can reply with. Then the
-gated call drafts the accusation and the turn pauses. So a run that nobody
-answers still leaves the evidence on the pull request, a denial drops the
-escalation while the observation stands, and the merge is never blocked by a
-claim no human confirmed. Contract 5 says why two reviews on one head is not
-double-posting.
+first call goes always, stating what the sensors recorded as fact, marking the
+malice findings `warn`, and ending with the two commands a maintainer can reply
+with. Then the gated call drafts the accusation and the turn pauses. So a run
+that nobody answers still leaves the evidence on the pull request, a denial
+drops the escalation while the observation stands, and the merge is never
+blocked by a claim no human confirmed. Contract 5 says why two reviews on one
+head is not double-posting.
+
+**A run can hold both kinds at once, and the correctness half must not wait.**
+When a malice rule and `tests.base_pass_head_fail` trip together, the first call
+is `post_blocking_review` rather than the advisory: the broken test is confirmed
+and mechanical, and holding it behind a question about something else would
+leave a merge unblocked that was never in doubt. That body carries the
+correctness findings as `critical` and the malice observations as `warn`; the
+gated call that follows carries only the accusation. The ordered pair is
+therefore blocking-then-gated for a mixed run and advisory-then-gated for a pure
+malice one — in both, what waits is the accusation and only the accusation.
 
 Which kind a finding is, is a decision the model expresses by choosing a tool
 name — see Contract 3 for what `apps/cujo` can and cannot verify about it after

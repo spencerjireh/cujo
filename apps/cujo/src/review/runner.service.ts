@@ -92,6 +92,20 @@ export const ANY_RUN = "run:changed";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * How many times a stale deny will re-clear the session.
+ *
+ * Denying an approval resumes the turn, and the resumed turn can call the
+ * gated tool again and raise a *second* approval before the cancel that
+ * follows lands. One pass therefore answers the approval it was given and
+ * leaves a fresh one behind, which is the wedge it exists to prevent. Three is
+ * a bound, not a guess: the loop stops as soon as a read comes back clear, and
+ * a model that keeps re-raising past that is a run nobody wants resumed.
+ */
+const STALE_DENY_ROUNDS = 3;
+/** Long enough for the cancel to settle server-side, short enough not to hold up the next head. */
+const STALE_DENY_SETTLE_MS = 250;
+
 function errorTurnDone(id: string, message: string): StreamEvent {
   const now = new Date().toISOString();
   return {
@@ -471,6 +485,40 @@ export class Runner {
         reason: "stale_deny",
         ...errorFields(error),
       });
+    }
+    // The deny resumed the turn, and a resumed turn can call the gated tool
+    // again — raising a second approval before the cancel above lands. Answering
+    // one and leaving the next is the wedge this method exists to prevent, so
+    // the session is read back and cleared until it comes up empty. Failures
+    // here do not flip the result: the approval this call was given *was*
+    // answered, and `start` still has its own heal for whatever is left.
+    for (let round = 1; round < STALE_DENY_ROUNDS; round++) {
+      await sleep(STALE_DENY_SETTLE_MS);
+      let next: PendingApproval | null;
+      try {
+        const items = await this.harness.listEvents(sessionId);
+        next = pendingApproval(items.map((item) => item.event));
+      } catch {
+        break;
+      }
+      if (!next) break;
+      log.info("run.approval.reraised", { session_id: sessionId, reason, round });
+      try {
+        const again = await this.harness.resume(sessionId, next, "deny", STALE_DENY_REASON);
+        log.info("run.approval.cleared", { session_id: sessionId, turn_id: again, reason });
+        if (runId) {
+          this.state(runId).cujoResumeTurnIds.add(again);
+          this.store.addCujoTurn(runId, again);
+        }
+        await this.harness.cancelTurn(sessionId);
+      } catch (error) {
+        log.warn("run.approval.clear.failed", {
+          session_id: sessionId,
+          reason,
+          ...errorFields(error),
+        });
+        break;
+      }
     }
     return true;
   }

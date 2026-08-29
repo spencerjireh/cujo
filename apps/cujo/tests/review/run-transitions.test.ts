@@ -567,6 +567,62 @@ describe("healing a wedged session", () => {
     runner.stopAll();
   });
 
+  it("clears an approval the stale deny's own turn raised again", async () => {
+    // Denying resumes the turn, and the resumed turn can call the gated tool a
+    // second time — raising a new approval before the cancel lands. Answering
+    // the first and leaving the second is the wedge this path exists to
+    // prevent: the next head's `startTurn` then 422s on a session nobody can
+    // clear from the outside.
+    const store = new Store(":memory:");
+    const { log, logged } = sink();
+    const denied: string[] = [];
+    const resume = async (_session: string, approval: { toolCallId: string }) => {
+      denied.push(approval.toolCallId);
+      return "t-deny";
+    };
+    // `consume` hydrates through `listEvents` too, so the re-read is counted
+    // only once superseding has begun.
+    let superseding = false;
+    let reads = 0;
+    const own = [
+      { turnId: "t1", event: turnCreated("t1") },
+      { turnId: "t1", event: approvalRequired("c1") },
+      { turnId: "t1", event: turnDone("t1") },
+    ];
+    const runner = new Runner(
+      store.runs,
+      {
+        resume,
+        cancelTurn: async () => {},
+        listEvents: async () => {
+          if (!superseding) return own;
+          reads += 1;
+          // The first read still sees the approval the resumed turn raised;
+          // by the second the cancel has settled.
+          return reads === 1
+            ? [{ turnId: "t-deny", event: approvalRequired("c2") }]
+            : [{ turnId: "t-deny", event: turnDone("t-deny") }];
+        },
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      log,
+    );
+    const { run } = store.runs.createRun(claim());
+    await runner.consume(
+      run.id,
+      streamOf([turnCreated("t1"), approvalRequired("c1"), turnDone("t1")]),
+    );
+
+    superseding = true;
+    await runner.supersede(run.id);
+
+    // Both: the one it was handed, and the one the resumed turn raised.
+    expect(denied).toEqual(["c1", "c2"]);
+    expect(logged("run.approval.reraised")[0]).toMatchObject({ session_id: "s", round: 1 });
+    expect(logged("run.approval.cleared")).toHaveLength(2);
+    runner.stopAll();
+  });
+
   it("cannot have a decision claimed after it has refolded, so the guard reads the row", async () => {
     // Why the guard above only has to look once. `supersede` refolds before it
     // awaits the stale deny, and the refold writes `superseded`; `claimDecision`
