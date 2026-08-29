@@ -30,7 +30,7 @@ export const LIMITS = {
 } as const;
 
 /**
- * The two parties a card names (decision 54).
+ * The two parties a card names (decision 55).
  *
  * Cujo takes the author line, which is a fixed string and a fixed URL, both
  * ours. The person who opened the pull request takes an `Opened by` field and

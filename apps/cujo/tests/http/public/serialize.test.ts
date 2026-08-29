@@ -86,7 +86,7 @@ describe("the public field allowlist", () => {
    * The one class of person this plane does name. Every row it serves is a run
    * where `isPublic` is true, so the title and the author are already
    * world-readable on the pull request itself — unlike `approver`, which names
-   * a Cujo operator and appears nowhere else (decision 54).
+   * a Cujo operator and appears nowhere else (decision 55).
    */
   it("publishes what the pull request already says about itself", () => {
     expect(PUBLIC_SOURCE_FIELDS).toContain("prTitle");

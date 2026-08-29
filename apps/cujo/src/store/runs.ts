@@ -38,7 +38,7 @@ interface RunRow {
 
 /**
  * Every run read, so `RunRecord` always carries what the pull request says
- * about itself (decision 54). A LEFT JOIN rather than a second lookup: a card
+ * about itself (decision 55). A LEFT JOIN rather than a second lookup: a card
  * and a run page both want the title and the author, and one of them is on the
  * SSE path where a second query per event would be a second query per event.
  *

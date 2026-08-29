@@ -3,6 +3,11 @@
 The sensors append to logs shared by every check, so a report is the slice of
 those logs written while one command ran. `sensed_window` is what makes "while
 one command ran" true.
+
+A report also says which sensors were watching. `setup` records what armed;
+every `run` re-checks that those daemons are still alive, because a proxy that
+died after the first check leaves the three that follow with an empty `egress`
+and nothing to distinguish that from a quiet one.
 """
 
 from __future__ import annotations
@@ -17,11 +22,19 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from cujo_sniff.context import Context, load_config, state_paths
+from cujo_sniff.context import Context, decoy_path, load_config, state_paths
+from cujo_sniff.daemons import daemon_alive
 from cujo_sniff.jsonl import file_size, read_jsonl
-from cujo_sniff.policy import DEFAULT_PROXY_PORT, SENSED_LOCK_TIMEOUT_S, tail
-from cujo_sniff.report import build_sensor_block
-from cujo_sniff.sensors.fsdiff import diff_snapshots, snapshot
+from cujo_sniff.policy import (
+    DEFAULT_PROXY_PORT,
+    SCHEMA_VERSION,
+    SENSED_LOCK_TIMEOUT_S,
+    TAIL_CHARS,
+    tail,
+)
+from cujo_sniff.report import build_sensor_block, health
+from cujo_sniff.scrub import KEEP_IN_TEXT, scrub, scrub_argv
+from cujo_sniff.sensors.fsdiff import Snapshot, diff_snapshots, snapshot
 
 
 def sensor_env(
@@ -53,6 +66,67 @@ def sensor_env(
     }
 
 
+def daemon_health(ctx: Context, config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The health of the two daemons, as of now rather than as of `setup`.
+
+    Two facts are needed and neither is enough alone. `setup` wrote down what
+    armed, which is the only place the watcher's chosen backend is ever known;
+    the pid files say whether those processes are still there. A daemon that
+    armed and then died is the case worth catching, and it reads as unarmed
+    here, because for this command it was.
+    """
+    paths = state_paths(ctx)
+    if not config.get("proxy_armed", False):
+        proxy = health(False, "did not start during setup")
+    elif not daemon_alive(paths["proxy_pid"]):
+        proxy = health(False, "started during setup, no longer running")
+    else:
+        proxy = health(True, f"port {config.get('proxy_port', DEFAULT_PROXY_PORT)}")
+
+    backend = config.get("decoy_backend")
+    if not backend:
+        decoy = health(False, "no watcher armed during setup")
+    elif not daemon_alive(paths["watcher_pid"]):
+        decoy = health(False, f"{backend}, no longer running")
+    elif not decoy_intact(ctx, config):
+        # A live pid is not proof the watcher can still see anything. inotify
+        # follows an inode, so a command that deletes the decoy or renames a
+        # file over it moves the watch off the path it was asked about; the
+        # daemon re-arms where it can, and this is the case where it could not.
+        # Either way the decoy that was seeded is gone, so there is nothing left
+        # to read and a quiet `decoy_read` says nothing.
+        decoy = health(False, f"{backend}, but the decoy it was seeded on is gone")
+    else:
+        decoy = health(True, str(backend))
+    return {"proxy": proxy, "decoy": decoy}
+
+
+def decoy_intact(ctx: Context, config: dict[str, Any]) -> bool:
+    """Whether the file the watcher armed on is still the file at that path."""
+    seeded = config.get("decoy_inode")
+    if seeded is None:
+        return True
+    try:
+        return Path(config.get("decoy", decoy_path(ctx))).stat().st_ino == seeded
+    except OSError:
+        return False
+
+
+def snapshot_health(before: Snapshot, after: Snapshot) -> dict[str, Any]:
+    """The filesystem sensor is never off; what varies is how much it reached."""
+    count = len(after.entries)
+    if count == 0:
+        return health(False, "walked no files")
+    notes = []
+    if before.truncated or after.truncated:
+        notes.append("capped")
+    uncompared = max(before.uncompared, after.uncompared)
+    if uncompared:
+        notes.append(f"{uncompared} not compared by content")
+    detail = f"{count} paths" + (f" ({', '.join(notes)})" if notes else "")
+    return health(True, detail)
+
+
 @contextlib.contextmanager
 def sensed_window(ctx: Context, timeout: float = SENSED_LOCK_TIMEOUT_S) -> Iterator[bool]:
     """Hold the sensors for one command. Yields False when the wait timed out.
@@ -66,7 +140,8 @@ def sensed_window(ctx: Context, timeout: float = SENSED_LOCK_TIMEOUT_S) -> Itera
     A wait that times out proceeds anyway. A review that returns evidence from
     an overlapping window is worse than one that blocks forever only in the
     sense that it is wrong; a review that never finishes is wrong too, and the
-    overlap is announced on stderr.
+    overlap is announced on stderr and carried out on the report as
+    `window_exclusive`.
     """
     lock_path = state_paths(ctx)["sensed_lock"]
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,7 +183,7 @@ def run_sensed(
     audit_log = paths["audit_dir"] / f"{os.urandom(6).hex()}.jsonl"
     audit_log.parent.mkdir(parents=True, exist_ok=True)
     walk = {"state_dir": ctx.state_dir, "home_dir": ctx.home}
-    with sensed_window(ctx):
+    with sensed_window(ctx) as exclusive:
         offsets = {k: file_size(paths[k]) for k in ("proxy_log", "decoy_log")}
         before = snapshot(workspace_roots, **walk)
         env = {**os.environ, **sensor_env(ctx, config, audit_log)}
@@ -126,21 +201,38 @@ def run_sensed(
         proxy_rows = read_jsonl(paths["proxy_log"], offsets["proxy_log"])
         audit_rows = read_jsonl(audit_log)
         decoy_rows = read_jsonl(paths["decoy_log"], offsets["decoy_log"])
-    sensors = build_sensor_block(
+        # Inside the window: a daemon that dies while the command runs is the
+        # thing being looked for, so it is checked before the lock is released.
+        sensors = {**daemon_health(ctx, config), "fs_diff": snapshot_health(before, after)}
+    block = build_sensor_block(
         proxy_rows=proxy_rows,
         audit_rows=audit_rows,
         decoy_rows=decoy_rows,
         fs_changes=diff_snapshots(before, after, workspace_roots, ctx.home),
         allow_hosts=config.get("allow_hosts", []),
         check=check,
+        sensors=sensors,
+        truncated={
+            "stdout_tail": len(out) > TAIL_CHARS,
+            "stderr_tail": len(err) > TAIL_CHARS,
+            "snapshot": before.truncated or after.truncated,
+            # A file too large to hash falls back to metadata, which is exactly
+            # what a restored mtime defeats. Saying so is the difference between
+            # a comparison that was not made and one that came back clean.
+            "hashes": bool(before.uncompared or after.uncompared),
+        },
         home_dir=ctx.home,
         cwd=cwd,
     )
     return {
-        "argv": argv,
+        "schema_version": SCHEMA_VERSION,
+        "argv": scrub_argv(argv),
         "exit": exit_code,
         "duration_s": duration,
-        "stdout_tail": tail(out),
-        "stderr_tail": tail(err),
-        **sensors,
+        # False means another sensed command overlapped this one, so rows in
+        # this report may belong to it.
+        "window_exclusive": exclusive,
+        "stdout_tail": scrub(tail(out), KEEP_IN_TEXT),
+        "stderr_tail": scrub(tail(err), KEEP_IN_TEXT),
+        **block,
     }

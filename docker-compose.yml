@@ -117,8 +117,6 @@ services:
       # that does not reason at all needs (decision 53).
       CUJO_MODEL_REASONING_EFFORT: ${CUJO_MODEL_REASONING_EFFORT:-}
       CUJO_SNIFF_TARBALL_URL: ${CUJO_SNIFF_TARBALL_URL:-https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main}
-      # Superseded by the line above and no longer read (decision 46).
-      CUJO_SNIFF_URL: ${CUJO_SNIFF_URL:-https://raw.githubusercontent.com/spencerjireh/cujo/main/sandbox/sniff.py}
       # Optional Discord notifications (spec Contract 7). Unset means the
       # service runs without them; the repo-to-channel map lives in the store.
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}

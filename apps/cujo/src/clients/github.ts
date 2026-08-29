@@ -22,7 +22,7 @@ export interface PullRequestInfo {
    *
    * The id is carried beside the login because it, and not the login, is what
    * an avatar URL is built from: a login is a string somebody else chose and
-   * the card may never derive a URL from one of those (decision 54).
+   * the card may never derive a URL from one of those (decision 55).
    */
   authorLogin: string | null;
   authorId: number | null;

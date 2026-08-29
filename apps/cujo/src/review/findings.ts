@@ -73,6 +73,33 @@ function sensitiveWrites(report: unknown): string[] {
 }
 
 /**
+ * The sensors whose being off is worth saying out loud: the two long-running
+ * daemons, which `setup` starts and every check depends on for the rest of the
+ * run. The other two are reported but not ruled on. `audit` is unarmed for any
+ * check that runs no Python at all — every JavaScript repository — and
+ * `fs_diff` is never off, only incomplete, which `truncated.snapshot` covers.
+ */
+const WATCHED_SENSORS = ["proxy", "decoy"] as const;
+
+/**
+ * The sensors that were not watching while this check ran, with what the
+ * sandbox said about each. Empty for a report from before the block existed:
+ * absent is "unknown", and a warn on every historical report would be noise.
+ */
+function unarmedSensors(report: unknown): { name: string; detail: string }[] {
+  const worst = new Map<string, string>();
+  for (const layer of sensorLayers(report)) {
+    const sensors = obj(layer.sensors);
+    for (const name of WATCHED_SENSORS) {
+      const entry = obj(sensors[name]);
+      if (entry.armed !== false) continue;
+      worst.set(name, typeof entry.detail === "string" ? entry.detail : "no detail given");
+    }
+  }
+  return [...worst].map(([name, detail]) => ({ name, detail }));
+}
+
+/**
  * Layer 1. One `critical` finding per rule per check that tripped it. Reads
  * the reports leniently: a missing field is "not observed", never a hit.
  */
@@ -83,6 +110,20 @@ export function hardRuleFindings(checks: readonly CheckState[]): Finding[] {
     const name = check.title;
     const report = check.report;
     const top = obj(report);
+
+    // Before the rules, because it changes what the rest of them are worth: a
+    // rule that did not fire on a sensor that was not watching has said
+    // nothing. `warn`, not `critical` — this accuses the run, not the code.
+    for (const sensor of unarmedSensors(report)) {
+      findings.push({
+        source: "hard_rule",
+        check: name,
+        severity: "warn",
+        rule: "sensor_unarmed",
+        title: `the ${sensor.name} sensor was not watching during ${name}`,
+        evidence: `sensors.${sensor.name}: ${sensor.detail}; anything it would have seen is absent from this report, not absent from the run`,
+      });
+    }
 
     if (name === "tests") {
       const failed = strings(top.base_pass_head_fail);

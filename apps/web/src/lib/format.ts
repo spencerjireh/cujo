@@ -65,7 +65,7 @@ export function prUrl(repo: string, prNumber: number): string {
 
 /**
  * A GitHub login, and nothing else. The same allowlist `apps/cujo` applies
- * before a login reaches a Discord card's URL (decision 54), restated here
+ * before a login reaches a Discord card's URL (decision 55), restated here
  * because these types are mirrored by hand and a login arrives as text from an
  * API response. A bot login (`dependabot[bot]`) fails it by design: its
  * profile lives at `/apps/<name>`, so a bot is named and not linked.

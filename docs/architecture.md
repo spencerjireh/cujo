@@ -27,7 +27,7 @@ sandbox is thrown away afterwards.
 | **Cujo agent** | The parent reviewer: a language model, the review rubric as its instructions, a sandbox, subagents, and a GitHub tool. It sets up the sandbox, delegates the checks, merges the findings, and posts. |
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
-| **`sandbox/`** | The in-sandbox sensor code: `sniff.py` and the `cujo_sniff` package behind it. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check. |
+| **`sandbox/`** | The in-sandbox sensor code: `sniff.py` and the `cujo_sniff` package behind it. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check, and each report says which of them was watching while it was produced (decision 54). |
 | **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes: the Access-gated operator API, and an anonymous read-only `/public` group (decision 34). |
 | **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. It answers two hostnames from one container — the public read-only board and the Access-gated operator view — and tells them apart by the request's `Host`. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
@@ -111,7 +111,7 @@ Every crossing, with what it carries and what protects it:
 | `apps/cujo` → TrueForge | HTTP on the compose network | `sessions.create` with the inline agent spec; `createTurn` with the PR context, then `subscribeToTurn`; `listEvents` on restart | None needed; TrueForge has no public API route |
 | TrueForge → `apps/cujo` | The same stream, reverse direction | Events tagged by `thread_id`: `thread.created`, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
 | TrueForge → sandbox | Daytona API, then commands inside the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The PR's public metadata (number, SHAs, changed files, title, description). The dependency names from the manifest diff. Cujo's own `sandbox/` sensor code and the commands the subagents run. The run's own id, when the repo is public, so the review can name its evidence page — an id and never a URL, so no hostname crosses (decision 36). | Daytona key on the server; nothing in the box. Private repos are a non-goal, so no clone credential exists to leak |
-| Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block | None; treated as untrusted data |
+| Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block, the sensor-health block, and every string in it escaped | None; treated as untrusted data, which is what the escaping is for |
 | Sandbox → internet | Through the in-sandbox proxy | Whatever the PR or a dependency tries to reach; logged, becomes evidence | None; the decoy secret is the only "secret" it can find |
 | TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
 | TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` and `post_blocking_review` (free) or `post_gated_review` (paused until a human confirms) | Internal |
@@ -201,10 +201,12 @@ the session refuses the new head's turn while one is pending (decision 39).
    changed functions. `smoke` boots the app and hits it. `detonation` runs
    only when a dependency manifest changed, installing each new or bumped
    dependency through `sniff.py`. Each subagent returns a JSON report with a
-   shared sensor block: egress, file reads, writes, subprocesses.
+   shared sensor block: egress, file reads, writes, subprocesses, plus which
+   sensors were watching and where a cap cut the evidence short. The shape is
+   `docs/contracts/report.example.json`.
 5. **Decide.** The parent turns the reports into findings. Hard rules force
    `critical` on a regression, a decoy read, a sensitive write, or unknown
-   egress during an install. The agent assigns `info`, `warn`, or `critical`
+   egress during an install, and `warn` when a sensor was not watching. The agent assigns `info`, `warn`, or `critical`
    to everything else against the rubric, then drafts one review: a summary of
    what ran plus an inline comment per anchored finding.
 6. **Post, pausing only to accuse.** With no `critical` finding the review

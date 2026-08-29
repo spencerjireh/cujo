@@ -7,7 +7,7 @@ import Image from "next/image";
 const AVATAR = 20;
 
 /**
- * Who opened the pull request (decision 54). Absent for a run recorded before
+ * Who opened the pull request (decision 55). Absent for a run recorded before
  * the author was stored and for a deleted account, in which case the line below
  * is exactly what it was before.
  *

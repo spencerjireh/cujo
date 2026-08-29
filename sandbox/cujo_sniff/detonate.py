@@ -16,9 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from cujo_sniff.context import Context, state_paths
-from cujo_sniff.policy import tail
+from cujo_sniff.policy import SCHEMA_VERSION
 from cujo_sniff.report import merge_reports
 from cujo_sniff.runner import run_sensed
+from cujo_sniff.scrub import scrub
 
 
 def detect_source(spec: str) -> str:
@@ -68,13 +69,19 @@ def cmd_detonate(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     last = reports[-1]
     sensors = merge_reports(reports)
     return {
-        "dependency": spec_clean,
+        "schema_version": SCHEMA_VERSION,
+        # The specifier comes out of the pull request's own manifest, so it is
+        # as much the author's text as anything the install printed.
+        "dependency": scrub(spec_clean),
         "source": source,
         "install_ok": all(r["exit"] == 0 for r in reports),
         "duration_s": round(time.monotonic() - started, 2),
+        "window_exclusive": all(r["window_exclusive"] for r in reports),
         "subprocesses": [{"argv": r["argv"], "exit": r["exit"]} for r in reports]
         + [{"argv": s["argv"], "exit": None} for s in sensors.pop("subprocesses")],
-        "stdout_tail": tail(last["stdout_tail"]),
-        "stderr_tail": tail(last["stderr_tail"]),
+        # Already tailed and escaped by `run_sensed`; only the last command's
+        # output is kept, because a failed install is what the tail is for.
+        "stdout_tail": last["stdout_tail"],
+        "stderr_tail": last["stderr_tail"],
         **sensors,
     }
