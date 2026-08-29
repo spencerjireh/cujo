@@ -42,7 +42,16 @@ class Context:
 
     @classmethod
     def from_env(cls) -> Context:
-        state_dir = Path(os.environ.get("CUJO_DIR", "/tmp/cujo"))
+        # Beside the code directory, not inside it and not equal to it. The
+        # rubric's fetch ends in `rm -rf /tmp/cujo && mv ... /tmp/cujo`, which
+        # replaces that directory wholesale -- so anything the commands write
+        # under it is destroyed by a refetch while the thing it describes
+        # survives. `proxy.pid` and `watcher.pid` would go while the daemons
+        # they name kept running and kept holding the proxy port, and
+        # `decoy.backup` would go while it was still the only copy of the real
+        # credentials file `setup` displaced. State that outlives the code it
+        # was written by has to sit outside the code.
+        state_dir = Path(os.environ.get("CUJO_DIR", "/tmp/cujo-state"))
         return cls(
             state_dir=state_dir,
             # Detonation environments live beside the state dir, not inside it:

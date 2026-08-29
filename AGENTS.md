@@ -33,7 +33,7 @@ Single tests:
 ```bash
 pnpm --filter @cujo/cujo test -- tests/review/fold.test.ts  # one vitest file
 pnpm --filter @cujo/cujo exec vitest run -t "name pattern"  # one test by name
-uv run pytest sandbox/tests/test_sniff.py -k name           # one Python test
+uv run pytest sandbox/tests/test_cli.py -k name             # one Python test
 ```
 
 Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/web`, `@cujo/gh-app-auth`,
@@ -56,7 +56,7 @@ the Makefile.
 
 Two trust zones with one narrow bridge. Trusted: TrueForge, `apps/cujo`,
 `github-mcp`, and every secret. Untrusted and disposable: the Daytona sandbox
-holding the PR code, `sandbox/sniff.py`, and the logging proxy. Only PR code, public PR
+holding the PR code, `sandbox/`, and the logging proxy. Only PR code, public PR
 metadata, dependency names, Cujo's own sensor script, and a public run's own id
 go in; only JSON reports come out. No token, key, clone credential, or hostname
 may ever reach the sandbox. Treat any change that moves data across this line as
@@ -143,8 +143,9 @@ a third-party module, and it runs with the sandbox's `python3`, not `uv`
 - Pin dependencies; a `git+` or unpinned spec needs a reason in the PR.
 - Commit subjects use Conventional Commits (`type(scope): summary`, imperative,
   no trailing period); explain the why in the body. See `CONTRIBUTING.md`.
-- Run Python with `uv` everywhere except `sandbox/sniff.py`, which runs inside
-  the sandbox with its `python3`.
+- Run Python with `uv` everywhere except what runs in the sandbox (`sniff.py`
+  and `cujo_sniff/`), which uses the sandbox's own `python3`; `sandbox/tests/`
+  runs here under `uv` like any other test.
 - Never install `evil-package` outside the Daytona sandbox; it is an intentional
   malicious sample.
 - `*.pem` and `.env` are gitignored; real values live in the Coolify deploy.

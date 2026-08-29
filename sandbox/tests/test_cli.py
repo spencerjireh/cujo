@@ -17,7 +17,7 @@ import pytest
 from cujo_sniff.context import Context
 from cujo_sniff.daemons import pid_alive
 from cujo_sniff.policy import DECOY_KEY
-from tests.conftest import Cli
+from tests.conftest import CODE_DIR, Cli
 
 pytestmark = pytest.mark.harness
 
@@ -152,3 +152,54 @@ def test_run_without_a_command_is_an_error(cli: Cli) -> None:
     proc = cli.raw(["run", "--check", "tests"])
     assert proc.returncode != 0
     assert "give the command after" in proc.stderr
+
+
+def test_the_shim_runs_the_same_commands_the_package_does(cli: Cli, home_dir: Path) -> None:
+    """`python3 /tmp/cujo/sniff.py ...` is what the rubric types, on a bare
+    interpreter with no install and no PYTHONPATH. The script finds the
+    package only because `sys.path[0]` is the directory holding it, so this is
+    the test that the extraction layout and the shim agree.
+    """
+    proc = cli.script(["setup", "--proxy-port", "0"], check=True)
+    setup = json.loads(proc.stdout)
+    try:
+        assert setup["ok"] is True
+        assert Path(setup["decoy"]).read_text().startswith("[default]")
+
+        script = f"open({str(Path(setup['decoy']))!r}).read()"
+        report = json.loads(
+            cli.script(
+                [
+                    "run",
+                    "--check",
+                    "smoke",
+                    "--cwd",
+                    str(home_dir),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    script,
+                ],
+                check=True,
+            ).stdout
+        )
+        assert report["check"] == "smoke"
+        assert report["secret_probe"]["decoy_read"] is True
+    finally:
+        teardown = json.loads(cli.script(["teardown"], check=True).stdout)
+        assert teardown["decoy"] == "removed"
+
+
+def test_the_shim_writes_state_under_the_state_dir_only(cli: Cli, ctx: Context) -> None:
+    """The code directory stays code. `CUJO_DIR` now defaults inside it rather
+    than to it, so nothing `setup` writes lands beside the modules.
+    """
+    cli.script(["setup", "--proxy-port", "0"], check=True)
+    try:
+        assert (ctx.state_dir / "config.json").exists()
+        # Whatever the state dir holds, none of it is in with the package.
+        assert not list(CODE_DIR.glob("*.pid"))
+        assert not list(CODE_DIR.glob("*.jsonl"))
+        assert not (CODE_DIR / "config.json").exists()
+    finally:
+        cli.script(["teardown"], check=True)
