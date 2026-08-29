@@ -19,6 +19,20 @@ export const Advisory: Story = {
   args: { review: review({ tool: "post_advisory_review" }), posted: true },
 };
 
+/** The accusation while it waits: the only state that reads as held. */
+export const GatedHeld: Story = {
+  args: { review: review({ tool: "post_gated_review" }), posted: false },
+};
+
+/**
+ * The same accusation once a maintainer confirmed it. "Held" is what the review
+ * still *is*, not what its tool was called, so a confirmed one reads like any
+ * other posted request-changes review.
+ */
+export const GatedConfirmed: Story = {
+  args: { review: review({ tool: "post_gated_review" }), posted: true },
+};
+
 export const NoInlineComments: Story = {
   args: { review: review({ comments: [] }), posted: false },
 };
