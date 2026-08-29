@@ -319,6 +319,45 @@ describe("GitHubReader.repoIsPublic", () => {
   });
 });
 
+describe("GitHubReader.permissionFor", () => {
+  const reader = (impl: ReturnType<typeof vi.fn>) =>
+    new GitHubReader("1", "pem", impl as unknown as typeof fetch);
+
+  it.each([
+    ["admin", 200, { permission: "admin" }, "admin"],
+    ["write", 200, { permission: "write" }, "write"],
+    ["read", 200, { permission: "read" }, "read"],
+    ["none for a non-collaborator the endpoint can still see", 200, { permission: "none" }, "none"],
+    ["none when the repo or the user is invisible", 404, {}, "none"],
+    ["unknown when GitHub errors", 500, {}, "unknown"],
+    ["unknown when GitHub rate limits", 403, {}, "unknown"],
+    ["unknown when the field is missing", 200, {}, "unknown"],
+    // A custom role arrives as a name Cujo does not know the meaning of, and a
+    // name it cannot interpret is not an answer to "may this person push".
+    ["unknown for a role it does not recognise", 200, { permission: "triage" }, "unknown"],
+  ])("reads %s", async (_name, status, body, expected) => {
+    const impl = vi.fn(async () => new Response(JSON.stringify(body), { status }));
+    expect(await reader(impl).permissionFor("o/r", "octocat")).toBe(expected);
+  });
+
+  it("is unknown, not a refusal, when the request itself throws", async () => {
+    const impl = vi.fn(async () => {
+      throw new Error("ECONNRESET");
+    });
+    expect(await reader(impl).permissionFor("o/r", "octocat")).toBe("unknown");
+  });
+
+  it("encodes the login, so a name with a slash cannot reach another path", async () => {
+    const paths: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      paths.push(new URL(String(input)).pathname);
+      return new Response(JSON.stringify({ permission: "none" }), { status: 200 });
+    });
+    await reader(impl).permissionFor("o/r", "a/../../admin");
+    expect(paths).toEqual(["/repos/o/r/collaborators/a%2F..%2F..%2Fadmin/permission"]);
+  });
+});
+
 describe("GitHubReader.createComment", () => {
   function commentServer(status = 201) {
     const bodies: string[] = [];
