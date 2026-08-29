@@ -96,7 +96,9 @@ booleans, true if true in any run>}, ...}` plus the fields below.
 Cujo checks that envelope against a schema and records a `warn` when it does not
 hold, so the report is worth getting right. The envelope must carry `check`,
 `runs[]` and `derived`, and should also carry `schema_version`, `sensors` and
-`truncated` — the same roll-up over every run. Copy each `runs[]` entry from what
+`truncated` — the same roll-up over every run. In the `sensors` roll-up only
+`armed` matters; you do not need to copy each sensor's `detail` prose up from
+the runs below. Copy each `runs[]` entry from what
 `sniff.py` printed, verbatim and whole: a `run` entry carries `schema_version`,
 `argv`, `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail` and
 the sensor block, and a `detonate` entry carries `dependency`, `source` and
