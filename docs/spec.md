@@ -403,6 +403,18 @@ Nothing in this block may name a host, a path, or a repository. A check report
 crosses to the anonymous public plane verbatim, with no field-level allowlist
 between here and there.
 
+**The block is evidence, not proof, and at the same level as the rows it
+describes.** The command being measured runs as the same user as the sensors: it
+can kill a daemon and write a live pid into its file, and it holds
+`CUJO_AUDIT_LOG` and can append the hook's own `armed` row. It can equally
+rewrite `proxy.jsonl`. Nothing observed from inside a sandbox the author
+controls is unforgeable, and the health block does not change that — what it
+closes is the accident, the daemon that died on its own. Two things bound it:
+`daemon_alive` checks that the pid's command line is one of ours, so the pid
+file alone is not enough; and the lie only runs one way. Forging health hides a
+gap in the evidence. It cannot manufacture a finding against anyone, because
+every rule here fires on a sensor reporting *false*.
+
 #### `truncated` — where the evidence was cut
 
 Five caps bound what a report can cost: `TAIL_CHARS` on each output tail,

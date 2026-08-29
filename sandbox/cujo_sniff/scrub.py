@@ -23,16 +23,21 @@ arguments there were.
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
-# Reordering and invisibility, spelled by code point because the characters
-# themselves would be unreadable here -- which is the whole reason they are on
-# the list. U+200B-200F: zero-width space, non-joiner, joiner, and the LTR/RTL
-# marks. U+202A-202E: the bidirectional embeddings and overrides. U+2066-2069:
-# the bidirectional isolates. U+FEFF: the byte-order mark.
-_INVISIBLE = frozenset(
-    chr(c) for c in (*range(0x200B, 0x2010), *range(0x202A, 0x202F), *range(0x2066, 0x206A), 0xFEFF)
-)
+# Escaped by Unicode category rather than by a list of code points. The list was
+# the obvious way to write this and the wrong one: it named the bidirectional
+# overrides and the zero-width set and still let U+061C ARABIC LETTER MARK
+# through, because a blacklist of things that hide is only ever as good as the
+# last time someone read the standard.
+#
+# Cf is the format category -- every bidirectional control, every zero-width
+# joiner, the byte-order mark, the soft hyphen. Cc is the C0 and C1 controls.
+# Cs, Co and Cn are surrogates, private use, and unassigned: nothing legitimate
+# in a filename or a command's output, and all of them render unpredictably. Zl
+# and Zp are U+2028 and U+2029, which end a line in some parsers and not others.
+_ESCAPED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
 # An argv element or a path is one line by definition, so nothing is kept there.
 KEEP_IN_TEXT = "\n\t"
 # Long enough for a real command line, short enough that a megabyte of argv
@@ -56,7 +61,7 @@ def scrub(text: str, keep: str = "") -> str:
     for ch in text:
         if ch in keep:
             out.append(ch)
-        elif ch < "\x20" or "\x7f" <= ch <= "\x9f" or ch in _INVISIBLE:
+        elif unicodedata.category(ch) in _ESCAPED_CATEGORIES:
             out.append(_escape(ch))
         else:
             out.append(ch)

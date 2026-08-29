@@ -13,6 +13,7 @@ from cujo_sniff.sensors.fsdiff import (
     UNHASHED,
     UNREADABLE,
     Snapshot,
+    _digest,
     _snapshot_roots,
     diff_snapshots,
     snapshot,
@@ -280,3 +281,56 @@ def test_a_file_too_large_to_hash_says_so_rather_than_reading_as_checked(
     hashed = snapshot([home_dir], **walk)
     assert hashed.unhashed == 0
     assert hashed.entries[str(big)][2] not in (None, UNHASHED, UNREADABLE)
+
+
+def test_a_file_that_grows_after_the_stat_cannot_run_the_hash_forever(
+    home_dir: Path, ctx: Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The size that let a file past the cap was measured before the open.
+
+    A background process is free to have grown it since, and reading to EOF on
+    that promise is an unbounded read of a file the command controls -- the
+    snapshot never finishing, and the check with it. The cap is enforced on
+    what was actually read.
+    """
+    monkeypatch.setattr("cujo_sniff.sensors.fsdiff.HASH_MAX_BYTES", 32)
+    aws = home_dir / ".aws"
+    aws.mkdir()
+    grown = aws / "credentials"
+    grown.write_text("x" * 1024)
+    # lstat would reject this one outright, so force the path where the open
+    # succeeds and the read is what discovers the size.
+    monkeypatch.setattr("cujo_sniff.sensors.fsdiff.HASH_MAX_BYTES", 32)
+    st = grown.lstat()
+
+    class Grown:
+        st_mode = st.st_mode
+        st_size = 8  # what the stale lstat claimed
+
+    assert _digest(grown, Grown()) == UNHASHED
+
+
+def test_a_walk_that_ends_exactly_on_the_cap_is_a_complete_walk(
+    home_dir: Path, ctx: Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Returning `truncated` for a tree of exactly the cap made `diff_snapshots`
+    # disbelieve creations and deletions it could in fact prove.
+    for i in range(3):
+        (home_dir / f"f{i}").write_text("x")
+    walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
+
+    # The walk also covers /etc, so the boundary is measured rather than
+    # assumed: whatever a complete walk finds is the number the cap is set to.
+    complete = snapshot([home_dir], **walk)
+    assert complete.truncated is False
+    total = len(complete.entries)
+
+    monkeypatch.setattr("cujo_sniff.sensors.fsdiff.MAX_SNAPSHOT_FILES", total)
+    exact = snapshot([home_dir], **walk)
+    assert len(exact.entries) == total
+    assert exact.truncated is False
+
+    monkeypatch.setattr("cujo_sniff.sensors.fsdiff.MAX_SNAPSHOT_FILES", total - 1)
+    over = snapshot([home_dir], **walk)
+    assert len(over.entries) == total - 1
+    assert over.truncated is True
