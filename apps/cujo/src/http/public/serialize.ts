@@ -222,7 +222,13 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     delivery_id: run.deliveryId,
     model: run.model,
     rubric_sha256: run.rubricSha256,
-    usage: projection.usage,
+    // `?? null` for the same reason `publicCheck` has it, and it is not
+    // decoration: a projection stored before this field existed deserializes
+    // without it, `JSON.stringify` drops an `undefined`, and the key this
+    // module promises to emit disappears from the payload. Null rather than
+    // zeros, because a run from before the field did not cost nothing — it has
+    // no record, which is a different claim (decision 54).
+    usage: projection.usage ?? null,
   };
 }
 
