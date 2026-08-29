@@ -2933,3 +2933,113 @@ silently, since detail queries have an infinite `staleTime` and no poll.
 of a fact already there in full. **An aggregate endpoint** returning counts
 across all runs, which answers one page's question and not the next one's, and
 which the board does not need while the whole list fits in one response.
+
+## 66. Nothing in the chamber exists that is not a measurement
+
+The board drew every run as a specimen and drew the room around it out of
+nothing: the floor grid repeated at a fixed pitch, the chain ran the length of
+the box whatever the record held, and the scan plane swept on an eleven-second
+timer. Four of the scene's seven objects were scenery in a file whose own header
+claims it is "a diagram rather than an ornament". This adds the rule that
+settles it, stated beside the three already there, and every scene change is a
+consequence of it.
+
+The floor's cross-ticks are now one per **occupied** slot, so the floor is an
+occupancy strip; the verticals on the side walls are one per slot the volume
+has, so they are the axis the ticks sit on. The chain ends where the record
+ends, so a three-run board has a short chain — except on an empty board, where
+there is no record to bound it and it runs the volume, because an instrument
+holding nothing is a different picture from an instrument that is absent. Every
+specimen gains a tether to the floor and a dim shadow in its own tone at the
+foot of it, which is the run's position on the time axis and, incidentally, the
+strongest depth cue available to a scene with no lights in it.
+
+**The sweep is the poll.** It leaves the back wall when `GET /public/runs`
+returns and reaches the front as the next request is due — five seconds while
+anything is live, thirty when the board is quiet. The interval is exported from
+`queries.ts` and handed to the scene rather than restated in it, so the plane
+cannot claim to be the instrument reading while running on a timer of its own.
+A `run` that changed nothing still starts a sweep, because what is being drawn
+is the read and not the change.
+
+Rejected: **spacing the specimens by real elapsed time**, which is the more
+literal reading of "depth is time" and makes a board with one quiet weekend in
+it mostly empty room; the floor ticks carry occupancy instead. **A second hue
+for the sandbox share of a check**, and for the running-check arm — the chamber
+already spends blue on a verdict and amber on the one thing waiting on a
+person, and a drawing where one hue says two things is the mistake those rules
+exist to prevent. Both are drawn as strength instead.
+
+### `digest.findings` reaches the drawing, and the detail metrics reach the page
+
+Decision 65 put `findings` on every list row as counts by severity, and
+`apps/web` read `checks` and `durationMs` and ignored it. It now decides two
+things about a specimen — the marks strung on its drop line, worst nearest the
+core, and the size of the core itself — and it fills a fifth panel on the rack
+and a column on the record. Size and not only hue, because fog takes the colour
+out of a distant specimen long before it takes the silhouette.
+
+The marks cap at six and the core's size steps by worst severity rather than
+scaling with the count. A run with three criticals is not three times as
+dangerous as a run with one, and past six marks the drop line reads as "several"
+rather than as a number — at which point drawing more claims a precision the
+drawing has lost. The count survives in full on the callout and the row.
+
+Commit `513d35f` published `usage`, `checks[].timings`, `model` and
+`rubric_sha256`, and `apps/web/src/lib/api/types.ts` did not declare any of
+them. All four are detail-route fields and all four land on the run page: the
+cost as one proportion bar, the provenance beside the head SHA, and — the one
+worth the most — `sandboxMs` against `wallMs` as a split in each lane of the
+checks timeline. That division is the single claim this product makes that a
+linter cannot, and nothing drew it. `contract.test.ts` classifies the four the
+way it classifies every other field, so the hand-written mirror stays honest.
+
+**Absent, never zeroed.** A run with no `usage` renders no cost section rather
+than four empty bars; a check with no `timings` draws one undivided lane rather
+than a lane that is all model; a run with no digest shows an em dash in the
+findings column rather than "none". Decision 54's rule, applied to four more
+fields.
+
+### A click in the chamber does not leave the board
+
+Clicking a specimen used to `router.push` to the run page, which threw away the
+one thing the two drawings are on a page together for. It now scrolls the
+record to that run's row, marks it with an accent rule, and **moves focus to
+the row's link** — the canvas is `aria-hidden`, so a scroll on its own is a
+change nobody on a keyboard or a screen reader is told about, and the row link
+is still the way to the run. A filter that would hide the picked run is cleared
+rather than obeyed: the click said which run, and "no runs match this filter"
+answers the wrong end of it. Escape puts the record back.
+
+Hover keeps its callout and the callout is now anchored to the specimen it
+names, projected from the scene each frame and written straight to the element —
+never through React state, which at sixty frames a second is the cost
+`focusStore` exists to avoid. `focusStore` gains a second field for exactly one
+reason: a hover is transient and a pick is a decision, and collapsing them made
+leaving the canvas erase the selection at the moment the reader was looking at
+the row it had scrolled to.
+
+### An empty board is a page, not a hole
+
+`ReadoutRack` returned `null` at zero runs, the record was one grey sentence,
+and the space between the chamber and the footer was the middle of the page
+missing. The rack now renders all five panels disarmed — each axis drawn at the
+floor with one line saying what will fill it — the record's empty state is a
+block with height that says what to do next, and the hero swaps its statistics
+for the three steps that put a run on the board. Numbered markers appear there
+and nowhere else on the page, because that is the only content on it that is
+genuinely a sequence.
+
+Short records are given room rather than left to sit against what follows: the
+table continues its rule lines past the last row up to five, the activity strip
+pads its axis to twelve slots, and the chamber's camera comes in below five
+specimens so the volume frames what is in it. All three are spacing and none of
+them invents a row, a bucket or a run.
+
+The one-line footer becomes three columns, and a new closing section is the key
+to the chamber — one specimen drawn large with its parts named, and the verdict
+and severity vocabularies listed from `RUN_STATUSES`, `SEVERITIES` and the tone
+maps rather than from prose, so a status added in `apps/cujo` appears there
+without anyone remembering to add it. The footer carries no external links: this
+build records no repository or App URL anywhere, and a footer is not the place
+to guess one.

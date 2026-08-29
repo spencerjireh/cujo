@@ -29,6 +29,39 @@ export function isLive(status: RunStatus): boolean {
   return status === "running" || status === "blocked_pending";
 }
 
+/**
+ * What a turn cost, as TrueForge counted it.
+ *
+ * Optional keys are the ones TrueForge itself does not always report:
+ * `reasoningTokens` arrives only on turn metrics, and `costUsd` only when the
+ * provider priced the call. Absent is "not reported", never zero — a run that
+ * carries no record of what it cost did not cost nothing (decision 54).
+ */
+export interface UsageTotals {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens?: number;
+  costUsd?: number;
+  messages: number;
+}
+
+/**
+ * Where one check's wall time went.
+ *
+ * `sandboxMs` is what `sniff.py` reported for its own runs inside the sandbox,
+ * so `modelMs` is the remainder — the part where the model was deciding rather
+ * than where the pull request's code was executing. `apps/cujo` omits `modelMs`
+ * when that subtraction comes out negative rather than publishing a number it
+ * cannot stand behind, so every key here is optional on purpose.
+ */
+export interface CheckTimings {
+  wallMs?: number;
+  sandboxMs?: number;
+  modelMs?: number;
+}
+
 export interface CheckState {
   /**
    * The TrueForge thread. Operator plane only: it is a harness handle, and the
@@ -43,6 +76,14 @@ export interface CheckState {
   /** Added by apps/cujo's fold from thread.created / thread.done. */
   startedAt?: string | null;
   endedAt?: string | null;
+  /**
+   * Optional *and* nullable, which are two different facts and both real here.
+   * `publicCheck` always emits these keys as null when it has nothing, so null
+   * is "this check reported none"; absent is a `run` frame from an older
+   * release, which predates the fields entirely.
+   */
+  usage?: UsageTotals | null;
+  timings?: CheckTimings | null;
 }
 
 export interface Finding {
@@ -175,6 +216,21 @@ export interface Run extends RunSummary {
   pr_author_id: number | null;
   error: string | null;
   summary: string | null;
+  /**
+   * What the whole run cost, summed across every turn. Null when the run
+   * predates the field, which is not the same claim as zero (decision 54), and
+   * optional for the same reason `session_id` is: a `run` frame from an older
+   * release carries no key at all.
+   */
+  usage?: UsageTotals | null;
+  /**
+   * What reviewed this pull request, and against which rubric. The hash is of
+   * the substituted `agent/SKILL.md`, so the two together are what makes a
+   * verdict reproducible rather than merely asserted. Null on a run recorded
+   * before either column existed.
+   */
+  model?: string | null;
+  rubric_sha256?: string | null;
 }
 
 /**
