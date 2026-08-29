@@ -55,6 +55,26 @@ describe("invalidReportFindings", () => {
     expect(isMaliceClaim(f as Finding)).toBe(false);
   });
 
+  it("adds nothing to a report that carries the envelope and one rule's field", () => {
+    // The shape `tests/contract/trueforge.contract.test.ts` sends through a
+    // live sub-agent, asserted here because that suite is excluded from
+    // `pnpm test` — it needs a running TrueForge — so nothing else in CI would
+    // catch this fixture drifting out of the schema.
+    const report = {
+      check: "tests",
+      base_pass_head_fail: ["t_x"],
+      runs: [],
+      derived: {
+        egress_to_unknown_host: false,
+        wrote_outside_workspace: false,
+        wrote_sensitive: false,
+        spawned_subprocess: false,
+      },
+    };
+    expect(invalidReportFindings([check("tests", report)])).toEqual([]);
+    expect(hardRuleFindings([check("tests", report)]).map((f) => f.rule)).toEqual(["tests_failed"]);
+  });
+
   it("leaves the rules that read the same report alone", () => {
     // The property the split exists for: a report that fails validation still
     // trips every rule its contents set off. Anything else would let a
