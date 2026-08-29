@@ -4,6 +4,7 @@ import {
   hardRuleFindings,
   invalidReportFindings,
   isMaliceClaim,
+  isOperationalRule,
   mergeFindings,
   missingCheckFindings,
 } from "../../src/review/findings";
@@ -238,6 +239,25 @@ describe("isMaliceClaim", () => {
     ])[0] as Finding;
     expect(rule).toBe("egress_to_unknown_host");
     expect(isMaliceClaim(legacy as Finding)).toBe(false);
+  });
+});
+
+describe("isOperationalRule", () => {
+  it("is true for check_missing and sensor_unarmed", () => {
+    expect(missingCheckFindings([]).every(isOperationalRule)).toBe(true);
+    const unarmed = hardRuleFindings([
+      check("tests", {
+        sensors: { proxy: { armed: false, detail: "not started" }, decoy: { armed: true } },
+      }),
+    ]);
+    expect(unarmed.every(isOperationalRule)).toBe(true);
+  });
+
+  it("is false for correctness and malice rules", () => {
+    const correctness = hardRuleFindings([check("tests", { base_pass_head_fail: ["t_x"] })]);
+    expect(correctness.every(isOperationalRule)).toBe(false);
+    const malice = hardRuleFindings([check("tests", { secret_probe: { decoy_read: true } })]);
+    expect(malice.every(isOperationalRule)).toBe(false);
   });
 });
 
