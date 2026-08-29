@@ -1577,18 +1577,23 @@ the tests and the thing they tested disagreed about where state lived.
 
 Delivery changed with it, because a package is not one `curl`. The rubric now
 fetches a source archive of this repo from `CUJO_SNIFF_TARBALL_URL`, strips the
-archive's top directory, and copies `sandbox/` into `/tmp/cujo`, so `sniff.py`
-and `cujo_sniff/` land as siblings. That is the whole import mechanism: running
+archive's top directory, and moves `sandbox/` into place as `/tmp/cujo`, so
+`sniff.py` and `cujo_sniff/` land as siblings. That is the whole import mechanism: running
 `python3 /tmp/cujo/sniff.py` puts `/tmp/cujo` on `sys.path[0]`, and the package
 is found with no install, no `PYTHONPATH`, and no third-party dependency. The
 daemons re-execute as `python3 -m cujo_sniff` with the working directory set to
 that same directory, for the same reason; re-executing `__file__` would put
 `cujo_sniff/` itself on the path and break every import.
 
-`--strip-components=1` and a `cp`, rather than `tar --wildcards`, because
+`--strip-components=1` and a plain `mv`, rather than `tar --wildcards`, because
 `--wildcards` is GNU-only and would make a local rehearsal on macOS need
 `gtar`. Stripping one component also means nothing has to know the archive's
-top directory is called `cujo-main`, which changes with the branch.
+top directory is called `cujo-main`, which changes with the branch. `mv` and
+not `cp` because it replaces the directory instead of merging into it: a
+module deleted upstream would otherwise survive in `/tmp/cujo` from an earlier
+extraction and still be importable. The whole fetch is one `&&` chain for the
+neighbouring reason — a failed download must not leave a stale tree behind for
+the next step to use as though it were fresh.
 
 This amends **decision 19**, which stands otherwise: the fetch is still one
 public, credential-free request, nothing on the server pushes anything in, and
@@ -1707,3 +1712,49 @@ corruption and the cancelled review for a race to find. **Conversation without a
 sandbox**, which is cheap, injection-proof, and re-reading, which is what every
 other bot already does. And **no rate limit**, on the argument that repo write is
 enough: it gates who, not how often, and six pasted questions are six clones.
+||||||| parent of b0d91c2 (docs: record the cutover, and correct two lines decision 46 left behind)
+
+## 48. `sniff.py` is an entry point, and state lives under the code directory
+
+The package landed in decision 46 beside an untouched `sandbox/sniff.py`, which
+stayed the thing production ran. That was a delivery constraint, not a design:
+merging is the deploy and the tarball URL is `main`-relative (decision 35), so
+the release that first delivered `cujo_sniff/` had to be a release in which
+nothing needed it yet. Once that release was live, every container fetching the
+archive already had the package sitting beside the script, and the monolith had
+no remaining job.
+
+So `sandbox/sniff.py` is now a docstring and two lines: `from cujo_sniff.cli
+import main`, and the `__main__` guard. It keeps the name because the rubric
+types it — `python3 /tmp/cujo/sniff.py setup` — and because that spelling is
+what puts `/tmp/cujo` on `sys.path[0]` and finds the package. There is no
+`sys.path.insert` in it: none is needed, and one would be an `E402` and a lie
+about where the package comes from.
+
+`sandbox/tests/test_sniff.py` is deleted rather than kept. It could not be
+kept honestly: half of it reaches into module attributes that the shim no
+longer has, and the other half shells out to the script, which would keep
+passing while testing the package under a name that implies otherwise. The
+replacement suite arrived whole in the previous release for exactly this
+moment, so nothing is uncovered by the deletion — the duplication was the
+price of not having a gap.
+
+`CUJO_DIR` now defaults to `/tmp/cujo/state` rather than to `/tmp/cujo`. The
+rubric extracts the archive into `/tmp/cujo` and then never writes there again,
+so with the old default the pid files, the JSONL logs, the decoy backup, the
+audit directory, and the sensed lock all churned in the same listing as the
+modules being imported. Nesting them keeps the code directory a listing of
+code. Nothing outside the process observes the change: the rubric never names
+the state directory, it reads every path it needs out of `setup`'s JSON, and
+`CUJO_ENVS_DIR` keeps deriving from whatever `CUJO_DIR` is — so this is a
+defaults-only change and an operator who set either variable is unaffected.
+
+`envs_dir` stays *beside* the state directory and not inside it, at
+`/tmp/cujo/state-envs`. The snapshot prunes the state directory because our own
+logs change on every check; a detonation environment must stay visible, because
+what an install writes into it is the evidence.
+
+This does not touch the state directory's other property, recorded with
+decision 41: reads under it are deliberately **not** filtered as sensor noise,
+because `decoy.backup` holds the real credentials file the decoy displaced and
+a command reading it is exactly the thing worth seeing.
