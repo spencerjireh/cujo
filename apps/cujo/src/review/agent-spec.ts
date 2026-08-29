@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,23 @@ export function loadRubric(name = "SKILL.md"): string {
 }
 
 /**
+ * A digest of the instructions a spec would hand a session.
+ *
+ * Of the substituted string, not of `agent/SKILL.md` on disk: the tarball URL
+ * is spliced in by `buildAgentSpec`, so two deploys pointing at different
+ * sensor code are two different rubrics and have to hash differently.
+ *
+ * Recorded on a run so a verdict can be traced to the wording that produced it.
+ * See `RunRecord.rubricSha256` for the caveat about which session that is
+ * actually true of.
+ */
+export function specFingerprint(spec: TrueForgeApi.AgentSpec): string {
+  return createHash("sha256")
+    .update(spec.instructions ?? "")
+    .digest("hex");
+}
+
+/**
  * The spec defines the session the sandbox runs under, so it is the one place
  * a server-side secret could cross the trust boundary. It takes only the two
  * fields it needs rather than the whole `Config`, which turns a future
@@ -62,19 +80,43 @@ export function loadRubric(name = "SKILL.md"): string {
 /**
  * The model both specs run under.
  *
- * `params` is left out entirely when no effort is configured, rather than sent
- * as an empty string. Every key in `params` is forwarded to the provider as-is,
- * and a model that does not reason answers an empty `reasoning_effort` with an
- * error rather than a default — so "unset" has to mean absent.
+ * **Every key in `params` is forwarded to the provider as-is**, so an unset
+ * setting has to mean an absent key and never a default. A model that does not
+ * reason answers an empty `reasoning_effort` with an error rather than a
+ * default, and some reasoning models reject `temperature` outright or take only
+ * `1` — and the failure that produces is the invisible one decision 56 exists
+ * to prevent: the process boots, `/readyz` is green, and every webhook answers
+ * 502. Nothing in CI catches it, because the contract suite runs against a stub
+ * model provider.
+ *
+ * So `params` is omitted entirely when nothing is configured, and each key
+ * appears only when a deploy asked for it. Determinism is worth having, but it
+ * is worth having as something an operator turns on once they know their
+ * provider accepts it.
  */
-function modelRef(config: Pick<Config, "model" | "modelReasoningEffort">): TrueForgeApi.Model {
-  return config.modelReasoningEffort
-    ? { name: config.model, params: { reasoningEffort: config.modelReasoningEffort } }
-    : { name: config.model };
+function modelRef(
+  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
+): TrueForgeApi.Model {
+  const params: TrueForgeApi.ModelParams = {
+    ...(config.modelReasoningEffort ? { reasoningEffort: config.modelReasoningEffort } : {}),
+    // `!= null` and not a truthiness test: `temperature: 0` is the setting
+    // somebody reaching for this most likely wants, and `0` is falsy.
+    ...(config.modelTemperature != null ? { temperature: config.modelTemperature } : {}),
+    ...(config.modelMaxTokens != null ? { maxTokens: config.modelMaxTokens } : {}),
+  };
+  return Object.keys(params).length > 0 ? { name: config.model, params } : { name: config.model };
 }
 
 export function buildAgentSpec(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "sniffTarballUrl">,
+  config: Pick<
+    Config,
+    | "model"
+    | "modelReasoningEffort"
+    | "modelTemperature"
+    | "modelMaxTokens"
+    | "sniffTarballUrl"
+    | "compactionThresholdTokens"
+  >,
   rubric = loadRubric(),
 ): TrueForgeApi.AgentSpec {
   return {
@@ -86,7 +128,20 @@ export function buildAgentSpec(
     // ceremony. Only the accusation waits (decision 42).
     mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
     config: {
-      sandbox: { enabled: true },
+      // `fileDownloads` is on by default and would let a file written inside
+      // the box be fetched back out through the harness's download endpoint.
+      // Nothing in this design ever does that — a check report comes back as
+      // text on a thread event — so the crossing is closed rather than left
+      // open because nobody has asked.
+      sandbox: { enabled: true, fileDownloads: false },
+      // Raised well above the harness default of 50,000. The parent holds four
+      // full check reports and then writes the review body from them, so a
+      // compaction in between is a review argued from a summary of the
+      // evidence. The hard rules survive it either way — Cujo re-derives those
+      // from the reports on its own side — but the prose would not.
+      contextManagement: {
+        compaction: { enabled: true, compactionThresholdTokens: config.compactionThresholdTokens },
+      },
       // The review runs headless; nothing can answer a question or view a card.
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
@@ -113,7 +168,10 @@ export function buildAgentSpec(
  * paraphrase the report it was handed.
  */
 export function buildConverseSpec(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "sniffTarballUrl">,
+  config: Pick<
+    Config,
+    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sniffTarballUrl"
+  >,
   rubric = loadRubric("CONVERSE.md"),
 ): TrueForgeApi.AgentSpec {
   return {
@@ -121,7 +179,10 @@ export function buildConverseSpec(
     instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
     mcpServers: [],
     config: {
-      sandbox: { enabled: true },
+      // Closed here too, and for the same reason. No `contextManagement`: this
+      // answers one question against a brief already collected, so it never
+      // holds the evidence a compaction would summarise away.
+      sandbox: { enabled: true, fileDownloads: false },
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
       // Lower than the review's 150: this answers one question against a brief

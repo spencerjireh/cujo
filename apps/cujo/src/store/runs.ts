@@ -28,6 +28,8 @@ interface RunRow {
   decided_at: string | null;
   is_public: number | null;
   delivery_id: string | null;
+  model: string | null;
+  rubric_sha256: string | null;
   created_at: string;
   updated_at: string;
   /** From the join below, not from `runs`. Null until the PR read completed. */
@@ -66,6 +68,8 @@ function toRecord(row: RunRow): RunRecord {
     // existed, or by a path that never learned the answer, is not public.
     isPublic: row.is_public === 1,
     deliveryId: row.delivery_id,
+    model: row.model,
+    rubricSha256: row.rubric_sha256,
     prTitle: row.pr_title,
     prAuthorLogin: row.pr_author_login,
     prAuthorId: row.pr_author_id,
@@ -173,6 +177,14 @@ export class RunStore {
      * `null` says so rather than pretending.
      */
     deliveryId?: string | null;
+    /**
+     * What this process was configured with when it claimed the run: the model
+     * name, and a digest of the instructions it would hand a new session.
+     * Optional because a test or a future path may not hold either, and `null`
+     * says "not recorded" rather than naming a model that was never used.
+     */
+    model?: string | null;
+    rubricSha256?: string | null;
   }): { run: RunRecord; created: boolean } {
     const now = new Date().toISOString();
     const id = randomUUID();
@@ -185,8 +197,8 @@ export class RunStore {
     if (stale) this.deleteRun(stale.id);
     const result = this.db
       .prepare(
-        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, is_public, delivery_id, created_at, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, is_public, delivery_id, model, rubric_sha256, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, '[]', 'running', ?, ?, ?, ?, ?, ?)",
       )
       .run(
         id,
@@ -196,6 +208,8 @@ export class RunStore {
         input.sessionId,
         input.isPublic ? 1 : 0,
         input.deliveryId ?? null,
+        input.model ?? null,
+        input.rubricSha256 ?? null,
         now,
         now,
       );

@@ -27,6 +27,8 @@ export async function test(deps: CommandDeps, guildId: string, repo: string): Pr
       decidedAt: null,
       isPublic: true,
       deliveryId: null,
+      model: null,
+      rubricSha256: null,
       prTitle: "Sample card",
       // GitHub's own account, so the sample shows a real avatar and a real
       // profile link without naming anybody who did not ask to be named.

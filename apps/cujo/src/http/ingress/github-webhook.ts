@@ -53,6 +53,12 @@ export interface WebhookDeps extends StartRunDeps {
   prCommands?: Pick<PrCommandService, "handle">;
   /** Absent means `@cujo-guard` is off; deliveries are still 200. */
   converse?: Pick<ConverseService, "handle">;
+  /**
+   * What produced the verdict, stamped on every run this route claims: the
+   * configured model, and a digest of the instructions a session would be
+   * given. Optional so a test can compose this route without them.
+   */
+  provenance?: { model: string; rubricSha256: string };
 }
 
 interface IssueCommentEvent {
@@ -432,6 +438,8 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
       sessionId,
       isPublic: event.repository.private === false,
       deliveryId,
+      model: deps.provenance?.model ?? null,
+      rubricSha256: deps.provenance?.rubricSha256 ?? null,
     });
     if (!created) {
       log.info("webhook.ignored", {

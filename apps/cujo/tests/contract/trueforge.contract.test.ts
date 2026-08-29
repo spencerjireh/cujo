@@ -277,7 +277,21 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
 
   it("a sub-agent's name is the thread title, and its report trips a hard rule", async () => {
     const run = runFor("h-sub");
-    const report = { check: "tests", base_pass_head_fail: ["t_x"] };
+    // A whole envelope, not just the field the rule reads: the fold validates
+    // the report and adds a `report_invalid` warn beside the rules when it does
+    // not hold, so a stub here would assert against a second finding that is
+    // about this fixture rather than about the sub-agent.
+    const report = {
+      check: "tests",
+      base_pass_head_fail: ["t_x"],
+      runs: [],
+      derived: {
+        egress_to_unknown_host: false,
+        wrote_outside_workspace: false,
+        wrote_sensitive: false,
+        spawned_subprocess: false,
+      },
+    };
     // The parent spawns `tests`; the sub-agent's whole input is a SAY, so it
     // ends with the fenced report; the parent's reply to the tool result is
     // plain text, so the turn ends with no review.

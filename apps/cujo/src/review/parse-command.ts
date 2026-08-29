@@ -27,7 +27,7 @@ export type CommandParse =
   | { kind: "ambiguous" };
 
 /** `/cujo <verb>`, alone on its line. Nothing after it, so a sentence is not a command. */
-const COMMAND = /^\/cujo[ \t]+(confirm|dismiss)[ \t]*$/;
+const COMMAND = /^\/cujo[ \t]+(confirm|dismiss|review)[ \t]*$/;
 
 /**
  * A fence opener: up to three leading spaces, then three or more backticks or

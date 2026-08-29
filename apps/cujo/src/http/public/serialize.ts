@@ -49,6 +49,15 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "turnIds",
   "externalResume",
   "deliveryId",
+  // What produced the verdict (decision 34's test, applied): a model name and
+  // a hex digest of a rubric that is itself in a public repository. Neither
+  // names a person and neither authorizes anything, which is the same argument
+  // `sessionId` above is published on.
+  "model",
+  "rubricSha256",
+  // What the run cost and where its time went. The per-check half rides inside
+  // `checks`, so only the run total is named here.
+  "usage",
 ];
 
 /**
@@ -94,6 +103,9 @@ export const PUBLIC_RUN_FIELDS = [
   "turn_ids",
   "external_resume",
   "delivery_id",
+  "model",
+  "rubric_sha256",
+  "usage",
 ] as const;
 
 /** Exactly the keys `serializePublicSummary` emits. */
@@ -140,6 +152,10 @@ function publicCheck(check: CheckState) {
     error: check.error,
     startedAt: check.startedAt,
     endedAt: check.endedAt,
+    // Both null rather than absent when the check never produced them, so the
+    // key is always there for a reader and a client needs no third case.
+    usage: check.usage ?? null,
+    timings: check.timings ?? null,
   };
 }
 
@@ -176,6 +192,9 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     turn_ids: run.turnIds,
     external_resume: projection.externalResume,
     delivery_id: run.deliveryId,
+    model: run.model,
+    rubric_sha256: run.rubricSha256,
+    usage: projection.usage,
   };
 }
 

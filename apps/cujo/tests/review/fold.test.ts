@@ -1,5 +1,6 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
+import { isMaliceClaim } from "../../src/review/findings";
 import { fold, parseReport, parseReview, pendingApproval } from "../../src/review/fold";
 
 type Ev = TrueForgeApi.SessionEvent;
@@ -223,9 +224,34 @@ describe("fold", () => {
 
 describe("hard rules in the fold", () => {
   const fenced = (report: unknown) => `\`\`\`json\n${JSON.stringify(report)}\n\`\`\``;
-  const tripped = fenced({ check: "tests", base_pass_head_fail: ["t_x"] });
+
+  /**
+   * The three fields the rubric asks every envelope to carry, so a fixture here
+   * is the shape of a report and not only the one field a test is about.
+   *
+   * Without this every fixture below would also raise a `report_invalid` warn,
+   * which is a different test's subject and would bury the finding each of
+   * these cases exists to assert.
+   */
+  const BASE = {
+    runs: [],
+    derived: {
+      egress_to_unknown_host: false,
+      wrote_outside_workspace: false,
+      wrote_sensitive: false,
+      spawned_subprocess: false,
+    },
+  };
+  const report = (over: Record<string, unknown> = {}) =>
+    fenced({
+      ...BASE,
+      ...over,
+      derived: { ...BASE.derived, ...(over.derived as Record<string, boolean> | undefined) },
+    });
+
+  const tripped = report({ check: "tests", base_pass_head_fail: ["t_x"] });
   /** A malice rule, unlike `tripped`: an install called a host nobody allowed. */
-  const detonated = fenced({
+  const detonated = report({
     check: "detonation",
     derived: { egress_to_unknown_host: true },
     egress: [{ host: "45.33.12.9", known: false }],
@@ -420,7 +446,7 @@ describe("hard rules in the fold", () => {
     const p = fold([
       turnCreated("t1"),
       threadCreated("th-tests", "tests"),
-      threadDone("th-tests", fenced({ check: "tests", base_pass_head_fail: [] })),
+      threadDone("th-tests", report({ check: "tests", base_pass_head_fail: [] })),
       reviewCall("call-0", "post_advisory_review", withFindings),
       toolResponse("call-0"),
       turnDone(),
@@ -436,11 +462,88 @@ describe("hard rules in the fold", () => {
     ]);
   });
 
+  it("warns about a report it cannot read, and still applies the rules to it", () => {
+    // The point of the whole arrangement: a sub-agent that got the envelope
+    // wrong does not get its evidence ignored. `base_pass_head_fail` is right
+    // there, so the critical stands, and the warn says the rest is worth less
+    // than it looks.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", fenced({ check: "tests", base_pass_head_fail: ["t_x"] })),
+      reviewCall("call-1", "post_blocking_review", review),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+    ]);
+    const rules = p.hardRuleHits.map((f) => f.rule);
+    expect(rules).toContain("tests_failed");
+    expect(rules).toContain("report_invalid");
+    expect(p.hardRuleHits.find((f) => f.rule === "report_invalid")).toMatchObject({
+      severity: "warn",
+      check: "tests",
+    });
+    // A malformed report is a claim about the evidence, never about the code,
+    // so it must not put a review through the human gate.
+    expect(p.hardRuleHits.filter((f) => f.rule === "report_invalid").map(isMaliceClaim)).toEqual([
+      false,
+    ]);
+  });
+
+  it("carries why the sub-agent's message ended into the missing-check warn", () => {
+    // A report cut off at the model's output limit and a report never written
+    // both parse to null. Only one of them is a cap somebody should raise.
+    const cutOff: Ev = {
+      type: "thread.done",
+      id: "thd-cut",
+      createdAt: at,
+      threadId: "th-tests",
+      title: "tests",
+      state: {
+        status: "done",
+        output: {
+          type: "model.message",
+          id: "out",
+          createdAt: at,
+          threadId: "th-tests",
+          content: '```json\n{"check":"tests","runs":[',
+          finishReason: "length",
+        },
+      },
+    };
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      cutOff,
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks[0]?.finishReason).toBe("length");
+    expect(p.findings.find((f) => f.check === "tests")?.evidence).toContain("output limit");
+  });
+
+  it("says nothing about the shape of a report that never arrived", () => {
+    // `check_missing` already covers that, and saying both would be saying the
+    // same thing twice.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", "no json here at all"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.findings.map((f) => f.rule)).not.toContain("report_invalid");
+    expect(p.findings.filter((f) => f.check === "tests").map((f) => f.rule)).toEqual([
+      "check_missing",
+    ]);
+  });
+
   it("warns for every required check the parent did not delegate", () => {
     const p = fold([
       turnCreated("t1"),
       threadCreated("th-smoke", "smoke"),
-      threadDone("th-smoke", fenced({ check: "smoke", endpoints: [] })),
+      threadDone("th-smoke", report({ check: "smoke", endpoints: [] })),
       reviewCall("call-0", "post_advisory_review", review),
       toolResponse("call-0"),
       turnDone(),
@@ -450,6 +553,100 @@ describe("hard rules in the fold", () => {
       ["warn", "tests"],
       ["warn", "probes"],
     ]);
+  });
+});
+
+describe("usage and timings in the fold", () => {
+  const usage = (inputTokens: number, outputTokens: number): TrueForgeApi.ModelMessageUsage =>
+    ({ inputTokens, outputTokens }) as TrueForgeApi.ModelMessageUsage;
+
+  const message = (
+    id: string,
+    threadId: string,
+    u: TrueForgeApi.ModelMessageUsage | undefined,
+  ): Ev => ({
+    type: "model.message",
+    id,
+    createdAt: at,
+    threadId,
+    content: "thinking",
+    ...(u ? { usage: u } : {}),
+  });
+
+  const doneWithMetrics = (metrics: TrueForgeApi.TurnMetrics): Ev =>
+    turnDone({ ...doneState(), metrics });
+
+  it("attributes a message's tokens to the check whose thread it came from", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      message("m1", "th-tests", usage(100, 10)),
+      message("m2", "th-tests", usage(50, 5)),
+      message("m3", "main", usage(999, 999)),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks[0]?.usage).toMatchObject({ inputTokens: 150, outputTokens: 15, messages: 2 });
+  });
+
+  it("counts a message once even if the same event arrives twice", () => {
+    // The runner dedupes by id today. A sum that relies on a caller's invariant
+    // is a sum that silently doubles the day that invariant changes.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      message("m1", "th-tests", usage(100, 10)),
+      message("m1", "th-tests", usage(100, 10)),
+      turnDone(),
+    ]);
+    expect(p.checks[0]?.usage).toMatchObject({ inputTokens: 100, messages: 1 });
+  });
+
+  it("takes the run total from the turn's own metrics, summed over turns", () => {
+    const p = fold([
+      turnCreated("t1"),
+      doneWithMetrics({ totalInputTokens: 1000, totalOutputTokens: 100, totalCostInUsd: 0.5 }),
+      turnCreated("t2"),
+      doneWithMetrics({ totalInputTokens: 200, totalOutputTokens: 20, totalCostInUsd: 0.25 }),
+    ]);
+    expect(p.usage).toMatchObject({ inputTokens: 1200, outputTokens: 120, costUsd: 0.75 });
+  });
+
+  it("leaves cost and reasoning tokens absent until a turn reports them", () => {
+    // "No cost reported" and "cost zero" are not the same claim.
+    const p = fold([turnCreated("t1"), doneWithMetrics({ totalInputTokens: 10 })]);
+    expect(p.usage.costUsd).toBeUndefined();
+    expect(p.usage.reasoningTokens).toBeUndefined();
+    expect(p.usage.inputTokens).toBe(10);
+  });
+
+  it("records the cost of a turn that ended in error too", () => {
+    // An error turn is exactly the one whose cost is worth seeing, and the
+    // status ladder below breaks out of the case in half a dozen places.
+    const p = fold([
+      turnCreated("t1"),
+      turnDone({ status: "error", message: "model down", completedAt: at }),
+    ]);
+    expect(p.status).toBe("error");
+    expect(p.usage.messages).toBe(0);
+  });
+
+  it("puts the timings on the check when its thread ends", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests", "2026-08-27T00:00:00Z"),
+      threadDone(
+        "th-tests",
+        '```json\n{"check":"tests","runs":[{"duration_s":30}]}\n```',
+        "2026-08-27T00:01:40Z",
+      ),
+    ]);
+    expect(p.checks[0]?.timings).toEqual({
+      wallMs: 100_000,
+      sandboxMs: 30_000,
+      modelMs: 70_000,
+    });
   });
 });
 

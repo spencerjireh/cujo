@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentFindings,
   hardRuleFindings,
+  invalidReportFindings,
   isMaliceClaim,
   mergeFindings,
   missingCheckFindings,
@@ -17,6 +18,101 @@ const check = (title: string, report: unknown, isCheck = true): CheckState => ({
   status: "done",
   report,
   error: null,
+});
+
+describe("invalidReportFindings", () => {
+  const valid = {
+    check: "tests",
+    runs: [],
+    derived: {
+      egress_to_unknown_host: false,
+      wrote_outside_workspace: false,
+      wrote_sensitive: false,
+      spawned_subprocess: false,
+    },
+  };
+
+  it("says nothing about a report that is the shape of a report", () => {
+    expect(invalidReportFindings([check("tests", valid)])).toEqual([]);
+  });
+
+  it("says nothing about a report that never arrived, or a thread that is not a check", () => {
+    // A null report is `check_missing`; saying both would be saying it twice.
+    expect(invalidReportFindings([check("tests", null)])).toEqual([]);
+    expect(invalidReportFindings([check("helper", { nonsense: true }, false)])).toEqual([]);
+  });
+
+  it("warns, names the field, and never accuses", () => {
+    const { derived: _derived, ...noDerived } = valid;
+    const [f] = invalidReportFindings([check("tests", noDerived)]);
+    expect(f).toMatchObject({
+      source: "hard_rule",
+      check: "tests",
+      severity: "warn",
+      rule: "report_invalid",
+    });
+    expect(f?.evidence).toContain("derived");
+    expect(isMaliceClaim(f as Finding)).toBe(false);
+  });
+
+  it("adds nothing to a report that carries the envelope and one rule's field", () => {
+    // The shape `tests/contract/trueforge.contract.test.ts` sends through a
+    // live sub-agent, asserted here because that suite is excluded from
+    // `pnpm test` — it needs a running TrueForge — so nothing else in CI would
+    // catch this fixture drifting out of the schema.
+    const report = {
+      check: "tests",
+      base_pass_head_fail: ["t_x"],
+      runs: [],
+      derived: {
+        egress_to_unknown_host: false,
+        wrote_outside_workspace: false,
+        wrote_sensitive: false,
+        spawned_subprocess: false,
+      },
+    };
+    expect(invalidReportFindings([check("tests", report)])).toEqual([]);
+    expect(hardRuleFindings([check("tests", report)]).map((f) => f.rule)).toEqual(["tests_failed"]);
+  });
+
+  it("leaves the rules that read the same report alone", () => {
+    // The property the split exists for: a report that fails validation still
+    // trips every rule its contents set off. Anything else would let a
+    // misplaced roll-up bury a decoy read.
+    const broken = { check: "tests", runs: "not an array", secret_probe: { decoy_read: true } };
+    expect(invalidReportFindings([check("tests", broken)])).toHaveLength(1);
+    expect(hardRuleFindings([check("tests", broken)]).map((f) => f.rule)).toContain("decoy_read");
+  });
+});
+
+describe("missingCheckFindings says why, not only that", () => {
+  const noReport = (over: Partial<CheckState>): CheckState => ({
+    ...check("tests", null),
+    status: "done",
+    ...over,
+  });
+
+  it("blames the output limit when the message was cut off", () => {
+    const [f] = missingCheckFindings([noReport({ finishReason: "length" })]);
+    expect(f?.rule).toBe("check_missing");
+    expect(f?.evidence).toContain("output limit");
+    expect(f?.evidence).toContain("cut off rather than never written");
+  });
+
+  it("says so when the model refused", () => {
+    const [f] = missingCheckFindings([noReport({ refused: true })]);
+    expect(f?.evidence).toContain("refusal");
+  });
+
+  it("falls back to the thread's own state when neither applies", () => {
+    const [f] = missingCheckFindings([noReport({ status: "error" })]);
+    expect(f?.evidence).toContain("ended error");
+  });
+
+  it("keeps the old wording when no thread was ever created", () => {
+    const [f] = missingCheckFindings([]);
+    expect(f?.evidence).toContain("no sub-agent thread named for it");
+  });
 });
 
 describe("hardRuleFindings", () => {

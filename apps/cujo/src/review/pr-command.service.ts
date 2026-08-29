@@ -44,6 +44,21 @@ export interface PrCommandDeps {
   github: PrCommandGitHub;
   reactions: PrCommandReactions | null;
   botLogin?: string;
+  /**
+   * Starts a fresh review of a head, for `/cujo review`.
+   *
+   * A callback rather than the store, the harness and the GitHub reader all
+   * reached for from in here: claiming a run needs the same pieces the webhook
+   * route already holds, and pulling them into this file would turn a policy
+   * module a plain object can test into a second composition root. Absent means
+   * the verb is off, which is what a deployment without it answers.
+   */
+  startReview?: (input: {
+    repo: string;
+    prNumber: number;
+    headSha: string;
+    actor: string;
+  }) => Promise<{ ok: true } | { ok: false; detail: string }>;
 }
 
 export interface PrCommand {
@@ -129,9 +144,16 @@ export class PrCommandService {
     const parsed = parseCommand(command.body);
     if (parsed.kind === "none") return { kind: "ignored", reason: "not_a_command" };
     if (parsed.kind === "ambiguous") {
-      return refuse("ambiguous", "That comment says both `confirm` and `dismiss`. Say one.");
+      return refuse("ambiguous", "That comment gives more than one command. Say one.");
     }
     const { verb } = parsed;
+
+    // `review` asks for a run rather than answering one, so it takes its own
+    // path from here. Everything below assumes a run exists to decide about,
+    // and the pull request this verb is most useful on is the one Cujo has
+    // never seen: opened before the App was installed, or one whose run the
+    // already-reviewed guard deleted.
+    if (verb === "review") return this.startReview(command);
 
     // Cheap and local: a comment on a pull request Cujo never touched is the
     // common case on a busy repo, and it costs no GitHub call to say so.
@@ -182,6 +204,45 @@ export class PrCommandService {
     return { kind: "decided", verb };
   }
 
+  /**
+   * `/cujo review`: look at the current head again, whatever is there now.
+   *
+   * The same principal as the other two verbs. It answers no question, so
+   * none of the machinery below applies — no `latestRunForPr`, and above all no
+   * `stale_head`, which exists to stop somebody answering an old commit's
+   * finding. This verb *targets* whatever the head is now; being out of date is
+   * the reason to run it, not a reason to refuse.
+   *
+   * Everything it needs beyond policy is one injected callback, so this file
+   * stays a module a plain object can test.
+   */
+  private async startReview(command: PrCommand): Promise<Outcome> {
+    if (!this.deps.startReview) {
+      return refuse("review_unavailable", "I cannot start a review from a comment right now.");
+    }
+    const permission = await this.deps.github.permissionFor(command.repo, command.actor);
+    const head = await this.deps.github.pullRequestHead(command.repo, command.prNumber);
+    if (!head) {
+      return refuse("pr_unreadable", "I could not read this pull request just now. Try again.");
+    }
+    const auth = authorizeCommand({
+      verb: "review",
+      permission,
+      actor: command.actor,
+      prAuthor: head.author,
+    });
+    if (!auth.allowed) return refuse(auth.reason, AUTHORIZATION_TEXT[auth.reason]);
+
+    const result = await this.deps.startReview({
+      repo: command.repo,
+      prNumber: command.prNumber,
+      headSha: head.headSha,
+      actor: command.actor,
+    });
+    if (!result.ok) return refuse("review_failed", result.detail);
+    return { kind: "decided", verb: "review" };
+  }
+
   private async say(command: PrCommand, body: string): Promise<void> {
     try {
       await this.deps.github.createComment(command.repo, command.prNumber, body);
@@ -213,10 +274,17 @@ function refuse(reason: string, say: string): Outcome {
   return { kind: "refused", reason, say };
 }
 
+const APPLIED_TEXT: Record<CommandVerb, string> = {
+  confirm: "Confirmed. The finding is now a blocking review on this pull request.",
+  dismiss: "Dismissed. The observation stands, and the merge is not blocked.",
+  // Says what it replaces, because it replaces more than a verdict: reclaiming
+  // the head drops the old run's page and its Discord card along with it.
+  review:
+    "Reviewing this pull request again at its current commit. Any earlier run for that commit, and its evidence page, are replaced.",
+};
+
 function applied(verb: CommandVerb): string {
-  return verb === "confirm"
-    ? "Confirmed. The finding is now a blocking review on this pull request."
-    : "Dismissed. The observation stands, and the merge is not blocked.";
+  return APPLIED_TEXT[verb];
 }
 
 const AUTHORIZATION_TEXT: Record<
