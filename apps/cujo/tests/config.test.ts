@@ -60,6 +60,14 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...base, DISCORD_PUBLIC_KEY: "ab12" }).discordPublicKey).toBe("ab12");
   });
 
+  it("treats an empty default guild as none, so compose's `${X:-}` is not a server", () => {
+    expect(loadConfig(base).defaultDiscordGuild).toBeNull();
+    expect(loadConfig({ ...base, CUJO_DEFAULT_DISCORD_GUILD: "" }).defaultDiscordGuild).toBeNull();
+    expect(loadConfig({ ...base, CUJO_DEFAULT_DISCORD_GUILD: "222" }).defaultDiscordGuild).toBe(
+      "222",
+    );
+  });
+
   it("derives the UI base URL from the UI host, and lets it be overridden", () => {
     expect(loadConfig(base).uiBaseUrl).toBe("https://cujo.spencerjireh.com");
     expect(loadConfig({ ...base, CUJO_UI_BASE_URL: "" }).uiBaseUrl).toBe(
