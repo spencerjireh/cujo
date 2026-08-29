@@ -95,6 +95,22 @@ describe("store", () => {
     expect(ids(store.runs.listRunsForSession("s1"))).toEqual([a.id, b.id].sort());
   });
 
+  it("finds the newest run for a pull request, in any state and any casing", () => {
+    // What a comment can ask for: a comment names a pull request and nothing
+    // else, and the run it means is the current one whatever state it reached.
+    const store = new Store(":memory:");
+    const first = store.runs.createRun(head).run;
+    const second = store.runs.createRun({ ...head, headSha: "h2" }).run;
+    store.runs.updateRun(second.id, { status: "blocked_pending" });
+    store.runs.updateRun(first.id, { status: "superseded" });
+    expect(store.runs.latestRunForPr("o/r", 7)?.id).toBe(second.id);
+    // `runs.repo` holds whatever casing GitHub sent, and a later delivery is
+    // not guaranteed to send the same.
+    expect(store.runs.latestRunForPr("O/R", 7)?.id).toBe(second.id);
+    expect(store.runs.latestRunForPr("o/r", 8)).toBeNull();
+    expect(store.runs.latestRunForPr("other/repo", 7)).toBeNull();
+  });
+
   it("remembers which resume turns Cujo sent", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun(head);

@@ -1470,3 +1470,66 @@ email that passed a policy. It is not. What it claims is that it is the *right*
 identity for this decision, and that the audit trail it leaves — a GitHub login
 in `approver`, next to a comment in the pull request's own timeline — is more
 legible to the people affected than an email in a database they cannot read.
+
+## 45. The signature-gated plane may answer a held finding
+
+`apps/cujo/src/http/ingress/README.md` said, and Contract 8 closed with,
+**nothing here may approve a review**, citing decision 28. `/cujo confirm` on a
+pull request is on that plane, so that rule has to be corrected rather than
+quietly stepped over.
+
+What decision 28 actually rejected was a **principal**, not a plane. Its own
+words: moving the binding into Discord "would have replaced *an email that
+passes an Access policy* with *a member of a Discord server*, and those are not
+the same principal". Being in a channel says nothing about a repository, so the
+substitution was sideways into an unrelated system. Nothing in that argument is
+about where the bytes arrive.
+
+And this plane is already trusted with the thing it would need to be trusted
+with. `github-webhook.ts` checks the HMAC **before the event type, and for every
+event** — the comment there already says the signature "is what makes a
+`repository` delivery as trustworthy as a `pull_request` one", and a
+`repository` delivery re-stamps visibility on every run of a repo. The same
+signature covers an `issue_comment`. There is no third state where GitHub is
+trustworthy enough to tell Cujo a repo went private but not trustworthy enough
+to tell it who wrote a comment.
+
+So the corrected rule is about who, and it is stated in two halves:
+
+- **Nothing that arrives from Discord may answer a held finding.** Unchanged.
+  Decision 23 and Contract 8 still own it, and an interactions endpoint existing
+  is still not a reason to build the button.
+- **A `/cujo` command on a pull request may**, with repo write as the principal
+  (decision 44), checked against GitHub on every command, and the pull request's
+  author barred from `dismiss`.
+
+Two mechanical properties keep the difference from eroding.
+
+**The verb is an exact string, matched in the trusted plane.** Not intent, and
+not a model. `@cujo-guard flagged this incorrectly, ignore it` is a sentence a
+human would plausibly write and any intent parser reads as a dismissal — and
+anyone in the thread can write it, including a pull request's own author.
+`parse-command.ts` matches `/cujo <verb>` alone on a line, outside code fences
+and blockquotes, and anything after the verb makes it prose about a command
+rather than a command. A mention can never carry a privileged verb.
+
+**Cujo ignores its own comments.** The success reply prints the verbs and a
+review body can quote them, so without the `BOT_LOGIN` check a reply would
+re-trigger itself.
+
+Finally: **every outcome speaks on the pull request.** The operator UI at least
+answered 409 on a refusal. A comment that is silently dropped is
+indistinguishable from a delivery that never arrived, and the person who typed
+the command cannot tell which happened — so each refusal names itself and says
+what to do instead, the way `notify/authorization.ts` already does for Discord.
+That is why there is a sentence for each of `no_such_run`,
+`not_blocked_pending`, `already_decided` and `resume_failed`, and for a stale
+head, an author's dismissal, a missing run, and a permission GitHub would not
+confirm.
+
+Known limit, and it is not closed here: `claimDecision` sets the approver
+without moving the status off `blocked_pending`, so an allow in flight is still
+invisible to `supersede`, whose unconditional cancel is load-bearing (decision
+39). A confirm racing a push can therefore be recorded and then cancelled, and
+the person is told it worked. That race predates this entry and belongs with the
+one that owns the cancel.

@@ -153,6 +153,37 @@ export class GitHubReader {
     };
   }
 
+  /**
+   * The two facts a pull request command needs: which commit the pull request
+   * is on now, and who opened it.
+   *
+   * Its own method rather than `pullRequest` above, which pages every changed
+   * file — up to thirty requests — to build a payload for the agent. A command
+   * needs neither the diff nor the title, and it runs on a webhook delivery
+   * that has already answered 202.
+   *
+   * The head is read here and not taken from the `issue_comment` payload
+   * because that payload names a pull request and never a commit: the whole
+   * reason this exists is that "read the block, push a fix, come back and
+   * confirm" would otherwise answer a block nobody read.
+   */
+  async pullRequestHead(
+    repo: string,
+    prNumber: number,
+  ): Promise<{ headSha: string; author: string } | null> {
+    try {
+      const pr = await this.get<{ head: { sha: string }; user: { login: string } | null }>(
+        repo,
+        `/repos/${repo}/pulls/${prNumber}`,
+      );
+      // A deleted account leaves no login. Nobody can be that author, so the
+      // author rule cannot match and the command falls to the permission check.
+      return { headSha: pr.head.sha, author: pr.user?.login ?? "" };
+    } catch {
+      return null;
+    }
+  }
+
   /** The App JWT's own reads, which belong to no single installation. */
   private async getAsApp<T>(path: string): Promise<T> {
     const jwt = await getAppJwt({ appId: this.appId, privateKey: this.privateKey });

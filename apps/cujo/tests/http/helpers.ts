@@ -52,6 +52,8 @@ export function build(
     webhookSecret: string;
     /** The one call the webhook makes to another service, so the one that can fail. */
     createSession: () => Promise<string>;
+    /** Design 2. Absent means `/cujo` on a pull request is not configured. */
+    prCommands: { handle: (command: unknown) => Promise<void> };
   }> = {},
 ) {
   const store = new Store(":memory:");
@@ -108,6 +110,7 @@ export function build(
       reviewRunId: (run) => (run.isPublic ? run.id : ""),
       onClaimed: (run) => claimed.push(run.id),
       onSettled: (runId) => settled.shift()?.(runId),
+      ...(overrides.prCommands ? { prCommands: overrides.prCommands as never } : {}),
     },
     ...(overrides.interactions
       ? {

@@ -42,6 +42,15 @@ export const EVENT_NAMES = [
   // because it is not a refusal: nothing about the request was wrong.
   "webhook.failed",
   "repo.visibility.changed",
+  // A pull request comment addressed to Cujo. Same plane as the rest of this
+  // group: a signature is the only gate in front of it, and `comment.command.*`
+  // is the first thing on this plane that decides a review (decision 45).
+  "comment.ignored",
+  "comment.command.applied",
+  "comment.command.refused",
+  "comment.command.failed",
+  "comment.reply.failed",
+  "comment.reaction.failed",
   // A run's life, from the claim to a terminal status.
   "run.skipped",
   "run.superseded",

@@ -12,6 +12,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Logger, errorFields } from "@cujo/log";
 import { type Context, Hono } from "hono";
+import type { PrCommandService } from "../../review/pr-command.service";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
 import type { RequestEnv } from "../request-log";
@@ -47,6 +48,71 @@ export interface WebhookDeps extends StartRunDeps {
   createSession: (repo: string, prNumber: number) => Promise<string>;
   /** False until the harness bootstrap has completed every registration. */
   isReady?: () => boolean;
+  /** Absent means `/cujo` on a pull request is off; deliveries are still 200. */
+  prCommands?: Pick<PrCommandService, "handle">;
+}
+
+interface IssueCommentEvent {
+  action: string;
+  repository: { full_name: string };
+  issue: {
+    number: number;
+    /**
+     * Present only when the issue is a pull request. `issue_comment` fires for
+     * both, and Cujo reviews neither issues nor their comments.
+     */
+    pull_request?: unknown;
+  };
+  comment: { id: number; body: string; user: { login: string } | null };
+}
+
+/**
+ * A comment on a pull request, which may be a `/cujo` command (Design 2).
+ *
+ * The signature was already checked, above and before the event type, and that
+ * is what makes this plane trustworthy enough to decide a review on — the same
+ * argument the `repository` event rests on. Decision 44 has the rest.
+ *
+ * Answers 200 immediately and does the work after, like the pull request path:
+ * the command needs two GitHub reads and a resume, and GitHub's delivery
+ * timeout is ten seconds.
+ */
+function handleIssueComment(
+  deps: WebhookDeps,
+  c: Context<RequestEnv>,
+  body: string,
+  log: Logger,
+): Response {
+  const event = JSON.parse(body) as IssueCommentEvent;
+  // `edited` and `deleted` are deliberately not acted on. A command that can be
+  // typed into an existing comment is a command whose author is not the person
+  // the payload names at the time it fires.
+  if (event.action !== "created") {
+    log.debug("webhook.ignored", {
+      event_type: "issue_comment",
+      action: event.action,
+      reason: "action",
+    });
+    return c.json({ ok: true, ignored: "action" }, 200);
+  }
+  if (!event.issue.pull_request) {
+    log.debug("webhook.ignored", { event_type: "issue_comment", reason: "not_a_pull_request" });
+    return c.json({ ok: true, ignored: "issue" }, 200);
+  }
+  if (!deps.prCommands) {
+    log.debug("webhook.ignored", { event_type: "issue_comment", reason: "not_configured" });
+    return c.json({ ok: true, ignored: "not_configured" }, 200);
+  }
+
+  void deps.prCommands.handle({
+    repo: event.repository.full_name,
+    prNumber: event.issue.number,
+    commentId: event.comment.id,
+    actor: event.comment.user?.login ?? "",
+    body: event.comment.body,
+    log,
+  });
+  return c.json({ ok: true, accepted: "comment" }, 200);
 }
 
 interface RepositoryEvent {
@@ -123,6 +189,7 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     }
     const eventType = c.req.header("x-github-event");
     if (eventType === "repository") return handleRepository(deps, c, body, log);
+    if (eventType === "issue_comment") return handleIssueComment(deps, c, body, log);
     if (eventType !== "pull_request") {
       // `debug`, because the App is subscribed to events it does not act on
       // and this is the branch that would otherwise dominate the log.

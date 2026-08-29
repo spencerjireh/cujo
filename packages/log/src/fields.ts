@@ -35,6 +35,7 @@ export const FIELD_NAMES = [
   "turn_id",
   "thread_id",
   "delivery_id",
+  "comment_id",
   "ray",
   "cf_ray",
   "review_id",
@@ -117,10 +118,12 @@ export const CAP: Record<FieldClass, number> = {
 };
 
 /**
- * Exhaustive by type. `pii` has one member on purpose: `actor` is the Access
- * email, which the store already persists as `approver` and the public
- * serializer already withholds. Logging it is the point of the audit trail;
- * the class exists so a second one cannot arrive without being written down.
+ * Exhaustive by type. `pii` still has one member on purpose. `actor` is who
+ * made a decision: an Access email, or — since the gate moved to the pull
+ * request — a GitHub login (decision 44). Either way the store already
+ * persists it as `approver` and the public serializer already withholds it,
+ * and logging it is the point of the audit trail. The class exists so a second
+ * one cannot arrive without being written down.
  */
 export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   run_id: "id",
@@ -131,6 +134,7 @@ export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   turn_id: "id",
   thread_id: "id",
   delivery_id: "id",
+  comment_id: "id",
   ray: "id",
   cf_ray: "id",
   review_id: "id",
