@@ -46,6 +46,7 @@ function build(
     roleId?: string | null;
     bind?: boolean;
     declaredGuild?: string | null | "unreadable";
+    defaultGuild?: string | null;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -74,6 +75,7 @@ function build(
     client: client as unknown as DiscordClient,
     github: github as unknown as GitHubReader,
     links: LINKS,
+    defaultGuild: options.defaultGuild ?? null,
     sleepImpl: async () => {},
   });
   const emit = (status?: RunStatus): void => {
@@ -117,6 +119,7 @@ describe("DiscordNotifier", () => {
       client: fresh as unknown as DiscordClient,
       github: fakeGithub() as unknown as GitHubReader,
       links: LINKS,
+      defaultGuild: null,
     });
     const run = store.runs.getRun(runId);
     restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
@@ -192,6 +195,7 @@ describe("DiscordNotifier", () => {
       client: fresh as unknown as DiscordClient,
       github: fakeGithub() as unknown as GitHubReader,
       links: LINKS,
+      defaultGuild: null,
     });
     const run = store.runs.getRun(runId);
     restarted.onRunChanged(run ? ({ run, projection: emptyProjection() } as RunView) : null);
@@ -322,6 +326,26 @@ describe("DiscordNotifier", () => {
     built.emit();
     await built.notifier.flush();
     expect(built.client.createMessage).toHaveBeenCalledOnce();
+  });
+
+  it("delivers to the default server for a repo that declares nothing", async () => {
+    // The binding the default created is re-checked on this path like any
+    // other, so it has to survive the check that would otherwise drop it.
+    const built = build({ declaredGuild: null, defaultGuild: "g1" });
+    built.emit();
+    await built.notifier.flush();
+    expect(built.client.createMessage).toHaveBeenCalledOnce();
+    expect(built.store.notifications.getDiscordChannel("o/r")).not.toBeNull();
+  });
+
+  it("drops that binding once the default is unset", async () => {
+    // Unsetting the variable revokes exactly as reverting the commit does,
+    // which is what makes the default a declaration and not a permanent grant.
+    const built = build({ declaredGuild: null, defaultGuild: null });
+    built.emit();
+    await built.notifier.flush();
+    expect(built.client.createMessage).not.toHaveBeenCalled();
+    expect(built.store.notifications.getDiscordChannel("o/r")).toBeNull();
   });
 
   it("keeps delivering when GitHub cannot be reached", async () => {

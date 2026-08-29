@@ -155,6 +155,19 @@ the repo, and running the command is what proves the server wants it.
 override, for moving a repo between servers or for one whose `.cujo.yml` cannot
 be changed.
 
+A deploy that serves one Discord server can answer the declaration half once,
+in the environment, instead of once per repo (decision 40):
+
+```bash
+CUJO_DEFAULT_DISCORD_GUILD=222222222222222222
+```
+
+Then a repo that names no `discord_guild` belongs to that server, and setup is
+`/cujo watch` and nothing else. It is one id and never a list, so a server that
+invited the bot on its own is refused exactly as before, and a repo that names
+a different server still wins. Unsetting it drops the bindings it allowed, the
+same way reverting a `discord_guild` line does.
+
 The deploy uses the base `docker-compose.yml` alone — the overlay and `Makefile`
 are for local runs only and never touch how it deploys.
 

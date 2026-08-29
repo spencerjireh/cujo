@@ -72,6 +72,8 @@ function build(
     repos?: string[];
     /** What the repo names in its `.cujo.yml`; null is "no declaration". */
     declaredGuild?: string | null;
+    /** The deploy's own server, which an undeclared repo falls to (decision 40). */
+    defaultGuild?: string | null;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -92,6 +94,7 @@ function build(
       uiBaseUrl: "https://cujo-admin.example.com",
       publicBaseUrl: "https://cujo.example.com",
     },
+    defaultGuild: options.defaultGuild ?? null,
     onSettled: (name) => settled.shift()?.(name),
   });
   return { app, store, discord, github, nextSettled };
@@ -227,6 +230,23 @@ describe("interactions endpoint", () => {
       GUILD,
     );
     // Nothing was written to the operator table to make this work.
+    expect(built.store.notifications.listGuildRepos()).toHaveLength(0);
+  });
+
+  it("watches with no declaration at all when this is the deploy's own server", async () => {
+    // The whole point of decision 40: nothing is merged, nothing is curled.
+    const built = build({ declaredGuild: null, defaultGuild: GUILD });
+    const content = await reply(
+      built,
+      command("watch", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "channel", type: 7, value: CHANNEL },
+      ]),
+    );
+    expect(content).toContain(`<#${CHANNEL}>`);
+    expect(built.store.notifications.getDiscordChannel("spencerjireh/orders-api")?.guildId).toBe(
+      GUILD,
+    );
     expect(built.store.notifications.listGuildRepos()).toHaveLength(0);
   });
 

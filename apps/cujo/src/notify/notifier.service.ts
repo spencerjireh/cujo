@@ -35,6 +35,12 @@ export interface NotifierDeps {
   /** Reads the repo's `.cujo.yml`, so a revoked declaration stops delivery. */
   github: GitHubReader;
   links: UiLinks;
+  /**
+   * The server an undeclared repo belongs to, or null for none (decision 40).
+   * Checked on this path too, so unsetting it revokes a binding it created in
+   * the same way editing `.cujo.yml` revokes a declared one.
+   */
+  defaultGuild: string | null;
   /** Injected so a 429 test does not really wait. */
   sleepImpl?: (ms: number) => Promise<void>;
   /** Test hook: called once each queued send has settled, failure included. */
@@ -157,7 +163,12 @@ export class DiscordNotifier {
     // "revoked by a commit" true instead of aspirational.
     if (mapping?.guildId) {
       const allowed = await authorizationFor(
-        { log: this.log, store: store.notifications, github: this.deps.github },
+        {
+          log: this.log,
+          store: store.notifications,
+          github: this.deps.github,
+          defaultGuild: this.deps.defaultGuild,
+        },
         mapping.guildId,
         run.repo,
       );
