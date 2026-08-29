@@ -3,6 +3,10 @@
  * TrueForge events; TrueForge stays the source of truth (decision 18).
  */
 
+import type { CheckTimings } from "./timings";
+
+export type { CheckTimings };
+
 export type RunStatus =
   | "running"
   | "clean"
@@ -24,6 +28,30 @@ export type RunStatus =
 export const CHECK_NAMES = ["tests", "probes", "smoke", "detonation"] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
 
+/**
+ * What a stretch of a run cost, in tokens.
+ *
+ * Two producers fill this in and they are not interchangeable. The run's total
+ * comes from `TurnStateDone.metrics`, which TrueForge computes for the whole
+ * turn and is the only place `reasoningTokens` and `costUsd` exist. A check's
+ * share comes from summing the `usage` on its own thread's `model.message`
+ * events, which is the only way to attribute anything per check.
+ *
+ * `messages` is the count that went into the sum, so a reader can tell a check
+ * that cost nothing from one nothing was counted for.
+ */
+export interface UsageTotals {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /** Turn metrics only; a per-message `usage` does not break these out. */
+  reasoningTokens?: number;
+  /** TrueForge's own estimate. Cujo keeps no price table (decision 53's spirit). */
+  costUsd?: number;
+  messages: number;
+}
+
 export interface CheckState {
   threadId: string;
   title: string;
@@ -39,6 +67,33 @@ export interface CheckState {
    */
   startedAt: string | null;
   endedAt: string | null;
+  /**
+   * Why the sub-agent's final message ended, as the provider reported it —
+   * `stop`, `length`, `tool_calls`, `content_filter`. Without it a report cut
+   * off at the model's output limit is indistinguishable from one that was
+   * never written: both parse to `null` and both land as `check_missing`, and
+   * only one of them is a cap somebody should raise.
+   *
+   * Optional, and it must stay optional: `apps/web` mirrors this type by hand
+   * and assigns its copy into this one, so a new required field here breaks a
+   * build in another app. Absent on a projection stored before it existed.
+   */
+  finishReason?: string | null;
+  /**
+   * Whether the model returned a refusal instead of a report. A boolean and not
+   * the text: the finding it produces is published, and a refusal can quote the
+   * pull request it was reading — which would put model-chosen prose on a public
+   * page by a route that never passed the sandbox's escaping.
+   */
+  refused?: boolean;
+  /** This check's own tokens, summed over its thread's model messages. */
+  usage?: UsageTotals;
+  /**
+   * Where this check's time went. Stored rather than computed at serialize
+   * time, because `http/public/` has an import allowlist its own test enforces
+   * and the serializer is better off copying a field than reaching for a helper.
+   */
+  timings?: CheckTimings;
 }
 
 export interface ReviewComment {
@@ -69,7 +124,16 @@ export type HardRule =
   // clean report it produced is worth less than it looks. `warn`, like
   // `check_missing`, and for the same reason — it says the evidence is thin,
   // not that the code did anything.
-  | "sensor_unarmed";
+  | "sensor_unarmed"
+  // The report is not the shape it claims to be. Third in this family of three
+  // — with `check_missing` and `sensor_unarmed` — and the same `warn` for the
+  // same reason: it says something about the evidence, never about the code.
+  //
+  // It is purely additive. The rules still read the report it describes, field
+  // by field and leniently, so a report that fails validation for one reason
+  // still trips every tripwire the rest of it sets off. Anything else would let
+  // a misplaced roll-up turn a `decoy_read` into silence.
+  | "report_invalid";
 
 /** One finding (Contract 3). `source` says which layer produced it. */
 export interface Finding {
@@ -133,6 +197,21 @@ export interface Projection {
   error: string | null;
   /** Final text of the parent thread, when the turn produced one. */
   summary: string | null;
+  /**
+   * What the whole run cost, summed over every `turn.done` on it — a run holds
+   * more than one turn whenever an approval was answered or a turn was retried.
+   *
+   * Taken from `TurnStateDone.metrics` rather than added up from the messages,
+   * because TrueForge computes it and is the only side that knows the reasoning
+   * tokens and the cost. Every field of `TurnMetrics` is optional there, so
+   * anything absent contributes nothing rather than a zero.
+   *
+   * It arrives late and in a jump, which is expected and should not be
+   * "fixed": the streamed `model.message` is a stub, and usage lands with the
+   * persisted copy that `Runner.hydrate` fetches at the terminal event. So this
+   * reads zero for most of a run and then fills in at the end.
+   */
+  usage: UsageTotals;
 }
 
 export interface RunRecord {
@@ -172,6 +251,23 @@ export interface RunRecord {
    * null when the account has since been deleted. Untrusted, like every other
    * string GitHub hands over.
    */
+  /**
+   * The model name and a SHA-256 of the instructions — `agent/SKILL.md` after
+   * the tarball URL is substituted in, so it is the string a session would
+   * actually be given — held by the process that claimed this run.
+   *
+   * **Read what that says carefully.** `buildAgentSpec` runs once at boot, and
+   * a session is created once per pull request and then kept (decision 16). A
+   * run claimed on a session three deploys old is stamped with *today's* model
+   * and rubric, not the ones that session is pinned to. These describe the
+   * configuration of the process that claimed the run, and describe the session
+   * only when that process also created it.
+   *
+   * Both null for a run claimed before the columns existed. They name no person
+   * and authorize nothing, so both are published (decision 34's test).
+   */
+  model: string | null;
+  rubricSha256: string | null;
   prTitle: string | null;
   prAuthorLogin: string | null;
   prAuthorId: number | null;

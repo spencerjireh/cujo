@@ -58,6 +58,8 @@ export function build(
     prCommands: { handle: (command: unknown) => Promise<void> };
     /** Design 3. Absent means `@cujo-guard` is not configured. */
     converse: { handle: (request: unknown) => Promise<void> };
+    /** What every claimed run is stamped with. Null models a deploy without it. */
+    provenance: { model: string; rubricSha256: string };
   }> = {},
 ) {
   const store = new Store(":memory:");
@@ -102,6 +104,7 @@ export function build(
       createSession: overrides.createSession ?? (async () => "sess-1"),
       ...(overrides.isReady ? { isReady: overrides.isReady } : {}),
       reviewRunId: (run) => (run.isPublic ? run.id : ""),
+      provenance: overrides.provenance ?? { model: "vendor/m", rubricSha256: "a".repeat(64) },
       onClaimed: (run) => claimed.push(run.id),
       onSettled: (runId) => settled.shift()?.(runId),
       ...(overrides.prCommands ? { prCommands: overrides.prCommands as never } : {}),

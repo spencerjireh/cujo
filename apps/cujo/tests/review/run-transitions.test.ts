@@ -374,7 +374,10 @@ describe("healing a wedged session", () => {
           { turnId: "t1", event: approvalRequired("c1") },
           { turnId: "t1", event: turnDone("t1") },
         ],
-        subscribe: async () => streamOf([turnDone("t2")]),
+        // A review call, so the healed turn folds `clean`. Without one the fold
+        // calls it "turn ended without a review", which is an error the turn
+        // retry is right to act on — and this is a test about the heal.
+        subscribe: async () => streamOf([reviewCall("c9"), turnDone("t2")]),
         ...harness,
       } as unknown as Harness,
       { turnTimeoutMs: 10_000 },

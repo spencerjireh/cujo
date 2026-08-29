@@ -6,6 +6,7 @@ import {
   buildTurnMessage,
   loadRubric,
   manifestChanged,
+  specFingerprint,
 } from "../../src/review/agent-spec";
 
 describe("manifestChanged", () => {
@@ -266,5 +267,119 @@ describe("buildConverseSpec", () => {
       githubAppPrivateKey: "SENTINEL-PEM",
     } as unknown as Config;
     expect(JSON.stringify(buildConverseSpec(withSecrets, "rubric"))).not.toContain("SENTINEL");
+  });
+});
+
+describe("specFingerprint", () => {
+  const config = {
+    model: "openrouter/some-model",
+    modelReasoningEffort: "",
+    sniffTarballUrl: "https://example.test/a.tgz",
+  } as unknown as Config;
+
+  it("is a sha256 of the instructions, and stable", () => {
+    const spec = buildAgentSpec(config, "the rubric");
+    expect(specFingerprint(spec)).toMatch(/^[0-9a-f]{64}$/);
+    expect(specFingerprint(spec)).toBe(specFingerprint(buildAgentSpec(config, "the rubric")));
+  });
+
+  it("changes when the rubric changes", () => {
+    expect(specFingerprint(buildAgentSpec(config, "one"))).not.toBe(
+      specFingerprint(buildAgentSpec(config, "two")),
+    );
+  });
+
+  it("changes when the substituted tarball URL changes", () => {
+    // The digest is of the string a session would actually be handed, so two
+    // deploys pointing at different sensor code are two different rubrics.
+    const other = { ...config, sniffTarballUrl: "https://example.test/b.tgz" } as unknown as Config;
+    const rubric = "fetch {{CUJO_SNIFF_TARBALL_URL}} and run it";
+    expect(specFingerprint(buildAgentSpec(config, rubric))).not.toBe(
+      specFingerprint(buildAgentSpec(other, rubric)),
+    );
+  });
+
+  it("hashes an absent instruction string rather than throwing", () => {
+    // `instructions` is optional on AgentSpec.
+    expect(specFingerprint({ model: { name: "m" } })).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("the runtime config both specs run under", () => {
+  const config = {
+    model: "m",
+    modelReasoningEffort: "",
+    sniffTarballUrl: "https://example.test/a.tgz",
+    compactionThresholdTokens: 200_000,
+  } as unknown as Config;
+
+  it("closes the sandbox download path on both specs", () => {
+    // The turn download endpoint would let a file written inside the box be
+    // fetched back out through the harness. Nothing here ever does that, so it
+    // is closed rather than left open because nobody asked.
+    for (const spec of [buildAgentSpec(config, "r"), buildConverseSpec(config, "r")]) {
+      expect(spec.config?.sandbox).toEqual({ enabled: true, fileDownloads: false });
+    }
+  });
+
+  it("raises the compaction threshold for the review, and only the review", () => {
+    expect(buildAgentSpec(config, "r").config?.contextManagement).toEqual({
+      compaction: { enabled: true, compactionThresholdTokens: 200_000 },
+    });
+    // Conversation answers one question against a brief already collected, so
+    // it never holds the evidence a compaction would summarise away.
+    expect(buildConverseSpec(config, "r").config?.contextManagement).toBeUndefined();
+  });
+
+  it("passes the configured threshold through rather than a constant", () => {
+    const lower = { ...config, compactionThresholdTokens: 60_000 } as unknown as Config;
+    expect(
+      buildAgentSpec(lower, "r").config?.contextManagement?.compaction?.compactionThresholdTokens,
+    ).toBe(60_000);
+  });
+});
+
+describe("modelRef, through the specs", () => {
+  const bare = {
+    model: "vendor/m",
+    modelReasoningEffort: "",
+    modelTemperature: null,
+    modelMaxTokens: null,
+    sniffTarballUrl: "https://example.test/a.tgz",
+    compactionThresholdTokens: 200_000,
+  } as unknown as Config;
+
+  it("sends no params at all when nothing is configured", () => {
+    // A deploy that sets none of these must produce the request it produced
+    // before the settings existed. An empty `params: {}` is not that.
+    expect(buildAgentSpec(bare, "r").model).toEqual({ name: "vendor/m" });
+    expect(buildConverseSpec(bare, "r").model).toEqual({ name: "vendor/m" });
+  });
+
+  it("sends only the keys a deploy asked for", () => {
+    const withTemp = { ...bare, modelTemperature: 0 } as unknown as Config;
+    expect(buildAgentSpec(withTemp, "r").model.params).toEqual({ temperature: 0 });
+    const withMax = { ...bare, modelMaxTokens: 16_000 } as unknown as Config;
+    expect(buildAgentSpec(withMax, "r").model.params).toEqual({ maxTokens: 16_000 });
+  });
+
+  it("keeps a temperature of zero, which a truthiness test would drop", () => {
+    // `0` is the value somebody pinning a temperature most likely wants.
+    const zero = { ...bare, modelTemperature: 0 } as unknown as Config;
+    expect(buildAgentSpec(zero, "r").model.params?.temperature).toBe(0);
+  });
+
+  it("carries all three together when all three are set", () => {
+    const all = {
+      ...bare,
+      modelReasoningEffort: "low",
+      modelTemperature: 0.2,
+      modelMaxTokens: 8_000,
+    } as unknown as Config;
+    expect(buildAgentSpec(all, "r").model.params).toEqual({
+      reasoningEffort: "low",
+      temperature: 0.2,
+      maxTokens: 8_000,
+    });
   });
 });

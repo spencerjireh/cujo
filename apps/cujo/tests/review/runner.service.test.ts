@@ -67,6 +67,8 @@ const claim = (headSha = "h") => ({
   sessionId: "s",
   isPublic: true,
   deliveryId: null,
+  model: null,
+  rubricSha256: null,
 });
 
 function run(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -81,6 +83,8 @@ function run(overrides: Partial<RunRecord> = {}): RunRecord {
     prTitle: null,
     prAuthorLogin: null,
     prAuthorId: null,
+    model: null,
+    rubricSha256: null,
     status: "running",
     approver: null,
     decidedAt: null,
@@ -263,7 +267,10 @@ describe("Runner.start", () => {
         resume,
         cancelTurn,
         listEvents,
-        subscribe: async () => streamOf([turnDone("t2")]),
+        // A review call, so the healed turn folds `clean`. Without one the
+        // fold calls it "turn ended without a review", which is an error the
+        // retry is right to act on — and this test is about the heal, not that.
+        subscribe: async () => streamOf([reviewCall("c9"), turnDone("t2")]),
       } as unknown as Harness,
       { turnTimeoutMs: 10_000 },
     );
@@ -704,5 +711,165 @@ describe("Runner.approve", () => {
     expect(store.runs.getProjection(id)?.externalResume).toBe(false);
     expect(store.runs.getRun(id)?.approver).toBe("a@x");
     runner.stopAll();
+  });
+});
+
+describe("Runner retries a turn that posted nothing", () => {
+  const errorDone = (turnId: string): Ev => ({
+    type: "turn.done",
+    id: `td-${turnId}`,
+    createdAt: "2026-08-27T00:00:00Z",
+    threadId: null,
+    state: { status: "error", message: "model down", completedAt: "2026-08-27T00:00:00Z" },
+  });
+
+  const cancelledDone = (turnId: string): Ev => ({
+    type: "turn.done",
+    id: `td-${turnId}`,
+    createdAt: "2026-08-27T00:00:00Z",
+    threadId: null,
+    state: { status: "cancelled", reason: "client-cancelled", completedAt: "2026-08-27T00:00:00Z" },
+  });
+
+  /** A runner whose stream is chosen per `startTurn` call. */
+  function runnerOver(streams: Ev[][], options = {}) {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    let attempt = 0;
+    const startTurn = vi.fn(async () => `t${++attempt}`);
+    const subscribe = vi.fn(async () => streamOf(streams[attempt - 1] ?? []));
+    const runner = new Runner(store.runs, { startTurn, subscribe } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+      ...options,
+    });
+    return { store, r, runner, startTurn, subscribe };
+  }
+
+  it("starts one more turn, with the same message, and folds the second one", async () => {
+    const { store, r, runner, startTurn } = runnerOver([
+      [turnCreated("t1", null, "2026-08-27T10:00:01Z"), errorDone("t1")],
+      [turnCreated("t2", "t1", "2026-08-27T10:05:00Z"), reviewCall("c1"), turnDone("t2")],
+    ]);
+    await runner.start(r, "review it");
+    expect(startTurn).toHaveBeenCalledTimes(2);
+    expect(startTurn).toHaveBeenNthCalledWith(2, "s", "review it");
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "clean" });
+  });
+
+  it("spends the retry once, however the second turn ends", async () => {
+    const { store, r, runner, startTurn } = runnerOver([
+      [turnCreated("t1", null, "2026-08-27T10:00:01Z"), errorDone("t1")],
+      [turnCreated("t2", "t1", "2026-08-27T10:05:00Z"), errorDone("t2")],
+    ]);
+    await runner.start(r, "review it");
+    expect(startTurn).toHaveBeenCalledTimes(2);
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "error" });
+  });
+
+  it("leaves a cancelled turn alone, because somebody stopped it on purpose", async () => {
+    // The fold flattens `cancelled` into `error` with the reason in prose, so
+    // this has to be read off the event rather than matched in that sentence.
+    const { store, r, runner, startTurn } = runnerOver([
+      [turnCreated("t1", null, "2026-08-27T10:00:01Z"), cancelledDone("t1")],
+    ]);
+    await runner.start(r, "review it");
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "error" });
+  });
+
+  it("does not retry once a review has reached the pull request", async () => {
+    // An advisory review posts the moment the model calls it, so a second turn
+    // would be a second review on the same head.
+    const { r, runner, startTurn } = runnerOver([
+      [
+        turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+        reviewCall("c1"),
+        turnDone("t1"),
+        errorDone("t1b"),
+      ],
+    ]);
+    await runner.start(r, "review it");
+    expect(startTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a run a newer head superseded", async () => {
+    const { r, runner, startTurn } = runnerOver([
+      [turnCreated("t1", null, "2026-08-27T10:00:01Z"), errorDone("t1")],
+    ]);
+    await runner.supersede(r.id);
+    await runner.start(r, "review it");
+    expect(startTurn).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a watchdog timeout, which already spent the turn budget", async () => {
+    // The synthetic terminal Cujo injects itself. Retrying it costs another
+    // full turn timeout for a run that was already too slow.
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const startTurn = vi.fn(async () => "t1");
+    async function* hangs(): AsyncIterable<StreamEvent> {
+      yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const runner = new Runner(
+      store.runs,
+      { startTurn, subscribe: async () => hangs() } as unknown as Harness,
+      { turnTimeoutMs: 5 },
+    );
+    await runner.start(r, "review it");
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "error" });
+  });
+});
+
+describe("Runner.supersede reports whether the turn is confirmed stopped", () => {
+  // `/cujo review` deletes the run's row on the strength of this answer, and a
+  // live turn with no row can still post a review. A resolved promise is not
+  // the same as a cancelled turn.
+  function superseding(cancelTurn: () => Promise<void>) {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z")]),
+        cancelTurn,
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+    );
+    return { store, r, runner };
+  }
+
+  it("says yes when the harness cancels the turn", async () => {
+    const { store, r, runner } = superseding(async () => {});
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    expect(await runner.supersede(r.id)).toBe(true);
+  });
+
+  it("says no when the harness refuses, even though it still supersedes", async () => {
+    // The failure this exists for: `supersede` swallows the error on purpose —
+    // an unreachable harness is not worth failing a supersession over — so the
+    // caller has to be told rather than left to infer it from a resolved call.
+    const { store, r, runner } = superseding(async () => {
+      throw new Error("harness unreachable");
+    });
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    expect(await runner.supersede(r.id)).toBe(false);
+    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+  });
+
+  it("says yes for a run that never had a turn to cancel", async () => {
+    const cancelTurn = vi.fn(async () => {});
+    const { r, runner } = superseding(cancelTurn);
+    expect(await runner.supersede(r.id)).toBe(true);
+    expect(cancelTurn).not.toHaveBeenCalled();
+  });
+
+  it("says no on a second call, which cannot see whether the first cancel landed", async () => {
+    const { store, r, runner } = superseding(async () => {});
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    expect(await runner.supersede(r.id)).toBe(true);
+    expect(await runner.supersede(r.id)).toBe(false);
   });
 });

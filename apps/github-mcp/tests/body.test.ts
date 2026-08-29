@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { appendConfirmPrompt, appendRunFooter } from "../src/body";
+import {
+  appendConfirmPrompt,
+  appendReviewMarker,
+  appendRunFooter,
+  reviewMarker,
+} from "../src/body";
 
 const BASE = "https://cujo.example.com";
 const RUN = "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e";
@@ -91,5 +96,64 @@ describe("appendConfirmPrompt", () => {
     const out = appendRunFooter(appendConfirmPrompt("Results.", true), BASE, RUN);
     expect(out.indexOf("Full evidence")).toBeGreaterThan(out.indexOf("supply-chain pattern"));
     expect(out.endsWith(`Full evidence: ${BASE}/runs/${RUN}\n`)).toBe(true);
+  });
+});
+
+describe("reviewMarker", () => {
+  const RUN = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+
+  it("names the tool, the head and the run", () => {
+    expect(reviewMarker("post_advisory_review", "abc1234", RUN)).toBe(
+      `<!-- cujo:post_advisory_review:abc1234:${RUN} -->`,
+    );
+  });
+
+  it("tells the two halves of the malice path apart", () => {
+    // Both are REQUEST_CHANGES when a run has a broken thing and a malice
+    // finding, so a key on the review event would refuse the accusation.
+    expect(reviewMarker("post_blocking_review", "abc1234", RUN)).not.toBe(
+      reviewMarker("post_gated_review", "abc1234", RUN),
+    );
+  });
+
+  it("differs per run, so a re-review of the same head still posts", () => {
+    const other = "3f2504e0-4f89-11d3-9a0c-0305e82c3302";
+    expect(reviewMarker("post_advisory_review", "abc1234", RUN)).not.toBe(
+      reviewMarker("post_advisory_review", "abc1234", other),
+    );
+  });
+
+  it("is empty without a run id, which is a private repository", () => {
+    // There the server cannot tell a duplicate from a re-review, so it does
+    // not guess. Same exposure private repos already had; not a new one.
+    expect(reviewMarker("post_advisory_review", "abc1234", undefined)).toBe("");
+    expect(reviewMarker("post_advisory_review", "abc1234", "not-a-uuid")).toBe("");
+  });
+
+  it("cannot be read back as a /cujo command", () => {
+    // `parse-command.ts` drops any line containing `<!--`.
+    expect(reviewMarker("post_advisory_review", "abc1234", RUN)).toContain("<!--");
+  });
+});
+
+describe("appendReviewMarker", () => {
+  const RUN = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+  const marker = reviewMarker("post_advisory_review", "abc1234", RUN);
+
+  it("lands last, on its own line", () => {
+    const body = appendReviewMarker("What ran.", marker);
+    expect(body.trimEnd().endsWith(marker)).toBe(true);
+    expect(body).toContain(`\n\n${marker}`);
+  });
+
+  it("lands even when there is no footer to hang it off", () => {
+    // A private repo has no run id, so `appendRunFooter` returns the body
+    // unchanged — a marker composed inside it would vanish with it.
+    const withoutFooter = appendRunFooter("What ran.", "", undefined);
+    expect(appendReviewMarker(withoutFooter, marker)).toContain(marker);
+  });
+
+  it("changes nothing when there is no marker", () => {
+    expect(appendReviewMarker("What ran.", "")).toBe("What ran.");
   });
 });

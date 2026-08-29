@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hardRuleFindings, isMaliceClaim } from "../../src/review/findings";
+import { validateReport } from "../../src/review/report-schema";
 import type { CheckState, HardRule } from "../../src/review/types";
 
 const EXAMPLE = JSON.parse(
@@ -81,6 +82,22 @@ describe("the canonical report example", () => {
         Object.keys(EXAMPLE.runs[0][block]).sort(),
       );
     }
+  });
+
+  it("validates against the schema", () => {
+    // The example is the contract, so the schema has to accept it or one of the
+    // two is wrong. It trips rules, hits caps and carries a sensor that is down,
+    // which is what makes it worth validating rather than a clean fixture.
+    expect(validateReport(EXAMPLE)).toEqual({ ok: true });
+  });
+
+  it("does not carry a detonate entry, so the union's other half is tested apart", () => {
+    // Recorded rather than fixed here. Every entry in the example is a
+    // `sniff.py run`; a `detonate` entry has neither `argv` nor `exit` and is
+    // the other half of the runs[] union. Changing the example reaches
+    // sandbox/tests/test_contract.py and apps/web as well, so the coverage sits
+    // in report-schema.test.ts and this assertion says why.
+    expect(EXAMPLE.runs.every((r: { argv?: unknown }) => r.argv !== undefined)).toBe(true);
   });
 
   it("still derives the rules when only a run carries the evidence", () => {

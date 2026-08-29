@@ -32,6 +32,8 @@ const run = (over: Partial<RunRecord> = {}): RunRecord => ({
   prTitle: null,
   prAuthorLogin: null,
   prAuthorId: null,
+  model: null,
+  rubricSha256: null,
   createdAt: "2026-08-29T00:00:00Z",
   updatedAt: "2026-08-29T00:00:00Z",
   ...over,
@@ -43,12 +45,16 @@ function harness(
     head?: { headSha: string; author: string } | null;
     permission?: "admin" | "write" | "read" | "none" | "unknown";
     approve?: ApproveResult;
+    startReview?: { ok: true } | { ok: false; detail: string };
+    /** Compose the service without the callback, as a deploy with the verb off. */
+    noStartReview?: boolean;
   } = {},
 ) {
   const comments: string[] = [];
   const reacted: string[] = [];
   const lines: Record<string, unknown>[] = [];
   const approve = vi.fn(async () => over.approve ?? ({ ok: true } as ApproveResult));
+  const startReview = vi.fn(async () => over.startReview ?? ({ ok: true } as const));
   // The store is keyed by commit, not by insertion order, so the fake is too:
   // `runForPrHead` answers only for the commit its run actually reviewed.
   const latest = "latest" in over ? over.latest : run();
@@ -60,6 +66,7 @@ function harness(
       ),
     } as never,
     runner: { approve } as never,
+    ...(over.noStartReview ? {} : { startReview }),
     github: {
       pullRequestHead: vi.fn(async () =>
         "head" in over ? (over.head ?? null) : { headSha: HEAD, author: "contributor" },
@@ -79,7 +86,7 @@ function harness(
   const log = createLogger({ service: "cujo", sink: (l) => lines.push(JSON.parse(l)) });
   const send = (body: string, actor = "maintainer") =>
     service.handle({ repo: "o/r", prNumber: 7, commentId: 55, actor, body, log });
-  return { send, comments, reacted, approve, lines };
+  return { send, comments, reacted, approve, startReview, lines };
 }
 
 describe("PrCommandService", () => {
@@ -305,5 +312,109 @@ describe("PrCommandService", () => {
       }),
     ).resolves.toBeUndefined();
     expect(said[0]).toContain("Something broke");
+  });
+});
+
+describe("/cujo review", () => {
+  it("starts a review of the current head for a maintainer", async () => {
+    const h = harness();
+    await h.send("/cujo review");
+    expect(h.startReview).toHaveBeenCalledWith({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: HEAD,
+      actor: "maintainer",
+    });
+    expect(h.approve).not.toHaveBeenCalled();
+    expect(h.comments[0]).toContain("Reviewing this pull request again");
+    expect(h.reacted).toEqual(["+1"]);
+  });
+
+  it("says the earlier run for that commit is replaced", async () => {
+    // Reclaiming the head deletes the old run's projection, its board page and
+    // its Discord card. Somebody typing this should be told that, not find out.
+    const h = harness();
+    await h.send("/cujo review");
+    expect(h.comments[0]).toContain("replaced");
+  });
+
+  it("works on a pull request Cujo has never seen", async () => {
+    // The main case for the verb: opened before the App was installed, or one
+    // whose run the already-reviewed guard deleted. `confirm` and `dismiss`
+    // still refuse it, because they answer a run and there is none.
+    const h = harness({ latest: null });
+    await h.send("/cujo review");
+    expect(h.startReview).toHaveBeenCalled();
+    const other = harness({ latest: null });
+    await other.send("/cujo confirm");
+    expect(other.comments[0]).toContain("nothing to answer");
+  });
+
+  it("targets the current head rather than refusing it as stale", async () => {
+    // `stale_head` stops somebody answering an old commit's finding. This verb
+    // asks about whatever is there now, so being out of date is the reason to
+    // run it, not a reason to refuse.
+    const h = harness({ head: { headSha: "0000000000000000", author: "contributor" } });
+    await h.send("/cujo review");
+    expect(h.startReview).toHaveBeenCalledWith(
+      expect.objectContaining({ headSha: "0000000000000000" }),
+    );
+    expect(h.comments[0]).not.toContain("moved on since");
+  });
+
+  it("needs repo write, and the author may ask for one", async () => {
+    const reader = harness({ permission: "read" });
+    await reader.send("/cujo review");
+    expect(reader.startReview).not.toHaveBeenCalled();
+    expect(reader.reacted).toEqual(["confused"]);
+
+    const author = harness();
+    await author.send("/cujo review", "contributor");
+    expect(author.startReview).toHaveBeenCalled();
+  });
+
+  it("says so when the pull request cannot be read, and starts nothing", async () => {
+    const h = harness({ head: null });
+    await h.send("/cujo review");
+    expect(h.startReview).not.toHaveBeenCalled();
+    expect(h.comments[0]).toContain("could not read this pull request");
+  });
+
+  it("passes the failure through when the claim does not take", async () => {
+    const h = harness({ startReview: { ok: false, detail: "A run for this commit is starting." } });
+    await h.send("/cujo review");
+    expect(h.comments[0]).toContain("A run for this commit is starting.");
+    expect(h.reacted).toEqual(["confused"]);
+  });
+
+  it("refuses politely where the verb is not composed at all", async () => {
+    const h = harness({ noStartReview: true });
+    await h.send("/cujo review");
+    expect(h.comments[0]).toContain("cannot start a review from a comment");
+  });
+
+  it("passes an unconfirmed stop through as a refusal, and starts nothing", async () => {
+    // The composed callback refuses when it cannot confirm the current run's
+    // turn has stopped, because the next thing it would do is delete that
+    // run's row — and a live turn with no row can still post a review.
+    const h = harness({
+      startReview: {
+        ok: false,
+        detail:
+          "I could not confirm the current run for this commit has stopped, so I have left it alone. Try again shortly.",
+      },
+    });
+    await h.send("/cujo review");
+    expect(h.comments[0]).toContain("could not confirm");
+    expect(h.comments[0]).toContain("left it alone");
+    expect(h.reacted).toEqual(["confused"]);
+  });
+
+  it("still refuses a comment giving two different verbs", async () => {
+    const h = harness();
+    await h.send("/cujo review\n/cujo confirm");
+    expect(h.startReview).not.toHaveBeenCalled();
+    expect(h.approve).not.toHaveBeenCalled();
+    expect(h.comments[0]).toContain("more than one command");
   });
 });

@@ -75,6 +75,23 @@ describe("webhook", () => {
     expect(runner.start).toHaveBeenCalledOnce();
   });
 
+  it("stamps the model and the rubric digest onto the run it claims", async () => {
+    // Decision 61 and Contract 6. Without these a verdict cannot be traced to
+    // the prompt and the model that produced it, and two runs that disagreed
+    // about the same head across a deploy look identical in the store.
+    const { app, store, nextSettled } = build({
+      provenance: { model: "vendor/pinned", rubricSha256: "b".repeat(64) },
+    });
+    const done = nextSettled();
+    const res = await deliver(app);
+    const { run_id } = (await res.json()) as { run_id: string };
+    await done;
+    expect(store.runs.getRun(run_id)).toMatchObject({
+      model: "vendor/pinned",
+      rubricSha256: "b".repeat(64),
+    });
+  });
+
   it("rejects an unsigned delivery and accepts a signed one with 202", async () => {
     const { app, store, runner, nextSettled } = build();
     const headers = { "x-github-event": "pull_request", "content-type": "application/json" };
