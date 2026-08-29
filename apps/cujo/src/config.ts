@@ -57,6 +57,20 @@ export interface Config {
   /** Where the agent fetches the source archive holding `sandbox/`. */
   sniffTarballUrl: string;
   turnTimeoutMs: number;
+  /**
+   * The context size, in tokens, at which TrueForge summarises the parent's
+   * older history. Above the harness default of 50,000 on purpose: the review
+   * agent collects four full check reports and then writes its body from them,
+   * so a compaction between the last `thread.done` and the review is a review
+   * argued from a summary of the evidence rather than the evidence.
+   *
+   * Nothing observes when it fires. The SDK's event union carries no compaction
+   * event, so Cujo cannot say it happened and does not claim to; the per-check
+   * token counts are what let a reader see it for themselves.
+   *
+   * Applies to the review agent only. Conversation keeps the harness default.
+   */
+  compactionThresholdTokens: number;
   /** Concurrent public run streams this process will hold (decision 34). */
   publicStreamLimit: number;
   /**
@@ -239,6 +253,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         "https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main",
     ),
     turnTimeoutMs: Number(env.CUJO_TURN_TIMEOUT_MS ?? 30 * 60 * 1000),
+    compactionThresholdTokens: count(env.CUJO_COMPACTION_THRESHOLD_TOKENS, 200_000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
     converseLimit: count(env.CUJO_CONVERSE_LIMIT, 3, { zeroOk: true }),
     converseWindowMs: count(env.CUJO_CONVERSE_WINDOW_MS, 60 * 60 * 1000),

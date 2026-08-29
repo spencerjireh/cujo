@@ -249,6 +249,21 @@ describe("loadConfig", () => {
       expect(loadConfig({ ...base, CUJO_PUBLIC_STREAM_LIMIT: "0" }).publicStreamLimit).toBe(200);
     });
 
+    it("defaults the compaction threshold well above the harness's own", () => {
+      // TrueForge compacts at 50,000 by default. The review agent holds four
+      // full check reports before it writes anything, so it needs more room.
+      expect(loadConfig(base).compactionThresholdTokens).toBe(200_000);
+      for (const raw of ["", "   ", "abc", "-1", "1.5", "0"]) {
+        expect(
+          loadConfig({ ...base, CUJO_COMPACTION_THRESHOLD_TOKENS: raw }).compactionThresholdTokens,
+        ).toBe(200_000);
+      }
+      expect(
+        loadConfig({ ...base, CUJO_COMPACTION_THRESHOLD_TOKENS: "80000" })
+          .compactionThresholdTokens,
+      ).toBe(80_000);
+    });
+
     it("lets the visibility sweep be turned off with zero, but not by accident", () => {
       expect(loadConfig(base).visibilityRecheckMs).toBe(15 * 60 * 1000);
       expect(loadConfig({ ...base, CUJO_VISIBILITY_RECHECK_MS: "0" }).visibilityRecheckMs).toBe(0);

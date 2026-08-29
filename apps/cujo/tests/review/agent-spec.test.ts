@@ -304,3 +304,37 @@ describe("specFingerprint", () => {
     expect(specFingerprint({ model: { name: "m" } })).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+describe("the runtime config both specs run under", () => {
+  const config = {
+    model: "m",
+    modelReasoningEffort: "",
+    sniffTarballUrl: "https://example.test/a.tgz",
+    compactionThresholdTokens: 200_000,
+  } as unknown as Config;
+
+  it("closes the sandbox download path on both specs", () => {
+    // The turn download endpoint would let a file written inside the box be
+    // fetched back out through the harness. Nothing here ever does that, so it
+    // is closed rather than left open because nobody asked.
+    for (const spec of [buildAgentSpec(config, "r"), buildConverseSpec(config, "r")]) {
+      expect(spec.config?.sandbox).toEqual({ enabled: true, fileDownloads: false });
+    }
+  });
+
+  it("raises the compaction threshold for the review, and only the review", () => {
+    expect(buildAgentSpec(config, "r").config?.contextManagement).toEqual({
+      compaction: { enabled: true, compactionThresholdTokens: 200_000 },
+    });
+    // Conversation answers one question against a brief already collected, so
+    // it never holds the evidence a compaction would summarise away.
+    expect(buildConverseSpec(config, "r").config?.contextManagement).toBeUndefined();
+  });
+
+  it("passes the configured threshold through rather than a constant", () => {
+    const lower = { ...config, compactionThresholdTokens: 60_000 } as unknown as Config;
+    expect(
+      buildAgentSpec(lower, "r").config?.contextManagement?.compaction?.compactionThresholdTokens,
+    ).toBe(60_000);
+  });
+});
