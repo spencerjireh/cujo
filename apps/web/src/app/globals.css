@@ -32,6 +32,15 @@
   --color-sev-info: var(--sev-info);
   --color-sev-info-bg: var(--sev-info-bg);
 
+  /* The instrument viewport, which is dark in both themes (brand.md). Mapped
+     here so a utility can name it; the chamber's own geometry reads the
+     variables straight off the document instead, because a WebGL material
+     takes a colour and not a class. */
+  --color-chamber: var(--chamber);
+  --color-chamber-line: var(--chamber-line);
+  --color-chamber-fg: var(--chamber-fg);
+  --color-chamber-fg-muted: var(--chamber-fg-muted);
+
   /* next/font publishes --font-*-src; the indirection avoids a specificity tie
      with tokens.css, which declares --font-display on :root at the same weight. */
   --font-display: var(--font-display-src), "Helvetica Neue", Arial, sans-serif;

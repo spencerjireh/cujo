@@ -52,8 +52,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="min-h-screen bg-bg text-fg">
         <Providers>
-          <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4">
-            <header className="flex items-center justify-between gap-4 border-b border-line py-4">
+          {/* The chrome keeps its measure; `main` does not, because the board's
+              chamber runs the full width of the window. A page that wants the
+              old column applies it itself — `/runs/[id]` does. */}
+          <div className="flex min-h-screen flex-col">
+            <header className="flex items-center justify-between gap-4 border-b border-line px-4 py-4 md:px-6">
               <Link
                 href="/"
                 className="flex items-center gap-2.5 text-fg no-underline"
@@ -66,12 +69,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </Link>
               <ThemeToggle />
             </header>
-            <p className="border-b border-line py-2 text-xs text-fg-muted">
-              A read-only view of Cujo&rsquo;s reviews of public pull requests.
-            </p>
-            <main className="flex-1 py-8">{children}</main>
-            <footer className="border-t border-line py-4 text-xs text-fg-muted">
-              Reviews pull requests by running them. Built on TrueForge.
+            <main className="flex-1">{children}</main>
+            <footer className="border-t border-line px-4 py-4 text-xs text-fg-muted md:px-6">
+              A read-only view of Cujo&rsquo;s reviews of public pull requests. Built on TrueForge.
             </footer>
           </div>
         </Providers>
