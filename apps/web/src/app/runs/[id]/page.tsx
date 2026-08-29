@@ -40,8 +40,11 @@ function NotAuthorized() {
     <div>
       <h1 className="mb-2 text-2xl">Not signed in</h1>
       <p className="max-w-[60ch] text-sm text-fg-muted">
-        The Cujo API refused this request because it carried no Cloudflare Access assertion. Sign in
-        through Access and reload. If you are running locally, start the stack with
+        The Cujo API refused this request because it carried no operator credential.{" "}
+        <a href="/login" className="underline">
+          Sign in
+        </a>{" "}
+        and reload. If you are running locally, start the stack with
         <code className="mx-1 rounded-sm bg-bg-raised px-1.5 py-0.5">CUJO_DEV_NO_ACCESS=1</code>
         set on the cujo service.
       </p>

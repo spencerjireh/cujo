@@ -1,15 +1,15 @@
 # public — reachable by anyone, with no gate at all
 
-The run board as an anonymous visitor sees it (decision 34). Cloudflare Access
-does not sit in front of these routes and `PublicDeps` holds no verifier, so
-there is nothing here to forget to check: what is safe is what this code chose
-to emit.
+The run board as an anonymous visitor sees it (decision 34). No gate sits in
+front of these routes and `PublicDeps` holds no verifier, so there is nothing
+here to forget to check: what is safe is what this code chose to emit.
 
 Two invariants, and neither is optional.
 
 **Nothing here may name a person.** `approver` and `decidedAt` are withheld, and
-no route on this plane produces an email at all. The operator plane records who
-approved because Access proves it; this plane has no such proof and must not
+no route on this plane produces a login or an email at all. A decision is
+recorded elsewhere because something proved who made it — repo write on the pull
+request (decision 44); this plane proves nothing about its caller and must not
 pretend otherwise.
 
 **Nothing here may describe a repo that is not public.** Every read is filtered

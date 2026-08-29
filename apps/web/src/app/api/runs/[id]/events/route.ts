@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CUJO_API_URL } from "@/lib/api/client";
+import { operatorCredentials } from "@/lib/api/credentials";
 import { streamOutcome, streamStatus } from "@/lib/api/upstream";
 import { log } from "@/lib/log";
 import { errorFields } from "@cujo/log";
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const incoming = await headers();
-  const assertion = incoming.get("cf-access-jwt-assertion");
+  const credentials = operatorCredentials(incoming, request);
   const host = incoming.get("host");
   const ray = incoming.get("cf-ray") ?? `cujo-${randomUUID()}`;
 
@@ -32,7 +33,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       headers: {
         accept: "text/event-stream",
         "cf-ray": ray,
-        ...(assertion ? { "cf-access-jwt-assertion": assertion } : {}),
+        ...credentials,
         ...(host ? { "x-forwarded-host": host, "x-forwarded-proto": "https" } : {}),
       },
       cache: "no-store",

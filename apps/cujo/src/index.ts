@@ -7,7 +7,7 @@ import { Harness } from "./clients/trueforge";
 import { loadConfig } from "./config";
 import { ConverseService } from "./converse/converse.service";
 import { ConverseRateLimit } from "./converse/rate-limit";
-import { createAccessVerifier, devVerifier } from "./http/operator/access";
+import { type AccessVerifier, createAccessVerifier, devVerifier } from "./http/operator/access";
 import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
@@ -150,9 +150,19 @@ async function main(): Promise<void> {
   if (config.devNoAccess) {
     log.warn("access.disabled");
   }
-  const verify = config.devNoAccess
+  // With a token configured and no Access team domain, the JWT verifier has
+  // nothing to verify against — so it is not built, and the gate refuses an
+  // assertion outright rather than reaching for a key set that does not exist.
+  const accessConfigured = Boolean(config.cfAccessTeamDomain && config.cfAccessAud);
+  const verify: AccessVerifier = config.devNoAccess
     ? devVerifier
-    : createAccessVerifier({ teamDomain: config.cfAccessTeamDomain, audience: config.cfAccessAud });
+    : accessConfigured
+      ? createAccessVerifier({
+          teamDomain: config.cfAccessTeamDomain,
+          audience: config.cfAccessAud,
+        })
+      : async () => ({ operator: null, reason: "no_token" });
+  if (!config.devNoAccess && !accessConfigured) log.info("access.retired");
 
   // The server may still be starting. The process listens right away so the
   // container is healthy, but the webhook answers 503 until this succeeds.
@@ -186,6 +196,7 @@ async function main(): Promise<void> {
       notifications: store.notifications,
       runner,
       verify,
+      operatorToken: config.operatorToken,
       github,
       ...(discord ? { discord } : {}),
     },

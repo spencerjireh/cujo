@@ -112,23 +112,16 @@ describe("host dispatch", () => {
   });
 });
 
-describe("approve route", () => {
-  it("rejects a bad decision and passes the approver through", async () => {
-    const approve = vi.fn(async () => ({
-      ok: false as const,
-      reason: "run is clean, not blocked_pending",
-    }));
+describe("the approve route, which is gone", () => {
+  it("serves no approve route on any plane", async () => {
+    // Deleted with decision 48. A held finding is answered with `/cujo confirm`
+    // on the pull request, where the principal is repo write and the trail is a
+    // GitHub login — one gate, one place. A second one that still worked would
+    // be the one nobody audits.
+    const approve = vi.fn();
     const runner = { view: () => null, start: vi.fn(), approve } as unknown as Runner;
     const { app } = build({ runner });
     const headers = { "cf-access-jwt-assertion": "good", "content-type": "application/json" };
-    const bad = await app.fetch(
-      req(UI, "/runs/r1/approve", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ decision: "maybe" }),
-      }),
-    );
-    expect(bad.status).toBe(400);
     const res = await app.fetch(
       req(UI, "/runs/r1/approve", {
         method: "POST",
@@ -136,7 +129,7 @@ describe("approve route", () => {
         body: JSON.stringify({ decision: "allow" }),
       }),
     );
-    expect(res.status).toBe(409);
-    expect(approve).toHaveBeenCalledWith("r1", "allow", "op@example.com");
+    expect(res.status).toBe(404);
+    expect(approve).not.toHaveBeenCalled();
   });
 });

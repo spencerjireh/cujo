@@ -1712,7 +1712,6 @@ corruption and the cancelled review for a race to find. **Conversation without a
 sandbox**, which is cheap, injection-proof, and re-reading, which is what every
 other bot already does. And **no rate limit**, on the argument that repo write is
 enough: it gates who, not how often, and six pasted questions are six clones.
-||||||| parent of b0d91c2 (docs: record the cutover, and correct two lines decision 46 left behind)
 
 ## 48. `sniff.py` is an entry point, and state lives beside the code
 
@@ -1772,3 +1771,72 @@ This does not touch the state directory's other property, recorded with
 decision 41: reads under it are deliberately **not** filtered as sensor noise,
 because `decoy.backup` holds the real credentials file the decoy displaced and
 a command reading it is exactly the thing worth seeing.
+
+## 49. The operator plane swaps an email for a shared token, because it no longer decides anything
+
+**This is the downward swap of principal decision 28 refused**, and the entry
+has to say so first rather than last. Decision 28 rejected Discord channel
+membership as a principal because "a Cloudflare Access email is a policy-checked
+identity and channel membership is not", and it built Contract 8's two-half
+model around exactly that. Decision 31 then narrowed it and said so plainly.
+This one goes further: it replaces the email with a shared token that names
+nobody.
+
+The reason that is acceptable is not that the token is stronger. It is not. The
+action that justified the email no longer lives here.
+
+Every version of that argument turned on **publishing an accusation**: an
+irreversible public claim about a person's code, made under the bot's name, and
+therefore something that had to be attributable to a human being. Decision 44
+moved that action to the pull request, where the principal is repo write —
+checked against GitHub on every command — and the audit trail is a GitHub login
+in `approver`. So the plane that used to hold the one attributable action now
+holds none.
+
+What is left on it is reads, and Discord bindings. A binding decides where cards
+go and which server may see which repo. That is real, and it is why the plane
+keeps a gate rather than becoming public: this is not "delete the login", it is
+"the login was carrying a claim it no longer has to carry". `authorized_by` and
+`bound_by` record the fixed string `operator`, which is honest — an email there
+would assert a policy check nothing performs any more.
+
+**`POST /runs/:id/approve` is deleted, not left working.** Two ways to answer
+one finding is one audit trail too many, and the one that would rot is the one
+nobody uses. `ApproveBar` becomes a panel that says a maintainer is being waited
+on and prints the two commands; `canDecide` survives with its meaning corrected
+from "this page may decide" to "a decision is outstanding".
+
+**The token never enters JavaScript.** `apps/web` takes it once at `/login` and
+keeps it in an httpOnly cookie on its own origin, then turns it into an
+`Authorization: Bearer` header server-side. A value a page can read is a value a
+script injected into that page can read, and this token gates every write on the
+plane. That is also why `/login` is not served on the public host: a sign-in
+form on an anonymous board is an invitation to phish one.
+
+The comparison is constant time. A shared secret checked with `===` leaks its
+prefix to anyone who can time the answer; lengths are compared first, because
+`timingSafeEqual` throws on a mismatch and a length is not the secret.
+
+**Both credentials are accepted for one release.** Merging is the deploy
+(decision 35), so a gate that accepts only the credential nobody has issued yet
+locks the operator out of their own board — and the ordering is genuinely
+two-sided here: the token has to reach the environment, and the Cloudflare
+Access application has to be removed, and neither is this repository's to
+sequence. So the token is checked first and the assertion still works, and the
+`CF_ACCESS_*` pair becomes required only while the token is unset. A *wrong*
+token is refused rather than falling through, because whoever sent one meant to
+use that gate, and falling through would let a request carrying a bad token and
+a good assertion in while reading as though the token had worked.
+
+The `cujo-harness` Access application stays regardless. That console has its own
+authentication disabled, and an OTP in front of it is exactly what it is for.
+
+Rejected: **keeping the approve route behind the token**, which preserves a
+second way to publish an accusation with a shared identity — the precise thing
+decision 44 moved away from. **Holding the token in `apps/web`'s own
+environment** and injecting it server-side on every call, which is nearly free
+and gates nothing: anyone reaching the operator hostname would get the board and
+the Discord admin forms. And **making the whole plane public**, which is
+tempting now that `approver` is a GitHub login already visible on the pull
+request, but publishes `session_id`, `turn_ids` and `delivery_id` and hands the
+Discord bindings to anyone.

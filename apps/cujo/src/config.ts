@@ -48,6 +48,13 @@ export interface Config {
   defaultDiscordGuild: string | null;
   cfAccessTeamDomain: string;
   cfAccessAud: string;
+  /**
+   * The shared operator token (decision 48). Optional while both gates are
+   * accepted: empty disables the bearer path rather than accepting an empty
+   * credential, which is the difference between "not configured yet" and
+   * "open". It becomes required when Access is removed.
+   */
+  operatorToken: string;
   dbPath: string;
   model: string;
   githubMcpUrl: string;
@@ -164,11 +171,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     discordBotToken: env.DISCORD_BOT_TOKEN || null,
     discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
     defaultDiscordGuild: env.CUJO_DEFAULT_DISCORD_GUILD || null,
-    // The Access check is skipped only in dev, so the values are required otherwise.
-    cfAccessTeamDomain: devNoAccess
-      ? (env.CF_ACCESS_TEAM_DOMAIN ?? "")
-      : required(env, "CF_ACCESS_TEAM_DOMAIN"),
-    cfAccessAud: devNoAccess ? (env.CF_ACCESS_AUD ?? "") : required(env, "CF_ACCESS_AUD"),
+    // The Access check is skipped only in dev, so the values are required
+    // otherwise — and required *unless a token is configured*, which is what
+    // makes the two gates orderable: a deploy that has set the token no longer
+    // has to keep the Access variables around to start.
+    cfAccessTeamDomain:
+      devNoAccess || env.CUJO_OPERATOR_TOKEN
+        ? (env.CF_ACCESS_TEAM_DOMAIN ?? "")
+        : required(env, "CF_ACCESS_TEAM_DOMAIN"),
+    cfAccessAud:
+      devNoAccess || env.CUJO_OPERATOR_TOKEN
+        ? (env.CF_ACCESS_AUD ?? "")
+        : required(env, "CF_ACCESS_AUD"),
+    operatorToken: env.CUJO_OPERATOR_TOKEN ?? "",
     dbPath: env.CUJO_DB_PATH ?? "/data/cujo.db",
     model: required(env, "CUJO_MODEL"),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",

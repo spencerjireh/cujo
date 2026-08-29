@@ -101,8 +101,13 @@ services:
       # name too, still behind the Access check.
       CUJO_INTERNAL_HOST: cujo
       CUJO_WEBHOOK_HOST: ${CUJO_WEBHOOK_HOST}
-      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
-      CF_ACCESS_AUD: ${CF_ACCESS_AUD}
+      # The operator gate (decision 48). Both credentials are accepted for one
+      # release, so the token can be set and the Access application removed in
+      # either order; the CF_ACCESS_* pair is required only while the token is
+      # unset. Defaulted to empty so a deploy that has moved on can drop them.
+      CUJO_OPERATOR_TOKEN: ${CUJO_OPERATOR_TOKEN:-}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}

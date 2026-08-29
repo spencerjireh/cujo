@@ -103,7 +103,7 @@ export function discordAdminRoutes(deps: DiscordAdminDeps): Hono<Env> {
       guildId: check.guildId,
       channelName: check.channelName,
       notifyRoleId,
-      boundBy: c.get("email"),
+      boundBy: c.get("operator"),
     });
     return c.json(serializeChannel(stored));
   });
@@ -160,7 +160,7 @@ export function discordAdminRoutes(deps: DiscordAdminDeps): Hono<Env> {
       guildId,
       repo: `${owner}/${name}`,
       guildName: guild.name,
-      authorizedBy: c.get("email"),
+      authorizedBy: c.get("operator"),
     });
     return c.json({
       guild_id: stored.guildId,
