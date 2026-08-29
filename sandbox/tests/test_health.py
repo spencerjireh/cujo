@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,27 @@ from cujo_sniff.sensors.fsdiff import Snapshot
 from tests.test_report import ARMED, NOT_TRUNCATED, _block
 
 
+@pytest.fixture
+def stand_in() -> Iterator[int]:
+    """A live process whose command line names the package, as a daemon's does.
+
+    `daemon_alive` reads `/proc/<pid>/cmdline` and requires `cujo_sniff` in it,
+    so this test process is deliberately *not* a stand-in for a sensor: writing
+    its own pid into a pid file is exactly the forgery that check exists to
+    refuse. Anything asserting the healthy path has to look like the real thing.
+    """
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(120)", "cujo_sniff"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        yield proc.pid
+    finally:
+        proc.kill()
+        proc.wait()
+
+
 def _pids(ctx: Context, proxy: int | None = None, watcher: int | None = None) -> None:
     paths = state_paths(ctx)
     ctx.state_dir.mkdir(parents=True, exist_ok=True)
@@ -27,10 +51,10 @@ def _pids(ctx: Context, proxy: int | None = None, watcher: int | None = None) ->
         if pid is None:
             paths[key].unlink(missing_ok=True)
         else:
-            paths[key].write_text(str(pid if pid > 0 else os.getpid()))
+            paths[key].write_text(str(pid))
 
 
-def test_a_daemon_that_armed_and_then_died_reads_as_unarmed(ctx: Context) -> None:
+def test_a_daemon_that_armed_and_then_died_reads_as_unarmed(ctx: Context, stand_in: int) -> None:
     """The case the whole block exists for.
 
     `setup` proving the proxy came up says nothing about the fourth check. A
@@ -38,7 +62,7 @@ def test_a_daemon_that_armed_and_then_died_reads_as_unarmed(ctx: Context) -> Non
     is indistinguishable from a command that talked to nobody.
     """
     config = {"proxy_armed": True, "proxy_port": 8899, "decoy_backend": "inotify"}
-    _pids(ctx, proxy=-1, watcher=-1)
+    _pids(ctx, proxy=stand_in, watcher=stand_in)
     alive = daemon_health(ctx, config)
     assert alive["proxy"] == health(True, "port 8899")
     assert alive["decoy"] == health(True, "inotify")
@@ -52,17 +76,17 @@ def test_a_daemon_that_armed_and_then_died_reads_as_unarmed(ctx: Context) -> Non
     assert dead["decoy"]["detail"].startswith("inotify")
 
 
-def test_a_daemon_that_never_armed_says_so_differently(ctx: Context) -> None:
-    _pids(ctx, proxy=-1, watcher=-1)
+def test_a_daemon_that_never_armed_says_so_differently(ctx: Context, stand_in: int) -> None:
+    _pids(ctx, proxy=stand_in, watcher=stand_in)
     never = daemon_health(ctx, {"proxy_armed": False, "decoy_backend": None})
     assert never["proxy"] == health(False, "did not start during setup")
     assert never["decoy"] == health(False, "no watcher armed during setup")
 
 
-def test_the_watcher_backend_reaches_the_report(ctx: Context) -> None:
+def test_the_watcher_backend_reaches_the_report(ctx: Context, stand_in: int) -> None:
     # inotify sees a read; the atime fallback is close to useless under
     # relatime, so which one armed changes what a quiet decoy is worth.
-    _pids(ctx, proxy=-1, watcher=-1)
+    _pids(ctx, proxy=stand_in, watcher=stand_in)
     for backend in ("inotify", "atime"):
         got = daemon_health(ctx, {"proxy_armed": True, "decoy_backend": backend})
         assert got["decoy"] == health(True, backend)
@@ -189,7 +213,9 @@ def test_the_health_block_names_nothing_a_public_page_may_not_show(home_dir: Pat
     assert "/" not in rendered
 
 
-def test_a_live_watcher_on_a_replaced_decoy_is_not_armed(ctx: Context, home_dir: Path) -> None:
+def test_a_live_watcher_on_a_replaced_decoy_is_not_armed(
+    ctx: Context, home_dir: Path, stand_in: int
+) -> None:
     """inotify follows an inode, not a name.
 
     A command that deletes `~/.aws/credentials`, or writes it through a rename,
@@ -197,7 +223,7 @@ def test_a_live_watcher_on_a_replaced_decoy_is_not_armed(ctx: Context, home_dir:
     where it cannot it stays alive and blocked, and a pid check alone would call
     that armed while no decoy read could ever be seen again.
     """
-    _pids(ctx, proxy=-1, watcher=-1)
+    _pids(ctx, proxy=stand_in, watcher=stand_in)
     decoy = home_dir / ".aws" / "credentials"
     decoy.parent.mkdir(parents=True)
     decoy.write_text("seeded")
@@ -223,12 +249,12 @@ def test_a_live_watcher_on_a_replaced_decoy_is_not_armed(ctx: Context, home_dir:
 
 
 def test_a_report_from_before_the_inode_was_recorded_is_not_called_blind(
-    ctx: Context, home_dir: Path
+    ctx: Context, home_dir: Path, stand_in: int
 ) -> None:
     # `decoy_inode` is absent from a config an earlier `setup` wrote. Absent is
     # unknown, and unknown must not read as a fault -- the same rule the trusted
     # side applies to a report with no health block at all.
-    _pids(ctx, proxy=-1, watcher=-1)
+    _pids(ctx, proxy=stand_in, watcher=stand_in)
     assert daemon_health(ctx, {"proxy_armed": True, "decoy_backend": "atime"})["decoy"] == health(
         True, "atime"
     )
@@ -248,11 +274,10 @@ def test_a_pid_file_pointing_at_something_that_is_not_ours_is_not_a_daemon(
     paths = state_paths(ctx)
     ctx.state_dir.mkdir(parents=True, exist_ok=True)
     paths["proxy_pid"].write_text(str(os.getpid()))
-    # This test process is alive and is not a sensor daemon.
-    if Path("/proc").is_dir():
-        assert daemon_alive(paths["proxy_pid"]) is False
-    else:
-        assert daemon_alive(paths["proxy_pid"]) is True
+    # This test process is alive and is not a sensor daemon. Where there is a
+    # procfs to ask, that is caught; where there is not, the pid answering is
+    # all the platform will say and the check says it.
+    assert daemon_alive(paths["proxy_pid"]) == (not Path("/proc").is_dir())
 
     paths["proxy_pid"].write_text("4194303")
     assert daemon_alive(paths["proxy_pid"]) is False

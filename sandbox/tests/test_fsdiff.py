@@ -12,6 +12,7 @@ from cujo_sniff.report import build_sensor_block
 from cujo_sniff.sensors.fsdiff import (
     UNHASHED,
     UNREADABLE,
+    UNVERIFIED,
     Snapshot,
     _digest,
     _snapshot_roots,
@@ -356,8 +357,10 @@ def test_the_digest_must_be_of_the_file_that_was_measured(
     decoy_stat.write_text("AKIASTOLENKEY0000002")
 
     # A measurement of a *different* file, handed to _digest for this path.
+    # UNVERIFIED, not UNREADABLE: the file opened fine, it just was not the one
+    # that had been measured, and the two are counted differently.
     other = decoy_stat.lstat()
-    assert _digest(real, other) == UNREADABLE
+    assert _digest(real, other) == UNVERIFIED
     # Its own measurement still hashes.
     assert _digest(real, real.lstat()) not in (None, UNHASHED, UNREADABLE)
 

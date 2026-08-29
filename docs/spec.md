@@ -323,13 +323,28 @@ preserved is still a change.
 A digest that was wanted and could not be taken is recorded as its own value,
 distinct from one that was never wanted. A file with a digest on one side and
 none on the other has changed — readable before and not now, hashed before and
-swapped since, both are events. Where *neither* side has one, nothing was
-compared: that falls back to metadata and raises `truncated.hashes`, because
-much of `/etc` is root-owned and unreadable from one run to the next, and
-calling those files modified would put a non-lowerable critical on every check
-of every repository. Whether an unreadable file's contents changed is not
-observable from in here, and the report says that rather than guessing either
-way.
+swapped since, both are events a command causes while it runs, and both are
+reported. Where *neither* side has one, nothing was compared, so it falls back
+to metadata: much of `/etc` is root-owned and unreadable from one run to the
+next, and calling those files modified would put a non-lowerable critical on
+every check of every repository.
+
+`truncated.hashes` counts the files this walk *could* have compared and did
+not — the ones past `HASH_MAX_BYTES`, and the ones whose identity did not match
+between the `lstat` and the open. It deliberately does not count a file the
+sensors have never been able to read: that is not a gap that opened during the
+run, it is a part of the filesystem outside their reach, the same standing
+condition as a directory the walk cannot descend into and already skips without
+comment. Counting it would raise the flag on every run on every Linux box, and a
+flag that is always true says nothing.
+
+**What that leaves open**, stated rather than implied: a file kept unreadable
+across both snapshots can be edited between them with its size and timestamp
+restored, and the filesystem sensor will not see it. Doing so takes control of
+the file's permissions before the sensed command starts, since `before` is taken
+at the top of the window. Whether such a file's contents changed is not
+observable from inside the sandbox in either direction, and this design would
+rather miss it than accuse every pull request of touching `/etc/shadow`.
 
 The walk opens what it hashes with `O_NOFOLLOW | O_NONBLOCK` and then checks the
 descriptor — that it is still a regular file, and that its device and inode are
