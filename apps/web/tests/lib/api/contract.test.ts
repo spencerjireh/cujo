@@ -140,12 +140,26 @@ describe("reviewPosted", () => {
     }
   });
 
-  it("does not call an advisory review posted while the run is still live", () => {
-    for (const status of ["running", "blocked_pending"] as const) {
-      expect(reviewPosted({ ...base, status, review: draft("post_advisory_review") } as Run)).toBe(
-        false,
-      );
-    }
+  it("does not call an advisory review posted while the turn is still running", () => {
+    // The one state that has to stay conservative: the fold records the call
+    // from the model message, which can arrive a moment before the POST it
+    // describes comes back.
+    expect(
+      reviewPosted({ ...base, status: "running", review: draft("post_advisory_review") } as Run),
+    ).toBe(false);
+  });
+
+  it("calls the observation posted while the accusation is still pending", () => {
+    // `blocked_pending` is a statement about `gated_review`, not this slot. The
+    // advisory posted before the pause, and saying otherwise sends a reader
+    // looking for something that is plainly on the pull request.
+    expect(
+      reviewPosted({
+        ...base,
+        status: "blocked_pending",
+        review: draft("post_advisory_review"),
+      } as Run),
+    ).toBe(true);
   });
 
   it("treats a blocking review as posted too, because it is no longer gated", () => {

@@ -390,6 +390,21 @@ describe("GitHubReader.createComment", () => {
     expect(sent.endsWith("_(truncated)_")).toBe(true);
   });
 
+  it("does not cut an astral character in half at the cap", async () => {
+    // `slice` counts UTF-16 code units, so a naive cut lands between the halves
+    // of a surrogate pair and posts a lone surrogate — a replacement character
+    // right where the reader is being told something is missing.
+    const { impl, bodies } = commentServer();
+    // One filler character short of the cut, so the pair straddles it.
+    const filler = "x".repeat(COMMENT_BODY_CAP - "\n\n_(truncated)_".length - 1);
+    await new GitHubReader("1", "pem", impl).createComment("o/r", 7, `${filler}${"🐕".repeat(20)}`);
+    const sent = (JSON.parse(bodies[0] ?? "{}") as { body: string }).body;
+    expect(sent.length).toBeLessThanOrEqual(COMMENT_BODY_CAP);
+    expect(sent.endsWith("_(truncated)_")).toBe(true);
+    expect(sent).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(sent).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
   it("throws a typed GitHubError so the caller can log a status, not a body", async () => {
     const { impl } = commentServer(403);
     await expect(
