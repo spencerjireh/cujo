@@ -7,6 +7,7 @@ import {
   type StreamEvent,
 } from "../clients/trueforge";
 import type { RunStore } from "../store";
+import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
 import { fold, pendingApproval } from "./fold";
 import { runLogger } from "./start-run";
 import type { CheckState, PendingApproval, Projection, RunRecord } from "./types";
@@ -137,6 +138,7 @@ export class Runner {
     private readonly harness: Harness,
     private readonly options: RunnerOptions = { turnTimeoutMs: 30 * 60 * 1000 },
     private readonly log: Logger = createLogger({ service: "cujo" }),
+    private readonly github: DismissStaleReviewsDeps["github"] | null = null,
   ) {
     this.retryDelaysMs = options.retryDelaysMs ?? [2_000, 5_000, 15_000];
   }
@@ -409,7 +411,21 @@ export class Runner {
     }
     if (!projection) projection = this.refold(runId);
     if (projection.status === "blocked_pending") this.startPolling(runId);
-    else if (this.isTerminal(projection.status)) this.stopPolling(runId);
+    else if (this.isTerminal(projection.status)) {
+      this.stopPolling(runId);
+      if (projection.status === "clean" && this.github) {
+        const run = this.store.getRun(runId);
+        if (run) {
+          void dismissStaleReviews(
+            { github: this.github, log: this.state(runId).log },
+            run,
+            projection,
+          ).catch((err) =>
+            this.state(runId).log.warn("review.stale.dismiss.failed", errorFields(err)),
+          );
+        }
+      }
+    }
   }
 
   /**
