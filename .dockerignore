@@ -12,6 +12,8 @@ __pycache__
 .pytest_cache
 .ruff_cache
 *.png
+# The board's favicon PNG must reach the Next build inside the image
+!apps/web/src/app/icon.png
 .playwright-mcp
 
 # Next build output must never reach an image build context
