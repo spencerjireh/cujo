@@ -53,7 +53,7 @@ merge authority, which is cheap, and leaves reputation, which is not.
 
 **3. A missing human destroys the work.** `SKILL.md:125-126` makes the review
 tools mutually exclusive and `:127` says a denied approval posts nothing. A
-denial, or a thirty-minute timeout with nobody awake, leaves a pull request
+denial, or nobody answering at all, leaves a pull request
 carrying a 👀 reaction and no trace that four checks ran in a sandbox. A
 human-in-the-loop system should degrade to *less authority*, never to *less
 information*.
@@ -155,7 +155,7 @@ The conclusion is the accusation, and it waits. So **the advisory posts first
 and always**, and the gated review is a second call in the same turn.
 
 What this buys: the advisory body *is* the notification, so discoverability
-needs no new writer and decision 38 stays intact; a thirty-minute timeout leaves
+needs no new writer and decision 38 stays intact; an unanswered gate leaves
 the findings on the pull request; and a dismissal drops the escalation while the
 observation stands.
 
@@ -594,7 +594,12 @@ Proven on a real pull request, not in tests alone:
 8. `@cujo-guard <text>` during a *running* review does not cancel it, and during
    a *blocked_pending* run does not 422 — the two failures a shared session
    guarantees.
-9. Nobody answers for 30 minutes → the warn stands and the PR explains itself.
+9. Nobody answers at all → the warn stands, the merge is not blocked, and the
+   pull request explains itself. There is **no deadline**: the thirty-minute
+   watchdog bounds a streaming turn and is cleared when `turn.done` arrives,
+   which is what the pause produces. The run waits on `blocked_pending` until a
+   push supersedes it or a `/cujo` command decides it. A deadline would be a
+   feature; this design does not have one.
 
 Local stack for 1–3 and 8: `make up-local`, webhook host `cujo-ingress.localhost`.
 Whole-app composition in tests goes through `tests/http/helpers.ts` `build()`,
