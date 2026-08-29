@@ -29,10 +29,12 @@ function projection(overrides: Partial<Projection> = {}): Projection {
 
 function deps(
   reviews: { id: number; commitId: string; state: string }[] = [],
+  headSha = "new-head-sha",
 ): DismissStaleReviewsDeps & { dismissReview: ReturnType<typeof vi.fn> } {
   const dismissReview = vi.fn().mockResolvedValue(undefined);
   return {
     github: {
+      pullRequestHead: vi.fn().mockResolvedValue({ headSha, author: "someone" }),
       listBotReviews: vi.fn().mockResolvedValue(reviews),
       dismissReview,
     },
@@ -61,9 +63,29 @@ describe("dismissStaleReviews", () => {
     ] as const) {
       const d = deps([{ id: 123, commitId: "old-sha", state: "CHANGES_REQUESTED" }]);
       await dismissStaleReviews(d, run(), projection({ status }));
+      expect(d.github.pullRequestHead).not.toHaveBeenCalled();
       expect(d.github.listBotReviews).not.toHaveBeenCalled();
       expect(d.dismissReview).not.toHaveBeenCalled();
     }
+  });
+
+  it("does NOT dismiss when PR head has moved past this run", async () => {
+    const d = deps(
+      [{ id: 123, commitId: "old-sha", state: "CHANGES_REQUESTED" }],
+      "even-newer-sha",
+    );
+    await dismissStaleReviews(d, run(), projection({ status: "clean" }));
+    expect(d.github.pullRequestHead).toHaveBeenCalledOnce();
+    expect(d.github.listBotReviews).not.toHaveBeenCalled();
+    expect(d.dismissReview).not.toHaveBeenCalled();
+  });
+
+  it("does NOT dismiss when pullRequestHead returns null (deleted PR)", async () => {
+    const d = deps([{ id: 123, commitId: "old-sha", state: "CHANGES_REQUESTED" }]);
+    (d.github.pullRequestHead as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    await dismissStaleReviews(d, run(), projection({ status: "clean" }));
+    expect(d.github.listBotReviews).not.toHaveBeenCalled();
+    expect(d.dismissReview).not.toHaveBeenCalled();
   });
 
   it("does NOT dismiss reviews on the current head SHA", async () => {
@@ -104,7 +126,7 @@ describe("dismissStaleReviews", () => {
   });
 
   it("dismiss message includes the new head SHA", async () => {
-    const d = deps([{ id: 123, commitId: "old-sha", state: "CHANGES_REQUESTED" }]);
+    const d = deps([{ id: 123, commitId: "old-sha", state: "CHANGES_REQUESTED" }], "abc1234567890");
     await dismissStaleReviews(
       d,
       run({ headSha: "abc1234567890" }),

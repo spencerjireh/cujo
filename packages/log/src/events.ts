@@ -122,6 +122,7 @@ export const EVENT_NAMES = [
   "review.failed",
   "review.anchor.moved",
   // Stale review dismissal (decision 52).
+  "review.stale.skipped",
   "review.stale.dismissed",
   "review.stale.dismiss.failed",
   "mcp.request.failed",
