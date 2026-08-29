@@ -20,6 +20,8 @@ measured.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -32,6 +34,7 @@ import socketserver
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -47,6 +50,10 @@ DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
 MAX_FILES_READ = 200
 MAX_SNAPSHOT_FILES = 200_000
+# How long one sensed command waits for another to release the sensors. Longer
+# than any check should take, so the wait ends because the other command
+# finished and not because the clock ran out.
+SENSED_LOCK_TIMEOUT_S = 900.0
 
 # Hosts an install legitimately talks to. Anything else, and not allowlisted,
 # is `egress_to_unknown_host`.
@@ -97,6 +104,11 @@ def state_paths() -> dict[str, Path]:
         "proxy_log": CUJO_DIR / "proxy.jsonl",
         "decoy_log": CUJO_DIR / "decoy.jsonl",
         "audit_log": CUJO_DIR / "audit.jsonl",
+        # One audit log per sensed command, named for that command. Which file
+        # a row landed in is the attribution; nothing in the row has to be
+        # trusted for it. The shared `audit_log` above is where a process
+        # running outside a sensed window writes, and no report reads it.
+        "audit_dir": CUJO_DIR / "audit",
         "pyhook": CUJO_DIR / "pyhook",
         "config": CUJO_DIR / "config.json",
         "proxy_pid": CUJO_DIR / "proxy.pid",
@@ -142,17 +154,43 @@ def append_jsonl(path: Path, row: dict[str, Any]) -> None:
         fh.write(json.dumps(row) + "\n")
 
 
+def canonical(path: Path) -> Path:
+    """The one spelling of `path` every comparison uses: symlinks resolved.
+
+    A directory reachable by two names — `/tmp` and `/private/tmp`, a HOME
+    behind a symlink — is one directory, and a sensor that walks it under both
+    names reports each file twice and classifies the two rows differently.
+    """
+    return Path(os.path.realpath(path))
+
+
+def _under(path: Path, target: Path) -> bool:
+    return path == target or target in path.parents
+
+
 def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
-    """True when `path` is under a credentials, shell-rc, or cron location."""
+    """True when `path` is under a credentials, shell-rc, or cron location.
+
+    The path is classified twice, lexically normalised and fully resolved,
+    and either match is enough. Comparing the raw path alone missed anything
+    a `..` segment could hide: the audit hook records a path as the program
+    passed it, so `/tmp/../home/u/.ssh/id_rsa` never matched `~/.ssh` and the
+    read went unflagged. Resolving alone would trade that for a different
+    miss, a symlink planted inside a sensitive directory whose target is
+    somewhere dull. A tripwire fires on either reading.
+    """
     h = home_dir or home()
     p = Path(os.path.expanduser(path))
     if not p.is_absolute():
         p = Path.cwd() / p
+    candidates = {Path(os.path.normpath(p)), canonical(p)}
+    # HOME itself can be a symlink (macOS puts /tmp under /private), so the
+    # targets are resolved the same way the candidates are.
+    roots = {h, canonical(h)}
     for rel in SENSITIVE_HOME_PATHS:
-        target = h / rel
-        if p == target or target in p.parents:
+        if any(_under(c, root / rel) for c in candidates for root in roots):
             return True
-    return any(str(p).startswith(prefix) for prefix in SENSITIVE_ABS_PREFIXES)
+    return any(str(c).startswith(SENSITIVE_ABS_PREFIXES) for c in candidates)
 
 
 NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
@@ -170,6 +208,13 @@ def is_noise_read(path: str) -> bool:
     the reads that carry a signal. Only those roots count: a shared object or
     a module read from the workspace or anywhere else stays in the list, and
     a sensitive path is never noise, whatever it looks like.
+
+    Cujo's own state directory is deliberately not on this list. `run_sensed`
+    reads the sensor logs with the audit hook installed in its own process,
+    but those rows go to the shared audit log and no report reads that one, so
+    they never needed filtering. Excluding the directory would instead hide a
+    command reading `decoy.backup`, which holds the real credentials file the
+    decoy displaced.
     """
     p = str(path)
     if p.startswith((f"{sys.prefix}/lib/", f"{sys.base_prefix}/lib/")):
@@ -184,14 +229,23 @@ def is_noise_read(path: str) -> bool:
 def display_path(path: Path, home_dir: Path | None = None) -> str:
     """Render a path with `~` for HOME so reports read the same on any box."""
     h = home_dir or home()
-    try:
-        return "~/" + str(path.relative_to(h))
-    except ValueError:
-        return str(path)
+    for root in (h, canonical(h)):
+        try:
+            return "~/" + str(path.relative_to(root))
+        except ValueError:
+            continue
+    return str(path)
 
 
 def in_any(path: Path, roots: list[Path]) -> bool:
-    return any(path == r or r in path.parents for r in roots)
+    """True when `path` is one of `roots` or under one.
+
+    Both sides must already be canonical. Comparing a resolved path against an
+    unresolved root is how a write inside the workspace came to be reported as
+    `wrote_outside_workspace`: one spelling of the directory matched and the
+    other did not.
+    """
+    return any(_under(path, r) for r in roots)
 
 
 # ---------------------------------------------------------------------------
@@ -429,10 +483,18 @@ def write_pyhook(pyhook_dir: Path) -> None:
 
 
 def _snapshot_roots(workspace_roots: list[Path]) -> list[Path]:
-    roots = [home(), *workspace_roots, Path("/etc")]
+    """HOME, the workspace, and /etc, each by one name and each walked once.
+
+    Canonical, because HOME and the workspace are routinely the same directory
+    reached two ways: `--cwd` arrives resolved and `$HOME` does not. Walking
+    both spellings put every file in the report twice, and the two rows
+    disagreed about `in_workspace`, which turned one write inside the
+    workspace into `wrote_outside_workspace`.
+    """
+    roots = [canonical(r) for r in (home(), *workspace_roots, Path("/etc"))]
     unique: list[Path] = []
     for r in roots:
-        if r.exists() and r not in unique:
+        if r.exists() and r not in unique and not in_any(r, unique):
             unique.append(r)
     return unique
 
@@ -473,7 +535,12 @@ def diff_snapshots(
     A deletion is a write too: removing a credential or a shell rc is at least
     as interesting as creating one, so before-only paths get a `deleted` row
     with the same workspace and sensitivity classification.
+
+    The workspace roots are canonicalised once, here, rather than per row: the
+    snapshot walks canonical roots, so a caller that passes an unresolved root
+    would otherwise see every one of its own files as outside the workspace.
     """
+    roots = [canonical(r) for r in workspace_roots]
     changes: list[dict[str, Any]] = []
     for path in sorted(before.keys() | after.keys()):
         if path in before and path in after and before[path] == after[path]:
@@ -489,7 +556,7 @@ def diff_snapshots(
             {
                 "path": display_path(p, home_dir),
                 "type": kind,
-                "in_workspace": in_any(p, workspace_roots),
+                "in_workspace": in_any(p, roots),
                 "sensitive": is_sensitive(path, home_dir),
             }
         )
@@ -498,6 +565,10 @@ def diff_snapshots(
 
 # ---------------------------------------------------------------------------
 # Sensor merge
+
+
+def _is_decoy(path: Path, decoy_paths: set[Path]) -> bool:
+    return path in decoy_paths or canonical(path) in decoy_paths
 
 
 def build_sensor_block(
@@ -518,7 +589,10 @@ def build_sensor_block(
     against that directory, before it is classified.
     """
     base = Path(cwd) if cwd is not None else Path.cwd()
-    decoy = str((home_dir or home()) / DECOY_REL)
+    # Both spellings of the decoy, because the audit hook records the path the
+    # program passed and that need not be the one `setup` seeded.
+    decoy = (home_dir or home()) / DECOY_REL
+    decoy_paths = {decoy, canonical(decoy)}
     egress = _merge_egress(proxy_rows)
     files_read: list[dict[str, Any]] = []
     subprocesses: list[dict[str, Any]] = []
@@ -530,7 +604,7 @@ def build_sensor_block(
             path = str(row.get("path", ""))
             if path and not os.path.isabs(path):
                 path = str(base / path)
-            if path == decoy:
+            if path and _is_decoy(Path(path), decoy_paths):
                 decoy_read = True
             if any(ch in mode for ch in "wax+"):
                 continue
@@ -583,7 +657,14 @@ def _merge_egress(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # Running a command under the sensors
 
 
-def sensor_env(config: dict[str, Any]) -> dict[str, str]:
+def sensor_env(config: dict[str, Any], audit_log: Path | None = None) -> dict[str, str]:
+    """The environment a sensed command runs under.
+
+    `audit_log` is the log this command's audit rows go to. `run_sensed`
+    passes the one it is about to read; the env `setup` prints carries the
+    shared default, so a process started outside a sensed window still records
+    what it did, into a log no report claims.
+    """
     paths = state_paths()
     proxy = f"http://127.0.0.1:{config.get('proxy_port', DEFAULT_PROXY_PORT)}"
     pyhook = str(paths["pyhook"])
@@ -596,11 +677,53 @@ def sensor_env(config: dict[str, Any]) -> dict[str, str]:
         "https_proxy": proxy,
         "NO_PROXY": "",
         "PYTHONPATH": pythonpath,
-        "CUJO_AUDIT_LOG": str(paths["audit_log"]),
+        "CUJO_AUDIT_LOG": str(audit_log or paths["audit_log"]),
         # Marks a sensed process as running inside Cujo's sandbox. The demo
         # sample (evil-package) keeps its payload inert unless this is set.
         "CUJO_SANDBOX": "1",
     }
+
+
+@contextlib.contextmanager
+def sensed_window(timeout: float = SENSED_LOCK_TIMEOUT_S) -> Iterator[bool]:
+    """Hold the sensors for one command. Yields False when the wait timed out.
+
+    The proxy, the watcher, and the audit hook append to three logs shared by
+    every check, and a report is the slice of those logs written while one
+    command ran. Two commands sensed at once therefore read each other's rows:
+    `probes` reports `smoke`'s egress, and both snapshot each other's writes.
+    Nothing in the rubric serialises the checks, so this does.
+
+    A wait that times out proceeds anyway. A review that returns evidence from
+    an overlapping window is worse than one that blocks forever only in the
+    sense that it is wrong; a review that never finishes is wrong too, and the
+    overlap is announced on stderr.
+    """
+    lock_path = CUJO_DIR / "sensed.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = lock_path.open("a+")
+    deadline = time.monotonic() + timeout
+    held = False
+    try:
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    print(
+                        f"sniff: sensors busy after {timeout:.0f}s; this report may "
+                        "carry another command's rows",
+                        file=sys.stderr,
+                    )
+                    break
+                time.sleep(0.1)
+        yield held
+    finally:
+        if held:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+        fh.close()
 
 
 def run_sensed(
@@ -609,24 +732,34 @@ def run_sensed(
     """Run `argv` with the sensor env and return the report minus the header."""
     paths = state_paths()
     config = load_config()
-    offsets = {k: file_size(paths[k]) for k in ("proxy_log", "audit_log", "decoy_log")}
-    before = snapshot(workspace_roots)
-    env = {**os.environ, **sensor_env(config)}
-    started = time.monotonic()
-    try:
-        proc = subprocess.run(
-            argv, cwd=str(cwd), env=env, capture_output=True, text=True, errors="replace"
-        )
-        exit_code, out, err = proc.returncode, proc.stdout, proc.stderr
-    except FileNotFoundError as exc:
-        exit_code, out, err = 127, "", str(exc)
-    duration = round(time.monotonic() - started, 2)
-    time.sleep(0.3)  # let the daemons flush the last events
-    after = snapshot(workspace_roots)
+    # This command's own audit log. Attribution is which file a row landed in,
+    # so a child that strips the variable records nothing rather than
+    # laundering its rows into another command's report, and a process an
+    # earlier check left running keeps writing to that check's log.
+    audit_log = paths["audit_dir"] / f"{os.urandom(6).hex()}.jsonl"
+    audit_log.parent.mkdir(parents=True, exist_ok=True)
+    with sensed_window():
+        offsets = {k: file_size(paths[k]) for k in ("proxy_log", "decoy_log")}
+        before = snapshot(workspace_roots)
+        env = {**os.environ, **sensor_env(config, audit_log)}
+        started = time.monotonic()
+        try:
+            proc = subprocess.run(
+                argv, cwd=str(cwd), env=env, capture_output=True, text=True, errors="replace"
+            )
+            exit_code, out, err = proc.returncode, proc.stdout, proc.stderr
+        except FileNotFoundError as exc:
+            exit_code, out, err = 127, "", str(exc)
+        duration = round(time.monotonic() - started, 2)
+        time.sleep(0.3)  # let the daemons flush the last events
+        after = snapshot(workspace_roots)
+        proxy_rows = read_jsonl(paths["proxy_log"], offsets["proxy_log"])
+        audit_rows = read_jsonl(audit_log)
+        decoy_rows = read_jsonl(paths["decoy_log"], offsets["decoy_log"])
     sensors = build_sensor_block(
-        proxy_rows=read_jsonl(paths["proxy_log"], offsets["proxy_log"]),
-        audit_rows=read_jsonl(paths["audit_log"], offsets["audit_log"]),
-        decoy_rows=read_jsonl(paths["decoy_log"], offsets["decoy_log"]),
+        proxy_rows=proxy_rows,
+        audit_rows=audit_rows,
+        decoy_rows=decoy_rows,
         fs_changes=diff_snapshots(before, after, workspace_roots),
         allow_hosts=config.get("allow_hosts", []),
         check=check,
@@ -646,6 +779,28 @@ def run_sensed(
 # Commands
 
 
+def _daemon_env() -> dict[str, str]:
+    """The environment a sensor daemon runs in: never a sensed one.
+
+    A daemon inherits whatever the operator exported, and the rubric tells the
+    operator to export the sensor env for every later command. That put the
+    audit hook inside the proxy, so each upstream connection the proxy opened
+    on a check's behalf was logged as a `connect` and appended to `egress` a
+    second time, with a phantom `bytes: 0`. Dropping `CUJO_AUDIT_LOG` disarms
+    the hook; the proxy variables go with it so a daemon can never be routed
+    through the proxy it is.
+    """
+    strip = {
+        "CUJO_AUDIT_LOG",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "NO_PROXY",
+    }
+    return {k: v for k, v in os.environ.items() if k not in strip}
+
+
 def _spawn_daemon(args: list[str], pid_file: Path, log_name: str) -> int:
     log = (CUJO_DIR / log_name).open("ab")
     proc = subprocess.Popen(
@@ -654,6 +809,7 @@ def _spawn_daemon(args: list[str], pid_file: Path, log_name: str) -> int:
         stderr=log,
         stdin=subprocess.DEVNULL,
         start_new_session=True,
+        env=_daemon_env(),
     )
     pid_file.write_text(str(proc.pid))
     return proc.pid
