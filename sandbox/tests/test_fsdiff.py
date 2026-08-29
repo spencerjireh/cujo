@@ -7,7 +7,13 @@ from pathlib import Path
 
 from cujo_sniff.context import Context, state_paths
 from cujo_sniff.report import build_sensor_block
-from cujo_sniff.sensors.fsdiff import Snapshot, _snapshot_roots, diff_snapshots, snapshot
+from cujo_sniff.sensors.fsdiff import (
+    UNREADABLE,
+    Snapshot,
+    _snapshot_roots,
+    diff_snapshots,
+    snapshot,
+)
 from tests.test_report import ARMED, NOT_TRUNCATED
 
 
@@ -151,19 +157,83 @@ def test_a_repointed_symlink_is_a_change(home_dir: Path, ctx: Context) -> None:
     assert "~/.aws/credentials" in changed
 
 
-def test_a_truncated_walk_reports_no_deletions(home_dir: Path) -> None:
-    """Two capped walks stop in different places, and the gap is not a deletion.
+def test_which_walk_was_cut_decides_which_absences_can_be_believed(home_dir: Path) -> None:
+    """A capped walk cannot prove a file was not there, and that cuts both ways.
 
-    Reporting it as one invented evidence: the file was never looked at, which
-    is what the `snapshot` truncation flag on the report says instead.
+    `created` reads the *before* walk's silence, so it needs that walk to be
+    complete; `deleted` reads the *after* walk's, so it needs the other one.
+    Suppressing both whenever either was cut loses real deletions from a command
+    that shrinks a tree past the cap; suppressing neither invents `created` rows
+    for files the first walk merely never reached. Either mistake ends up in
+    `wrote_sensitive`, which is a `critical` the agent may not lower.
     """
-    before = Snapshot({str(home_dir / "a"): (1, 1, None)}, truncated=True)
-    after = Snapshot({str(home_dir / "b"): (1, 1, None)}, truncated=True)
-    kinds = {c["type"] for c in diff_snapshots(before, after, [], home_dir)}
-    assert kinds == {"created"}
-    # The same pair of walks, complete, does report the deletion.
-    complete = diff_snapshots(walked(before.entries), walked(after.entries), [], home_dir)
-    assert {c["type"] for c in complete} == {"created", "deleted"}
+    gone, made = str(home_dir / "gone"), str(home_dir / "made")
+    entries = lambda names: {n: (1, 1, None) for n in names}  # noqa: E731
+
+    def kinds(before: Snapshot, after: Snapshot) -> dict[str, str]:
+        return {c["path"]: c["type"] for c in diff_snapshots(before, after, [], home_dir)}
+
+    complete = kinds(walked(entries([gone])), walked(entries([made])))
+    assert complete == {"~/gone": "deleted", "~/made": "created"}
+
+    # Before was cut: `made` may be a file that walk never reached. `gone` is
+    # still a deletion, because the complete after walk would have found it.
+    cut_before = kinds(Snapshot(entries([gone]), True), walked(entries([made])))
+    assert cut_before == {"~/gone": "deleted"}
+
+    # After was cut, and the argument runs the other way.
+    cut_after = kinds(walked(entries([gone])), Snapshot(entries([made]), True))
+    assert cut_after == {"~/made": "created"}
+
+    assert kinds(Snapshot(entries([gone]), True), Snapshot(entries([made]), True)) == {}
+
+
+def test_a_change_is_reported_however_short_the_walks_were(home_dir: Path) -> None:
+    # Truncation only makes an *absence* unreadable. A path both walks hold was
+    # measured twice, so the comparison stands whatever the cap did elsewhere.
+    path = str(home_dir / ".ssh" / "id_rsa")
+    before = Snapshot({path: (1, 1, "aaa")}, truncated=True)
+    after = Snapshot({path: (1, 1, "bbb")}, truncated=True)
+    changes = diff_snapshots(before, after, [], home_dir)
+    assert [c["type"] for c in changes] == ["modified"]
+    assert changes[0]["sensitive"] is True
+
+
+def test_a_digest_that_could_not_be_taken_is_not_a_digest_nobody_wanted(home_dir: Path) -> None:
+    """`chmod 000` after a same-length edit must not read as unchanged.
+
+    Both cases put something other than a hash in the entry, and conflating them
+    hands back the exact evasion the digest was added to close: overwrite the
+    key, restore the timestamp, then make the file unreadable.
+    """
+    creds = str(home_dir / ".aws" / "credentials")
+    hashed = Snapshot({creds: (1, 1, "aaa")}, truncated=False)
+    unreadable = Snapshot({creds: (1, 1, UNREADABLE)}, truncated=False)
+    assert [c["type"] for c in diff_snapshots(hashed, unreadable, [], home_dir)] == ["modified"]
+
+    # Out of scope on both sides is the other thing entirely: nothing was ever
+    # hashed, so metadata is the whole answer, as it was before digests existed.
+    out_of_scope = Snapshot({str(home_dir / "app.py"): (1, 1, None)}, truncated=False)
+    assert diff_snapshots(out_of_scope, out_of_scope, [], home_dir) == []
+
+
+def test_a_fifo_swapped_in_after_the_stat_does_not_hang_the_snapshot(
+    home_dir: Path, ctx: Context
+) -> None:
+    """The walk `lstat`s a name and then opens it, and the command owns the tree.
+
+    A FIFO with no writer blocks a plain open forever, which would hang the
+    sensed command and with it the check. Nothing here can force the race, so
+    what is pinned is the property that makes it survivable: a FIFO sitting in a
+    hashed location is walked without blocking, and is not called a regular file.
+    """
+    aws = home_dir / ".aws"
+    aws.mkdir()
+    os.mkfifo(aws / "credentials")
+    walk = {"state_dir": ctx.state_dir, "home_dir": home_dir}
+    # The assertion is that this returns at all.
+    entry = snapshot([home_dir], **walk).entries[str(aws / "credentials")]
+    assert entry[2] is None
 
 
 def test_a_filename_cannot_smuggle_control_characters(home_dir: Path) -> None:

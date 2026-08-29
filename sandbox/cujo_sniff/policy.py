@@ -74,18 +74,33 @@ SENSITIVE_HOME_PATHS = (
     ".gitconfig",
     ".gnupg",
 )
-# Prefixes, so `/etc/sudoers` covers `/etc/sudoers.d/` and `/etc/profile` covers
-# `/etc/profile.d/`. The ones that name a directory keep their trailing slash so
-# `/etc/ssh/` is not read as a prefix of `/etc/sshd_backup`.
-SENSITIVE_ABS_PREFIXES = (
-    "/etc/cron",
+# Absolute paths, each matched as itself or as a directory containing the path
+# in question -- never as a string prefix. `/etc/passwd` and `/etc/passwd_backup`
+# share eight characters and nothing else, and a `startswith` that conflated
+# them would turn an ordinary file the author happened to name badly into a
+# `critical` nobody can lower. So the directories are listed as directories and
+# every file is named outright, `/etc/cron.d` and `/etc/crontab` included, where
+# the single prefix `/etc/cron` used to stand for both.
+SENSITIVE_ABS_PATHS = (
+    "/etc/crontab",
+    "/etc/cron.d",
+    "/etc/cron.hourly",
+    "/etc/cron.daily",
+    "/etc/cron.weekly",
+    "/etc/cron.monthly",
+    "/etc/cron.allow",
+    "/etc/cron.deny",
     "/etc/shadow",
+    "/etc/gshadow",
     "/etc/passwd",
+    "/etc/group",
     "/etc/sudoers",
-    "/etc/ssh/",
-    "/etc/pam.d/",
-    "/etc/systemd/",
+    "/etc/sudoers.d",
+    "/etc/ssh",
+    "/etc/pam.d",
+    "/etc/systemd",
     "/etc/profile",
+    "/etc/profile.d",
     # Writable by root only, read by every dynamic executable: the shortest path
     # from a sandbox write to code running in someone else's process. It is also
     # under the `/etc/ld.so` noise prefix below, which is why the sensitive
@@ -125,7 +140,9 @@ def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
     for rel in SENSITIVE_HOME_PATHS:
         if any(under(c, root / rel) for c in candidates for root in roots):
             return True
-    return any(str(c).startswith(SENSITIVE_ABS_PREFIXES) for c in candidates)
+    # `under`, not `startswith`: the entry has to be the path itself or a
+    # directory above it. A shared prefix is not a relationship.
+    return any(under(c, Path(abs_path)) for c in candidates for abs_path in SENSITIVE_ABS_PATHS)
 
 
 def should_hash(path: str, home_dir: Path | None = None) -> bool:

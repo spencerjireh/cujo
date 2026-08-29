@@ -2148,8 +2148,15 @@ quietly claiming more than it knew.
 `files_read` of two hundred read as a command that touched two hundred files.
 Worse, `MAX_SNAPSHOT_FILES` stopped the two filesystem walks in different
 places, and every path the second walk never reached became a `deleted` row —
-invented evidence, on the sensor with no way to be argued with. A truncated walk
-now reports no deletions at all, and the flag says why.
+invented evidence, on the sensor with no way to be argued with.
+
+The rule that replaced it took two goes, and the first was wrong in the other
+direction: suppressing every absence whenever *either* walk was capped also
+threw away real deletions from a command that shrinks a tree past the cap. The
+two flags are not interchangeable. A `created` row reads the before walk's
+silence, so it needs that walk complete; a `deleted` row reads the after walk's,
+so it needs the other one. A path both walks hold is always compared, because no
+absence is being read.
 
 **Escaping.** Every string in a report is written by the code under review, and
 it is read by the parent agent, quoted into a review, and rendered in a browser.
@@ -2167,10 +2174,23 @@ whatever is in there.
 the timestamp, and two `lstat` calls agree. A SHA-256 digest closes it, but
 hashing all of `$HOME` would make each snapshot a full read of it, so the digest
 is spent where a silent edit is the whole attack — the credential locations and
-`/etc`. The sensitive set grew at the same time and for the same reason: it held
-nine `$HOME` paths and `/etc/cron`, so a write to `/etc/sudoers.d/` or
+`/etc`.
+
+Two details in that decide whether it works at all. A digest that was wanted and
+failed is recorded as its own value rather than as "no digest here", because
+otherwise the evasion closes back up: restore the timestamp and then `chmod 000`,
+and a failed digest read as out-of-scope falls back to the metadata that was
+just forged. And the hash opens with `O_NOFOLLOW | O_NONBLOCK` and checks the
+descriptor rather than the name — the command under test owns this tree, and a
+FIFO dropped in between the `lstat` and the open would block the snapshot, and
+with it the check, for as long as nobody writes to it.
+
+The sensitive set grew at the same time and for the same reason: it held nine
+`$HOME` paths and `/etc/cron`, so a write to `/etc/sudoers.d/` or
 `~/.kube/config` was `sensitive: false`. Every path added is one no benign
-installer writes.
+installer writes — and each is matched as itself or as a directory above the
+path in question, never as a string prefix, because `/etc/passwd` and
+`/etc/passwd_backup` share eight characters and nothing else.
 
 ### Additive only, which is what let this be one pull request
 

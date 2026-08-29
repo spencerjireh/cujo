@@ -18,10 +18,24 @@ from cujo_sniff.policy import DECOY_KEY
 
 IN_ACCESS = 0x1
 IN_OPEN = 0x20
+# The kernel sends this when the watch is removed, which includes the file being
+# deleted or renamed over. inotify watches an inode, not a name, so a command
+# that replaces `~/.aws/credentials` leaves the watch pointing at a file nothing
+# can reach any more -- and the daemon blocked on `read` looks perfectly alive.
+IN_IGNORED = 0x8000
 
 
 def _inotify_watch(path: Path, log_path: Path) -> bool:
-    """Block forever logging IN_OPEN/IN_ACCESS on `path`. False if unavailable."""
+    """Block forever logging IN_OPEN/IN_ACCESS on `path`. False if unavailable.
+
+    Re-arms on IN_IGNORED. A command that deletes the decoy or writes it through
+    a rename destroys the inode this watch is on, and the kernel then removes
+    the watch and says so -- but the loop above it would go on reading from a
+    descriptor no event will ever arrive at, alive and blind. Re-adding the
+    watch by name picks up whatever file now holds that path. When there is no
+    such file the daemon says so and stops, which is the honest answer and the
+    one the health block can read.
+    """
     if not sys.platform.startswith("linux"):
         return False
     import ctypes
@@ -44,6 +58,18 @@ def _inotify_watch(path: Path, log_path: Path) -> bool:
         while offset + 16 <= len(data):
             _, mask, _, name_len = struct.unpack_from("iIII", data, offset)
             offset += 16 + name_len
+            if mask & IN_IGNORED:
+                wd = libc.inotify_add_watch(fd, str(path).encode(), IN_OPEN | IN_ACCESS)
+                if wd < 0:
+                    append_jsonl(
+                        log_path,
+                        {"ts": time.time(), "event": "watch_lost", "backend": "inotify"},
+                    )
+                    return True
+                append_jsonl(
+                    log_path, {"ts": time.time(), "event": "watching", "backend": "inotify"}
+                )
+                continue
             kind = "open" if mask & IN_OPEN else "access"
             append_jsonl(log_path, {"ts": time.time(), "event": kind, "backend": "inotify"})
 

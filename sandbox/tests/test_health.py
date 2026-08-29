@@ -180,3 +180,48 @@ def test_the_health_block_names_nothing_a_public_page_may_not_show(home_dir: Pat
     rendered = json.dumps(block["sensors"])
     assert str(home_dir) not in rendered
     assert "/" not in rendered
+
+
+def test_a_live_watcher_on_a_replaced_decoy_is_not_armed(ctx: Context, home_dir: Path) -> None:
+    """inotify follows an inode, not a name.
+
+    A command that deletes `~/.aws/credentials`, or writes it through a rename,
+    moves the file out from under the watch. The daemon re-arms where it can;
+    where it cannot it stays alive and blocked, and a pid check alone would call
+    that armed while no decoy read could ever be seen again.
+    """
+    _pids(ctx, proxy=-1, watcher=-1)
+    decoy = home_dir / ".aws" / "credentials"
+    decoy.parent.mkdir(parents=True)
+    decoy.write_text("seeded")
+    config = {
+        "proxy_armed": True,
+        "decoy_backend": "inotify",
+        "decoy": str(decoy),
+        "decoy_inode": decoy.stat().st_ino,
+    }
+    assert daemon_health(ctx, config)["decoy"]["armed"] is True
+
+    # Replaced, not edited: a new inode at the same path.
+    replacement = home_dir / ".aws" / "theirs"
+    replacement.write_text("mine now")
+    replacement.replace(decoy)
+    replaced = daemon_health(ctx, config)["decoy"]
+    assert replaced["armed"] is False
+    assert "gone" in replaced["detail"]
+
+    # Deleted outright is the same answer.
+    decoy.unlink()
+    assert daemon_health(ctx, config)["decoy"]["armed"] is False
+
+
+def test_a_report_from_before_the_inode_was_recorded_is_not_called_blind(
+    ctx: Context, home_dir: Path
+) -> None:
+    # `decoy_inode` is absent from a config an earlier `setup` wrote. Absent is
+    # unknown, and unknown must not read as a fault -- the same rule the trusted
+    # side applies to a report with no health block at all.
+    _pids(ctx, proxy=-1, watcher=-1)
+    assert daemon_health(ctx, {"proxy_armed": True, "decoy_backend": "atime"})["decoy"] == health(
+        True, "atime"
+    )

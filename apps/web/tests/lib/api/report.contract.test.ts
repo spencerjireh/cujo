@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { alarms, parseReport, unarmed } from "@/lib/api/report";
+import { alarms, needsAttention, parseReport, unarmed } from "@/lib/api/report";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -68,16 +68,33 @@ describe("the canonical report example", () => {
     expect(alarms(block(EXAMPLE, 1))).not.toContain("decoy secret left the sandbox");
   });
 
-  it("raises the sensor that was off to the alarm strip", () => {
+  it("opens the card for a sensor that was off, without raising a second chip", () => {
     const quiet = block(EXAMPLE, 2);
     // Nothing in this run tripped anything, and that is exactly when a reader
     // needs to know the watcher had stopped.
     expect(quiet.derived?.wrote_sensitive).toBe(false);
     expect(unarmed(quiet)).toEqual(["decoy"]);
-    expect(alarms(quiet)).toContain("the decoy sensor was not watching");
+    expect(needsAttention(quiet)).toBe(true);
+    // Not an alarm chip, though. The roll-up is the pessimistic summary of the
+    // runs, so this one blind interval is true of two of the three blocks; a
+    // chip on each would count one gap twice. The health strip carries it, once
+    // per card, and says which run it was.
+    expect(alarms(quiet)).toEqual([]);
+    expect(unarmed(block(EXAMPLE, 0))).toEqual(["decoy"]);
+    expect(unarmed(block(EXAMPLE, 1))).toEqual([]);
     // The audit hook being unarmed is ordinary for a check that runs no Python.
     expect(quiet.sensors?.audit?.armed).toBe(false);
-    expect(alarms(quiet)).not.toContain("the audit sensor was not watching");
+    expect(unarmed(quiet)).not.toContain("audit");
+  });
+
+  it("says when a cap cut the output, which has no table to say it in", () => {
+    // stdout_tail and stderr_tail are parsed here and rendered nowhere else, so
+    // a flag with no home would be evidence-of-missing-evidence, dropped.
+    const run = block(EXAMPLE, 1);
+    expect(run.truncated).toMatchObject({ stdout_tail: false, stderr_tail: false });
+    const cut = block({ egress: [], truncated: { stdout_tail: true } }, 0);
+    expect(cut.truncated?.stdout_tail).toBe(true);
+    expect(needsAttention(cut)).toBe(false);
   });
 
   it("treats an absent health block as unknown, not as off", () => {
@@ -85,5 +102,6 @@ describe("the canonical report example", () => {
     expect(bare.sensors).toBeNull();
     expect(unarmed(bare)).toEqual([]);
     expect(alarms(bare)).toEqual([]);
+    expect(needsAttention(bare)).toBe(false);
   });
 });

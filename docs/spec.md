@@ -320,6 +320,15 @@ would make each snapshot a full read of `$HOME`, so it is spent only there. A
 symlink is digested by its target string, so a link repointed with its timestamp
 preserved is still a change.
 
+A digest that was wanted and could not be taken is recorded as its own value,
+distinct from one that was never wanted: otherwise the evasion closes back up —
+overwrite the key, restore the timestamp, then make the file unreadable, and a
+failed digest treated as out-of-scope falls back to the metadata that was just
+forged. And the walk opens what it hashes with `O_NOFOLLOW | O_NONBLOCK`,
+checking the descriptor rather than the name it asked for, because the command
+under test owns this tree and a FIFO substituted between the `lstat` and the
+open would otherwise block the snapshot for as long as nobody writes to it.
+
 The proxy and the watcher write to logs shared by every check, so a report is
 the slice of those logs written while one command ran. `sniff.py run` and
 `detonate` therefore take an exclusive lock for the duration: one sensed
@@ -368,7 +377,7 @@ observed" and "not observable" stop reading alike.
 | sensor | armed when | `detail` |
 |---|---|---|
 | `proxy` | the daemon bound its port during `setup` **and** is still alive now | the loopback port |
-| `decoy` | the watcher armed during `setup` **and** is still alive now | `inotify` or `atime` — which one matters, because the atime fallback is close to useless under `relatime` |
+| `decoy` | the watcher armed during `setup`, is still alive, **and** the file it armed on is still the file at that path | `inotify` or `atime` — which one matters, because the atime fallback is close to useless under `relatime` |
 | `audit` | the hook wrote its `armed` row into this command's log | the row count, or that no Python process ran |
 | `fs_diff` | the walk reached any file at all | how many paths, and whether the cap cut it |
 
@@ -376,6 +385,13 @@ Both daemon entries are re-checked per command, not taken from `setup`: a proxy
 that died during the first check used to leave the three that followed with an
 empty `egress` and a clean `egress_to_unknown_host` — a clean bill of health
 from a blind sensor.
+
+For the watcher, still running is not enough. inotify watches an inode rather
+than a name, so a command that deletes the decoy or renames a file over it moves
+the watch off the path it was asked about while the daemon stays alive and
+blocked. It re-arms on `IN_IGNORED` where a file is there to re-arm on; where
+there is not, the seeded decoy is gone, nothing is left to read, and a quiet
+`decoy_read` means nothing. `setup` records the inode for that comparison.
 
 An unarmed `proxy` or `decoy` is one `warn` in `apps/cujo` (`sensor_unarmed`),
 never a `critical`: it says the evidence is thin, not that the code did
@@ -394,10 +410,14 @@ Four caps bound what a report can cost: `TAIL_CHARS` on each output tail,
 `MAX_SNAPSHOT_FILES` on each filesystem walk. `truncated` carries one boolean
 per cap, because a list that was cut is not a list that was empty.
 
-A truncated walk also suppresses `deleted` rows for that report. Two capped
-walks of a tree being written to do not stop in the same place, and the
-difference between them looks exactly like a deletion; the flag is what says
-why the deletions are missing instead.
+A capped walk also changes what the filesystem diff may conclude, and which of
+the two walks was capped decides which half. A `created` row reads the *before*
+walk's silence about a path — a complete walk would have found it already — so
+it needs that walk to have finished; a `deleted` row reads the *after* walk's,
+so it needs the other one. A change to a path both walks hold is always
+reported, because no absence is being read. Getting this wrong in either
+direction invents evidence, and `wrote_sensitive` is a `critical` the agent may
+not lower.
 
 `window_exclusive`, on each run, is the same kind of statement about the lock:
 `false` means another sensed command overlapped this one, so rows in this report

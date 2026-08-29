@@ -89,9 +89,31 @@ def test_the_credential_locations_a_sandbox_never_writes(home_dir: Path) -> None
         "/etc/profile.d/x.sh",
     ):
         assert is_sensitive(path, home_dir), path
-    # Prefixes end where they should: /etc/sshd_backup is not /etc/ssh/.
-    assert not is_sensitive("/etc/sshd_backup", home_dir)
     assert not is_sensitive("/etc/hostname", home_dir)
+
+
+def test_a_shared_prefix_is_not_a_sensitive_path(home_dir: Path) -> None:
+    """`/etc/passwd` and `/etc/passwd_backup` share eight characters, and that is
+    all they share.
+
+    A `startswith` over the absolute set conflated them, and a write to a file
+    the author happened to name badly became a `critical` nobody can lower. The
+    entry has to be the path itself or a directory above it.
+    """
+    for sibling in (
+        "/etc/passwd_backup",
+        "/etc/shadow.bak",
+        "/etc/sudoers_notes",
+        "/etc/sshd_backup",
+        "/etc/cronjunk",
+        "/etc/profiler.conf",
+        "/etc/systemdish",
+    ):
+        assert not is_sensitive(sibling, home_dir), sibling
+    # And the directories still cover what is under them.
+    assert is_sensitive("/etc/ssh/sshd_config", home_dir)
+    assert is_sensitive("/etc/sudoers.d/99-pwn", home_dir)
+    assert is_sensitive("/etc/cron.d/job", home_dir)
 
 
 def test_ld_so_preload_is_sensitive_before_it_is_noise(home_dir: Path) -> None:
