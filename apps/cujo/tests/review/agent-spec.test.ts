@@ -172,15 +172,17 @@ describe("buildAgentSpec", () => {
     // first, every step is chained so a failure stops delivery, and the
     // destination is replaced rather than merged into -- otherwise a module
     // deleted upstream survives in /tmp/cujo and gets imported.
-    const step = loadRubric().split("2. `git clone")[0];
-    expect(step).toContain("rm -rf /tmp/cujo-src /tmp/cujo-src.tgz");
-    // No unchained step: every line of the block ends in `&&` bar the last.
-    const chain = step
-      .split("```")[1]
+    const block = loadRubric()
+      .split("```")
+      .find((part) => part.includes("{{CUJO_SNIFF_TARBALL_URL}}"));
+    expect(block).toBeDefined();
+    const chain = (block ?? "")
       .split("\n")
-      .map((l) => l.trim())
+      .map((line) => line.trim())
       .filter(Boolean);
-    expect(chain.length).toBeGreaterThan(1);
+    expect(chain[0]).toBe("rm -rf /tmp/cujo-src /tmp/cujo-src.tgz &&");
+    expect(chain.at(-1)).toBe("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo");
+    // No unchained step: every line but the last ends in `&&`.
     for (const line of chain.slice(0, -1)) expect(line.endsWith("&&")).toBe(true);
   });
 });
