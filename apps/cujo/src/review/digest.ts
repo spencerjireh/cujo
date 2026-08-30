@@ -27,7 +27,7 @@ function stamp(value: string | null): number {
 /**
  * One check's own wall time, or null while it runs and on a check whose stamps
  * are missing or backwards. Exported because the Discord card's Checks field
- * says the same thing the digest does (decision 79): what the check measured,
+ * says the same thing the digest does (decision 80): what the check measured,
  * not a verdict glyph.
  */
 export function checkMs(check: CheckState): number | null {

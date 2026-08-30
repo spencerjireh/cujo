@@ -6,9 +6,12 @@ and an action.
 
 ## Scope
 
-- **Trigger:** every pull request on a repo where the Cujo GitHub App is
-  installed. There is no file filter; a PR that changes only code gets the same
-  run as one that changes a dependency manifest.
+- **Trigger:** every non-draft pull request on a repo where the Cujo GitHub App
+  is installed, unless the PR carries the `cujo:skip` label (decision 80).
+  There is no file filter; a PR that changes only code gets the same run as
+  one that changes a dependency manifest. A PR whose changed files are all
+  documentation receives a full run but the agent uses advisory mode
+  (`docs_only: true` in the turn payload) rather than blocking.
 - **Ecosystem:** any the agent recognises. The agent infers how to install,
   test, and boot the repo from what it finds (`pyproject.toml`, `package.json`,
   `Makefile`, CI workflows). A `.cujo.yml` in the target repo overrides the
@@ -56,7 +59,7 @@ The split between deterministic code and agent reasoning is fixed:
 ## Contract 1 — the trigger
 
 The Cujo GitHub App subscribes to `pull_request` events (`opened`,
-`synchronize`), to `repository` events (`privatized`, `publicized`), to
+`synchronize`, `ready_for_review`), to `repository` events (`privatized`, `publicized`), to
 `issue_comment` events (`created`), and to `pull_request_review_comment` events
 (`created`). The signature is checked before the event type, so all four arrive
 on the same route with the same one gate in front of them.
@@ -140,6 +143,13 @@ those threads, so it is what conversation needs and what a reply to a finding
 arrives on. It carries conversation and never a privileged verb; narrowing the
 surfaces that can decide a review costs nothing, since `/cujo` is about the run
 rather than about one line. Contract 10 has the rest.
+
+Before claiming a run, the webhook applies three entry filters in order
+(decision 80). A draft PR (`pull_request.draft === true`) is ignored. A PR
+carrying the `cujo:skip` label is ignored. Both return 200 with no session and
+no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
+to a full run, but the turn message carries `docs_only: true` so the agent
+selects advisory mode.
 
 For a `pull_request` event the `apps/cujo` webhook module:
 
@@ -1099,7 +1109,7 @@ the process, not only at the edge:
   one correlation id. The run page serves `generateMetadata` from the same
   anonymous read, so a run link pasted anywhere unfurls as that run rather
   than as the site's front page — disclosing nothing the same caller cannot
-  already read from the same URL (decision 79, on 65's argument). A private
+  already read from the same URL (decision 80, on 65's argument). A private
   run 404s and inherits the site default, and the page stays `noindex`.
 - A path the board does not serve renders the board's own 404 and not the
   framework's, so a link left over from the deleted operator plane — `/login`
@@ -1169,7 +1179,7 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 The colour column is the brand severity ramp, dark values (decision 36); an
 embed carries one colour and is read on a dark client.
 
-**The author line is the opener's** (decision 79, reversing 55's allocation).
+**The author line is the opener's** (decision 80, reversing 55's allocation).
 An embed's author line is the one slot that renders an icon in front of text,
 and it goes to the variable party: the person who opened the pull request,
 avatar built from the numeric account id, profile linked only for a login the
@@ -1189,7 +1199,7 @@ the clamp only drops fields, the author line is the one identity the
 stored, or one whose account has since been deleted, shows Cujo in the author
 line as before, with no footer icon.
 
-**A check says what it measured, not a tick** (decision 79, on 65's precedent
+**A check says what it measured, not a tick** (decision 80, on 65's precedent
 for the list row). The `Checks` field carries, per check, its terminal state
 in words, the criticals attributed to it, and how long it watched —
 `tests done, 1 critical, 41s` — with `0 critical` written out rather than
@@ -1206,7 +1216,7 @@ it would sit in the channel beside the real one.
 **The ping.** A Discord edit notifies nobody, so the one moment that needs a
 person cannot be an edit. On `blocked_pending` Cujo posts a second message
 that mentions `notify_role_id`, and that message carries its own card
-(decision 79): a slim amber embed titled `repo #n — <pr title>` — linking the
+(decision 80): a slim amber embed titled `repo #n — <pr title>` — linking the
 run when it has a page — saying the critical count and that a human is
 blocked, with no fields, because it sits directly under the run card and
 anything it repeated from the card above it would be noise. The mention stays
@@ -1261,7 +1271,7 @@ request. So, without exception:
    400 that loses the card for the whole run, since every later edit then has
    no message id to edit.
 7. No derived string reaches an embed URL field unless it passed a strict
-   allowlist first (decision 55; the slots moved with decision 79, the
+   allowlist first (decision 55; the slots moved with decision 80, the
    allowlists did not). There are exactly two, both about the pull request's
    author: the avatar is built from the numeric account id and sits in the
    author line, and the profile link only from a login matching
@@ -1276,7 +1286,7 @@ request. So, without exception:
    is not structural: its title carries the pull request's title, which is
    stranger-authored text on this payload for the first time, so it passes
    through the same escaping, truncation and clamping as any card string
-   (amended by decision 79; before it, the whole ping was plain text).
+   (amended by decision 80; before it, the whole ping was plain text).
 
 **Delivery is at-least-once, and never blocks a run.** A failed send is logged
 and dropped; nothing about a run's status, review, or approval depends on

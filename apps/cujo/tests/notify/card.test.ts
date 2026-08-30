@@ -278,7 +278,7 @@ describe("buildRunCard", () => {
 
     it.each(STATUSES)("puts the opener's avatar in front of their name on %s", (status) => {
       // The author line is the one slot that renders an icon in front of text,
-      // and since decision 79 it goes to the variable party: Cujo is already
+      // and since decision 80 it goes to the variable party: Cujo is already
       // named by the app badge directly above it.
       const embed = embedOf({ status });
       expect(embed?.author?.name).toBe("@octocat");
@@ -290,7 +290,7 @@ describe("buildRunCard", () => {
 
     it("renders an underscored login without the backslash escaping would add", () => {
       // The author line renders no markdown, so `escapeMarkdown` there would
-      // be litter rather than defusal (decision 79).
+      // be litter rather than defusal (decision 80).
       const embed = embedOf({ prAuthorLogin: "some_login" });
       expect(embed?.author?.name).toBe("@some_login");
     });
@@ -373,7 +373,7 @@ describe("buildRunCard", () => {
       });
       const fields = payload.embeds?.[0]?.fields ?? [];
       // Discord only shares a row between neighbouring inline fields, which is
-      // why the counts moved up here when `Opened by` went (decision 79).
+      // why the counts moved up here when `Opened by` went (decision 80).
       expect(fields.slice(0, 3).map((f) => f.name)).toEqual(["Head", "Pull request", "Findings"]);
       expect(fields[2]?.inline).toBe(true);
     });
@@ -417,7 +417,7 @@ describe("buildRunCard", () => {
       // fact from one that failed.
       expect(checks?.value).toContain("detonation —");
       // The tick meant "the thread finished", and read as "passed" under a
-      // `Critical (3)` heading. It is gone entirely (decision 79).
+      // `Critical (3)` heading. It is gone entirely (decision 80).
       expect(JSON.stringify(payload)).not.toMatch(/[✅❌⏳]/u);
     });
 
@@ -555,7 +555,7 @@ describe("buildPing", () => {
     const payload = pingOf();
     expect(payload.content).toContain(`<${PUBLIC_UI}/runs/${run().id}>`);
     // Not the bare form: that is the grey site-preview box this message
-    // exists to replace (decision 79).
+    // exists to replace (decision 80).
     expect(payload.content).not.toContain(` ${PUBLIC_UI}/runs/${run().id}`);
   });
 
