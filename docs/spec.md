@@ -400,11 +400,11 @@ command did, and the escape is its own account of itself, so there is no
 "sanitized" flag to carry.
 
 Because escaping expands — four characters for a control byte, six for a
-bidirectional override — a length cap has to be measured on the escaped text.
-`prepare` does this, spending its budget one whole character at a time so no
-escape is cut in half. `runner.py`'s output tails still cap before escaping,
-which lets a check's own output return up to six times `TAIL_CHARS`; that is a
-known gap with its own fix pending, not a property of the format.
+bidirectional override — a length cap is measured on the escaped text and never
+on the text (decision 72). Every capped string spends its budget one whole
+character at a time, so no escape is ever cut in half: a truncated `\u202e`
+would read as `\u20`, which is text the command did not print. `truncated` is
+true when either the output or its escaped form was cut.
 
 The sensors, layered from language-agnostic to language-specific:
 
@@ -595,8 +595,11 @@ Six caps bound what a report can cost: `TAIL_CHARS` on each output tail,
 digest will be taken over, and the JSONL parser itself. `truncated` carries one
 boolean per cap, because a list that was cut is not a list that was empty — and
 because a comparison that was never made must not read like one that came back
-clean. `truncated.sensor_logs` is true when any sensor log file contained lines
-that could not be decoded as JSON — typically a torn last line written by a
+clean. The tail flags mean the output *or its escaped form* was cut: escaping
+expands, the cap is charged after it, so a command that printed only bidi
+overrides overflows a budget its raw length fits inside (decision 72).
+`truncated.sensor_logs` is true when any sensor log file contained lines that
+could not be decoded as JSON — typically a torn last line written by a
 daemon killed mid-flush. `truncated.hashes` is the size-limit case: over the
 limit there is no digest on either side, so the file falls back to the
 `(mtime, size)` a restored timestamp defeats. The limit sits well past any real

@@ -17,9 +17,10 @@ from pathlib import Path
 
 import pytest
 
+from cujo_sniff.cli import main
 from cujo_sniff.context import Context, state_paths
 from cujo_sniff.daemons import pid_alive
-from cujo_sniff.policy import DECOY_KEY, SCHEMA_VERSION
+from cujo_sniff.policy import DECOY_KEY, MAX_SCRIPT_CHARS, SCHEMA_VERSION, TAIL_CHARS
 from tests.conftest import CODE_DIR, Cli
 
 pytestmark = pytest.mark.harness
@@ -327,5 +328,103 @@ def test_output_reaches_the_report_escaped(cli: Cli, home_dir: Path) -> None:
         assert report["stdout_tail"] == "\\x1b[2Jcleared\nsecond line"
         # The Python that printed it did arm the hook.
         assert report["sensors"]["audit"]["armed"] is True
+    finally:
+        cli(["teardown"])
+
+
+def test_a_hostile_output_cannot_spend_more_than_the_tail_budget(cli: Cli, home_dir: Path) -> None:
+    """The cap is on what reaches the prompt, and escaping is where size is set.
+
+    `\\u202e` is six characters out for one in, so capping the raw output and
+    escaping afterwards returned six times `TAIL_CHARS` -- and the output is
+    written by the code under review, which is what makes the gap a lever.
+    """
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        script = rf"import sys; sys.stdout.write('\u202e' * {TAIL_CHARS * 2})"
+        report = cli(
+            ["run", "--check", "tests", "--cwd", str(home_dir), "--", sys.executable, "-c", script]
+        )
+        assert report["exit"] == 0
+        assert len(report["stdout_tail"]) <= TAIL_CHARS
+        assert report["truncated"]["stdout_tail"] is True
+        # Whole escapes only: a half-written `\\u20` is text nothing printed.
+        assert set(report["stdout_tail"].split("\\u202e")) <= {""}
+    finally:
+        cli(["teardown"])
+
+
+def test_the_error_envelope_spends_its_budget_after_escaping(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The envelope is the last thing a failed command says.
+
+    It used to escape and then slice, which bounds the size and cuts an escape
+    wherever the budget happens to land -- leaving a bare `\\u` that nothing
+    raised, in the field a reader trusts most because it is all that is left.
+
+    In process and not through `cli.raw`: an exception raised by a *path* is
+    reported by Python with Python's own `\\u` escaping already in it, so a
+    partial sequence at the cut could belong to either escaper and the test
+    would decide nothing. Raising the characters directly makes the escaping
+    ours alone.
+
+    And at every alignment, because one offset decides nothing either. Six
+    characters out per character in means one message in six is cut cleanly by
+    accident -- the first version of this test picked exactly that one and
+    passed against the bug it was written for.
+    """
+    for pad in range(6):
+        boom = "." * pad + "\u202e" * 2000
+
+        def explode(*_args: object, message: str = boom, **_kwargs: object) -> dict[str, object]:
+            raise RuntimeError(message)
+
+        monkeypatch.setattr("cujo_sniff.cli.cmd_teardown", explode)
+        with pytest.raises(SystemExit):
+            main(["teardown"])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert len(payload["error"]) <= 2000
+        # Whole escapes only. A `\\u` or `\\u2` left at the boundary survives
+        # this split and fails here, which is what the old slice produced.
+        body = payload["error"].removeprefix("RuntimeError: ").lstrip(".")
+        assert set(body.split("\\u202e")) <= {""}, (pad, body[-24:])
+
+
+def test_a_hostile_script_cannot_be_cut_mid_escape(cli: Cli, home_dir: Path) -> None:
+    """`script_content` is the probe's own file, captured by the sensor.
+
+    It landed on main escaping first and slicing the result, which bounds the
+    size and cuts `\\u202e` into `\\u20` -- text the script does not contain, in
+    a field whose entire purpose is to let a reader diff what the agent claimed
+    against what the sensor saw. Every alignment, because six characters out per
+    character in means one script in six is cut cleanly by accident.
+    """
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        for pad in range(6):
+            script = home_dir / f"probe_{pad}.py"
+            script.write_text("#" + "." * pad + "\u202e" * 8000 + "\npass\n")
+            report = cli(
+                [
+                    "run",
+                    "--check",
+                    "probes",
+                    "--cwd",
+                    str(home_dir),
+                    "--",
+                    sys.executable,
+                    str(script),
+                ]
+            )
+            content = report["script_content"]
+            assert content is not None
+            assert len(content) <= MAX_SCRIPT_CHARS, pad
+            assert report["truncated"]["script_content"] is True, pad
+            # Whole escapes only.
+            for fragment in content.split("\\u202e"):
+                assert "\\u" not in fragment, (pad, fragment[-20:])
     finally:
         cli(["teardown"])

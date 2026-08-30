@@ -147,3 +147,21 @@ class TestTheBudgetIsSpentOnTheEscapedText:
         text, truncated = scrub_tail(hostile, 4000, keep=KEEP_IN_TEXT)
         assert truncated is True
         assert len(text) <= 4000
+
+
+def test_a_hostile_argv_element_cannot_spend_more_than_its_budget() -> None:
+    """`argv` is chosen by the code under review as surely as its output is.
+
+    The audit hook records the arguments a process was started with, so a
+    subprocess spawned with a thousand bidi overrides in one argument used to
+    arrive as six thousand characters against a two-thousand budget.
+    """
+    hostile = "\u202e" * MAX_ARGV_CHARS
+    (only,) = scrub_argv([hostile])
+    assert len(only) <= MAX_ARGV_CHARS
+    # Whole escapes, and nothing else.
+    assert set(only.split("\\u202e")) <= {""}
+
+
+def test_an_ordinary_argv_element_is_not_charged_for_the_hostile_one() -> None:
+    assert scrub_argv(["pytest", "-q", "tests/"]) == ["pytest", "-q", "tests/"]
