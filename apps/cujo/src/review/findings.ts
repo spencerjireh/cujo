@@ -7,7 +7,14 @@
  */
 
 import { validateReport } from "./report-schema";
-import type { CheckState, DraftedReview, Finding, HardRule, Severity } from "./types";
+import type {
+  CheckState,
+  DraftedReview,
+  Finding,
+  HardRule,
+  ReviewComment,
+  Severity,
+} from "./types";
 
 type Obj = Record<string, unknown>;
 
@@ -329,6 +336,75 @@ export function agentFindings(review: DraftedReview | null): Finding[] {
     out.push(finding);
   }
   return out;
+}
+
+/**
+ * The inline comments a review posted, derived from the findings it carried
+ * (decision 71).
+ *
+ * There is no `comments[]` on the review tool any more. `github-mcp` builds the
+ * comments it posts from the anchored findings, and this builds the same list
+ * again so the board can show what landed on the diff — the same trade the hard
+ * rules take (decision 21), for the same reason: the trusted side must not have
+ * to ask the write-only server what it just posted.
+ *
+ * Read off the raw tool-call arguments, as leniently as `agentFindings` reads
+ * them, because that array is written by a model and validated nowhere on this
+ * side.
+ *
+ * **The body text is pinned by a test on both sides.** The same literal is
+ * asserted in `apps/github-mcp/tests/render.test.ts`; if the two drift, one
+ * finding gets two different descriptions depending on where it is read.
+ */
+export function commentsFromFindings(raw: readonly unknown[]): ReviewComment[] {
+  const out: ReviewComment[] = [];
+  const seen = new Set<string>();
+
+  const anchored = raw
+    .map(obj)
+    .filter((f) => typeof f.title === "string" && f.title.trim() !== "" && isSeverity(f.severity))
+    .map((f, index) => ({ f, index }))
+    .sort(
+      (a, b) =>
+        SEVERITY_RANK[a.f.severity as Severity] - SEVERITY_RANK[b.f.severity as Severity] ||
+        a.index - b.index,
+    );
+
+  for (const { f } of anchored) {
+    const path = typeof f.path === "string" ? f.path.trim() : "";
+    const line = typeof f.line === "number" && Number.isInteger(f.line) && f.line > 0 ? f.line : 0;
+    if (!path || !line) continue;
+    const side = f.side === "LEFT" ? "LEFT" : "RIGHT";
+    const key = `${path}:${line}:${side}:${String(f.title).toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ path, line, side, body: commentBody(f) });
+  }
+  return out;
+}
+
+/**
+ * One finding as an inline comment. The severity leads, because a comment on
+ * the Files changed tab arrives with no headline above it.
+ */
+function commentBody(f: Obj): string {
+  const text = (value: unknown): string =>
+    typeof value === "string" && value.trim() !== "" ? value.trim() : "";
+  const blocks = [`**${String(f.severity)} \u2014 ${String(f.title).trim()}**`];
+  const evidence = text(f.evidence);
+  if (evidence) {
+    blocks.push(
+      evidence
+        .split("\n")
+        .map((line) => `> ${line}`.trimEnd())
+        .join("\n"),
+    );
+  }
+  const detail = text(f.detail);
+  if (detail) blocks.push(detail);
+  const next = text(f.next);
+  if (next) blocks.push(`Next: ${next}`);
+  return blocks.join("\n\n");
 }
 
 /**

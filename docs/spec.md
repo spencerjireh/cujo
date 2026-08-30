@@ -659,13 +659,22 @@ The parent turns the check reports into a list of findings. Each finding:
   "severity": "critical",
   "title": "test_order_total_rounding passes on base, fails on head",
   "evidence": "AssertionError: 10.05 != 10.04 (tests/test_orders.py::test_order_total_rounding)",
+  "detail": "The change rounds the line total before the discount is applied rather than after.",
+  "next": "Round after the discount is applied, or update the two expectations.",
+  "held": false,
   "path": "app/orders.py",
   "line": 42,
   "side": "RIGHT"
 }
 ```
 
-`severity` is one of `info`, `warn`, `critical`. `path`, `line`, and `side`
+`severity` is one of `info`, `warn`, `critical`. `detail` is one paragraph of
+judgment, expected on every `critical`; `next` is one imperative clause naming
+the action, required on `critical`, allowed on `warn`, never on `info`, and only
+ever following from something a sensor observed — never style, architecture or
+preference. `held` marks a malice observation whose conclusion a
+`post_gated_review` call is holding back, and is set only on the call that also
+passes `accusation_follows`. `path`, `line`, and `side`
 are optional and anchor the finding as an inline comment. `line` is a line in
 the PR diff; `side` is `RIGHT` (the head version, the default) or `LEFT` (a
 line that exists only on base, for a finding about removed code).
@@ -704,7 +713,11 @@ accusation that harms someone if it is wrong, and it is the one place in this
 pipeline where a human holds information the sandbox cannot observe: they know
 the host, or the package, or the fixture that touches a fake credentials file on
 purpose. Each rule carries its identity on the finding as `rule`, so the split is
-matched on an id and never on the wording of a title.
+matched on an id and never on the wording of a title. `github-mcp`'s title
+backstop (decision 74) is that rule pointed the other way: it rewrites a title
+that is *nothing but* a Contract 2 field name into the sentence it means, and
+leaves one that is already prose alone — which is why no hard-rule finding is
+ever rewritten, since those have carried plain titles since they were written.
 
 The hard rules are tripwires, not proofs of absence. Each fires only on
 positive evidence a sensor recorded, so a sensor gap (a direct socket the
@@ -782,17 +795,33 @@ Which kind a finding is, is a decision the model expresses by choosing a tool
 name — see Contract 3 for what `apps/cujo` can and cannot verify about it after
 the fact.
 
-All three tools take the same input: a summary body and a `comments[]` array. The
-summary body lists what ran (checks, commands, durations), the results, and the
-egress observed. Each entry in `comments[]` is one finding with a `path`,
-`line`, and `side`, posted as an inline review comment on that diff line.
-`github-mcp` validates each anchor against the PR diff before posting; a
-finding with no anchor, or with an anchor outside the diff, moves into the
-body so a bad anchor never blocks the review. Which of the three it was —
-`file_not_in_diff`, `line_not_in_hunk` or `bad_line` — is recorded per comment
-and logged, because an agent citing a file the PR does not touch and one citing
-a real file outside the hunk are different mistakes (decision 37). The review
-body is unchanged either way.
+**The review body is composed by `github-mcp`, not written by the agent**
+(decision 74). All three tools take the same input: a one-sentence `body` giving
+the verdict in plain language, a `findings[]` array, and optional `coverage` and
+`egress`. From those the server builds the posted body, in a fixed order: a
+headline carrying the verdict word and the severity counts, the lede, the
+findings by severity, the coverage caveat, the egress line and its host table,
+and a collapsed machine-readable block. An empty section is omitted. **The
+verdict word comes from the tool**, so a model cannot write "blocked" onto an
+advisory review — the word is not a thing it supplies.
+
+**There is no `comments[]` parameter.** A finding carrying a `path`, a `line`
+and a `side` becomes an inline review comment on that diff line, derived from
+the finding rather than sent beside it; a call that sends `comments[]` anyway
+has the key stripped. `github-mcp` validates each derived anchor against the PR
+diff before posting, and a finding whose anchor is not in the diff is marked in
+place in the body — `(not in this diff)` — rather than moved to a section of its
+own, because the body already carries every finding. Which of the three
+rejections it was — `file_not_in_diff`, `line_not_in_hunk` or `bad_line` — is
+recorded per comment and logged, because an agent citing a file the PR does not
+touch and one citing a real file outside the hunk are different mistakes
+(decision 37).
+
+**A body written against an older rubric still renders.** A session pins its
+rubric at creation (decision 16) while `github-mcp` is stateless, so both shapes
+arrive on the same deploy: prose is detected, its headings demoted, and it is
+kept under a `### Notes` section with the headline and findings composed around
+it as usual. Nothing about an in-flight pull request degrades.
 
 A GitHub call that does not return 2xx raises a `GitHubError` carrying `status`,
 `path` and `method` as fields rather than interpolated into a message, so a
@@ -804,9 +833,12 @@ a request header back, and that is how one reaches a log line.
 Both also take an optional `run_id`, which the agent copies verbatim from the
 turn payload and never writes into the body itself. `github-mcp` validates it
 as a UUID, builds the link from its own `CUJO_PUBLIC_BASE_URL`, and appends the
-footer — a rule, then `Full evidence: <url>` — after the anchorless findings,
-so the link is always last, always the same shape, and always on Cujo's own
-host (decision 36). The agent supplies neither the format nor the destination.
+footer — a rule, then `Full evidence: <url>` — after the composed body, so the
+link is always last, always the same shape, and always on Cujo's own host
+(decision 36). The agent supplies neither the format nor the destination. The
+same URL is built once and appears twice, in the footer and as `run_url` inside
+the machine-readable block, so the visible link and the parseable one cannot
+disagree.
 
 Two independent conditions gate the footer, and each side owns the one it can
 answer: `apps/cujo` omits `run_id` from the turn payload for a private
@@ -834,8 +866,10 @@ what a tool does, but it is the explicit list that decides what pauses, so
 a finding accuses code of acting maliciously the agent calls the gated tool,
 after posting the observation, and the turn pauses with a `tool.approval_required`
 event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
-`apps/cujo` reads the drafted review (the tool call's `body` and `comments[]`)
-from the `model.message` event that `source_event_id` names, marks the run
+`apps/cujo` reads the drafted review (the tool call's `body` and `findings[]`,
+from which it derives the same anchored comment list `github-mcp` derives, so
+the board shows what landed on the diff — decisions 21 and 74) from the
+`model.message` event that `source_event_id` names, marks the run
 `blocked_pending`. The board shows nothing of it until it posts: publishing a
 held accusation is exactly what the gate prevents, and the audience there had no
 way to allow it. The answer comes from `/cujo confirm` or

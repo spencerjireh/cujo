@@ -19,7 +19,6 @@ const input = {
   pr_number: 7,
   head_sha: "abc1234",
   body: "What ran",
-  comments: [],
   findings: [],
 };
 
@@ -115,8 +114,60 @@ describe("review.posted", () => {
   });
 });
 
+describe("the composed body", () => {
+  function poster() {
+    let posted = "";
+    const github = {
+      listReviews: vi.fn(async () => []),
+      listPullFiles: vi.fn(async () => []),
+      createReview: vi.fn(async (_repo: string, _pr: number, req: { body: string }) => {
+        posted = req.body;
+        return { id: 1, html_url: "https://gh/r/1" };
+      }),
+    } as unknown as GitHubClient;
+    return { github, body: () => posted };
+  }
+
+  it("leads with a verdict headline on every tool", async () => {
+    for (const [tool, event, headline] of [
+      ["post_advisory_review", "COMMENT", "**Advisory** — no findings above info"],
+      ["post_blocking_review", "REQUEST_CHANGES", "**Blocked** — no findings above info"],
+      [
+        "post_gated_review",
+        "REQUEST_CHANGES",
+        "**Accusation, pending confirmation** — no findings above info",
+      ],
+    ] as const) {
+      const { log } = capture();
+      const { github, body } = poster();
+      await postReview(github, event, tool, input, "", log);
+      expect(body().split("\n")[0]).toBe(headline);
+    }
+  });
+
+  it("keeps the three appended blocks below everything it composed", async () => {
+    // The order the review is read in: what happened, then the evidence folds,
+    // then the call to action, then the link, then the marker nobody sees.
+    const { log } = capture();
+    const { github, body } = poster();
+    await postReview(
+      github,
+      "COMMENT",
+      "post_advisory_review",
+      { ...input, accusation_follows: true, run_id: "3f2504e0-4f89-11d3-9a0c-0305e82c3301" },
+      "https://cujo.example.com",
+      log,
+    );
+    const at = (needle: string) => body().indexOf(needle);
+    expect(at("Machine-readable summary")).toBeGreaterThan(at("**Advisory**"));
+    expect(at("/cujo confirm")).toBeGreaterThan(at("Machine-readable summary"));
+    expect(at("Full evidence")).toBeGreaterThan(at("/cujo confirm"));
+    expect(at("<!-- cujo:")).toBeGreaterThan(at("Full evidence"));
+  });
+});
+
 describe("review.anchor.moved", () => {
-  it("says why each anchor was rejected, which the count alone cannot", async () => {
+  it("says why each derived anchor was rejected, which the count alone cannot", async () => {
     const { log, of } = capture();
     const github = {
       // Only a.py is in the diff, and only line 2 of it.
@@ -132,22 +183,56 @@ describe("review.anchor.moved", () => {
       "post_advisory_review",
       {
         ...input,
-        comments: [
-          { path: "a.py", line: 2, body: "kept" },
-          { path: "b.py", line: 5, body: "file is not in the diff" },
-          { path: "a.py", line: 99, body: "line is outside the hunk" },
-          { path: "a.py", line: 0, body: "not a line at all" },
+        // Anchors ride on the findings now (decision 74); one severity for all
+        // of them, so the stable sort keeps the order they are written in.
+        findings: [
+          {
+            check: "probes",
+            severity: "warn" as const,
+            title: "kept",
+            evidence: "",
+            held: false,
+            path: "a.py",
+            line: 2,
+          },
+          {
+            check: "probes",
+            severity: "warn" as const,
+            title: "file is not in the diff",
+            evidence: "",
+            held: false,
+            path: "b.py",
+            line: 5,
+          },
+          {
+            check: "probes",
+            severity: "warn" as const,
+            title: "line is outside the hunk",
+            evidence: "",
+            held: false,
+            path: "a.py",
+            line: 99,
+          },
+          {
+            check: "probes",
+            severity: "warn" as const,
+            title: "no anchor at all",
+            evidence: "",
+            held: false,
+          },
         ],
       },
       "",
       log,
     );
+    // `bad_line` is unreachable from here by construction: a derived comment is
+    // only emitted for a positive integer line, and the schema demands one too.
+    // The branch stays in `validateAnchors`, which has its own test.
     expect(of("review.anchor.moved").map((l) => l.reason)).toEqual([
       "file_not_in_diff",
       "line_not_in_hunk",
-      "bad_line",
     ]);
-    expect(of("review.posted")[0]).toMatchObject({ posted_inline: 1, moved_to_body: 3 });
+    expect(of("review.posted")[0]).toMatchObject({ posted_inline: 1, moved_to_body: 2 });
   });
 });
 

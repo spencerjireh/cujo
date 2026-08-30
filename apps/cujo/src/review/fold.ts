@@ -1,6 +1,7 @@
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import {
   agentFindings,
+  commentsFromFindings,
   hardRuleFindings,
   invalidReportFindings,
   isMaliceClaim,
@@ -199,13 +200,20 @@ export function parseReview(
     args = asObject(args.input);
   }
   if (!REVIEW_TOOLS.has(tool)) return null;
-  const comments = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];
+  const findings = Array.isArray(args.findings) ? args.findings : [];
+  // Derived from the findings, because there is no `comments[]` on the review
+  // tool any more (decision 74) — except on a call from a session still pinned
+  // to the old rubric (decision 16), which sends one. Those arrive here whole:
+  // `apps/cujo` reads the model's raw arguments off the `model.message` event,
+  // before `github-mcp`'s schema strips a key it no longer declares. So an
+  // in-flight pull request keeps the comments its own review was posted with.
+  const sent = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];
   return {
     tool: tool as DraftedReview["tool"],
     toolCallId: call.id,
     body: typeof args.body === "string" ? args.body : "",
-    comments,
-    findings: Array.isArray(args.findings) ? args.findings : [],
+    comments: sent.length > 0 ? sent : commentsFromFindings(findings),
+    findings,
   };
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentFindings,
+  commentsFromFindings,
   hardRuleFindings,
   invalidReportFindings,
   isMaliceClaim,
@@ -396,6 +397,86 @@ describe("agentFindings", () => {
       { source: "agent", check: "review", severity: "info", title: "no check", evidence: "" },
     ]);
     expect(agentFindings(null)).toEqual([]);
+  });
+});
+
+describe("commentsFromFindings", () => {
+  const anchored = (over: Record<string, unknown> = {}) => ({
+    check: "probes",
+    severity: "warn",
+    title: "no test covers this",
+    evidence: "",
+    path: "app/orders.py",
+    line: 42,
+    ...over,
+  });
+
+  it("makes a comment out of every anchored finding, and only those", () => {
+    const out = commentsFromFindings([
+      anchored(),
+      anchored({ title: "no anchor", path: undefined, line: undefined }),
+      anchored({ title: "no line", line: undefined }),
+      anchored({ title: "junk line", line: 0 }),
+      anchored({ title: "not a line", line: 1.5 }),
+      "not an object",
+      null,
+    ]);
+    expect(out.map((c) => [c.path, c.line, c.side])).toEqual([["app/orders.py", 42, "RIGHT"]]);
+  });
+
+  it("drops a finding with no title or an invented severity, like agentFindings does", () => {
+    const out = commentsFromFindings([
+      anchored({ title: "   " }),
+      anchored({ title: "urgent", severity: "urgent" }),
+    ]);
+    expect(out).toEqual([]);
+  });
+
+  it("carries LEFT through for a finding about removed code", () => {
+    expect(commentsFromFindings([anchored({ side: "LEFT" })])[0]?.side).toBe("LEFT");
+  });
+
+  it("orders them by severity, so the board reads like the review", () => {
+    const out = commentsFromFindings([
+      anchored({ severity: "info", title: "i", line: 1 }),
+      anchored({ severity: "critical", title: "c", line: 2 }),
+      anchored({ severity: "warn", title: "w", line: 3 }),
+    ]);
+    expect(out.map((c) => c.line)).toEqual([2, 3, 1]);
+  });
+
+  it("posts one comment for a finding sent twice", () => {
+    expect(commentsFromFindings([anchored(), anchored()])).toHaveLength(1);
+  });
+
+  /**
+   * The template is pinned on both sides of the system. `github-mcp` composes
+   * the comment it actually posts, and this composes the copy the board shows;
+   * the same literal is asserted in `apps/github-mcp/tests/render.test.ts`
+   * (decision 74). If the two drift, one finding gets two descriptions.
+   */
+  it("leads with the severity, because an inline comment has no headline above it", () => {
+    const out = commentsFromFindings([
+      anchored({
+        severity: "critical",
+        title: "1 test passes on base and fails on head",
+        evidence: "AssertionError: 10.05 != 10.04",
+        detail: "The change rounds before the discount rather than after.",
+        next: "round after the discount is applied",
+      }),
+    ]);
+    expect(out[0]?.body).toBe(
+      "**critical \u2014 1 test passes on base and fails on head**\n\n" +
+        "> AssertionError: 10.05 != 10.04\n\n" +
+        "The change rounds before the discount rather than after.\n\n" +
+        "Next: round after the discount is applied",
+    );
+  });
+
+  it("drops the parts a finding does not have", () => {
+    expect(commentsFromFindings([anchored({ title: "no test covers this" })])[0]?.body).toBe(
+      "**warn \u2014 no test covers this**",
+    );
   });
 });
 

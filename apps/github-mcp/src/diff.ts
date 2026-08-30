@@ -140,15 +140,3 @@ export function validateAnchors(files: PullFile[], comments: ReviewComment[]): A
   }
   return { inline, moved };
 }
-
-/** Append the comments that lost their anchor to the review body. */
-export function appendMovedComments(body: string, moved: MovedComment[]): string {
-  if (moved.length === 0) return body;
-  // The reason is for the log, not for the review: a reader of the pull
-  // request wants the finding, and "line_not_in_hunk" is Cujo talking about
-  // itself. The rendered section is unchanged.
-  const lines = moved.map(
-    ({ comment: c }) => `- \`${c.path}:${c.line}\` (${c.side ?? "RIGHT"}): ${c.body.trim()}`,
-  );
-  return `${body.trimEnd()}\n\n### Findings without a diff anchor\n\n${lines.join("\n")}\n`;
-}

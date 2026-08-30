@@ -81,6 +81,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 72. [A length cap is spent on the escaped text, not on the text](#72-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 69. [A length cap is spent on the escaped text, not on the text](#69-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
+74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3695,3 +3696,128 @@ deliberately and one at a time, and a `critical` sourced from a check the rubric
 never named is worse than no check. **Spawning all four during setup**, which
 puts `tests`, `probes` and `smoke` to work against a tree that is not installed
 yet.
+
+## 74. The server owns the review body, not only its footer
+
+Decision 36 moved the evidence footer out of the rubric and into `body.ts`, on
+the argument that a rule telling a model to end its body a particular way is a
+rule that fails silently. Everything above the footer was left to the model, and
+the posted reviews show what that bought. On spencerjireh/orders-api #8 and #19
+the verdict is nowhere near the top — #19 opens with four provenance bullets and
+the reader reaches line 12 before learning anything decided; a sensor field name
+is used as a claim, `secret_probe.decoy_read: true`; the coverage caveat is a
+parenthesis reading "Other five services not run", when Cujo had executed one of
+six services; an `info` finding and a credential read are set in the same
+weight; there is not one inline comment, because every anchor was rejected and
+dumped into a section called "Findings without a diff anchor"; and there is
+nothing an agent reading the pull request could parse. Each of those is the
+failure decision 36 named, one layer up.
+
+**The review body is composed by `github-mcp` from structured input.** The model
+supplies findings and judgment; `render.ts` owns the headline, the ordering, the
+sections and the folds. `body` stays required and becomes one sentence — the
+verdict in plain language — and everything around it is built from `findings[]`,
+`coverage` and `egress`. What a review looks like is now testable prose with two
+golden cases, rather than a rule somebody hopes a model followed.
+
+**It reaches every session at once, which is why it is worth doing here rather
+than in the rubric.** A session pins its rubric at creation (decision 16), so a
+rubric edit only ever reaches new pull requests. `github-mcp` is stateless with a
+fresh server per request, so the rendering change applies to the next review on
+every open pull request, including ones created months before it shipped.
+
+**The verdict word comes from the tool, never from the model.** `Advisory`,
+`Blocked` and `Accusation, pending confirmation` are functions of which tool was
+called; `accusation_follows` adds the held count and the held markers and
+nothing else. A model cannot write "blocked" onto an advisory review, because
+the word is not a thing it supplies.
+
+**`comments[]` is deleted from the input and derived from the findings.** It was
+always a second copy of an anchor the finding already carried (`path`, `line`,
+`side` — Contract 3), and keeping two copies is what let #8 post a critical
+finding in the body with no comment on any line. One rule, one place: a finding
+with a usable anchor is an inline comment. The `### Findings without a diff
+anchor` section goes with it. That section existed so a rejected comment would
+not vanish, and no comment can vanish when every finding is already printed in
+the body — so a rejected anchor is now marked on the finding in place, and
+`review.anchor.moved` still logs which of the three rejections it was
+(decision 37). `bad_line` becomes unreachable through the derived path and the
+branch stays anyway, because `validateAnchors` is a public function with its own
+contract.
+
+**A held finding says that it is held.** On a review passing
+`accusation_follows`, the malice observations render as `warn · held` under one
+line saying Cujo is not publishing a conclusion until a maintainer answers.
+Before this, "changed code no test covers" and "this dependency read the decoy"
+were the same word in the same weight, which is precisely the reading the
+two-call design exists to prevent. Which findings are held is a boolean the
+rubric sets, not something the server infers: `github-mcp` has no reports
+(decision 5), and matching a title is the thing this entry is deleting.
+
+**The renderer rewrites a title that is still a field name.** A title matching a
+Contract 2 field pattern *in full* — `secret_probe.decoy_read`,
+`derived.wrote_sensitive`, `base_pass_head_fail` — is replaced with the sentence
+it means, and the raw expression moves into the evidence where it belongs. It
+never fires on the hard-rule findings, which have carried plain titles since
+they were written and keep their jargon in `evidence`; it fires on the model's
+own findings, which is where #19's jargon came from. An unrecognised dotted key
+is returned unchanged, because inventing a sentence for it would be the renderer
+making a claim about somebody's pull request. Contract 3 already says a rule's
+identity is matched on an id and never on the wording of a title; this is that
+rule pointed the other way.
+
+**A collapsed JSON block makes the review readable by an agent.** Fenced, one
+line, `schema_version` first, carrying the verdict, the counts, the coverage,
+the egress, the findings and the run URL. It is additive-only in the sense
+decision 54 gives that phrase: a key may be added, never renamed or removed, and
+absent input is `null` rather than a missing key. It sits in a fold because the
+audience for it is not the maintainer. `runUrl` was extracted from
+`appendRunFooter` so the URL in that block and the URL in the footer cannot come
+to disagree.
+
+**Legacy input still renders, and had to.** Every pull request open when this
+deploys keeps sending a prose body and a `comments[]` array until its session is
+replaced, and both shapes arrive on the same deploy. A prose body is detected —
+conservatively, on a newline, since a lede has none — and folded under
+`### Notes` with its headings demoted two levels so they cannot outrank the
+composed ones; the headline and findings are composed from `findings[]` as
+usual; coverage and egress are simply absent. The anchors survive the removal of
+`comments[]` on both sides: the old rubric already required them on the findings
+too, and `apps/cujo` reads the model's raw tool-call arguments off the
+`model.message` event, before Zod strips a key it no longer declares, so an
+in-flight review keeps the exact comments it was posted with.
+
+`details` and `summary` join the sanitizer allowlist in `apps/web`, which had
+neither, so the folds render on the board the way they render on GitHub. `open`
+deliberately does not: without it every fold is collapsed in both places, and a
+review cannot force a wall of JSON open on the run page.
+
+Chosen over / Rejected: **tightening the rubric again**, which is the option
+decision 36 already rejected for the footer and which this entry is the second
+piece of evidence against — a model can produce a perfect body on Tuesday and a
+different one on Wednesday, and nothing fails; **a template the model fills in**,
+which is the same rule with more words and the same silence when it is ignored;
+**keeping `comments[]` alongside `findings[]`**, which is two sources for one
+anchor and is how #8 posted a critical finding with no comment on any line;
+**inferring which warns are held from the finding text**, which would put prose
+matching back into the trusted side one paragraph after Contract 3 forbids it;
+**rendering the machine-readable block visibly**, which puts the least
+human-readable thing in the review at eye level; **deriving the board's inline
+comments in `http/public/serialize.ts`**, which would push a derivation into a
+module with an import allowlist and break the sentinel fixtures that guard it;
+and **making `github-mcp` read the check reports** so it could classify a
+finding itself, which widens a write-only server (decision 5) into one that
+knows what it is posting about.
+
+Known limit: two derivations of one rule. `apps/cujo` derives the same anchored
+comment list in `review/findings.ts` so the board's "Inline comments" panel keeps
+working without a new projection field, and the two implementations can drift.
+The same trade is already taken for the hard rules (decision 21), the same reason
+applies — the trusted side must not have to ask the write-only server what it
+just posted — and the same defence is used: both sides pin the comment template
+with the same literal in their tests, and each test says so. Second limit: the
+board's own findings list still shows the model's raw title, so a jargon title
+translated in the review body is untranslated on the run page. Third: the rubric
+rewrite reaches only sessions created after it deploys, and no test asserts on
+the rubric's review prose, so a regression there is still visible only in a
+posted review — the same hazard decision 36 named, now one layer smaller.

@@ -109,7 +109,24 @@ const threadDone = (threadId: string, text: string, createdAt: string = at): Ev 
   },
 });
 
+// A call from a session pinned to the old rubric: it still sends `comments[]`,
+// and `parseReview` still reads it (decision 74).
 const review = { body: "What ran", comments: [{ path: "a.py", line: 3, body: "boom" }] };
+// What the rubric sends now: anchors ride on the findings, nothing else.
+const derivedReview = {
+  body: "A test that passed on base fails on head.",
+  findings: [
+    {
+      check: "tests",
+      severity: "critical",
+      title: "1 test passes on base and fails on head",
+      evidence: "AssertionError: 10.05 != 10.04",
+      path: "app/orders.py",
+      line: 42,
+    },
+    { check: "probes", severity: "info", title: "the probes agreed", evidence: "3 of 3" },
+  ],
+};
 const resume = (status: "allow" | "deny"): TrueForgeApi.TurnInputItem[] => [
   { type: "user.tool_approval", threadId: "main", toolCallId: "call-1", approval: { status } },
 ];
@@ -131,6 +148,48 @@ describe("fold", () => {
     expect(p.status).toBe("clean");
     expect(p.review?.tool).toBe("post_advisory_review");
     expect(p.review?.comments).toHaveLength(1);
+  });
+
+  it("derives the inline comments from a review that sent none", () => {
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", derivedReview),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    // One anchored finding, one without: only the anchored one is a comment.
+    expect(p.review?.comments).toEqual([
+      {
+        path: "app/orders.py",
+        line: 42,
+        side: "RIGHT",
+        body: "**critical \u2014 1 test passes on base and fails on head**\n\n> AssertionError: 10.05 != 10.04",
+      },
+    ]);
+  });
+
+  it("keeps the comments a legacy call sent, rather than deriving over them", () => {
+    // The guarantee for every pull request whose session predates the rubric
+    // change: its board page loses nothing.
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.review?.comments).toEqual([{ path: "a.py", line: 3, body: "boom" }]);
+  });
+
+  it("derives the held review's comments from its own findings", () => {
+    // `gatedReview` is a separate call with a separate findings list, and the
+    // withholding rule reads that list — so the derivation must follow it.
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-1", "post_gated_review", derivedReview),
+      approvalRequired("main", "call-1", "mm-call-1"),
+    ]);
+    expect(p.gatedReview?.comments).toHaveLength(1);
+    expect(p.review).toBeNull();
   });
 
   it("is error, not clean, when the turn ends without any review call", () => {
