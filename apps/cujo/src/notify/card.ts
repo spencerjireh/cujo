@@ -31,16 +31,17 @@ export const LIMITS = {
 } as const;
 
 /**
- * Who a card names, and where (decision 86, reversing 55's allocation).
+ * Who a card names, and where (decision 88, reversing 86's allocation).
  *
- * The person who opened the pull request takes the author line — the one slot
- * on an embed that renders an icon in front of text, which is exactly the
- * affordance a channel needs on the variable party. Cujo was already named
- * twice above it: the app badge on the message header and its avatar. The Cujo
- * mark moves into the freed footer icon, so Cujo is still inside the embed and
- * no longer duplicated forty pixels beneath the header. An `Opened by` field
- * is gone rather than kept beside the line: one embed does not name the same
- * person twice.
+ * Cujo takes the author line at the top of the embed, as in 55: a fixed name
+ * and its own mark, the first thing a channel reads on every card. The person
+ * who opened the pull request takes the footer, the embed's last line, where
+ * an icon renders to the left of the text — their avatar, then their name,
+ * then the run's own handles. 86 put the opener at the top on the argument
+ * that the variable party needs the icon-in-front-of-text affordance; in a
+ * channel the card proved the opposite reading, where the first line named a
+ * stranger and the product's own name had scrolled into the small print. The
+ * fixed party leads; the variable one closes.
  *
  * The mark is served from the repository over `raw.githubusercontent.com`
  * rather than from `apps/web`: Discord's media proxy has to fetch it
@@ -64,8 +65,8 @@ const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 /**
  * Built from the numeric account id, never from the login: an avatar is a URL
- * and a login is a string somebody else chose. `s=64` because the author
- * line renders it around 24px and the extra pixels cost nothing.
+ * and a login is a string somebody else chose. `s=64` because the footer icon
+ * renders around 20px and the extra pixels cost nothing.
  */
 function avatarUrl(authorId: number | null): string | undefined {
   return authorId === null ? undefined : `https://avatars.githubusercontent.com/u/${authorId}?s=64`;
@@ -125,25 +126,6 @@ export function truncate(input: string, max: number): string {
 /** The one way untrusted text enters a payload. */
 function clean(input: string, max: number): string {
   return truncate(escapeMarkdown(input), max);
-}
-
-/**
- * `escapeMarkdown` without the escape pass, for the one string on a payload
- * that renders no markdown: `author.name`. A backslash there defuses nothing —
- * Discord draws it — so `some_login` would read as `some\_login`. Everything
- * else still applies: invisible characters removed, addresses defanged, and
- * newlines and tabs folded to single spaces, because the author line is one
- * line whatever it contains.
- */
-export function plainText(input: string, max: number): string {
-  return truncate(
-    input
-      .replace(STRIP, "")
-      .replace(/\r\n?|\n|\t/g, " ")
-      .replace(DEFANG_SCHEME, "$1[:]//")
-      .replace(DEFANG_HOST, "www[.]"),
-    max,
-  );
 }
 
 /**
@@ -309,31 +291,47 @@ function textField(name: string, text: string | null): DiscordEmbedField | null 
 }
 
 /**
- * The author line: the pull request's opener when the run records one, Cujo
- * when it does not (decision 86). Null for a run recorded before the author
- * was stored, or one whose PR read never completed, in which case the line is
- * exactly what it was before the opener took it.
- *
- * The profile link is assembled rather than escaped, and only for a login the
- * allowlist below accepts: `clean` defangs `://`, which is the whole point of
- * it. The name goes through `plainText`, because the author line renders no
- * markdown and a backslash there is only litter. The avatar is still built
- * from the numeric account id, never the login, so a bot opener
- * (`dependabot[bot]`) keeps its icon while losing the link its login cannot
- * have.
+ * The author line, back to the fixed party (decision 88): Cujo's name and its
+ * mark, the first line of every card. Deliberately unlinked — the title right
+ * beneath it already points at the run, and a second link to the same place is
+ * noise.
  */
-function authorLine(login: string | null, authorId: number | null): DiscordEmbed["author"] {
-  if (!login) {
-    // The fixed party, as before 76: name and mark together, and no footer
-    // icon, which would repeat the mark one line below itself.
-    return { name: truncate(CUJO_NAME, LIMITS.author), icon_url: CUJO_ICON_URL };
-  }
+const AUTHOR: DiscordEmbed["author"] = {
+  name: truncate(CUJO_NAME, LIMITS.author),
+  icon_url: CUJO_ICON_URL,
+};
+
+/**
+ * The footer, bottom-left: the pull request's opener when the run records one,
+ * then the run's own handles — `[@login](profile) · run <id> · <sha>`, with
+ * the opener's avatar to the left of it all. Null login for a run recorded
+ * before the author was stored, or one whose PR read never completed, leaves
+ * the handles alone and no icon, exactly the footer that existed before the
+ * opener moved in.
+ *
+ * Footer text renders markdown, which the author line never did — the reason
+ * 55 refused this slot for a name. So the login goes through `clean` and an
+ * underscored login shows its escape (`some\_login`): the price of the
+ * placement, taken knowingly (decision 88). The profile link is assembled
+ * rather than escaped, and only for a login the allowlist above accepts, so a
+ * bot opener (`dependabot[bot]`) keeps its avatar — built from the numeric
+ * account id, never the login — while losing the link its login cannot have.
+ */
+function openerFooter(
+  login: string | null,
+  authorId: number | null,
+  run: RunRecord,
+): { text: string; icon_url?: string } {
+  const tail = `run ${run.id.slice(0, 8)} · ${run.headSha.slice(0, 7)}`;
+  if (!login) return { text: truncate(tail, LIMITS.footer) };
+  // The same assembly the `Opened by` field used: the login escaped, the URL
+  // concatenated after, and only for a login the allowlist accepts.
+  const name = clean(login, 120);
+  const who = LOGIN.test(login) ? `[@${name}](https://github.com/${login})` : `@${name}`;
   const icon = avatarUrl(authorId);
-  const url = LOGIN.test(login) ? `https://github.com/${login}` : undefined;
   return {
-    name: plainText(`@${login}`, LIMITS.author),
+    text: truncate(`${who} · ${tail}`, LIMITS.footer),
     ...(icon ? { icon_url: icon } : {}),
-    ...(url ? { url } : {}),
   };
 }
 
@@ -348,21 +346,65 @@ export function embedLength(embed: DiscordEmbed): number {
 }
 
 /**
+ * A blank row, so the card's sections can breathe (decision 88). A field whose
+ * name and value are a single zero-width space renders as nothing but the row
+ * it occupies. This is our own literal and not a derived string, so rule 4's
+ * "zero-width characters are removed" — a rule about untrusted text — is not
+ * reached by it. Written as escapes so no invisible character appears in this
+ * source file.
+ */
+const SPACER: DiscordEmbedField = { name: "\u200b", value: "\u200b" };
+/** What one spacer costs of the character budget: its name and its value. */
+const SPACER_CHARS = SPACER.name.length + SPACER.value.length;
+
+/**
  * The 6000 total is a cliff, not a soft limit: exceed it and Discord answers
  * 400, the card is lost for the whole run, and every later edit fails too
  * because there is no message id to edit. Fields are appended in priority
  * order, so dropping from the end drops the least important first.
+ *
+ * `reserveFields` and `reserveChars` hold back budget for the structural
+ * spacer rows, which are inserted after the clamp: reserving up front is what
+ * makes an insert-after-clamp safe, because whatever the clamp leaves always
+ * has room for the spacers that follow it.
  */
-function clamp(embed: DiscordEmbed): DiscordEmbed {
-  const fields = (embed.fields ?? []).slice(0, LIMITS.fields);
+function clamp(embed: DiscordEmbed, reserveFields = 0, reserveChars = 0): DiscordEmbed {
+  const fields = (embed.fields ?? []).slice(0, LIMITS.fields - reserveFields);
   const clamped: DiscordEmbed = { ...embed, fields };
-  while (fields.length > 0 && embedLength(clamped) > LIMITS.total) fields.pop();
-  if (embedLength(clamped) > LIMITS.total) {
-    const over = embedLength(clamped) - LIMITS.total;
+  const total = LIMITS.total - reserveChars;
+  while (fields.length > 0 && embedLength(clamped) > total) fields.pop();
+  if (embedLength(clamped) > total) {
+    const over = embedLength(clamped) - total;
     const kept = Math.max(0, (clamped.description?.length ?? 0) - over);
     clamped.description = truncate(clamped.description ?? "", kept);
   }
   return fields.length === 0 ? { ...clamped, fields: undefined } : clamped;
+}
+
+/**
+ * The surviving fields, one blank row between groups. Inserted after the
+ * clamp, not before it: a spacer placed ahead of the clamp could be all the
+ * clamp leaves of a dropped section — a dangling blank row under a card that
+ * lost the section it was spacing.
+ *
+ * Group membership is by identity. The clamp pops and slices, it never copies
+ * a field, so the objects the groups were built from are the objects that
+ * survive it, and a group whose every field was dropped is skipped whole,
+ * taking its spacers with it.
+ */
+function withSpacers(
+  fields: DiscordEmbedField[],
+  groups: DiscordEmbedField[][],
+): DiscordEmbedField[] {
+  const present = new Set(fields);
+  const spaced: DiscordEmbedField[] = [];
+  for (const group of groups) {
+    const alive = group.filter((field) => present.has(field));
+    if (alive.length === 0) continue;
+    if (spaced.length > 0) spaced.push(SPACER);
+    spaced.push(...alive);
+  }
+  return spaced;
 }
 
 export interface CardInput {
@@ -406,7 +448,7 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
   }
 
   const prUrl = pullRequestUrl(run);
-  const fields: DiscordEmbedField[] = [
+  const identity: DiscordEmbedField[] = [
     { name: "Head", value: `\`${run.headSha.slice(0, 7)}\``, inline: true },
     // Structural, not derived: the repo was validated when the channel was
     // bound and shape-checked in `pullRequestUrl`, so the field is omitted
@@ -415,50 +457,57 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
     // card's only live link.
     ...(prUrl ? [{ name: "Pull request", value: prUrl, inline: true }] : []),
   ];
+  // Sections, each a group the clamp can drop whole and the spacers go
+  // between. The identity row is first, so it survives the clamp longest.
+  const groups: DiscordEmbedField[][] = [identity];
   // A superseded run describes a commit nobody is looking at any more, so it
   // shows no findings: acting on them would mean acting on a stale review.
   if (status !== "running" && status !== "superseded") {
     // Inline and adjacent to Head and Pull request, because Discord only
-    // shares a row between neighbouring inline fields, and first in the
-    // clamp's drop order: the identity row is what every status must keep.
+    // shares a row between neighbouring inline fields: the identity row is
+    // what every status must keep.
     const counts = countsField(projection.findings);
-    if (counts) fields.push(counts);
+    if (counts) identity.push(counts);
     const critical = criticalField(projection.findings);
-    if (critical) fields.push(critical);
+    if (critical) groups.push([critical]);
     const checks = checksField(projection);
-    if (checks) fields.push(checks);
-    const error = textField("Error", projection.error);
-    if (error) fields.push(error);
-    const summary = status === "clean" ? textField("Summary", projection.summary) : null;
-    if (summary) fields.push(summary);
+    if (checks) groups.push([checks]);
+    const closing = [
+      textField("Error", projection.error),
+      status === "clean" ? textField("Summary", projection.summary) : null,
+    ].filter((field): field is DiscordEmbedField => field !== null);
+    if (closing.length > 0) groups.push(closing);
   }
 
-  const footer = `run ${run.id.slice(0, 8)} · ${run.headSha.slice(0, 7)}`;
   const url = runUrl(links, run);
-  const embed = clamp({
-    title,
-    // Ours, never derived. No projection string may reach a URL field, or a
-    // hostile PR chooses where the card's title points. The key is omitted
-    // rather than set to null when there is no page — a private run has none
-    // (decision 57), and Discord refuses a null `url`. The title still renders,
-    // just not as a hyperlink.
-    ...(url ? { url } : {}),
-    description: truncate(description, LIMITS.description),
-    color: COLOR[status],
-    author: authorLine(run.prAuthorLogin, run.prAuthorId),
-    fields,
-    footer: {
-      text: truncate(footer, LIMITS.footer),
-      // The Cujo mark while the opener holds the author line (decision 86),
-      // so Cujo stays inside the embed without being named twice above it.
-      // Absent on the fallback, where the author line already carries it: the
-      // same icon twice on one card reads as a bug.
-      ...(run.prAuthorLogin ? { icon_url: CUJO_ICON_URL } : {}),
+  // Spacers are reserved before the clamp and inserted after it, so a dropped
+  // section takes its blank rows with it and the payload still fits.
+  const spacers = groups.length - 1;
+  const embed = clamp(
+    {
+      title,
+      // Ours, never derived. No projection string may reach a URL field, or a
+      // hostile PR chooses where the card's title points. The key is omitted
+      // rather than set to null when there is no page — a private run has none
+      // (decision 57), and Discord refuses a null `url`. The title still
+      // renders, just not as a hyperlink.
+      ...(url ? { url } : {}),
+      description: truncate(description, LIMITS.description),
+      color: COLOR[status],
+      author: AUTHOR,
+      fields: groups.flat(),
+      footer: openerFooter(run.prAuthorLogin, run.prAuthorId, run),
+      timestamp: run.updatedAt,
     },
-    timestamp: run.updatedAt,
-  });
+    spacers,
+    spacers * SPACER_CHARS,
+  );
+  const spaced = withSpacers(embed.fields ?? [], groups);
 
-  return { embeds: [embed], allowed_mentions: { parse: [] } };
+  return {
+    embeds: [{ ...embed, fields: spaced.length > 0 ? spaced : undefined }],
+    allowed_mentions: { parse: [] },
+  };
 }
 
 export interface PingInput {
