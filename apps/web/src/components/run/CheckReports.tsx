@@ -1,7 +1,7 @@
 "use client";
 
 import { Chevron } from "@/components/icons/Chevron";
-import { type SensorBlock, needsAttention, parseReport } from "@/lib/api/report";
+import { type SensorBlock, parseReport } from "@/lib/api/report";
 import type { CheckState, UsageTotals } from "@/lib/api/types";
 import { compactCount, duration, usd } from "@/lib/format";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -58,28 +58,15 @@ function probeSummary(blocks: SensorBlock[]): string {
 
 /**
  * The blocks of one report. A single block is drawn as it always was. Several
- * are a detonation or a probe sweep, and go behind one summary line: a report
- * with nothing tripped is then one line, and a report with something tripped
- * opens on it. Once per report, not per block, the sensor health is said
- * above this by `SensorStatus`.
+ * are a detonation or a probe sweep, and go behind one summary line, closed:
+ * the line says how many probes ran and how many passed, and the blocks are
+ * for a reader who opens it. It used to open on its own when a block tripped,
+ * which was one more thing unfolding on a page whose verdict card and timeline
+ * had already said what tripped. Once per report, not per block, the sensor
+ * health is said above this by `SensorStatus`.
  */
-function Blocks({
-  blocks,
-  check,
-  attention,
-}: {
-  blocks: SensorBlock[];
-  check: string;
-  attention: boolean;
-}) {
-  const [open, setOpen] = useState(attention);
-  const wasAttention = useRef(attention);
-  // On the rising edge, the way the card itself opens: the report arrives over
-  // the stream into a component that mounted while the check was running.
-  useEffect(() => {
-    if (attention && !wasAttention.current) setOpen(true);
-    wasAttention.current = attention;
-  }, [attention]);
+function Blocks({ blocks, check }: { blocks: SensorBlock[]; check: string }) {
+  const [open, setOpen] = useState(false);
 
   const rendered = blocks.map((block, index) => (
     <SensorReport
@@ -103,7 +90,16 @@ function Blocks({
   );
 }
 
-/** One collapsible section per check that returned something. */
+/**
+ * One collapsible section per check that returned something.
+ *
+ * Closed until asked. A card used to open itself when its report tripped
+ * anything or ran with a sensor down, and to open again when such a report
+ * arrived over the stream. That put the longest section of the page on screen
+ * before the reader had chosen it, under a verdict card and a timeline that
+ * had already said what was wrong; the timeline lane is now the one thing
+ * that opens a card, and it opens it on purpose.
+ */
 function CheckReport({
   check,
   /** Rises when this card is the one a timeline lane asked for. */
@@ -115,30 +111,15 @@ function CheckReport({
   onDeliver: (trigger: HTMLButtonElement) => void;
 }) {
   const parsed = parseReport(check.report);
-  // A check that tripped anything, or that ran with a sensor down, is worth
-  // opening without being asked. `some` over the blocks, so one blind interval
-  // reported on both the roll-up and its run opens the card once.
-  const attention = parsed.kind === "sensor" && parsed.blocks.some(needsAttention);
-  const [open, setOpen] = useState(attention);
+  const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  // The initializer runs once, and a check mounts while it is still running --
-  // `report: null`, nothing to be alarmed about yet. The report arrives later
-  // over the stream, into the same component, so without this the card a
-  // watcher most needs open is the one that stays shut. On the rising edge
-  // only: a card the reader closed again stays closed.
-  const wasAttention = useRef(attention);
-  useEffect(() => {
-    if (attention && !wasAttention.current) setOpen(true);
-    wasAttention.current = attention;
-  }, [attention]);
 
   /**
    * Somebody picked this check's lane on the timeline.
    *
-   * On the rising edge of the ask and not on the value, for the reason the
-   * effect above is written that way and for one more: the run re-renders every
-   * few seconds while it is live, and a card that re-opened itself on each of
-   * those would be a card a reader cannot close.
+   * On the rising edge of the ask and not on the value: the run re-renders
+   * every few seconds while it is live, and a card that re-opened itself on
+   * each of those would be a card a reader cannot close.
    */
   const delivered = useRef(summoned);
   useEffect(() => {
@@ -178,7 +159,7 @@ function CheckReport({
         {parsed.kind === "sensor" ? (
           <>
             <SensorStatus block={parsed.blocks[0]} />
-            <Blocks blocks={parsed.blocks} check={check.title} attention={attention} />
+            <Blocks blocks={parsed.blocks} check={check.title} />
             <RawReport raw={parsed.raw} />
           </>
         ) : parsed.kind === "opaque" ? (

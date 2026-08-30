@@ -19,9 +19,11 @@ import { useState } from "react";
  * are always named, and within a group the rows keep the order they arrived
  * in, which is worst first.
  *
- * A group opens on its own when it holds anything above info. An information
- * note is not nothing, which is why it is counted on the trigger row, but it
- * is not what a reader needs to see before they have chosen to.
+ * Every group starts closed. A group used to open itself when it held anything
+ * above info, and the page then arrived with its worst section already unfolded
+ * under a verdict card and a timeline that had both just said what was bad.
+ * The trigger row carries the counts, so a closed group already says what is
+ * inside it; what it holds is for a reader who has chosen to look.
  *
  * The chips above filter what is shown and never what is counted: a trigger
  * row that said "1 critical" while the reader is looking at info would be the
@@ -97,7 +99,7 @@ function FindingRow({ finding }: { finding: Finding }) {
 }
 
 function CheckGroup({ group, filter }: { group: Group; filter: Filter }) {
-  const [open, setOpen] = useState(group.findings.some((finding) => finding.severity !== "info"));
+  const [open, setOpen] = useState(false);
   const shown =
     filter === "all"
       ? group.findings

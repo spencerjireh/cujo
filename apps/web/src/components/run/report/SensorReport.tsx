@@ -2,7 +2,7 @@
 
 import { type SensorBlock, alarms } from "@/lib/api/report";
 import { bytes, describeExit } from "@/lib/format";
-import { coverageLine, flaggedTables, groupState, sensorDetail } from "@/lib/report/coverage";
+import { coverageLine, groupState, sensorDetail } from "@/lib/report/coverage";
 import { isArtifact, isSensitive, relativize } from "@/lib/report/paths";
 import { useMemo, useState } from "react";
 import { Blank, EvidenceTable, Row } from "./EvidenceTable";
@@ -224,9 +224,9 @@ export function SensorReport({
   total?: number;
 }) {
   const coverage = coverageLine(block);
-  // Which tables this block's own flags point at. Those open with the card;
-  // the rest are a heading and a count until somebody asks.
-  const flagged = flaggedTables(block);
+  // Every table below starts closed, the flagged ones included. The alarms
+  // above name what tripped, and each heading carries its count; the rows are
+  // the proof, and a reader opens the table whose proof they want.
   const reads = usePathRows(block.files_read);
   const changes = usePathRows(block.fs_changes);
   return (
@@ -262,7 +262,6 @@ export function SensorReport({
         ]}
         state={groupState(block, "proxy")}
         detail={sensorDetail(block, "proxy")}
-        defaultOpen={flagged.has("egress")}
       >
         {(entry) => (
           <Row key={`${entry.host}:${entry.port ?? ""}`} cols={EGRESS}>
@@ -295,7 +294,6 @@ export function SensorReport({
         state={groupState(block, "audit")}
         detail={sensorDetail(block, "audit")}
         cut={block.truncated?.files_read}
-        defaultOpen={flagged.has("files_read")}
         footer={
           <ArtifactsRow
             cols={FILES}
@@ -328,7 +326,6 @@ export function SensorReport({
         ]}
         state={groupState(block, "fs_diff")}
         detail={sensorDetail(block, "fs_diff")}
-        defaultOpen={flagged.has("fs_changes")}
         cut={block.truncated?.snapshot}
         note={
           block.truncated?.hashes ? "some files compared by timestamp and size only" : undefined
@@ -376,7 +373,6 @@ export function SensorReport({
         state={groupState(block, "audit")}
         detail={sensorDetail(block, "audit")}
         estimateSize={26}
-        defaultOpen={flagged.has("subprocesses")}
       >
         {(entry, i) => (
           <Row key={`${i}-${entry.argv[0]}`} cols={PROCS}>

@@ -1,6 +1,6 @@
 import { SATELLITE_ORBIT, projectRing, ringNormals, satelliteRing } from "@/lib/board/orbit";
 import type { Specimen } from "@/lib/board/specimen";
-import { TONE_CHAMBER_VAR } from "@/lib/board/tone";
+import { TONE_CHAMBER_VAR, TONE_PAGE_VAR } from "@/lib/board/tone";
 
 /**
  * One specimen, and nothing else: the shape a run has, at a size that fits
@@ -14,6 +14,13 @@ import { TONE_CHAMBER_VAR } from "@/lib/board/tone";
  *
  * It is what a reader sees first on every run page, and all a reader sees when
  * there is no WebGL.
+ *
+ * `ground` says which tokens colour it. On the chamber's ground the tones are
+ * the dark ramp the board pins in both themes; on the page's ground they are
+ * the page's own severity tokens, which invert with the reader's theme. The
+ * run page draws on the page (decision 93); everything else keeps the default.
+ * Custom properties rather than resolved colours, so a theme change repaints
+ * this drawing for free, which the canvas beside it cannot say.
  */
 
 /** The widest ring, in viewBox units. The satellites orbit just outside it. */
@@ -24,13 +31,20 @@ function points(list: { x: number; y: number }[], centre: number): string {
   return list.map((p) => `${(centre + p.x).toFixed(2)},${(centre + p.y).toFixed(2)}`).join(" ");
 }
 
-export function SpecimenGlyph({ specimen }: { specimen: Specimen }) {
+export function SpecimenGlyph({
+  specimen,
+  ground = "chamber",
+}: {
+  specimen: Specimen;
+  ground?: "chamber" | "page";
+}) {
   const size = 120;
   const centre = size / 2;
   const core = 6.4 * specimen.coreScale;
   const satellite = 2.5;
   const orbit = RING_MAX_PX * SATELLITE_ORBIT;
   const normals = ringNormals(specimen.id);
+  const vars = ground === "page" ? TONE_PAGE_VAR : TONE_CHAMBER_VAR;
 
   return (
     <svg
@@ -45,7 +59,7 @@ export function SpecimenGlyph({ specimen }: { specimen: Specimen }) {
         if (bar.length <= 0) return null;
         const radius = RING_MIN_PX + bar.length * (RING_MAX_PX - RING_MIN_PX);
         const ring = projectRing(i, radius, bar.solid, undefined, normals);
-        const stroke = `var(${TONE_CHAMBER_VAR[bar.tone]})`;
+        const stroke = `var(${vars[bar.tone]})`;
         return (
           <g key={bar.name} fill="none" strokeLinecap="round" strokeLinejoin="round">
             {/* The bright arc is the share of the check that was the sandbox
@@ -75,11 +89,11 @@ export function SpecimenGlyph({ specimen }: { specimen: Specimen }) {
             cx={centre + Math.cos(angle) * orbit}
             cy={centre - Math.sin(angle) * orbit}
             r={satellite}
-            fill={`var(${TONE_CHAMBER_VAR[mark.tone]})`}
+            fill={`var(${vars[mark.tone]})`}
           />
         );
       })}
-      <circle cx={centre} cy={centre} r={core} fill={`var(${TONE_CHAMBER_VAR[specimen.tone]})`} />
+      <circle cx={centre} cy={centre} r={core} fill={`var(${vars[specimen.tone]})`} />
     </svg>
   );
 }

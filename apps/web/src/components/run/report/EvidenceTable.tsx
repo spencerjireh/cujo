@@ -24,9 +24,11 @@ import { VirtualRows } from "./VirtualRows";
  * roll-up plus one block per dependency, so a card that opened everything was
  * twelve tables deep and the reader scrolled past eleven of them to reach the
  * one the alarms were about. Closed, the heading still carries the count, which
- * is the part that was worth the scroll. `defaultOpen` is decided by
- * `flaggedTables`, not guessed here: a card opens on the rows that prove what
- * the bars at the top of it say, and stays shut on the rest.
+ * is the part that was worth the scroll. `defaultOpen` and its rising edge are
+ * kept for a caller that wants a table open on arrival, but nothing passes
+ * true today: `SensorReport` used to open the tables its block's own flags
+ * pointed at, and now leaves all four shut, since the alarms above them already
+ * say what tripped and the heading says how many rows there are.
  *
  * A table with no rows is not a control at all, and carries no glyph: a `0` and
  * a `not measured` are facts with nothing behind them, and a disclosure that

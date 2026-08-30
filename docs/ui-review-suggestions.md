@@ -16,7 +16,7 @@ answered by another design, said why), **deferred** (with the reason).
 
 | Observation | Status |
 | --- | --- |
-| No legend in the chamber; colour semantics undefined on the page | **Done, differently.** Hovering a star, or a record row, swaps the hero's readings for the key: the diagram and its four part lines (decision 87). A permanent corner legend was rejected as a fourth block of type on a frame with three. |
+| No legend in the chamber; colour semantics undefined on the page | **Done, differently.** Hovering a star, or a record row, swaps the hero's readings for the key: the diagram and its four part lines (decision 87), and the star's own callout names each ring in the ring's colour with what it measures (decision 93). A permanent corner legend was rejected as a fourth block of type on a frame with three. A running run is green, so the one star doing something is findable (decision 92). |
 | First-visit tooltip that dismisses on interaction | **Deferred.** Rejected in decision 87: remembered in local storage, so a second machine gets it again and an accidental dismiss is permanent. |
 
 ### Hero stats
@@ -66,7 +66,7 @@ answered by another design, said why), **deferred** (with the reason).
 
 | Observation | Status |
 | --- | --- |
-| Group by check with collapsible sections | **Done.** Groups in check order; groups with a critical or warn open, info-only closed. |
+| Group by check with collapsible sections | **Done.** Groups in check order, all closed until asked (decision 91); the trigger row carries the counts. |
 | Severity filter chips | **Done.** All / Critical / Warn / Info; group headers keep their full counts and say "(n shown)". |
 
 ### Review panel
@@ -91,7 +91,7 @@ answered by another design, said why), **deferred** (with the reason).
 
 | Theme | Status |
 | --- | --- |
-| Progressive disclosure (glance / scan / investigate) | **Done** by the above: verdict card (glance), grouped findings, timeline and what-ran table (scan), reports and operator details folded (investigate). |
+| Progressive disclosure (glance / scan / investigate) | **Done** by the above: verdict card (glance), grouped findings, timeline and what-ran table (scan), reports and operator details folded (investigate). Since decision 91 nothing at the investigate level opens on its own; a timeline pick opens its card. |
 | Audience segmentation | **Done** by the operator fold. |
 | Accessibility: badge contrast, sensor dot target size | **Partly.** The record's squares are now buttons with a 2×12 px visual and a tooltip; their hit target is the button, and a larger invisible target is a follow-up. Contrast was not re-measured on this branch. |
 

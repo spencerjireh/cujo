@@ -62,6 +62,16 @@ export interface InlineSpecimenHandle {
    * of view: a run page is long, and nothing should turn where nobody is.
    */
   setRunning(running: boolean): void;
+  /**
+   * Read the page's colours again and redraw the specimen in them. This rig
+   * draws on the page ground, whose tokens invert with the reader's theme; the
+   * materials were built from one reading of them, and a toggle after that
+   * would leave a dark-page specimen on a light page. The page calls this when
+   * the resolved theme changes. The turn is not reset: a specimen that snapped
+   * to its start on every toggle would be a worse drawing than one that keeps
+   * going.
+   */
+  repaint(): void;
   dispose(): void;
 }
 
@@ -71,11 +81,14 @@ export function createInlineSpecimen(options: {
   reducedMotion: boolean;
 }): InlineSpecimenHandle {
   const { canvas, reducedMotion } = options;
-  const palette = readPalette();
+  // The page's own tokens, not the chamber's ramp: this specimen sits on
+  // `--bg` and follows the reader's theme (decision 93), so its rings are the
+  // same colour as the badge beside them in either theme.
+  let palette = readPalette("page");
 
   const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
   // Transparent, unlike the board: this sits in the page's own column, and a
-  // dark square behind it would be a window onto nothing.
+  // square of any colour behind it would be a panel where there is none.
   renderer.setClearColor(palette.chamber, 0);
 
   const scene = new Scene();
@@ -88,12 +101,15 @@ export function createInlineSpecimen(options: {
   // size it is a smudge over the shape rather than light coming off it, and it
   // would make the canvas disagree with the flat drawing underneath it. Two
   // drawings of one run have to be one drawing.
-  const kit = createSpecimenKit(palette, { ring: true, glow: false });
+  const RIG = { ring: true, glow: false } as const;
+  let kit = createSpecimenKit(palette, RIG);
 
   const holder = new Group();
   holder.rotation.x = TILT;
   scene.add(holder);
   let node: SpecimenNode | null = null;
+  // The spec the node was built from, kept so a repaint can build it again.
+  let current: Specimen = options.specimen;
 
   let frame = 0;
   let startedAt = 0;
@@ -116,6 +132,7 @@ export function createInlineSpecimen(options: {
         focus: 0,
         dim: 0,
         read: 0,
+        beat: 0,
         arrivalScale: 1,
         arrivalOpacity: 1,
       });
@@ -147,6 +164,7 @@ export function createInlineSpecimen(options: {
   }
 
   function setSpecimen(spec: Specimen): void {
+    current = spec;
     if (node) kit.release(node);
     node = kit.build(spec);
     // Centred rather than at its slot: there is no time axis here, because
@@ -165,6 +183,22 @@ export function createInlineSpecimen(options: {
     draw();
   }
 
+  /**
+   * The kit bakes the palette into its shared materials, so a new palette is
+   * a new kit: the old node and kit are let go the way `dispose` lets them go,
+   * and the same spec is built again through the one build path. `elapsed`
+   * is untouched, so the turn continues from where it was.
+   */
+  function repaint(): void {
+    palette = readPalette("page");
+    renderer.setClearColor(palette.chamber, 0);
+    if (node) kit.release(node);
+    node = null;
+    kit.dispose();
+    kit = createSpecimenKit(palette, RIG);
+    setSpecimen(current);
+  }
+
   function dispose(): void {
     setRunning(false);
     if (node) kit.release(node);
@@ -175,5 +209,5 @@ export function createInlineSpecimen(options: {
 
   setSpecimen(options.specimen);
 
-  return { setSpecimen, resize, setRunning, dispose };
+  return { setSpecimen, resize, setRunning, repaint, dispose };
 }

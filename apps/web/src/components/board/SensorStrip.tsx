@@ -1,5 +1,5 @@
 import { CHECK_NAMES, type RunSummary } from "@/lib/api/types";
-import { type CheckOutcome, checkOutcome, checksOf } from "@/lib/board/tone";
+import { type CheckOutcome, OUTCOME_SPOKEN, checkOutcome, checksOf } from "@/lib/board/tone";
 
 /**
  * Four segments, one per check, in `CHECK_NAMES` order.
@@ -22,16 +22,12 @@ import { type CheckOutcome, checkOutcome, checksOf } from "@/lib/board/tone";
 export const SEGMENT: Record<CheckOutcome, string> = {
   done: "bg-fg",
   error: "bg-sev-critical",
-  running: "animate-pulse bg-sev-info",
+  running: "animate-pulse bg-sev-live",
   absent: "bg-line",
 };
 
-export const SPOKEN: Record<CheckOutcome, string> = {
-  done: "reported",
-  error: "errored",
-  running: "running",
-  absent: "did not run",
-};
+/** The words, from the one place every drawing of a check takes them. */
+export const SPOKEN = OUTCOME_SPOKEN;
 
 export function SensorStrip({ run }: { run: RunSummary }) {
   const checks = checksOf(run);

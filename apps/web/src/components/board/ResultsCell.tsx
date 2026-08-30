@@ -3,17 +3,18 @@
 import { Chevron } from "@/components/icons/Chevron";
 import { CHECK_NAMES, type CheckName, type RunSummary } from "@/lib/api/types";
 import {
+  OUTCOME_TONE,
   SEVERITY_ORDER,
   SEVERITY_TONE,
   TONE_FILL,
   TONE_TEXT,
   checkOutcome,
+  checkSentence,
   checksOf,
   findingTotal,
 } from "@/lib/board/tone";
-import { duration } from "@/lib/format";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { SEGMENT, SPOKEN } from "./SensorStrip";
+import { SEGMENT } from "./SensorStrip";
 
 /**
  * One cell that says how a run went: which checks ran, and what they found.
@@ -34,13 +35,7 @@ import { SEGMENT, SPOKEN } from "./SensorStrip";
 
 /** A check and the sentence its square speaks. */
 export function checkLine(run: RunSummary, name: CheckName): string {
-  const check = checksOf(run)[name];
-  const outcome = checkOutcome(check);
-  const took =
-    check?.ms != null
-      ? duration(new Date(0).toISOString(), new Date(check.ms).toISOString())
-      : null;
-  return took ? `${name}: ${SPOKEN[outcome]}, ${took}` : `${name}: ${SPOKEN[outcome]}`;
+  return checkSentence(name, checksOf(run)[name]);
 }
 
 /** The per-severity counts, worst first, zeros left out. */
@@ -163,28 +158,19 @@ export function ResultsDetail({ run }: { run: RunSummary }) {
       {CHECK_NAMES.map((name) => {
         const check = checks[name];
         const outcome = checkOutcome(check);
-        const took =
-          check?.ms != null
-            ? duration(new Date(0).toISOString(), new Date(check.ms).toISOString())
-            : null;
-        const inSandbox =
-          check?.ms != null && check.sandboxMs != null && check.ms > 0
-            ? Math.round((check.sandboxMs / check.ms) * 100)
-            : null;
+        // The name in the tone its ring is drawn in, so the row and the star
+        // read alike; the rest of the line is the sentence the tooltip speaks.
+        const sentence = checkSentence(name, check);
         return (
           <div key={name} className="contents">
-            <dt className="flex items-center gap-2 text-fg">
+            <dt className={`flex items-center gap-2 ${TONE_TEXT[OUTCOME_TONE[outcome]]}`}>
               <span
                 aria-hidden="true"
                 className={`inline-block h-3 w-2 rounded-[1px] ${SEGMENT[outcome]}`}
               />
               {name}
             </dt>
-            <dd className="text-fg-muted">
-              {SPOKEN[outcome]}
-              {took ? ` · ${took}` : ""}
-              {inSandbox !== null ? ` · ${inSandbox}% executing in the sandbox` : ""}
-            </dd>
+            <dd className="text-fg-muted">{sentence.slice(name.length + 2)}</dd>
           </div>
         );
       })}

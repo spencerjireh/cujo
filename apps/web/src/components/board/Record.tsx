@@ -56,8 +56,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
  * is what the ruled lines below a short record match.
  */
 const ROW_REM = 3.1;
-const MIN_ROWS = 5;
-const MAX_ROWS = 12;
+const MIN_ROWS = 8;
+const MAX_ROWS = 20;
 /** The header scrolls with nothing, so it is inside the cap and counted in it. */
 const HEAD_REM = 1.9;
 
@@ -66,17 +66,28 @@ const HEAD_REM = 1.9;
  *
  * A whole number of rows would sit flush against the bottom edge and read as
  * the end of the record; a row sliced through the middle is the scroll
- * affordance, and it costs nothing to draw. `70vh` keeps the cap from
+ * affordance, and it costs nothing to draw. `85vh` keeps the cap from
  * overrunning a short viewport, where the mid-row cut lands wherever it lands.
+ * Eight and twenty, up from five and twelve: the record is the board's main
+ * reading, and at five rows it was a strip under a rack.
  */
-const MAX_HEIGHT = `min(${HEAD_REM + (MAX_ROWS + 0.5) * ROW_REM}rem, 70vh)`;
+const MAX_HEIGHT = `min(${HEAD_REM + (MAX_ROWS + 0.5) * ROW_REM}rem, 85vh)`;
 
 /**
  * Stable keys for the ruled lines below a short record. Named rather than
  * indexed because they are decoration and never reorder, and an index key on a
  * list React might reconcile is the habit worth not having.
  */
-const GHOST_ROWS = ["ghost-a", "ghost-b", "ghost-c", "ghost-d", "ghost-e"] as const;
+const GHOST_ROWS = [
+  "ghost-a",
+  "ghost-b",
+  "ghost-c",
+  "ghost-d",
+  "ghost-e",
+  "ghost-f",
+  "ghost-g",
+  "ghost-h",
+] as const;
 
 /**
  * The App's public page, which carries the Install button and renders for a
