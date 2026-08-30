@@ -4065,6 +4065,18 @@ literal written beside a change is written from the same understanding that
 produced it. `repo_checks/` is deliberately not called `tests`, which would
 shadow the `tests` package `sandbox/tests/conftest.py` imports from.
 
+**A fixture that answers "null" to a question it was never taught is the same
+bug one level up.** The first draft of that evaluator resolved any unknown
+context path to null, so a key could reach for a field the fixture had never
+described — `github.run_id` in the middle of a fallback chain, say — and the
+operand would be skipped here while GitHub selected it for real. The dispatch
+and pull_request groups would then match in the test and differ in production,
+which is worse than no test, because it reports success. So an unmodelled path
+raises, and only a field GitHub genuinely supplies as null reads as null. The
+per-run identifiers are modelled too, each unique per run: any of them in a
+grouping key gives every run its own group and cancels nothing, and that now
+fails an assertion instead of going unnoticed.
+
 Rejected: **marking the slow tests and skipping them in CI**, which buys the
 time back by not running the detonation test — the one that proves the product's
 central claim, and the last one that should be optional. **Sharding the suite
