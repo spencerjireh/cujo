@@ -1,7 +1,7 @@
 "use client";
 
 import { type SensorBlock, alarms } from "@/lib/api/report";
-import { bytes, describeExit } from "@/lib/format";
+import { SMOKE_STOP_SIGNAL, bytes, describeExit } from "@/lib/format";
 import { coverageLine, groupState, sensorDetail } from "@/lib/report/coverage";
 import { isArtifact, isSensitive, relativize } from "@/lib/report/paths";
 import { useMemo, useState } from "react";
@@ -88,16 +88,25 @@ function Sent({ bytesOut, errors }: { bytesOut?: number; errors?: number }) {
   return <span className="text-right text-fg-muted">{bytes(bytesOut)}</span>;
 }
 
-function CommandHeader({ block }: { block: SensorBlock }) {
+/**
+ * The command a block ran, with its exit and duration. Only the smoke check's
+ * own command is allowed to call a SIGTERM expected: that check stops the
+ * server it booted with one, so `-15` there is the check ending the run. The
+ * same signal on any other check, or on a subprocess row, is a process that
+ * was killed and says so plainly.
+ */
+function CommandHeader({ block, check }: { block: SensorBlock; check: string }) {
   if (!block.command) return null;
   const { argv, exit, duration_s } = block.command;
+  const expectedSignal = check === "smoke" ? SMOKE_STOP_SIGNAL : undefined;
+  const ended = exit === null ? null : describeExit(exit, { expectedSignal });
+  const expected = exit !== null && expectedSignal !== undefined && -exit === expectedSignal;
+  const alarming = exit !== null && exit !== 0 && !expected;
   return (
     <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
       <code className="truncate font-mono text-xs">{argv.join(" ")}</code>
       <span className="flex gap-3 font-mono text-xs text-fg-muted">
-        {exit !== null ? (
-          <span className={exit !== 0 ? "text-sev-high" : ""}>{describeExit(exit)}</span>
-        ) : null}
+        {ended !== null ? <span className={alarming ? "text-sev-high" : ""}>{ended}</span> : null}
         {duration_s !== null ? <span>{duration_s}s</span> : null}
       </span>
     </div>
@@ -245,7 +254,7 @@ export function SensorReport({
         </div>
       ) : null}
 
-      <CommandHeader block={block} />
+      <CommandHeader block={block} check={check} />
       <Alarms block={block} check={check} />
       {coverage ? <p className="mt-2 max-w-[68ch] text-sm">{coverage}</p> : null}
       <CutOutput block={block} />

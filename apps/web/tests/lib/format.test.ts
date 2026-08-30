@@ -148,11 +148,16 @@ describe("describeExit", () => {
     expect(describeExit(1)).toBe("exit 1");
   });
 
-  it("names a signal, and marks SIGTERM as the one the smoke check sends", () => {
-    expect(describeExit(-15)).toBe("exit -15 (SIGTERM, expected)");
+  it("names a signal without judging it", () => {
+    expect(describeExit(-15)).toBe("exit -15 (SIGTERM)");
     expect(describeExit(-9)).toBe("exit -9 (SIGKILL)");
     expect(describeExit(-2)).toBe("exit -2 (SIGINT)");
     expect(describeExit(-11)).toBe("exit -11 (signal 11)");
+  });
+
+  it("marks only the signal the caller says was sent on purpose", () => {
+    expect(describeExit(-15, { expectedSignal: 15 })).toBe("exit -15 (SIGTERM, expected)");
+    expect(describeExit(-9, { expectedSignal: 15 })).toBe("exit -9 (SIGKILL)");
   });
 
   it("says when there was no exit at all", () => {
