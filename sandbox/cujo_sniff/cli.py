@@ -181,12 +181,16 @@ def main(argv: list[str] | None = None) -> None:
         import sys
         import traceback
 
-        from cujo_sniff.scrub import scrub
+        from cujo_sniff.scrub import scrub_head
 
         MAX_ERROR = 2000
         MAX_TRACEBACK = 4000
-        error = scrub(f"{type(exc).__name__}: {exc}")[:MAX_ERROR]
-        tb = scrub(traceback.format_exc())[:MAX_TRACEBACK]
+        # Slicing the escaped text would have cut an escape in half -- `\u20`
+        # is not what anything raised. `scrub_head` spends the budget one whole
+        # character at a time; head and not tail, because that is which end
+        # these two kept before and this is a cap fix, not a change of subject.
+        error = scrub_head(f"{type(exc).__name__}: {exc}", MAX_ERROR)[0]
+        tb = scrub_head(traceback.format_exc(), MAX_TRACEBACK)[0]
         result = {
             "schema_version": SCHEMA_VERSION,
             "ok": False,

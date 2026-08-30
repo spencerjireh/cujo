@@ -32,10 +32,9 @@ from cujo_sniff.policy import (
     SCHEMA_VERSION,
     SENSED_LOCK_TIMEOUT_S,
     TAIL_CHARS,
-    tail,
 )
 from cujo_sniff.report import build_sensor_block, health
-from cujo_sniff.scrub import KEEP_IN_TEXT, scrub, scrub_argv
+from cujo_sniff.scrub import KEEP_IN_TEXT, scrub_argv, scrub_head, scrub_tail
 from cujo_sniff.sensors.fsdiff import Snapshot, diff_snapshots, snapshot
 
 
@@ -228,12 +227,14 @@ def capture_script(argv: list[str], cwd: Path) -> tuple[str | None, bool]:
             raw = fh.read(MAX_SCRIPT_CHARS + 1)
     except OSError:
         return None, False
-    truncated = len(raw) > MAX_SCRIPT_CHARS
-    content = scrub(raw[:MAX_SCRIPT_CHARS], KEEP_IN_TEXT)
-    if len(content) > MAX_SCRIPT_CHARS:
-        content = content[:MAX_SCRIPT_CHARS]
-        truncated = True
-    return content, truncated
+    # `scrub_head` rather than a cap and a `scrub()` in either order. Capping
+    # first bounds the wrong quantity, because escaping expands; escaping first
+    # and slicing the result bounds the right one and cuts `\u202e` into
+    # `\u20`, which is text the script did not contain. The budget is spent one
+    # whole character at a time, and `truncated` is true when the read stopped
+    # at the byte budget or the escape overflowed the character one.
+    content, escaped_over = scrub_head(raw, MAX_SCRIPT_CHARS, KEEP_IN_TEXT)
+    return content, len(raw) > MAX_SCRIPT_CHARS or escaped_over
 
 
 def run_sensed(
@@ -272,6 +273,15 @@ def run_sensed(
         # Inside the window: a daemon that dies while the command runs is the
         # thing being looked for, so it is checked before the lock is released.
         sensors = {**daemon_health(ctx, config), "fs_diff": snapshot_health(before, after)}
+    # Escaping expands -- four characters for a control byte, six for a
+    # bidirectional override -- so the cap has to be spent on the escaped text.
+    # Capping first and escaping afterwards bounded the wrong quantity: a check
+    # that printed 4000 right-to-left overrides returned 24,000 characters
+    # against a 4000-character budget, and the output is written by the code
+    # under review. The flag is now true when either the raw output or its
+    # escaped form was cut, because both are the same fact to a reader.
+    stdout_tail, stdout_cut = scrub_tail(out, TAIL_CHARS, KEEP_IN_TEXT)
+    stderr_tail, stderr_cut = scrub_tail(err, TAIL_CHARS, KEEP_IN_TEXT)
     block = build_sensor_block(
         proxy_rows=proxy_rows,
         audit_rows=audit_rows,
@@ -281,8 +291,8 @@ def run_sensed(
         check=check,
         sensors=sensors,
         truncated={
-            "stdout_tail": len(out) > TAIL_CHARS,
-            "stderr_tail": len(err) > TAIL_CHARS,
+            "stdout_tail": stdout_cut,
+            "stderr_tail": stderr_cut,
             "snapshot": before.truncated or after.truncated,
             # A file too large to hash falls back to metadata, which is exactly
             # what a restored mtime defeats. Saying so is the difference between
@@ -302,8 +312,8 @@ def run_sensed(
         # False means another sensed command overlapped this one, so rows in
         # this report may belong to it.
         "window_exclusive": exclusive,
-        "stdout_tail": scrub(tail(out), KEEP_IN_TEXT),
-        "stderr_tail": scrub(tail(err), KEEP_IN_TEXT),
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
         "script_content": script_content,
         **block,
     }
