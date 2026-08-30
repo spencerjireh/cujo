@@ -1,4 +1,4 @@
-import { type SensorBlock, alarms, unarmed } from "@/lib/api/report";
+import { type SensorBlock, tripped, unarmed } from "@/lib/api/report";
 
 /**
  * What a block's evidence is worth, said once, at the top of it.
@@ -53,7 +53,7 @@ export function coverageLine(block: SensorBlock): string | null {
   // at all: say nothing rather than count zero of them as off.
   if (health.every((sensor) => sensor.armed === undefined)) return null;
 
-  const quiet = alarms(block).length === 0;
+  const quiet = !tripped(block);
   const down = unarmed(block);
 
   if (down.length === 0) {

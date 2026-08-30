@@ -26,8 +26,8 @@ const TONE: Record<string, string> = {
   warn: "border-sev-high bg-sev-high-bg text-sev-high",
 };
 
-function Alarms({ block }: { block: SensorBlock }) {
-  const flags = alarms(block);
+function Alarms({ block, check }: { block: SensorBlock; check: string }) {
+  const flags = alarms(block, check);
   if (flags.length === 0) return null;
   return (
     <ul className="mt-2 flex max-w-3xl flex-col gap-px">
@@ -138,10 +138,13 @@ const PATH = "min-w-0 wrap-anywhere";
 
 export function SensorReport({
   block,
+  check,
   index = 0,
   total = 1,
 }: {
   block: SensorBlock;
+  /** The check this block belongs to; one alarm's severity depends on it. */
+  check: string;
   index?: number;
   total?: number;
 }) {
@@ -166,7 +169,7 @@ export function SensorReport({
       ) : null}
 
       <CommandHeader block={block} />
-      <Alarms block={block} />
+      <Alarms block={block} check={check} />
       {coverage ? <p className="mt-2 max-w-[68ch] text-sm">{coverage}</p> : null}
       <CutOutput block={block} />
       <ScriptContent block={block} />

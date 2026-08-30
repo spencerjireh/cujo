@@ -33,6 +33,7 @@ const ALL_WATCHING = {
 const meta: Meta<typeof SensorReport> = {
   title: "Run/Report/SensorReport",
   component: SensorReport,
+  args: { check: "detonation" },
 };
 export default meta;
 
@@ -260,6 +261,7 @@ export const SeveralBlocks: Story = {
           <SensorReport
             key={block.label ?? `block-${index}`}
             block={block}
+            check="detonation"
             index={index}
             total={blocks.length}
           />

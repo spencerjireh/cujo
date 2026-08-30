@@ -330,16 +330,39 @@ export interface Alarm {
  * `wrote_outside_workspace` is read by no rule at all: a build that writes to
  * /tmp is ordinary, and the flag is context for the four above rather than a
  * charge of its own. Rendering it in the same red said otherwise.
+ *
+ * One of the four is scoped, which is why this takes the check's title.
+ * `egress_to_unknown_host` is a hard rule only on `detonation` (`docs/spec.md`,
+ * "the five rules are not interchangeable"): an install that phones home is
+ * malice, and a test suite that reaches a host the allowlist does not name is
+ * something to look at. Painting the second in the first's red is the page
+ * making an accusation the reviewer did not.
  */
-export function alarms(block: SensorBlock): Alarm[] {
+export function alarms(block: SensorBlock, check: string): Alarm[] {
   const out: Alarm[] = [];
   const add = (text: string, severity: Severity) => out.push({ text, severity });
   if (block.secret_probe?.decoy_in_egress) add("decoy secret left the sandbox", "critical");
   if (block.secret_probe?.decoy_read) add("decoy secret was read", "critical");
-  if (block.derived?.egress_to_unknown_host) add("egress to an unknown host", "critical");
+  if (block.derived?.egress_to_unknown_host) {
+    add("egress to an unknown host", check === "detonation" ? "critical" : "warn");
+  }
   if (block.derived?.wrote_sensitive) add("wrote to a sensitive path", "critical");
   if (block.derived?.wrote_outside_workspace) add("wrote outside the workspace", "warn");
-  return out;
+  // Stable, so within a severity the order above holds.
+  return out.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
+}
+
+const RANK: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
+
+/** Whether any of the five flags tripped, whatever the check. */
+export function tripped(block: SensorBlock): boolean {
+  return Boolean(
+    block.secret_probe?.decoy_in_egress ||
+      block.secret_probe?.decoy_read ||
+      block.derived?.egress_to_unknown_host ||
+      block.derived?.wrote_sensitive ||
+      block.derived?.wrote_outside_workspace,
+  );
 }
 
 /**
@@ -355,5 +378,5 @@ export function alarms(block: SensorBlock): Alarm[] {
  * says which run it was.
  */
 export function needsAttention(block: SensorBlock): boolean {
-  return alarms(block).length > 0 || unarmed(block).length > 0;
+  return tripped(block) || unarmed(block).length > 0;
 }
