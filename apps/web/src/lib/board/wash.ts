@@ -1,6 +1,6 @@
 /**
  * The wash, which is the board re-reading the API (decision 68, as amended by
- * 82).
+ * 83).
  *
  * It starts when `GET /public/runs` returns and walks the record run by run,
  * oldest first, ending on the newest. A run's index is its age, and the
@@ -9,7 +9,7 @@
  * layer is finished before the next is begun. That is the sequence the test
  * asserts.
  *
- * It replaces a plane crossing the volume (81). A plane lights a layer at
+ * It replaces a plane crossing the volume (82). A plane lights a layer at
  * once, and a layer of fourteen stars going amber together, every five
  * seconds while a run is live, was a strobe. The wash is a light that hops
  * from star to star: `washCursor` says where it is, `lightOpacity` says how

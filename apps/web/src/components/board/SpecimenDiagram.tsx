@@ -11,7 +11,7 @@ import { SATELLITE_ORBIT, projectRing, ringNormals, satelliteRing } from "@/lib/
  */
 
 /**
- * The tilts are a run's own since decision 82, so the diagram has to be seeded
+ * The tilts are a run's own since decision 83, so the diagram has to be seeded
  * like a run. A fixed id, chosen for a set of four that opens well at this
  * size.
  */

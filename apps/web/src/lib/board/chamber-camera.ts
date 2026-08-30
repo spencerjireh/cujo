@@ -43,7 +43,7 @@ const DRIFT_YAW = 0.045;
  * with no live run felt switched off. Two periods that do not divide each other
  * never repeat the same pose, so the volume is never quite still without ever
  * being in motion. It carries no data and makes no claim: it is the camera
- * breathing, which decision 79 admits by name.
+ * breathing, which decision 80 admits by name.
  */
 const BREATH_SECONDS = 9.3;
 const BREATH_YAW = 0.012;

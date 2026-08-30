@@ -2,10 +2,10 @@
  * Where a run sits in the galaxy.
  *
  * Depth is time and stays a measurement: the record is three layers by recency
- * (decision 81), and `layerOf` says which one a run is in. What this adds is
+ * (decision 82), and `layerOf` says which one a run is in. What this adds is
  * the position *within* a layer, and that is **not** a measurement — it is a
  * deterministic function of the run's slot and id and means nothing at all,
- * which decision 80 already said of the old field and the legend still says in
+ * which decision 81 already said of the old field and the legend still says in
  * words.
  *
  * Each layer is a band: an ellipse, wider than tall, with its slots spread

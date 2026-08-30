@@ -1,10 +1,10 @@
 /**
- * The decorative layer's arithmetic (decision 79).
+ * The decorative layer's arithmetic (decision 80).
  *
  * Everything here describes air: where dust sits, how it drifts, how bright the
  * haze is near the sweep, and how the backdrop is graded. None of it reads a
  * run, and nothing that reads a run is allowed in here — that separation is the
- * whole of what decision 79 permits, and it is checkable precisely because this
+ * whole of what decision 80 permits, and it is checkable precisely because this
  * module imports no run type at all.
  *
  * Pure, and tested for the two properties that matter: at rest it is exactly

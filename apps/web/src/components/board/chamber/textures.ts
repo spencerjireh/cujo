@@ -3,7 +3,7 @@
  *
  * Greyscale on purpose. Everything that uses it tints it — the glow behind a
  * core takes the verdict's colour, the sweep takes amber — so no light in the
- * room can introduce a hue the palette has not already spent (decision 79).
+ * room can introduce a hue the palette has not already spent (decision 80).
  *
  * Its own module because two files want it and neither should own it: the
  * specimen builder is shared with the run page's scene, and the room is not, so
