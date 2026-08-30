@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 /**
  * Where a run sits in the galaxy.
  *
- * Position within a layer carries nothing — that is decision 79, kept by 80,
+ * Position within a layer carries nothing — that is decision 80, kept by 81,
  * and it is the one place the chamber's drawing is deliberately not a
  * measurement. What it still has to be is *stable*, *apart*, and *out of the
  * way*, and all three are here.

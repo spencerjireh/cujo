@@ -5,6 +5,23 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One run per branch per repository. Two runs otherwise finish in full when only
+# the later one describes the code now on the branch -- from a second push, or
+# from somebody pressing "Run workflow" on a branch a `pull_request` run is
+# already covering.
+#
+# The branch half is the branch and not `pull_request.number`, because a
+# `workflow_dispatch` run has no pull request and would land in its own group,
+# which is the pairing this is here to collapse. The repository half is there
+# because a branch name alone is not an identity: two forks can both offer
+# `patch-1`, and with `cancel-in-progress` one fork's run would cancel the
+# other's and leave that pull request with no completed CI. `github.repository`
+# is the fallback so a `workflow_dispatch` run still shares the group with the
+# `pull_request` run for the same branch of this repository.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   node:
     runs-on: ubuntu-latest
