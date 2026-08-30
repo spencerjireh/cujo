@@ -3732,12 +3732,17 @@ called; `accusation_follows` adds the held count and the held markers and
 nothing else. A model cannot write "blocked" onto an advisory review, because
 the word is not a thing it supplies.
 
-**`comments[]` is deleted from the input and derived from the findings.** It was
-always a second copy of an anchor the finding already carried (`path`, `line`,
-`side` — Contract 3), and keeping two copies is what let #8 post a critical
-finding in the body with no comment on any line. One rule, one place: a finding
-with a usable anchor is an inline comment. The `### Findings without a diff
-anchor` section goes with it. That section existed so a rejected comment would
+**`comments[]` is deprecated and derived from the findings.** It was always a
+second copy of an anchor the finding already carried (`path`, `line`, `side` —
+Contract 3), and keeping two copies is what let #8 post a critical finding in
+the body with no comment on any line. One rule, one place: a finding with a
+usable anchor is an inline comment. The parameter is *deprecated* rather than
+deleted, and that distinction was a review finding: deleting it from the schema
+did not stop old sessions sending one, it made Zod strip it, so a legacy review
+would have posted whatever its findings happened to anchor and dropped the
+model's own comment text in silence. It stays, unasked-for and preferred when
+present, until no session predating this entry can still be running. The
+`### Findings without a diff anchor` section goes with it. That section existed so a rejected comment would
 not vanish, and no comment can vanish when every finding is already printed in
 the body — so a rejected anchor is now marked on the finding in place, and
 `review.anchor.moved` still logs which of the three rejections it was
@@ -3805,19 +3810,44 @@ matching back into the trusted side one paragraph after Contract 3 forbids it;
 human-readable thing in the review at eye level; **deriving the board's inline
 comments in `http/public/serialize.ts`**, which would push a derivation into a
 module with an import allowlist and break the sentinel fixtures that guard it;
-and **making `github-mcp` read the check reports** so it could classify a
+**two independent derivations of the comment format**, which is what the first
+cut of this entry shipped and what the section below is about; and **making `github-mcp` read the check reports** so it could classify a
 finding itself, which widens a write-only server (decision 5) into one that
 knows what it is posting about.
 
-Known limit: two derivations of one rule. `apps/cujo` derives the same anchored
-comment list in `review/findings.ts` so the board's "Inline comments" panel keeps
-working without a new projection field, and the two implementations can drift.
-The same trade is already taken for the hard rules (decision 21), the same reason
-applies — the trusted side must not have to ask the write-only server what it
-just posted — and the same defence is used: both sides pin the comment template
-with the same literal in their tests, and each test says so. Second limit: the
-board's own findings list still shows the model's raw title, so a jargon title
-translated in the review body is untranslated on the run page. Third: the rubric
-rewrite reaches only sessions created after it deploys, and no test asserts on
-the rubric's review prose, so a regression there is still visible only in a
-posted review — the same hazard decision 36 named, now one layer smaller.
+### The renderer is a package, because two processes must agree on one format
+
+The first cut of this entry put the renderer inside `apps/github-mcp` and had
+`apps/cujo` derive the inline comments a second time, on the reasoning that
+re-deriving is the trade decision 21 already takes for the hard rules. That
+reasoning was wrong and the review found three separate bugs in it: a dedupe key
+missing `check`, so comments that posted separately collapsed on the board; a
+title translated on one side only, so *exactly the field-name titles this entry
+exists to repair* read differently in the two places; and a board rendering
+`body`, which by then was a one-sentence lede, where GitHub had the whole
+review.
+
+The distinction decision 21 turns on is that a hard rule is a **judgment** the
+trusted side must reach independently — that is the whole point of re-deriving
+it. This is a **format** two processes have to agree on exactly. Two
+implementations of one format is drift with extra steps.
+
+So `@cujo/review-render` holds it: pure functions, no IO, no config, no
+knowledge of either caller. `apps/github-mcp` composes the body it posts;
+`apps/cujo` reproduces that body and those comments for the board. Sharing a
+pure formatter is not the trusted side depending on the write-only server
+(decision 5) — neither imports the other, and both depend on one definition of
+what a review looks like.
+
+Known limit: the board's reproduction differs from the posted copy in two ways,
+both of them things this side cannot know. The machine block's `run_url` is
+null, because the board *is* that page; and no finding is marked
+`(not in this diff)`, because validating an anchor needs the pull request diff
+and `apps/cujo` does not have it. The second one is why the board's panel is
+labelled "Anchored findings" and says so, rather than claiming those comments
+landed on GitHub. Second limit: the board's own findings list still shows the
+model's raw title, so a jargon title translated in the review body is
+untranslated in the list beside it. Third: the rubric rewrite reaches only
+sessions created after it deploys, and no test asserts on the rubric's review
+prose, so a regression there is still visible only in a posted review — the same
+hazard decision 36 named, now one layer smaller.

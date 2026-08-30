@@ -19,11 +19,27 @@
  * The verdict word is a function of the tool, never of the model. A model
  * cannot write "blocked" onto an advisory review, because the word is not a
  * thing it supplies.
+ *
+ * Everything here is pure. `apps/github-mcp` calls it to build the body it
+ * posts; `apps/cujo` calls it to reproduce that body, and those comments, for
+ * the board. See `index.ts` for why that is one package and not two copies.
  */
 
-import type { ReviewComment, Side } from "./diff";
 import { plainTitle } from "./plain-title";
-import type { ReviewTool } from "./tools";
+
+/** Which side of the diff a line is on. `RIGHT` is head and is the default. */
+export type Side = "LEFT" | "RIGHT";
+
+/** One inline review comment, as GitHub's review API takes it. */
+export interface ReviewComment {
+  path: string;
+  line: number;
+  side?: Side;
+  body: string;
+}
+
+/** The tools that post a review. The verdict word is a function of this. */
+export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
 
 /** What the headline calls this review. Matched literally, like the severities. */
 export type Verdict = "advisory" | "blocked" | "accusation";
@@ -56,11 +72,7 @@ export interface EgressHost {
   note?: string;
 }
 
-/**
- * Structurally what the tool schema produces. Declared here rather than
- * imported from `tools.ts` so this module stays pure and testable on its own;
- * the only thing it takes from there is a type, which is erased.
- */
+/** Structurally what the review tool's schema produces. */
 export interface RenderInput {
   body: string;
   findings: RenderFinding[];

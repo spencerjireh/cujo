@@ -66,11 +66,15 @@ describe("github-mcp", () => {
       expect(byName.get(name)?.inputSchema.required).toEqual(
         expect.arrayContaining(["repo", "pr_number", "head_sha", "body"]),
       );
-      // Anchors ride on the findings now, and there is no second array that
-      // could disagree with them (decision 74).
+      // Anchors ride on the findings now (decision 74). `comments` survives as
+      // a deprecated field, because a session pinned to the old rubric goes on
+      // sending one and dropping it from the schema would have Zod strip it —
+      // posting whatever the findings anchored and losing the rest in silence.
       const properties = Object.keys((byName.get(name)?.inputSchema.properties ?? {}) as object);
-      expect(properties).not.toContain("comments");
-      expect(properties).toEqual(expect.arrayContaining(["findings", "coverage", "egress"]));
+      expect(properties).toEqual(
+        expect.arrayContaining(["findings", "coverage", "egress", "comments"]),
+      );
+      expect(byName.get(name)?.inputSchema.required).not.toContain("comments");
     }
   });
 

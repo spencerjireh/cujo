@@ -13,6 +13,7 @@
  */
 
 import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { type ReviewTool, renderReviewBody, reviewComments } from "@cujo/review-render";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -24,7 +25,6 @@ import {
 } from "./body";
 import { validateAnchors } from "./diff";
 import type { ExistingReview, GitHubClient } from "./github";
-import { renderReviewBody, reviewComments } from "./render";
 
 export const reviewInputShape = {
   repo: z
@@ -85,6 +85,28 @@ export const reviewInputShape = {
     .default([])
     .describe(
       "Every finding. The server renders them by severity and derives the inline comments from them: one carrying path and line becomes a comment on that diff line. There is no comments parameter.",
+    ),
+  // Deprecated, and kept only for the migration (decision 74). The rubric no
+  // longer asks for this and new calls do not send it — anchors ride on the
+  // findings. But a session pins its rubric at creation (decision 16), so an
+  // in-flight pull request goes on sending the old shape for as long as its
+  // session lives, and deleting the key outright made Zod strip it: those
+  // reviews would have posted whatever the findings happened to anchor and
+  // silently dropped the comments the model actually wrote. Present and
+  // preferred when non-empty, so a legacy call posts exactly what it always
+  // did. Remove it once no session predating decision 74 can still be running.
+  comments: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        line: z.number().int().positive(),
+        side: z.enum(["LEFT", "RIGHT"]).optional(),
+        body: z.string().min(1),
+      }),
+    )
+    .default([])
+    .describe(
+      "Deprecated; do not send. Anchor a finding with path and line instead and it becomes an inline comment. Accepted only so a session created before the review body was composed server-side keeps posting the comments it wrote.",
     ),
   coverage: z
     .object({
@@ -168,7 +190,7 @@ export interface ReviewResult {
 }
 
 /** The tools that post a review. The name rides on the log line, so it is passed. */
-export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+export type { ReviewTool };
 
 export async function postReview(
   github: GitHubClient,
@@ -255,7 +277,12 @@ export async function postReview(
     const files = await github.listPullFiles(input.repo, input.pr_number);
     // Derived, not sent (decision 74). A finding carrying an anchor is an
     // inline comment; there is no second array that could disagree with it.
-    const { inline, moved } = validateAnchors(files, reviewComments(input));
+    // A legacy call's own comments win, so an in-flight session posts exactly
+    // what it always did; everything else derives from the findings, which is
+    // the one source of an anchor now (decision 74).
+    const legacy = input.comments ?? [];
+    const candidates = legacy.length > 0 ? legacy : reviewComments(input);
+    const { inline, moved } = validateAnchors(files, candidates);
     for (const { comment, reason } of moved) {
       // One line per rejected anchor, because `moved_to_body` is a count with
       // no explanation: an agent citing a file the PR does not touch and one
@@ -281,9 +308,17 @@ export async function postReview(
       tool,
       accusationFollows,
       runUrl: runUrl(publicBaseUrl, input.run_id),
-      unanchored: new Set(
-        moved.map(({ comment }) => `${comment.path}:${comment.line}:${comment.side ?? "RIGHT"}`),
-      ),
+      // Only meaningful when the comments came from the findings: on a legacy
+      // call these keys describe the model's own `comments[]`, which the body
+      // does not print, so marking findings against them would be guesswork.
+      unanchored:
+        legacy.length > 0
+          ? new Set<string>()
+          : new Set(
+              moved.map(
+                ({ comment }) => `${comment.path}:${comment.line}:${comment.side ?? "RIGHT"}`,
+              ),
+            ),
     });
 
     const review = await github.createReview(input.repo, input.pr_number, {

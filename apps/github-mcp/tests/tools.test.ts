@@ -19,6 +19,9 @@ const input = {
   pr_number: 7,
   head_sha: "abc1234",
   body: "What ran",
+  // Present because the deprecated field carries a zod default, so it is
+  // required on the parsed type. Empty here: these tests are not legacy calls.
+  comments: [],
   findings: [],
 };
 
@@ -163,6 +166,77 @@ describe("the composed body", () => {
     expect(at("/cujo confirm")).toBeGreaterThan(at("Machine-readable summary"));
     expect(at("Full evidence")).toBeGreaterThan(at("/cujo confirm"));
     expect(at("<!-- cujo:")).toBeGreaterThan(at("Full evidence"));
+  });
+});
+
+describe("a call from a session pinned to the old rubric", () => {
+  function poster() {
+    let posted: { body: string; comments: unknown[] } = { body: "", comments: [] };
+    const github = {
+      listReviews: vi.fn(async () => []),
+      listPullFiles: vi.fn(async () => [
+        { filename: "a.py", patch: "@@ -1,1 +1,2 @@\n context\n+added" },
+      ]),
+      createReview: vi.fn(async (_r: string, _p: number, req: typeof posted) => {
+        posted = req;
+        return { id: 1, html_url: "https://gh/r/1" };
+      }),
+    } as unknown as GitHubClient;
+    return { github, posted: () => posted };
+  }
+
+  it("posts the comments it wrote, rather than ones derived from its findings", async () => {
+    // The compatibility guarantee, and the reason `comments` is still in the
+    // schema: dropping the key had Zod strip it, so a legacy review posted
+    // whatever its findings happened to anchor and lost the model's own
+    // comment text in silence.
+    const { log } = capture();
+    const { github, posted } = poster();
+    await postReview(
+      github,
+      "COMMENT",
+      "post_advisory_review",
+      {
+        ...input,
+        comments: [{ path: "a.py", line: 2, body: "the model's own words" }],
+        findings: [
+          {
+            check: "probes",
+            severity: "warn" as const,
+            title: "a finding anchored somewhere else entirely",
+            evidence: "",
+            held: false,
+            path: "a.py",
+            line: 1,
+          },
+        ],
+      },
+      "",
+      log,
+    );
+    expect(posted().comments).toEqual([
+      { path: "a.py", line: 2, side: "RIGHT", body: "the model's own words" },
+    ]);
+  });
+
+  it("still gets a composed body, with its prose kept below the findings", async () => {
+    const { log } = capture();
+    const { github, posted } = poster();
+    await postReview(
+      github,
+      "COMMENT",
+      "post_advisory_review",
+      {
+        ...input,
+        body: "## What ran\n\n212 tests on base and head.\n\n## Results\n\nNothing broke.",
+        comments: [{ path: "a.py", line: 2, body: "x" }],
+      },
+      "",
+      log,
+    );
+    expect(posted().body).toContain("**Advisory** — no findings above info");
+    expect(posted().body).toContain("### Notes");
+    expect(posted().body).toContain("212 tests on base and head.");
   });
 });
 

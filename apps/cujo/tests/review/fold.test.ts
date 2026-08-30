@@ -751,6 +751,9 @@ describe("parseReview", () => {
       tool: "post_blocking_review",
       toolCallId: "c1",
       body: "What ran",
+      // A legacy call: the model's own prose lands under `### Notes`, and its
+      // own comments are kept rather than derived (decision 74).
+      composedBody: expect.stringContaining("**Blocked**"),
       comments: [{ path: "a.py", line: 3, body: "boom" }],
       findings: [],
     });

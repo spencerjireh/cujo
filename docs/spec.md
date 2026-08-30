@@ -805,10 +805,13 @@ and a collapsed machine-readable block. An empty section is omitted. **The
 verdict word comes from the tool**, so a model cannot write "blocked" onto an
 advisory review — the word is not a thing it supplies.
 
-**There is no `comments[]` parameter.** A finding carrying a `path`, a `line`
-and a `side` becomes an inline review comment on that diff line, derived from
-the finding rather than sent beside it; a call that sends `comments[]` anyway
-has the key stripped. `github-mcp` validates each derived anchor against the PR
+**`comments[]` is deprecated.** A finding carrying a `path`, a `line` and a
+`side` becomes an inline review comment on that diff line, derived from the
+finding rather than sent beside it. The parameter survives only for the
+migration: a session pins its rubric at creation (decision 16), so an in-flight
+pull request goes on sending one, and a call that does still posts exactly
+those comments rather than derived ones. Remove it once no session predating
+decision 74 can be running. `github-mcp` validates each derived anchor against the PR
 diff before posting, and a finding whose anchor is not in the diff is marked in
 place in the body — `(not in this diff)` — rather than moved to a section of its
 own, because the body already carries every finding. Which of the three
@@ -866,11 +869,11 @@ what a tool does, but it is the explicit list that decides what pauses, so
 a finding accuses code of acting maliciously the agent calls the gated tool,
 after posting the observation, and the turn pauses with a `tool.approval_required`
 event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
-`apps/cujo` reads the drafted review (the tool call's `body` and `findings[]`,
-from which it derives the same anchored comment list `github-mcp` derives, so
-the board shows what landed on the diff — decisions 21 and 74) from the
-`model.message` event that `source_event_id` names, marks the run
-`blocked_pending`. The board shows nothing of it until it posts: publishing a
+`apps/cujo` reads the drafted review from the `model.message` event that
+`source_event_id` names, and rebuilds both the posted body and its inline
+comments by calling `@cujo/review-render` — the same package `github-mcp`
+posts with, so the board cannot describe a finding differently from the pull
+request (decision 74). It marks the run `blocked_pending`. The board shows nothing of it until it posts: publishing a
 held accusation is exactly what the gate prevents, and the audience there had no
 way to allow it. The answer comes from `/cujo confirm` or
 `/cujo dismiss` on the pull request (Contract 8, decisions 45 and 49), and
