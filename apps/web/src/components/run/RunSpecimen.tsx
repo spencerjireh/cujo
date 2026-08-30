@@ -126,7 +126,14 @@ export function RunSpecimen({ run }: { run: Run }) {
       // fire again to correct it.
       runIfWanted();
     })().catch(() => {
-      // Nothing to recover: the flat drawing is the design for exactly this.
+      // The flat drawing is the design for exactly this, so there is nothing
+      // to show. There may be something to let go of: a renderer that was
+      // built and then failed to size or start would otherwise hold its
+      // context until the page unloads.
+      handle?.dispose();
+      handle = null;
+      handleRef.current = null;
+      setLive(false);
     });
 
     return () => {
