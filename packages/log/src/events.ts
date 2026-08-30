@@ -76,7 +76,10 @@ export const EVENT_NAMES = [
   "run.turn.retried",
   "run.stream.dropped",
   "run.stream.resubscribe.failed",
+  // The stream is gone for good. Not a verdict: the turn is watched from here.
   "run.stream.lost",
+  // That watch saw the turn actually end, and the fold has its real events.
+  "run.stream.recovered",
   "run.hydrate.failed",
   "run.rehydrated",
   "run.rehydrate.failed",
