@@ -76,6 +76,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
 69. [The chamber may have air in it, and the air is two files](#69-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
 70. [Depth is time; across the volume means nothing, and says so](#70-depth-is-time-across-the-volume-means-nothing-and-says-so)
+71. [The record is a galaxy, and a run is a star with orbits](#71-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3051,8 +3052,10 @@ time and loses the two spans whose other end is on the run record.
 ## 68. Nothing in the chamber exists that is not a measurement
 
 **Amended by 69**, which narrows this rule to geometry and admits one named
-decorative layer. Not reversed: everything below still holds of every object
-that carries a fact.
+decorative layer, **and by 71**, which deletes the room — the floor ticks, the
+wall ribs, the shell and the chain — and keeps the rule: one gate per layer
+that holds a run is what the occupancy strip becomes. Not reversed: everything
+below still holds of every object that carries a fact.
 
 The board drew every run as a specimen and drew the room around it out of
 nothing: the floor grid repeated at a fixed pitch, the chain ran the length of
@@ -3186,6 +3189,10 @@ server rendered and must not slide from it.
 
 ## 69. The chamber may have air in it, and the air is two files
 
+**Amended by 71**, which makes the sweep a plane again — a layer is one depth,
+so the objection below to a plane no longer applies — and promotes the dust to
+a star field. Still two files.
+
 **Amended by 70**, which narrows the rule once more — a specimen's depth is a
 measurement and its position across the volume is not — and reverses two of the
 choices below: phones no longer keep the flat elevation, because there is no
@@ -3307,6 +3314,13 @@ two drawings of one run have to be one drawing, so it got its own glyph with the
 same rig.
 
 ## 70. Depth is time; across the volume means nothing, and says so
+
+**Amended by 71**, which keeps the rule — depth is time, position across it
+means nothing and the key says so — and replaces what it was applied to: the
+field is five layers, the shape is a star with orbits, the chain is not drawn,
+the camera stands outside because there is no mouth, and the sweep is a plane.
+Not reversed: the arm split by strength rather than hue, `sandboxMs` on a list
+row, the serializer guard, the deleted flat elevation, the reordered headline.
 
 Decision 68 said no object in the chamber exists that is not a
 measurement. Decision 69 narrowed that to geometry and admitted one named
@@ -3477,3 +3491,112 @@ the field flat** for phones, which at that width is a smudge. And **a minimum
 presence floor** so a clean run reads as an object anyway — a calm board is
 calm, which is the reading `brand/brand.md` asks for and the one a maintainer
 wants to be able to take at a glance.
+
+## 71. The record is a galaxy, and a run is a star with orbits
+
+Decision 70 scattered the record across a box and made a specimen a solid.
+Looking at it running, four things were wrong and they were one thing: ten runs
+spaced down a thirteen-unit corridor, inside a wireframe box with rails, is a
+hallway with objects in it. The depth was too great to read as layers and too
+sparse to read as a field; the box made the field a room; the tetrahedron was
+small and said little at any distance; and the amber sweep, a soft light nearly
+three units across, was the largest object on screen. This replaces the shape,
+the room and the field together, because they were composed together and could
+not be fixed apart.
+
+### A run is a star with four orbits
+
+The core is the star and the verdict, in its colour, sized by the worst thing
+the run found, with the additive glow behind it that the bloom pass already
+lights. Each check is a ring round it on one of four fixed tilts: its radius is
+how long the check watched, the bright arc of it is the share spent executing
+in the sandbox and the faint remainder is the agent deciding, and its colour is
+how the check ended. Findings are satellites on an orbit outside the rings, six
+fixed slots so the cap stays visible. A check that never appeared has no ring,
+as it had no arm.
+
+**The four ring planes are the four tetrahedral directions the arms used to
+leave the core along, now used as normals.** That is the one piece of the old
+shape that survives, and it survives for the reason 70 chose it: every pair is
+109.47° apart, the widest four planes can be, and each projects down the view
+axis to an ellipse with the same minor/major ratio, squashed along one of the
+four 45° diagonals. So `tests` is still upper-left and `detonation` lower-left
+in the flat glyph, two runs are still comparable by silhouette, and `orbit.ts`
+asserts it — every ring the same ellipse, each on its own diagonal — where
+`caltrop.ts` asserted the equivalent for arms. Three flat drawings and one
+solid read `projectRing`, as they read `projectArms`.
+
+A pointer picks the system and not the core. The core is a tenth of a unit
+across and a hover that had to find it would find nothing, so every node
+carries an invisible sphere the raycaster is given instead; the raycaster does
+not consult `visible`, and the sphere writes no colour and no depth.
+
+The satellites go round, and a live run's rings precess. Neither carries
+anything; both are decoration by the rule that admits the haze and the glow,
+and what they show is the shape, which is entirely measurement. Under reduced
+motion both are at rest.
+
+### Five layers of time
+
+The record is five layers by recency, at two units apart, holding three, five,
+six, eight and eight runs — thirty, up from ten. Depth is time and nothing else,
+as it has been since 65; what changes is that a reader can count it. Equal
+groups rather than age buckets, because a layer that can be empty is a gap the
+drawing has to explain, and the front holds three because three large stars are
+what the near end of a full-height frame can hold before one of them is a
+wall. The back holds eight because dense and small is what "older" looks like
+in a galaxy.
+
+Within a layer a run's place is a function of its slot and its id: slots at
+equal angles round a band, wider than tall, jittered by the id by less than
+half the gap to the next slot. It still means nothing (70), and the key still
+says so. Two things are tested rather than eyeballed: no two runs in a layer
+come within one and a half rings of each other whatever their ids, and no band
+crosses the clear line for its layer, which is higher toward the front because
+a near star reaches furthest into the type.
+
+### The room is gone, and the gates remain
+
+No shell, no rails, no ribs, no floor ticks. A galaxy is not in a box, and the
+box was what made the field read as a hallway. What remains of 68's occupancy
+rule is one gate per layer — an ellipse at the band's own extent, drawn only
+while the layer holds a run — so five gates say the record is five layers deep
+and two say it is two. The dust becomes a star field: nine hundred motes at two
+sizes in a volume far larger than the record, reaching past the back layer and
+off every edge of the frame, because a galaxy does not end where the record
+does. It is still `atmosphere.ts`, still decorative, still two files.
+
+### The sweep is a plane again
+
+69 narrowed the sweep from a plane to a cursor on the chain because the record
+was a scattered field and a plane lit every run at one depth together. A layer
+*is* one depth. A plane lights one layer at a time, oldest first, which is what
+an instrument reading a record in five pages looks like, and "at most one layer
+more than half lit" is asserted against the layer spacing. The gate is the
+light — it goes amber and solid as the plane reaches it and settles as it
+passes — and the additive quad that framed the scene is deleted.
+
+### The chain is not drawn
+
+`brand/brand.md` says Cujo is a guard dog on a chain, and the chain has been in
+the chamber since 65. A line threading thirty points in five bands is a
+scribble, and there is no honest place for it in a galaxy. The mark, the name
+and the copy keep the motif; the chamber stops drawing it. This is the one
+thing here that is a loss rather than a trade, and it is written down as one.
+
+### The record rises over the chamber
+
+The hero scrolled away like a banner. The galaxy is the ground the board stands
+on, so from `md` up the section is sticky and the rack, the record and the key
+rise over it as one opaque sheet. A pinned hero never leaves the viewport — it
+is only ever covered — and intersection knows nothing about overlap, so a
+one-pixel sentinel in flow between the hero and the sheet says when the sheet
+has covered everything, and the page hands that to the chamber as a gate on
+its loop beside the two it already had.
+
+Rejected: **age buckets for the layers**, above. **Every run in the galaxy**,
+which scales the frame's cost with the record and buys nothing the stats line
+and the record below do not already say. **A text label per star**, which is
+the callout, and the callout already follows the pointer. **Keeping the box
+with the stars inside it**, which is the hallway. **Turning the rings to face
+the camera**, which costs a ring's tilt its meaning.

@@ -85,33 +85,34 @@ redefined for dark. The page around it stays on the palette above.
 | Token | Value | For |
 | --- | --- | --- |
 | `--chamber` | `#0a0908` | The volume itself, one step below dark `--bg` |
-| `--chamber-line` | `#24211c` | Its wireframe, the floor grid, the chain |
+| `--chamber-line` | `#24211c` | The gates, the star field, the faint arc of a ring |
 | `--chamber-fg` | `#ede6da` | Type inside it — the dark `--fg`, unchanged |
 | `--chamber-fg-muted` | `#a39b90` | Labels inside it — dark `--fg-muted` |
 | `--chamber-critical` | `#ff5c45` | A blocked run, and a check that errored |
-| `--chamber-amber` | `#f2a900` | `blocked_pending`, and the sweep line |
+| `--chamber-amber` | `#f2a900` | `blocked_pending`, and the gate the sweep is reading |
 | `--chamber-info` | `#66b0f0` | A clean run, and a run that errored |
 | `--chamber-inert` | `#958d82` | Superseded, denied, and a check still running |
 
 Blue is a verdict in the chamber and nothing else, so a check still running is
 inert rather than blue: one hue saying two things in a single drawing is worse
-than a quiet arm. Nothing relies on hue to say a check is in flight anyway — it
-is drawn at the shorter unmeasured length, and its specimen breathes while the
+than a quiet ring. Nothing relies on hue to say a check is in flight anyway — it
+is drawn at the smaller unmeasured radius, and its specimen breathes while the
 run is live.
 
-The chamber has a decorative layer — haze, a graded backdrop, dust, a glow
-behind each core (decision 69) — and it takes no token of its own. Everything
+The chamber has a decorative layer — haze, a graded backdrop, a star field, a
+glow behind each core (decisions 69, 71) — and it takes no token of its own. Everything
 in it is one of the four above brightened from its own value, and the glow is
 greyscale tinted by the verdict it sits behind, so light in that room can never
-introduce a hue this palette does not already spend. The same holds of the one
-other decorative thing in there, a specimen's position across the volume
-(decision 70): it moves a shape, and never recolours one.
+introduce a hue this palette does not already spend. The same holds of the
+other decorative things in there — a star's position within its layer
+(decisions 70, 71), its satellites going round, a live run's rings precessing:
+each moves a shape, and never recolours one.
 
 The four signal colours are the dark severity ramp, pinned rather than
 inherited: what is drawn inside the chamber must not change hue when the page
 around it goes light, and a specimen must agree with the badge for the same run.
-Amber lands on exactly two things — a `blocked_pending` specimen and the sweep
-line — which is the same restraint the palette above asks for.
+Amber lands on exactly two things — a `blocked_pending` specimen and the gate
+the sweep is reading — which is the same restraint the palette above asks for.
 
 ### Contrast (WCAG, text on `--bg`)
 
