@@ -542,6 +542,62 @@ describe("Runner.rehydrate", () => {
     expect(store.runs.getRun(a.id)).toMatchObject({ status: "blocked_pending", turnIds: ["t1"] });
     runner.stopAll();
   });
+
+  it("fires the watchdog immediately when the run has outlived its budget", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    const listEvents = vi.fn(async () => [
+      { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T09:00:00Z") },
+    ]);
+    const subscribe = vi.fn();
+    const runner = new Runner(
+      store.runs,
+      { listEvents, subscribe, listTurns: vi.fn(async () => []) } as unknown as Harness,
+      { turnTimeoutMs: 1000 },
+    );
+    // Backdate createdAt so the budget is already spent.
+    const run = store.runs.getRun(r.id) as RunRecord;
+    const old = new Date(Date.now() - 60_000).toISOString();
+    const expired = { ...run, createdAt: old } as RunRecord;
+    await runner.rehydrate(expired);
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
+    expect(subscribe).not.toHaveBeenCalled();
+    runner.stopAll();
+  });
+
+  it("passes the remaining budget to follow when the run is still within its window", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    store.runs.updateRun(r.id, { turnIds: ["t1"] });
+    const turnStartedAt = new Date(Date.now() - 200).toISOString();
+    const hangingStream = async function* () {
+      yield turnCreated("t1", null, turnStartedAt) as unknown as StreamEvent;
+      await new Promise(() => {});
+    };
+    const listEvents = vi.fn(async () => [
+      { turnId: "t1", event: turnCreated("t1", null, turnStartedAt) },
+    ]);
+    const subscribe = vi.fn(async () => hangingStream());
+    const runner = new Runner(
+      store.runs,
+      {
+        listEvents,
+        subscribe,
+        listTurns: vi.fn(async () => []),
+        cancelTurn: vi.fn(),
+      } as unknown as Harness,
+      { turnTimeoutMs: 500 },
+    );
+    // Turn was created 200ms ago — 300ms remaining. The watchdog should fire
+    // within ~300ms, not a fresh 500ms.
+    const run = store.runs.getRun(r.id) as RunRecord;
+    await runner.rehydrate(run);
+    // Give the watchdog time to fire (300ms remaining + margin).
+    await new Promise((r) => setTimeout(r, 500));
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
+    runner.stopAll();
+  });
 });
 
 describe("Runner.hydrate", () => {
