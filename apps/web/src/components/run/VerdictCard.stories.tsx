@@ -10,7 +10,7 @@ export default meta;
 
 type Story = StoryObj<typeof VerdictCard>;
 
-/** The accusation held: the advisory is posted, so the review link shows. */
+/** The accusation held: the run waits on a person. */
 export const AwaitingApproval: Story = { args: { run: run() } };
 
 /** Nothing found, and "0 critical" says so rather than an empty row. */
@@ -23,7 +23,7 @@ export const Running: Story = {
   args: { run: run({ status: "running", review: null, gated_review: null }) },
 };
 
-/** Ended with nothing posted, so there is no review to link. */
+/** Ended with nothing posted: the run is over and did not block. */
 export const Denied: Story = {
   args: { run: run({ status: "denied", review: null, gated_review: null }) },
 };
