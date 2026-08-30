@@ -88,6 +88,22 @@ describe("specimensFrom", () => {
     expect(byName.get("tests")?.length).toBeGreaterThan(0);
   });
 
+  it("carries the check's own measurements on the bar, for the callout to say", () => {
+    const [spec] = specimensFrom(
+      [
+        row({
+          id: "a",
+          status: "clean",
+          digest: digest({ tests: { status: "done", ms: 5_000, sandboxMs: 4_000 } }),
+        }),
+      ],
+      10,
+    );
+    const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
+    expect(byName.get("tests")).toMatchObject({ ms: 5_000, sandboxMs: 4_000 });
+    expect(byName.get("probes")).toMatchObject({ ms: null, sandboxMs: null });
+  });
+
   it("gives a running check a length that never reads as measured", () => {
     const [spec] = specimensFrom(
       [

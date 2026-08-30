@@ -31,6 +31,8 @@
   --color-sev-low-bg: var(--sev-low-bg);
   --color-sev-info: var(--sev-info);
   --color-sev-info-bg: var(--sev-info-bg);
+  --color-sev-live: var(--sev-live);
+  --color-sev-live-bg: var(--sev-live-bg);
 
   /* The instrument viewport, which is dark in both themes (brand.md). Mapped
      here so a utility can name it; the chamber's own geometry reads the

@@ -151,6 +151,14 @@ no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
 to a full run, but the turn message carries `docs_only: true` so the agent
 selects advisory mode.
 
+The label filter inspects the `labels` array on the webhook payload as
+delivered. When a PR is created with a label in the same API call (e.g.
+`gh pr create --label`), GitHub may fire the `opened` event before the label
+is applied, so the first delivery may not carry it. The label takes effect on
+subsequent deliveries (`synchronize`, `ready_for_review`). This is by design:
+the label is a filter on future deliveries, not a retroactive cancellation of
+in-flight runs.
+
 For a `pull_request` event the `apps/cujo` webhook module:
 
 1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
@@ -428,7 +436,7 @@ a block short a key, a bare boolean. A roll-up nobody wrote hides no signal,
 because the rules already read both levels, and a roll-up of booleans that are
 all `false` in every run is a value the `any()` over the runs would compute
 anyway. A roll-up that is not an object at all is still refused, because that is
-a wrong shape rather than an absent one (decision 88).
+a wrong shape rather than an absent one (decision 96).
 
 **Every string in a report is written by the code under review** — what it
 printed, the arguments it ran, the filenames it chose, the hosts it asked for —
@@ -861,8 +869,9 @@ a request header back, and that is how one reaches a log line.
 Both also take an optional `run_id`, which the agent copies verbatim from the
 turn payload and never writes into the body itself. `github-mcp` validates it
 as a UUID, builds the link from its own `CUJO_PUBLIC_BASE_URL`, and appends the
-footer — a rule, then `Full evidence: <url>` — after the composed body, so the
-link is always last, always the same shape, and always on Cujo's own host
+footer — a rule, then a bold link reading *View the full evidence* whose target
+is that URL — after the composed body, so the link is always last, always the
+same shape, and always on Cujo's own host
 (decision 36). The agent supplies neither the format nor the destination. The
 same URL is built once and appears twice, in the footer and as `run_url` inside
 the machine-readable block, so the visible link and the parseable one cannot
@@ -881,8 +890,8 @@ the sentence naming them is composed here rather than quoted for the agent to
 reproduce. Only `post_advisory_review` and `post_blocking_review` take
 `accusation_follows`; `post_gated_review` has no such parameter, so the prompt
 cannot reach the accusation — where it would ask for the very approval that let
-that call run (decision 60). It sits directly above `Full evidence: <url>`,
-which stays last.
+that call run (decision 60). It sits directly above the evidence link, which
+stays last.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.

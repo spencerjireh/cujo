@@ -6,8 +6,11 @@ import Link from "next/link";
  *
  * There used to be a bar holding this and a theme control. The bar cost the
  * chamber the top of the window and gave back a wordmark and a second copy of a
- * control the footer already carries, so it is gone and this is what remains: a
- * mark, in the corner, scrolling away with the page like anything else on it.
+ * control the footer already carries, so it is gone and this is what remains:
+ * the mark and the name, in the corner, scrolling away with the page like
+ * anything else on it. The name came back after the bar went: a mark alone
+ * reads as an icon, and a reader arriving from a GitHub review has not yet
+ * met the icon.
  *
  * Placed by each page rather than by the layout, and that is deliberate. The
  * mark's fill is `currentColor` (brand/brand.md), so what it needs from a page
@@ -44,7 +47,10 @@ export function HomeMark({
           tone === "chamber" ? "text-[var(--chamber-fg)]" : "text-fg"
         }`}
       >
-        <Mark className="h-7 w-7" />
+        <span className="flex items-center gap-2.5">
+          <Mark className="h-7 w-7" />
+          <span className="font-display text-xl font-bold lowercase tracking-tight">cujo</span>
+        </span>
       </Link>
     </header>
   );

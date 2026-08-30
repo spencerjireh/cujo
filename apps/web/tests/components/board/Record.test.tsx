@@ -83,14 +83,14 @@ describe("the record's floor", () => {
     const { container } = render(<Record runs={runs.slice(0, 2)} />);
 
     expect(screen.getAllByRole("row")).toHaveLength(3); // two runs and the header
-    // Five rows' worth of field, three of them ruled lines rather than rows:
+    // Eight rows' worth of field, six of them ruled lines rather than rows:
     // decoration, hidden from anyone walking the table.
     const ruled = container.querySelectorAll("[aria-hidden='true'] > div");
-    expect(ruled).toHaveLength(3);
+    expect(ruled).toHaveLength(6);
   });
 
   it("draws no ruled lines once the record reaches the floor", () => {
-    const { container } = render(<Record runs={many(5)} />);
+    const { container } = render(<Record runs={many(8)} />);
 
     expect(container.querySelectorAll("[aria-hidden='true'] > div")).toHaveLength(0);
   });
@@ -138,6 +138,72 @@ describe("the record's scrollport", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("the row", () => {
+  it("is one link, stretched over the row, so any cell reaches the run", () => {
+    render(<Record runs={runs.slice(0, 1)} />);
+
+    const first = runs[0];
+    if (!first) throw new Error("fixtures are empty");
+    const links = screen.getAllByRole("link");
+    // One anchor per row and no more: the stretch is a pseudo-element, not a
+    // second link, so a keyboard walk is one stop per run.
+    expect(links).toHaveLength(1);
+    expect(links[0]?.getAttribute("href")).toBe(`/runs/${first.id}`);
+    expect(links[0]?.className).toContain("after:absolute");
+  });
+
+  it("puts the checks and the findings in one results cell that opens", () => {
+    render(<Record runs={runs.slice(1, 2)} />);
+
+    const header = screen.getAllByRole("row")[0];
+    if (!header) throw new Error("no header row rendered");
+    expect(within(header).getByText("Results")).toBeTruthy();
+    expect(within(header).queryByText("Checks")).toBeNull();
+    expect(within(header).queryByText("Found")).toBeNull();
+
+    // Four squares, each a reachable control naming its check.
+    expect(screen.getByRole("button", { name: /^tests: reported/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^detonation: reported/ })).toBeTruthy();
+
+    // Closed: one row. Open: a second row carrying the four checks in full.
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Show the checks" }));
+    expect(screen.getAllByRole("row")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Hide the checks" })).toBeTruthy();
+  });
+
+  it("marks the newest run of a pull request pushed to twice, and dims the older", () => {
+    const first = runs[0];
+    if (!first) throw new Error("fixtures are empty");
+    const older: RunSummary = {
+      ...first,
+      id: "older",
+      head_sha: "0ld0ld0",
+      created_at: "2026-08-29T00:00:00Z",
+    };
+    const newer: RunSummary = {
+      ...first,
+      id: "newer",
+      head_sha: "n3w3r00",
+      created_at: "2026-08-30T00:00:00Z",
+    };
+    render(<Record runs={[older, newer]} />);
+
+    expect(screen.getByText("latest")).toBeTruthy();
+    expect(screen.getByText("superseded")).toBeTruthy();
+    const dimmed = screen.getByText("superseded").closest("tr");
+    expect(dimmed?.className).toContain("opacity-60");
+    expect(screen.getByText("latest").closest("tr")?.className).not.toContain("opacity-60");
+  });
+
+  it("says nothing about latest when a pull request has one run", () => {
+    render(<Record runs={runs.slice(0, 2)} />);
+
+    expect(screen.queryByText("latest")).toBeNull();
+    expect(screen.queryByText("superseded")).toBeNull();
   });
 });
 

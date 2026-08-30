@@ -1,20 +1,13 @@
 "use client";
 
 import { RelativeTime } from "@/components/RelativeTime";
-import { SensorStrip } from "@/components/board/SensorStrip";
+import { ResultsCell, ResultsDetail } from "@/components/board/ResultsCell";
 import { type RunStatus, type RunSummary, isLive } from "@/lib/api/types";
 import { clearSelectedRun, setFocusedRun, useFocusedRun, useSelectedRun } from "@/lib/board/store";
-import {
-  SEVERITY_ORDER,
-  SEVERITY_TONE,
-  STATUS_LABELS,
-  TONE_FILL,
-  TONE_TEXT,
-  compareFindings,
-  findingTotal,
-  statusTone,
-} from "@/lib/board/tone";
+import { hasSiblings, latestByPullRequest } from "@/lib/board/supersede";
+import { STATUS_LABELS, TONE_TEXT, compareFindings, statusTone } from "@/lib/board/tone";
 import { duration, shortSha } from "@/lib/format";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   createColumnHelper,
   createSortedRowModel,
@@ -23,19 +16,31 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The record: every run Cujo has executed, as a log.
  *
- * What a row says is the evidence and not only the conclusion: a four-segment
- * sensor strip for the checks, a severity bar for what they found, a duration,
- * and then the verdict.
+ * What a row says is the evidence and not only the conclusion: one results
+ * cell holding the four-segment sensor strip for the checks and the severity
+ * bar for what they found, a duration, and then the verdict.
  *
  * Hovering a row lights its specimen in the chamber, and hovering a specimen
  * lights the row. Clicking a specimen scrolls the record here and marks the
  * row. That is the whole reason the two are on one page: the record is the
  * index, and the chamber is the shape of it.
+ *
+ * The whole row is the link. It used to be the first cell only, and a reader
+ * who clicked a verdict to see why it was that verdict got nothing. The link
+ * is still one element — the first cell's — stretched over the row with a
+ * pseudo-element, so a keyboard walk down the record is still one stop per
+ * run and a middle click still opens a tab. The controls in the results cell
+ * sit above it.
+ *
+ * A pull request pushed to twice is two rows, and the newer one is marked
+ * `latest` with the older dimmed: the older run's review was dismissed by the
+ * push, and a record that drew them alike was inviting a reader to act on a
+ * verdict GitHub no longer shows.
  */
 
 /**
@@ -51,8 +56,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * is what the ruled lines below a short record match.
  */
 const ROW_REM = 3.1;
-const MIN_ROWS = 5;
-const MAX_ROWS = 12;
+const MIN_ROWS = 8;
+const MAX_ROWS = 20;
 /** The header scrolls with nothing, so it is inside the cap and counted in it. */
 const HEAD_REM = 1.9;
 
@@ -61,17 +66,28 @@ const HEAD_REM = 1.9;
  *
  * A whole number of rows would sit flush against the bottom edge and read as
  * the end of the record; a row sliced through the middle is the scroll
- * affordance, and it costs nothing to draw. `70vh` keeps the cap from
+ * affordance, and it costs nothing to draw. `85vh` keeps the cap from
  * overrunning a short viewport, where the mid-row cut lands wherever it lands.
+ * Eight and twenty, up from five and twelve: the record is the board's main
+ * reading, and at five rows it was a strip under a rack.
  */
-const MAX_HEIGHT = `min(${HEAD_REM + (MAX_ROWS + 0.5) * ROW_REM}rem, 70vh)`;
+const MAX_HEIGHT = `min(${HEAD_REM + (MAX_ROWS + 0.5) * ROW_REM}rem, 85vh)`;
 
 /**
  * Stable keys for the ruled lines below a short record. Named rather than
  * indexed because they are decoration and never reorder, and an index key on a
  * list React might reconcile is the habit worth not having.
  */
-const GHOST_ROWS = ["ghost-a", "ghost-b", "ghost-c", "ghost-d", "ghost-e"] as const;
+const GHOST_ROWS = [
+  "ghost-a",
+  "ghost-b",
+  "ghost-c",
+  "ghost-d",
+  "ghost-e",
+  "ghost-f",
+  "ghost-g",
+  "ghost-h",
+] as const;
 
 /**
  * The App's public page, which carries the Install button and renders for a
@@ -98,9 +114,8 @@ const INSTALL_URL = "https://github.com/apps/cujo-guard";
  */
 const COLUMN: Record<string, string> = {
   repo: "text-left",
-  head_sha: "w-[7rem] whitespace-nowrap text-left",
-  checks: "w-[6rem] text-left",
-  findings: "w-[7rem] text-left",
+  head_sha: "w-[9.5rem] whitespace-nowrap text-left",
+  results: "w-[15rem] text-left",
   status: "w-[9rem] whitespace-nowrap text-left",
   duration: "w-[5.5rem] whitespace-nowrap text-right",
   updated_at: "w-[7.5rem] whitespace-nowrap text-right",
@@ -109,36 +124,12 @@ const COLUMN: Record<string, string> = {
 const features = tableFeatures({ rowSortingFeature, sortedRowModel: createSortedRowModel() });
 const helper = createColumnHelper<typeof features, RunSummary>();
 
-/** The severity bar on a row: the same three tones the rack and the chamber use. */
-function FindingsCell({ run }: { run: RunSummary }) {
-  if (!run.digest) return <span className="font-mono text-xs text-fg-muted">—</span>;
-  const counts = run.digest.findings;
-  const total = findingTotal(counts);
-  if (total === 0) return <span className="font-mono text-xs text-fg-muted">none</span>;
-  const spoken = SEVERITY_ORDER.filter((severity) => counts[severity] > 0)
-    .map((severity) => `${counts[severity]} ${severity}`)
-    .join(", ");
-  return (
-    <span className="flex items-center gap-2" title={spoken}>
-      <span className="sr-only">{spoken}</span>
-      <span className="flex h-1.5 w-16 gap-px" aria-hidden="true">
-        {SEVERITY_ORDER.map((severity) =>
-          counts[severity] > 0 ? (
-            <span
-              key={severity}
-              className={`min-w-0.5 ${TONE_FILL[SEVERITY_TONE[severity]]}`}
-              style={{ width: `${(counts[severity] / total) * 100}%` }}
-            />
-          ) : null,
-        )}
-      </span>
-      <span className="font-mono text-xs text-fg-muted" aria-hidden="true">
-        {total}
-      </span>
-    </span>
-  );
-}
-
+/**
+ * The column definitions carry no component state, so the results cell — which
+ * has a disclosure the record owns — is rendered by the row loop rather than
+ * by the column's `cell`. The column still exists here so the header sorts by
+ * what was found, rank by rank.
+ */
 const columns = helper.columns([
   helper.accessor("repo", {
     header: "Pull request",
@@ -160,22 +151,20 @@ const columns = helper.columns([
   }),
   helper.accessor("head_sha", {
     header: "Head",
+    // The latest/superseded mark is added by the row loop, which knows the
+    // other rows; a cell knows only its own.
     cell: (cell) => <span className="font-mono text-fg-muted">{shortSha(cell.getValue())}</span>,
-  }),
-  helper.display({
-    id: "checks",
-    header: "Checks",
-    cell: (cell) => <SensorStrip run={cell.row.original} />,
   }),
   // Ordered rank by rank rather than by a folded weight, so no number of a
   // lower severity can climb past a higher one. The accessor exists only to
-  // give the column a value; `compareFindings` is what decides the order.
+  // give the column a value; `compareFindings` is what decides the order, and
+  // the row loop is what draws the cell.
   helper.accessor((run) => run.digest?.findings ?? null, {
-    id: "findings",
-    header: "Found",
+    id: "results",
+    header: "Results",
     sortFn: (rowA, rowB) =>
       compareFindings(rowA.original.digest?.findings, rowB.original.digest?.findings),
-    cell: (cell) => <FindingsCell run={cell.row.original} />,
+    cell: () => null,
   }),
   helper.accessor("status", {
     header: "Verdict",
@@ -248,6 +237,18 @@ export function Record({ runs }: { runs: RunSummary[] }) {
   const selected = useSelectedRun();
   const rowRefs = useRef(new Map<string, HTMLAnchorElement>());
   const data = useMemo(() => runs.filter((run) => matches(filter, run.status)), [runs, filter]);
+  // Over every run and not the filtered ones: a filter that hides the newer
+  // run must not promote the older one to latest.
+  const latest = useMemo(() => latestByPullRequest(runs), [runs]);
+  /** Rows whose results are opened. Ids, so a re-sort keeps them open. */
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (id: string) =>
+    setOpened((held) => {
+      const next = new Set(held);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   /**
    * A specimen was clicked. Bring its row into view and put the keyboard on it.
@@ -350,190 +351,245 @@ export function Record({ runs }: { runs: RunSummary[] }) {
   }, [rows.length, filter]);
 
   return (
-    <section aria-label="Every run" className="px-4 py-10 md:px-6">
-      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-4">
-        {/* The count belongs in the heading rather than only in the filter
+    // One tooltip provider for the whole record, so the squares share a delay
+    // and a second hover along a row opens at once.
+    <Tooltip.Provider skipDelayDuration={400}>
+      <section aria-label="Every run" className="px-4 py-10 md:px-6">
+        <div className="mb-6 flex flex-wrap items-baseline justify-between gap-4">
+          {/* The count belongs in the heading rather than only in the filter
             chips: after a full screen of chamber, this is where a reader finds
             out how much there is, and "the record" alone said nothing. */}
-        <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">
-          The record{" "}
-          <span className="text-fg-muted">
-            ({runs.length} {runs.length === 1 ? "run" : "runs"})
-          </span>
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          {FILTERS.map((option) => {
-            const count = runs.filter((run) => matches(option.id, run.status)).length;
-            const active = filter === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setFilter(option.id)}
-                aria-pressed={active}
-                className={`rounded-md border px-3 py-1 font-mono text-xs transition-colors ${
-                  active
-                    ? "border-accent text-accent"
-                    : "border-line text-fg-muted hover:border-fg-muted hover:text-fg"
-                }`}
-              >
-                {option.label} ({count})
-              </button>
-            );
-          })}
+          <div>
+            <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">
+              The record{" "}
+              <span className="text-fg-muted">
+                ({runs.length} {runs.length === 1 ? "run" : "runs"})
+              </span>
+            </h2>
+            {/* The title is the instrument's word and stays; this is the plain
+              one, for a reader who has not learned it yet. */}
+            <p className="mt-1.5 font-mono text-xs text-fg-muted">
+              Every pull request Cujo has reviewed, newest first. Click a row for the run.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {FILTERS.map((option) => {
+              const count = runs.filter((run) => matches(option.id, run.status)).length;
+              const active = filter === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setFilter(option.id)}
+                  aria-pressed={active}
+                  className={`rounded-md border px-3 py-1 font-mono text-xs transition-colors ${
+                    active
+                      ? "border-accent text-accent"
+                      : "border-line text-fg-muted hover:border-fg-muted hover:text-fg"
+                  }`}
+                >
+                  {option.label} ({count})
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      {/* One scrollport for both axes and for every state. The record is the
+        {/* One scrollport for both axes and for every state. The record is the
           same object whether it holds nothing or sixty runs, so the floor, the
           ceiling and the column header belong to the field and not to a branch
           inside it. */}
-      <div
-        ref={scrollport}
-        className="overflow-auto"
-        style={{ maxHeight: MAX_HEIGHT }}
-        // Only a scrollport a keyboard can actually move gets the role and the
-        // stop; while nothing is clipped this is a plain wrapper.
-        {...(clipped
-          ? { tabIndex: 0, role: "region" as const, "aria-label": "The record, scrollable" }
-          : {})}
-      >
-        {/* `table-fixed`, so the widths above decide the layout rather than
+        <div
+          ref={scrollport}
+          className="overflow-auto"
+          style={{ maxHeight: MAX_HEIGHT }}
+          // Only a scrollport a keyboard can actually move gets the role and the
+          // stop; while nothing is clipped this is a plain wrapper.
+          {...(clipped
+            ? { tabIndex: 0, role: "region" as const, "aria-label": "The record, scrollable" }
+            : {})}
+        >
+          {/* `table-fixed`, so the widths above decide the layout rather than
             the longest title in the current poll. `tabular-nums` so a column
             of durations is a column and not a ragged list. */}
-        <table className="w-full table-fixed border-collapse text-sm tabular-nums">
-          <thead>
-            {table.getHeaderGroups().map((group) => (
-              <tr key={group.id}>
-                {group.headers.map((header) => {
-                  // `checks` is a display column with no value to order by,
-                  // so it gets no button. A focusable control that promises
-                  // sorting and does nothing is worse than a plain label —
-                  // and `aria-sort` belongs only on a column that can sort.
-                  const sortable = header.column.getCanSort();
-                  return (
-                    <th
-                      key={header.id}
-                      scope="col"
-                      // The arrow glyph is decoration; this is the state a
-                      // screen reader reads.
-                      aria-sort={
-                        !sortable
-                          ? undefined
-                          : header.column.getIsSorted() === "asc"
-                            ? "ascending"
-                            : header.column.getIsSorted() === "desc"
-                              ? "descending"
-                              : "none"
-                      }
-                      // Pinned to the top of the scrollport, so a long
-                      // record keeps its column names while it moves. The
-                      // rule below the header is an inset shadow and not a
-                      // border: `border-collapse` hands a collapsed border
-                      // to the row, which is not the element that sticks, so
-                      // the line would scroll away and leave the header
-                      // sitting on the rows.
-                      className={`sticky top-0 z-10 bg-bg pb-2.5 pr-4 align-bottom font-mono text-[0.6875rem] font-medium uppercase tracking-[0.16em] text-fg-muted shadow-[inset_0_-1px_0_var(--line)] ${
-                        COLUMN[header.column.id] ?? "text-left"
-                      }`}
-                    >
-                      {header.isPlaceholder ? null : sortable ? (
-                        <button
-                          type="button"
-                          onClick={() => header.column.toggleSorting()}
-                          // `uppercase` restated on the button: the header
-                          // cell already sets it, and a button does not take
-                          // it from the cell, so the one column with no sort
-                          // control was the only header in caps.
-                          className="uppercase transition-colors hover:text-fg"
-                        >
+          <table className="w-full table-fixed border-collapse text-sm tabular-nums">
+            <thead>
+              {table.getHeaderGroups().map((group) => (
+                <tr key={group.id}>
+                  {group.headers.map((header) => {
+                    // A column with no value to order by gets no button. A
+                    // focusable control that promises sorting and does nothing
+                    // is worse than a plain label — and `aria-sort` belongs only
+                    // on a column that can sort.
+                    const sortable = header.column.getCanSort();
+                    return (
+                      <th
+                        key={header.id}
+                        scope="col"
+                        // The arrow glyph is decoration; this is the state a
+                        // screen reader reads.
+                        aria-sort={
+                          !sortable
+                            ? undefined
+                            : header.column.getIsSorted() === "asc"
+                              ? "ascending"
+                              : header.column.getIsSorted() === "desc"
+                                ? "descending"
+                                : "none"
+                        }
+                        // Pinned to the top of the scrollport, so a long
+                        // record keeps its column names while it moves. The
+                        // rule below the header is an inset shadow and not a
+                        // border: `border-collapse` hands a collapsed border
+                        // to the row, which is not the element that sticks, so
+                        // the line would scroll away and leave the header
+                        // sitting on the rows.
+                        className={`sticky top-0 z-10 bg-bg pb-2.5 pr-4 align-bottom font-mono text-[0.6875rem] font-medium uppercase tracking-[0.16em] text-fg-muted shadow-[inset_0_-1px_0_var(--line)] ${
+                          COLUMN[header.column.id] ?? "text-left"
+                        }`}
+                      >
+                        {header.isPlaceholder ? null : sortable ? (
+                          <button
+                            type="button"
+                            onClick={() => header.column.toggleSorting()}
+                            // `uppercase` restated on the button: the header
+                            // cell already sets it, and a button does not take
+                            // it from the cell, so the one column with no sort
+                            // control was the only header in caps.
+                            className="uppercase transition-colors hover:text-fg"
+                          >
+                            <table.FlexRender header={header} />
+                            {header.column.getIsSorted() === "asc"
+                              ? " ↑"
+                              : header.column.getIsSorted() === "desc"
+                                ? " ↓"
+                                : ""}
+                          </button>
+                        ) : (
                           <table.FlexRender header={header} />
-                          {header.column.getIsSorted() === "asc"
-                            ? " ↑"
-                            : header.column.getIsSorted() === "desc"
-                              ? " ↓"
-                              : ""}
-                        </button>
-                      ) : (
-                        <table.FlexRender header={header} />
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const isSelected = selected === row.original.id;
-              return (
-                <tr
-                  key={row.id}
-                  onPointerEnter={() => setFocusedRun(row.original.id)}
-                  onPointerLeave={() => setFocusedRun(null)}
-                  className={`group border-line border-b transition-colors last:border-0 ${
-                    isSelected || focused === row.original.id ? "bg-bg-raised" : ""
-                  }`}
-                >
-                  {row.getAllCells().map((cell, index) => (
-                    <td
-                      key={cell.id}
-                      // The accent rule is the picked run, and it is on a
-                      // border that is always there so nothing shifts by two
-                      // pixels when one is picked.
-                      className={`py-3.5 pr-4 align-middle ${COLUMN[cell.column.id] ?? "text-left"} ${
-                        index === 0
-                          ? `border-l-2 pl-2 ${isSelected ? "border-accent" : "border-transparent"}`
-                          : ""
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const run = row.original;
+                const isSelected = selected === run.id;
+                const open = opened.has(run.id);
+                // Only said where it distinguishes: a pull request with one run
+                // on the board is neither latest nor superseded, it is the run.
+                const siblings = hasSiblings(run, runs);
+                const isLatest = latest.has(run.id);
+                const superseded = siblings && !isLatest;
+                return (
+                  <Fragment key={row.id}>
+                    <tr
+                      onPointerEnter={() => setFocusedRun(run.id)}
+                      onPointerLeave={() => setFocusedRun(null)}
+                      // `relative`, so the first cell's link can stretch over
+                      // the row. A superseded run is dimmed and not hidden: its
+                      // verdict was real, it is just not the one GitHub shows.
+                      className={`group relative border-line border-b transition-colors ${
+                        open ? "" : "last:border-0"
+                      } ${isSelected || focused === run.id ? "bg-bg-raised" : ""} ${
+                        superseded ? "opacity-60" : ""
                       }`}
                     >
-                      {index === 0 ? (
-                        <Link
-                          href={`/runs/${row.original.id}`}
-                          ref={(node) => {
-                            if (node) rowRefs.current.set(row.original.id, node);
-                            else rowRefs.current.delete(row.original.id);
-                          }}
-                          // Focus reaches the chamber too, so a keyboard walk
-                          // down the record moves the highlight with it.
-                          onFocus={() => setFocusedRun(row.original.id)}
-                          onBlur={() => setFocusedRun(null)}
-                          className="text-fg no-underline group-hover:text-accent"
+                      {row.getAllCells().map((cell, index) => (
+                        <td
+                          key={cell.id}
+                          // The accent rule is the picked run, and it is on a
+                          // border that is always there so nothing shifts by two
+                          // pixels when one is picked.
+                          className={`py-3.5 pr-4 align-middle ${COLUMN[cell.column.id] ?? "text-left"} ${
+                            index === 0
+                              ? `border-l-2 pl-2 ${isSelected ? "border-accent" : "border-transparent"}`
+                              : ""
+                          }`}
                         >
-                          <table.FlexRender cell={cell} />
-                        </Link>
-                      ) : (
-                        <table.FlexRender cell={cell} />
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {/* Outside the table and not in a cell spanning it. A table cell is as
+                          {index === 0 ? (
+                            <Link
+                              href={`/runs/${run.id}`}
+                              ref={(node) => {
+                                if (node) rowRefs.current.set(run.id, node);
+                                else rowRefs.current.delete(run.id);
+                              }}
+                              // Focus reaches the chamber too, so a keyboard walk
+                              // down the record moves the highlight with it.
+                              onFocus={() => setFocusedRun(run.id)}
+                              onBlur={() => setFocusedRun(null)}
+                              // The pseudo-element is the whole row's hit
+                              // target; the text stays where it is.
+                              className="text-fg no-underline after:absolute after:inset-0 after:content-[''] group-hover:text-accent"
+                            >
+                              <table.FlexRender cell={cell} />
+                            </Link>
+                          ) : cell.column.id === "results" ? (
+                            <ResultsCell run={run} open={open} onToggle={() => toggle(run.id)} />
+                          ) : cell.column.id === "head_sha" && siblings ? (
+                            <span className="flex items-center gap-2">
+                              <table.FlexRender cell={cell} />
+                              <span
+                                className={`rounded-sm border px-1 font-mono text-[0.625rem] uppercase tracking-[0.12em] ${
+                                  isLatest
+                                    ? "border-accent text-accent"
+                                    : "border-line text-fg-muted"
+                                }`}
+                              >
+                                {isLatest ? "latest" : "superseded"}
+                              </span>
+                            </span>
+                          ) : (
+                            <table.FlexRender cell={cell} />
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    {open ? (
+                      <tr className="border-line border-b last:border-0">
+                        {/* Under the results column and not the whole width:
+                          the detail belongs to the cell it opened from. */}
+                        <td colSpan={2} aria-hidden="true" />
+                        <td colSpan={4} className="py-3 pr-4">
+                          <ResultsDetail run={run} />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          {/* Outside the table and not in a cell spanning it. A table cell is as
             wide as the table, and the table is wider than a phone: the copy
             would then need a sideways scroll to be read. A block here takes the
             scrollport's own width instead and wraps inside it, while the header
             above keeps scrolling as the table it belongs to. */}
-        {rows.length === 0 ? (
-          <EmptyRecord filter={filter} onClear={() => setFilter("all")} />
-        ) : null}
-        {/* Ruled lines continuing past the last row, outside the table.
+          {rows.length === 0 ? (
+            <EmptyRecord filter={filter} onClear={() => setFilter("all")} />
+          ) : null}
+          {/* Ruled lines continuing past the last row, outside the table.
             Spacing with the table's own rhythm, so a young record looks young
             rather than cramped — and not empty `<tr>` elements, which would put
             rows in the table that hold nothing and would be announced to
             anyone walking it. */}
-        {ghosts > 0 ? (
-          <div aria-hidden="true">
-            {GHOST_ROWS.slice(0, ghosts).map((id) => (
-              <div key={id} className="border-line border-b" style={{ height: `${ROW_REM}rem` }} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </section>
+          {ghosts > 0 ? (
+            <div aria-hidden="true">
+              {GHOST_ROWS.slice(0, ghosts).map((id) => (
+                <div
+                  key={id}
+                  className="border-line border-b"
+                  style={{ height: `${ROW_REM}rem` }}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </Tooltip.Provider>
   );
 }
 

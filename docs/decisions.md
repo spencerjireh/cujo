@@ -93,7 +93,15 @@ that is reversed after it was built or shown is noted here rather than deleted
 85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 86. [The alert gets its own card, and the opener takes the author line](#86-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line)
 87. [Detonation runs even when no test suite can be inferred](#87-detonation-runs-even-when-no-test-suite-can-be-inferred)
-88. [The envelope roll-up is the model's work, so the schema reads it leniently](#88-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
+88. [One results cell, and the whole row is the link](#88-one-results-cell-and-the-whole-row-is-the-link)
+89. [The key comes to the pointer](#89-the-key-comes-to-the-pointer)
+90. [Every star tumbles, and a live one tumbles fast](#90-every-star-tumbles-and-a-live-one-tumbles-fast)
+91. [The verdict is a card; the operator's numbers fold away](#91-the-verdict-is-a-card-the-operators-numbers-fold-away)
+92. [Latest and superseded, derived on the board](#92-latest-and-superseded-derived-on-the-board)
+93. [Nothing on the run page opens itself](#93-nothing-on-the-run-page-opens-itself)
+94. [Running is green](#94-running-is-green)
+95. [The gates go, depth wanders, and the light beats the star it reads](#95-the-gates-go-depth-wanders-and-the-light-beats-the-star-it-reads)
+96. [The envelope roll-up is the model's work, so the schema reads it leniently](#96-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -4469,6 +4477,9 @@ wants to be able to take at a glance.
 
 ## 82. The record is a galaxy, and a run is a star with orbits
 
+**Amended by 95**, which removes the gates and lets a star's depth wander
+within its layer, and by 94, which gives a running run its own hue.
+
 Decision 81 scattered the record across a box and made a specimen a solid.
 Looking at it running, four things were wrong and they were one thing: ten runs
 spaced down a thirteen-unit corridor, inside a wireframe box with rails, is a
@@ -4505,6 +4516,10 @@ A pointer picks the system and not the core. The core is a tenth of a unit
 across and a hover that had to find it would find nothing, so every node
 carries an invisible sphere the raycaster is given instead; the raycaster does
 not consult `visible`, and the sphere writes no colour and no depth.
+
+The satellites go round, and a live run's rings precess. Neither carries
+**Amended by 90**, which has every star's rings tumble slowly and a live one's
+fast: the precession about y and the spin about a ring's normal were invisible.
 
 The satellites go round, and a live run's rings precess. Neither carries
 anything; both are decoration by the rule that admits the haze and the glow,
@@ -4583,6 +4598,9 @@ with the stars inside it**, which is the hallway. **Turning the rings to face
 the camera**, which costs a ring's tilt its meaning.
 
 ## 83. A star's tilts are its own, the read walks the stars, and the copy is a caption
+
+**Amended by 95**: the read beats the star once at its peak. The strobe this
+decision removed stays removed.
 
 Decision 82 was looked at running, with a live run on the board. Four things
 were wrong, and this time they were four things.
@@ -4751,6 +4769,9 @@ though it were a route. **Keeping the pinned bar on finished runs** as a
 consistent page footer, which is a strip of window spent on "nothing to do".
 
 ## 85. An observed zero is a result; an unobserved one is not
+
+**Amended by 93**: the flag no longer opens a table. Everything below about
+`none` versus `not measured` and the alarms map stands.
 
 The report card is what an operator reads before blocking a merge, and it was a
 dump. Four tables with no column headers, so `185.220.101.4:443 | 3.1 KB |
@@ -4942,7 +4963,257 @@ previously read as failures disappear when the suite was never applicable.
 `REQUIRED_CHECKS` itself is unchanged — when a suite is inferred, all three
 are still required.
 
-## 88. The envelope roll-up is the model's work, so the schema reads it leniently
+## 88. One results cell, and the whole row is the link
+
+Issue 96 read the board as a first-time reader would: a developer arriving
+from a review link who has never seen the sensor model. The record had a
+"Checks" column of four squares and a "Found" column of a three-tone bar, and
+nothing on the page said what either meant or that the second was produced by
+the first. And the row was a link only in its first cell, so a click on the
+verdict to see why it was that verdict did nothing.
+
+**The two columns are one cell.** The four squares, the severity bar, and the
+counts spelled out beside it in their tones — `2c 3w 1i` — read as one
+sentence: these sensors ran, this is what they found. Each square is a tooltip
+naming its check, how it ended and how long it took, and the cell carries a
+disclosure that opens a second row with all four lines at once. The tooltip is
+Radix, already in the tree and unused until now, and its trigger is a button so
+a keyboard can reach it. The column sorts by what was found, rank by rank, as
+"Found" did (`compareFindings`).
+
+**The row is the link.** Still one anchor — the first cell's — stretched over
+the row with a pseudo-element, so a keyboard walk down the record stays one
+stop per run and a middle click still opens a tab. The controls in the results
+cell sit above it. A row that is a link needs a plain sentence saying so, and
+the record gains one under its title: "Every pull request Cujo has reviewed,
+newest first. Click a row for the run." The title itself stays "The record":
+the instrument vocabulary is the product's voice, and one panel renamed to
+"Review history" would be the one panel not speaking it.
+
+Rejected: **a prose summary per row** ("4 checks — 8 findings: 2 crit, 3
+warn"), which the issue proposed and which trades a scannable column for a
+sentence a reader has to parse thirty times. **`router.push` on the row**,
+which is not a link: no new tab, no status bar, and every control inside the
+row has to stop propagation. **Tooltips on `title=`**, which a keyboard never
+sees and a touch screen never shows.
+
+## 89. The key comes to the pointer
+
+The chamber had no legend in it. The one sentence under the readings said
+colour is the verdict, rings are checks, dots are findings, and the full key
+was a screen away under the record (83). A reader with a star under the
+pointer had to scroll to learn what its parts were and scroll back to look.
+
+**While a specimen is hovered, the readings become the key.** The hero's
+bottom block holds both, stacked on one grid cell, and the focus store the
+chamber and the record already write decides which is visible: hover a star,
+or a row, and the five readings fade out and the diagram with its four lines
+fades in, two hundred milliseconds, in the same place. The same `PARTS` and the
+same diagram as the key under the record, so the two cannot drift. Only on a
+device whose pointer can hover — on a phone there is no chamber and a key that
+appeared on a tap would replace the readings for nothing — and only while the
+scene is live. Reduced motion swaps without the fade.
+
+**The readings are reordered** while they are being replaced: findings with
+the critical count first, live now second, then the record's size. A page with
+four criticals on it opened with "1 repository".
+
+Rejected: **a permanent legend in the chamber corner**, a fourth block of
+type on a frame that already has three, saying what the hover now says at the
+moment it is wanted. **A dismissable first-visit overlay**, which is the
+template answer and is remembered in local storage, which means a reader on a
+second machine gets it again and a reader who dismissed it by accident never
+does. **Swapping only the caption sentence** and leaving the readings, which
+was the cheaper design and left the diagram nowhere to go.
+
+## 90. Every star tumbles, and a live one tumbles fast
+
+Decision 82 made a live run "the one star that turns its rings", and it was
+looked at running and did not. Two reasons, and both were geometry. A ring
+spun about its own normal is a circle turning into itself: on a full ring
+there is nothing to see, and on a split one only the gap crawls. And the
+group precession was about y, which on the run page is the axis the holder
+already turns about, so the live star merely turned faster.
+
+**The rings tumble about an axis in their own plane**, alternating direction
+ring by ring, so the plane swings and the whole system visibly moves. Every
+star does this, slowly — a turn in forty-eight seconds — and a live run does
+it in six, with its satellites going round four times faster than at rest.
+Speed is the live signal now, rather than motion against stillness. This
+**amends 82**: the resting star is no longer still. What survives is the rule
+that none of it carries anything; the shape is the measurement and the
+motion is what admits the haze and the glow (80).
+
+**The star field comes back to the record.** The field 82 spread through a
+volume twenty-two units deep sat mostly behind the fog's far plane — a camera
+near z 4 and a fog ending at twelve puts everything past z -7.5 in the dark,
+and four motes in ten were there — and the rest so thin it read as nothing.
+The box now hugs the galaxy, the points are brighter, and the drift is a
+tenth of a unit rather than a sixteenth, which against a field this size is
+the difference between air and a still picture.
+
+**The name comes back beside the mark.** The bar went (the commit that
+removed it says why) and took the wordmark with it. A mark alone reads as an
+icon, and a reader arriving from a review has not met the icon; `cujo` sits
+beside it again, in the corner, on both pages.
+
+Rejected: **the group tumbling as one**, calmer and cheaper, which keeps the
+four rings' relative tilt fixed and so keeps most of the silhouette still.
+**Speed alone with the old axes**, which is what did not work.
+
+## 91. The verdict is a card; the operator's numbers fold away
+
+The run page opened on a dense paragraph mixing check summaries, finding
+counts and the review link, with the model name and rubric hash on the line
+above it. A PR author wants three things — what was decided, how bad, where
+the review is — and had to read to find them.
+
+**A verdict card above the prose.** The status badge at display size, the
+severity counts as chips in their tones with `0 critical` said outright, and
+the link to the review on GitHub. The generated summary stays beneath it as
+what it always was: the reasoning, for the reader who wants it. While a run is
+live the card says "still running" rather than counting nothing.
+
+**Operator detail is one fold.** Model, rubric hash, session and turn ids were
+already in a collapsed block; it is now titled "Operator details" and the
+header no longer repeats the first two. Token counts and cost leave the check
+card's trigger row for a plainly labelled line inside it — "Model input 270.2k
+tokens" — because a number with no unit on a public page is a number nobody
+can read. Findings group by the check that produced them, groups with a
+critical or a warn open and info-only groups closed, with severity chips to
+filter; the timeline gains the two-line legend the solid/light split always
+needed; the review panel opens on a four-row table of what ran.
+
+Rejected: **removing the cost from the public page**, which is part of what a
+run is and was only unlabelled. **The card replacing the prose**, which moves
+the reasoning into the review panel where a reader would not look for it.
+
+## 92. Latest and superseded, derived on the board
+
+A pull request pushed to twice is two rows, and the record drew them alike.
+The older run's review was dismissed by the push, and a reader could act on a
+verdict GitHub no longer shows.
+
+**The newest run per pull request is marked `latest`; the others are marked
+`superseded` and dimmed.** Derived on the client from `repo`, `pr_number` and
+`created_at` (`lib/board/supersede.ts`), over every run on the board and not
+the filtered ones, and said only where it distinguishes: a pull request with
+one run is neither. This is a claim about the runs on this board — a run
+older than the list's window is invisible to it — which is the right
+blindness for a record.
+
+Rejected: **a field on the public API**, which is accurate about dismissed
+reviews and is a change to `serialize.ts` and its classification test to
+serve one badge; the public plane adds nothing to itself for the board
+(57). It remains the right answer if the board ever needs to know about
+runs it cannot see.
+
+## 93. Nothing on the run page opens itself
+
+Decision 85 had a flag decide which evidence tables open, and the same rule
+grew outward: a check card opened when a block needed attention, a findings
+group opened when it held a critical or a warn, the probe group opened when a
+probe tripped. Read cold, a blocked run's page was three cards and four
+tables and two groups already open, and the reader's first act was closing
+things to find out where they were.
+
+**Everything is closed until asked, and the timeline pick still summons.**
+Findings groups, check cards, evidence tables and the probe group all start
+shut. What says where the trouble is has moved up the page since 85: the
+verdict card counts it, the timeline colours the lane, each trigger row
+carries its count and its worst alarm. A reader who picks a lane on the
+timeline still gets that check's card opened and scrolled to, because a pick
+is a request and not a default. `EvidenceTable` keeps its `defaultOpen` prop
+and the rising edge behind it; nothing passes true today, and the prop is the
+right shape if something should.
+
+**Reverses** the opener half of 85. What survives of 85 is everything else:
+`none` versus `not measured`, the column headers, and the alarms map that
+still decides what a trigger row says.
+
+Rejected: **opening the one worst thing** — the single card the alarms point
+at — which is the compromise that keeps the reader guessing why that one and
+not the others. **Remembering open state per reader**, which is local storage
+for a page most readers see once.
+
+## 94. Running is green
+
+A running run was inert grey: the core, the ring, the badge, the record's
+verdict text. The reasoning was sound — blue is a verdict in the chamber and
+could not be spent on an arm, and grey is what "no measurement yet" means —
+and the result was that the one star on the board doing something was the
+one star nobody could find. The pulse was meant to carry it and did not
+against thirty stars in a dark room.
+
+**`live` is a sixth tone, green, on exactly one thing: what is still
+executing.** A running run's core and badge and verdict text, a running
+check's ring and strip segment and rack segment, and the legend row. It is
+off the severity ramp on purpose: it cannot be read as a verdict, and it
+never means "passed" — a finished clean run is blue, as it was. The tokens
+are `--sev-live` and `--sev-live-bg` on both themes and `--chamber-live` on
+the pinned chamber set, in `brand/tokens.css`, and brand.md says the rule.
+The legend and the rack no longer dim the running swatch as "not a verdict":
+it has its own hue now and nothing to be told apart from.
+
+**Amends** the "a check still running is inert, not blue" rule stated at
+`OUTCOME_TONE` in `tone.ts` under 68 and 82. Blue is still a verdict; running
+is no longer asked to share grey with superseded and denied.
+
+Rejected: **amber, pulsing**, which puts the brand accent on a second status
+and leaves `blocked_pending` and `running` distinguished by animation alone.
+**White with bloom**, which is bright in the chamber and grey everywhere the
+page has no bloom.
+
+## 95. The gates go, depth wanders, and the light beats the star it reads
+
+Three things about the chamber, looked at again after 88.
+
+**The gates go.** One ellipse per occupied layer said the record was three
+layers deep. It also drew three hoops round the galaxy, and a galaxy inside
+hoops is a diagram of a galaxy. The lattice behind everything still gives the
+drawing its vanishing point (82's reason for keeping any wireframe at all),
+and the layers are read from the stars — three sizes, three depths — without
+a loop to trace them. `room.ts` is deleted, and with it the last
+measurement-drawing outside `specimens.ts`. This **amends 82**: the gates
+were its one piece of room.
+
+**Depth wanders within a layer.** A layer was one z, so a layer was a wall of
+stars at one distance, and three walls read as three slides. A star's z is
+now its layer's z plus up to a third of the layer spacing either way, seeded
+off its id like its place in the band, and the front layer wanders only
+backward so nothing crosses the camera's near plane. Which layer is still a
+measurement — the layers do not overlap, and a star is never nearer than the
+layer in front of it — and where within it is decoration, exactly as a place
+in the band is (81). `galaxy.test.ts` pins both halves.
+
+**The light beats the star it reads.** 83 removed a strobe: every star grew
+as the sweep passed and shrank as it left, for as long as it passed, which
+was thirty stars pulsing in turn. What it left was the glow swelling, which
+read as nothing. Now a star beats once, at the moment the read peaks: an
+eight-percent rise over the first two hundred milliseconds, a slower settle
+over the next four hundred, the glow leading the body by a few frames, and
+a hairline ring leaving the core as it goes. One beat per read, timed to the
+peak rather than smeared across the pass, is what makes the light legible as
+a read and not a weather front. Reduced motion keeps the glow swell and
+nothing else. This **amends 83**: the strobe stays gone; a beat is not a
+strobe.
+
+Alongside these, **rings brighten under focus**: a star under the pointer or
+the keyboard lifts its faint arcs toward the bright ones, so the ring the
+callout names in colour is the ring the eye finds.
+
+**The run page's specimen sits on the page.** It was on a black panel, the
+chamber's ground carried onto a page that is not the chamber. It now draws
+on `--bg` with the page's own tones (`TONE_PAGE_VAR`), follows the theme, and
+repaints when the theme changes, so the star beside a title is the same
+star in the page's own ink.
+
+Rejected: **removing the lattice too**, which leaves size and fog alone to
+carry depth and loses the vanishing point 82 kept it for. **Continuous depth
+by age**, which reverses 82's layers and makes the key's "three layers"
+false. **An expanding ring alone as the read**, which is the live pulse's
+shape and would make every read star look live for a moment.
+## 96. The envelope roll-up is the model's work, so the schema reads it leniently
 
 **Refines 62.**
 
