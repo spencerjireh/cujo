@@ -252,6 +252,9 @@ synthesis, and the post.
 
 ## 15. No tests means one `warn` and stop
 
+**Refined by 87.** `detonation` now runs even when no suite is found; the
+stop applies only to `tests`, `probes`, and `smoke`.
+
 If the repo has no test suite and `.cujo.yml` names none, the parent posts a
 single `warn` finding ("no test suite found") and runs nothing else. Without a
 suite the regression tripwire cannot fire, so execution evidence would be
@@ -4904,3 +4907,35 @@ by 55 and still: a large image on every card, squeezing the fields on a narrow
 client. **Keeping both the author line and the field**, which names one person
 twice. **Deduping criticals in the fold**, which changes what the review
 records rather than what the card shows.
+
+## 87. Detonation runs even when no test suite can be inferred
+
+**Refines 15.**
+
+Decision 15 stopped the whole run when no test suite was found: "without a
+suite the regression tripwire cannot fire, so execution evidence would be
+thin". That argument holds for `tests`, `probes`, and `smoke`, all of which
+need the suite as a baseline. It does not hold for `detonation`, which
+existed in neither name nor concept when decision 15 was written.
+
+Detonation is never comparative. It reads neither `/work/base`'s test output
+nor the suite. Its gate, `manifest_changed`, is settled at setup
+independently of the test inference. Three of the four malice rules
+(`decoy_read`, `decoy_in_egress`, `wrote_sensitive`) fire on any check;
+the fourth, `egress_to_unknown_host`, needs `detonation` specifically. A
+repo with no discoverable tests is exactly the one where dependency
+detonation earns the most, and under decision 15 it was the one that got
+nothing.
+
+**The change.** The rubric now spawns `detonation` in setup step 4 whenever
+`manifest_changed` is true, regardless of whether a test command was inferred.
+`tests`, `probes`, and `smoke` are still skipped — decision 15's argument for
+those three stands. `missingCheckFindings` no longer emits `check_missing`
+for the three suite-dependent checks when none of them had a sub-agent
+thread, because those checks were inapplicable, not failed.
+
+**Consequences.** A no-suite run that touches a manifest now gets a detonation
+report and the hard rules that read it. The three `check_missing` warns that
+previously read as failures disappear when the suite was never applicable.
+`REQUIRED_CHECKS` itself is unchanged — when a suite is inferred, all three
+are still required.
