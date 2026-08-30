@@ -1,7 +1,6 @@
 "use client";
 
-import { Chamber } from "@/components/board/Chamber";
-import { ChamberFallback } from "@/components/board/ChamberFallback";
+import { Chamber, type ChamberStatus } from "@/components/board/Chamber";
 import { HeroLead, HeroStats } from "@/components/board/HeroReadout";
 import { Legend } from "@/components/board/Legend";
 import { ReadoutRack } from "@/components/board/ReadoutRack";
@@ -9,7 +8,6 @@ import { Record } from "@/components/board/Record";
 import { HomeMark } from "@/components/brand/HomeMark";
 import { POLL_LIVE_MS, POLL_QUIET_MS, runsListOptions } from "@/lib/api/queries";
 import { boardMetrics } from "@/lib/board/metrics";
-import { specimensFrom } from "@/lib/board/specimen";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
@@ -29,13 +27,16 @@ export function RunsView() {
   const { data, error, isPending, dataUpdatedAt } = useQuery(runsListOptions());
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const metrics = useMemo(() => boardMetrics(runs), [runs]);
-  // Fewer than the scene draws: the margin strip is a hundred pixels wide and
-  // the whole record in it would be a column of dots.
-  const specimens = useMemo(() => specimensFrom(runs, 14), [runs]);
   const pollMs = metrics.live > 0 ? POLL_LIVE_MS : POLL_QUIET_MS;
-  // Only the WebGL scene can be clicked, so only it may say so. The flat
-  // elevation is a picture, and telling a reader to click one is a lie.
-  const [sceneLive, setSceneLive] = useState(false);
+  /**
+   * What the renderer is doing, which decides two things.
+   *
+   * Only a live scene may be told to click a specimen. And only a scene that
+   * will never come up collapses the hero: `pending` holds the screen open,
+   * because a canvas is a moment away and a hero that shrank and then grew
+   * again would be worse than one that waited.
+   */
+  const [scene, setScene] = useState<ChamberStatus>("pending");
 
   if (error) {
     return (
@@ -58,25 +59,22 @@ export function RunsView() {
           lists what it has second. */}
       <section
         aria-label="The chamber"
-        className="relative isolate h-[100svh] overflow-hidden bg-[var(--chamber)]"
+        className={`relative isolate overflow-hidden bg-[var(--chamber)] ${
+          scene === "unavailable" ? "" : "md:h-[100svh]"
+        }`}
       >
         {/* On the chamber, so it takes the pinned viewport tokens rather than
             the page's: this surface is a screen and stays dark in a lit room.
             Inside the section and not above it, because it is positioned
             against the chamber and scrolls away with it. */}
         <HomeMark tone="chamber" />
-        {/* Two forms of the same record, because it is a long thin thing and a
-            viewport is not always wide. From `md` up: the scene, framed by a
-            camera that pulls back as the frame narrows so the record still
-            fits. Below it: the chain hangs down the right margin, because the
-            same drawing turned sideways scales to a sliver of dots — and
-            because a phone should not be asked for a composed frame with a
-            bloom pass in it. */}
+        {/* From `md` up, and only there. Below it there is no drawing at all:
+            the record is a long thin thing, the same picture turned sideways in
+            a hundred-pixel margin was a column of dots, and a phone should not
+            be asked for a composed frame with a bloom pass in it either way. A
+            phone reader came for the runs, so a phone gets the runs. */}
         <div className="absolute inset-0 hidden md:block">
-          <Chamber runs={runs} updatedAt={dataUpdatedAt} pollMs={pollMs} onLive={setSceneLive} />
-        </div>
-        <div className="absolute inset-y-0 right-0 w-20 sm:w-28 md:hidden" aria-hidden="true">
-          <ChamberFallback specimens={specimens} orientation="vertical" />
+          <Chamber runs={runs} updatedAt={dataUpdatedAt} pollMs={pollMs} onStatus={setScene} />
         </div>
         {/* A ground for the type, at both ends of the frame now that the
             readout is at both ends of it. The bottom band is the deeper of the
@@ -98,9 +96,12 @@ export function RunsView() {
             here is interactive — the readout is text, the wash is decoration —
             so nothing needs the events back, and the scene reads the pointer
             for parallax off the frame underneath. */}
-        <div className="pointer-events-none relative flex h-full flex-col justify-between pr-24 pt-16 pb-12 pl-4 sm:pr-32 md:pt-20 md:pb-14 md:pl-8 lg:pr-12 lg:pl-12">
+        {/* `gap-10` rather than `justify-between` alone: with no chamber to
+            hold the section open the two halves have no height to be pushed
+            apart by, and would otherwise sit against each other. */}
+        <div className="pointer-events-none relative flex h-full flex-col justify-between gap-10 px-4 pt-16 pb-12 md:pt-20 md:pr-12 md:pb-14 md:pl-8 lg:pl-12">
           <HeroLead metrics={metrics} />
-          <HeroStats metrics={metrics} interactive={sceneLive} />
+          <HeroStats metrics={metrics} interactive={scene === "live"} />
         </div>
       </section>
 

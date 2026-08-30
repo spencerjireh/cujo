@@ -1,11 +1,11 @@
 "use client";
 
-import { SpecimenGlyph } from "@/components/board/ChamberFallback";
 import type { InlineSpecimenHandle } from "@/components/board/chamber/inline";
 import type { Run } from "@/lib/api/types";
 import { digestFrom } from "@/lib/board/digest";
 import { specimensFrom } from "@/lib/board/specimen";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SpecimenGlyph } from "./SpecimenGlyph";
 
 /**
  * This run, as the shape the chamber would draw it.
