@@ -11,7 +11,7 @@ import { SEVERITY_ORDER, SEVERITY_TONE, TONE_BG, TONE_TEXT } from "@/lib/board/t
  * count of what was found lived a screen further down in the findings list.
  * This is the same two facts, first and at a size that says they are the
  * point: the status and the findings by severity. The way back to the review
- * was a third fact here once and is gone (decision 100): the reader arrived
+ * was a third fact here once and is gone (decision 103): the reader arrived
  * from GitHub holding it, the review panel below renders the review itself,
  * and the run header still links the pull request.
  *

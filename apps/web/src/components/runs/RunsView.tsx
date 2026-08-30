@@ -28,7 +28,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * How long the pointer must rest on one specimen before the key replaces the
- * readings (decision 99). Long enough that a sweep across the galaxy is over
+ * readings (decision 102). Long enough that a sweep across the galaxy is over
  * before it elapses; short enough that a reader who parks on a star to ask
  * what its parts are gets the answer while still looking at it.
  */
@@ -54,7 +54,7 @@ export function RunsView() {
    * still comes from the same store the chamber and the record write — the
    * row lights the star, and the key explains the star — but a sweep across
    * the galaxy is a scan, and a scan that swapped the block under it
-   * flickered the readings away for every star it crossed (decision 99). So
+   * flickered the readings away for every star it crossed (decision 102). So
    * the swap waits: the timer restarts on every change of focused run, it
    * commits once when one run has held the pointer for the whole dwell, and
    * a leave hands the readings back at once.
@@ -168,7 +168,7 @@ export function RunsView() {
           <HeroLead metrics={metrics} />
           {/* The bottom block is two things in one place: the readings, and
               the key. Once the pointer has rested on one specimen for the
-              dwell (decision 99) the readings fade and the key fades in, so
+              dwell (decision 102) the readings fade and the key fades in, so
               what the reader is looking at is explained where they were
               already reading. Both stay mounted and stacked on one grid cell,
               so the swap moves nothing else. The key only takes over on a

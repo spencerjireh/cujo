@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 // The stylesheet is a file, not a module with behaviour jsdom can exercise:
 // `overscroll-behavior` is nothing jsdom computes, so what a test can hold
-// the file to is the declaration itself (decision 98). These checks fail the
+// the file to is the declaration itself (decision 101). These checks fail the
 // moment the property leaves either root rule — the regression that matters,
 // a bounce or a pull-to-refresh coming back — and the third holds the reason
 // the value is `-y` and not the shorthand: horizontal overscroll is the
@@ -21,7 +21,7 @@ function rule(selector: string): string {
   return match[1];
 }
 
-describe("the root scroller does not bounce (decision 98)", () => {
+describe("the root scroller does not bounce (decision 101)", () => {
   it("html turns the vertical overscroll off", () => {
     expect(rule("html")).toContain("overscroll-behavior-y: none");
   });

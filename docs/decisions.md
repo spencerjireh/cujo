@@ -103,6 +103,11 @@ that is reversed after it was built or shown is noted here rather than deleted
 95. [The gates go, depth wanders, and the light beats the star it reads](#95-the-gates-go-depth-wanders-and-the-light-beats-the-star-it-reads)
 96. [The envelope roll-up is the model's work, so the schema reads it leniently](#96-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
 97. [The template tires the reader, not the model](#97-the-template-tires-the-reader-not-the-model)
+98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed)
+99. [The watchdog bounds the run, not the current process](#99-the-watchdog-bounds-the-run-not-the-current-process)
+100. [Cujo leads the card, the opener closes it, and the sections breathe](#100-cujo-leads-the-card-the-opener-closes-it-and-the-sections-breathe)
+98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed)
+99. [The watchdog bounds the run, not the current process](#99-the-watchdog-bounds-the-run-not-the-current-process)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -4851,6 +4856,11 @@ scroll and costs a reader the ability to see what a card holds.
 
 ## 86. The alert gets its own card, and the opener takes the author line
 
+**Allocation reversed by 100.** The first half of the title stands — the ping's
+embed, the checks wording, the grouped criticals, the pull-request link and
+the run-page metadata are untouched. 100 puts Cujo back on the author line and
+moves the opener to the footer, bottom-left.
+
 The message that exists to fetch a human was the least informative thing in
 the channel. A blocked run posted a sentence and a bare run URL, which Discord
 unfurled into a grey box rendering the site's front page — the same two lines
@@ -5380,7 +5390,183 @@ it is short, and the evidence is the reason it is on that line. **Telling the
 model to write shorter blocks** instead of rendering them shorter, which is
 decision 74 reversed — a rule a model applies is a rule that fails silently.
 
-## 98. The page does not bounce
+## 98. The board carries the manual, and it is the one thing indexed
+
+**Status:** active — `/docs` in `apps/web`, `robots.ts` amended.
+
+**Context.** Everything a person needs in order to adopt Cujo was written for
+somebody else. `architecture.md` and `spec.md` are the design of record and are
+written for a contributor; the README is four paragraphs; the board itself
+teaches how to read a specimen and, when it is empty, three lines of
+onboarding. So a reader handed a board link could learn what a satellite means
+and could not learn what `.cujo.yml` accepts, which pull requests are skipped,
+who may answer a held finding, or how to run their own instance. The gap was
+not a missing document — the facts are all written down — it was that the
+audience for them had never been the person deciding whether to install this.
+
+**Decision.** A documentation plane on `apps/web`, at `/docs`, in four groups
+that are tasks rather than topics: point it at a repository, understand a
+verdict, use it day to day, run your own. Twelve pages, `nav.ts` as the only
+ordering, `registry.ts` as the only slug-to-component map, and a test that the
+two agree — a page listed in the sidebar with no component behind it is a 404
+nobody notices.
+
+**Routes and not one page.** A single scrolling page is cheaper to build and
+worse to link: half of what this covers is reference a reader returns to for
+one answer, and "see the section on the gate" wants a URL. The overview is
+served at `/docs` itself rather than at `/docs/overview`, so no page has two
+addresses.
+
+**TSX and not MDX.** MDX is a pinned dependency and build configuration bought
+for authoring convenience this does not need, and it makes the thing that
+matters harder rather than easier: the severity list, the run-status table and
+the alarm vocabulary are generated from `SEVERITIES`, `RUN_STATUSES`,
+`STATUS_LINE` and `lib/api/report.ts`, exactly as `Legend.tsx` already
+generates its own legends. Those words are matched literally in `apps/cujo`. A
+manual that retypes them is a manual that will eventually describe a status the
+product no longer has. `STATUS_LINE` moved out of the run page to
+`lib/api/status-line.ts` for this, so the sentence a link preview shows and the
+sentence the manual shows are one sentence.
+
+**`/docs` is indexed; nothing else is.** `robots.ts` grew an `allow` beside its
+`disallow`, and the docs segment overrides the root layout's `noindex`. The
+argument for the board's own exclusion is untouched and still holds: Cujo
+reviews public pull requests belonging to people who did not ask to be listed
+beside their own repository, and a finding quotes their code. None of that
+reaches these pages. They are ours, they quote nobody, they name no repository —
+and unlike a run, a manual that cannot be found has failed at its job, because
+somebody deciding whether to adopt this is not holding a link to it yet.
+
+**No navigation bar came back.** Decision 65's bar was removed because it cost
+the chamber the top of the window, and reversing that is a bigger change than
+this one and would deserve its own. The manual is reached from the footer's
+bottom rule, from the 404, and from the board's empty-state onboarding list,
+whose first step already read "Install Cujo on a repository" with nothing to
+click. The sidebar is the manual's own chrome and lives inside its column.
+
+**The self-host page names no vendor.** This deploy runs on one particular
+host, behind one particular proxy, deployed by one particular tool, and none of
+that is a requirement of the product. The page says "a container host", "a
+reverse proxy that terminates TLS", "an OpenAI-compatible provider", and names
+only what is actually required: Compose, a Daytona key, a model provider, a
+GitHub App. `architecture.md` keeps the specifics, where they belong — that
+file documents this deployment, and the manual documents the software.
+
+**Consequences.** Twelve statically rendered pages that call nothing, so the
+manual is readable when `apps/cujo` is not. A status added in `apps/cujo` now
+appears in the manual without anyone remembering, and fails a test if its
+sentence is missing. `robots.txt` has an exception in it, so it grew a test of
+its own: one line there stands between an anonymous board of other people's
+pull requests and a search index. `docs/demo.md` was corrected in the same
+change, because it still described approving a held finding by clicking a
+button in a UI that decisions 49 and 57 deleted, and a repository whose own
+demo script contradicts its published manual is worse than one with neither.
+
+Rejected: **a `sitemap.ts`**, which needs an absolute `metadataBase` and so a
+build-time origin — decision 35 warns about freezing a `main`-relative value
+into an image, and `allow: /docs` is sufficient without one. **A fifth footer
+column**, which breaks the four-column composition the footer was built as; the
+link goes on the bottom rule, with the other two things that are about the page
+rather than about Cujo. **Reusing `.cujo-prose`**, which exists to style
+sanitized agent markdown arriving as bare tags — restyling the manual must not
+restyle what the agent wrote on a pull request. **Indexing the whole board
+while we were there**, which is decision 34's argument thrown away for the
+convenience of one fewer line.
+
+## 99. The watchdog bounds the run, not the current process
+
+The turn watchdog (`runner.service.ts:consume`) bounds how long Cujo waits for a
+terminal event. Before this entry, the timer was armed from "now" — a fresh
+`setTimeout(callback, turnTimeoutMs)` on every call to `consume`. On restart,
+`rehydrate` calls `follow` → `consume`, granting a fresh full window. A run
+unlucky enough to be in flight when someone merges — which deploys immediately
+(decision 35) — earned another 30 minutes on every redeploy, indefinitely.
+
+The watchdog now bounds the *turn*, not the process's attention span. `rehydrate`
+finds the latest `turn.created` event in the replayed stream and computes
+`remaining = turnTimeoutMs - (Date.now() - turnStart)`, passing the remainder as
+`budgetMs` to `follow` → `consume`. If the budget is already spent,
+`fireWatchdog` runs immediately — the same synthetic terminal and best-effort
+cancel, without a timer. Falls back to `run.createdAt` when no `turn.created`
+event is found.
+
+The anchor is the turn's own start, not `run.createdAt`, because a run that went
+through preparation, waited for approval, and then resumed should not charge
+that earlier time against the resumed turn's budget. A fresh turn after approval
+deserves a fresh window — only within the same turn does a restart inherit the
+elapsed time.
+
+`start`, `approve`, and `pollForNewTurn` keep the default full budget: those are
+genuinely fresh turns from this process's perspective. Only the rehydrate path
+inherits the active turn's elapsed time, since that is the one place a
+pre-existing turn's clock was being restarted from zero.
+
+Rejected: **using `run.createdAt` as the sole anchor**, which includes
+preparation and approval wait time and would prematurely expire a resumed turn
+after a long approval wait. **Using `updatedAt`**, which moves on every `refold`
+(including the `refold` inside `rehydrate` itself) and would re-arm the same bug
+one level up. **Using `setup.turnCreatedAt`** from the projection, which is more
+precise but requires `refold` to have run first and introduces a dependency on
+fold output for a decision that logically belongs to the runner.
+
+## 100. Cujo leads the card, the opener closes it, and the sections breathe
+
+Decision 86 put the opener on the author line on the argument that the
+variable party needs the affordance of an icon in front of their name. In a
+channel the card read the other way: the first line named a stranger, and the
+product's own name had scrolled into the small print of the footer. A channel
+scanning four of these an hour reads the fixed party first — *whose card is
+this* — and only then *who it is about*. 86 had that order backwards.
+
+**Cujo takes the author line back; the opener takes the footer.** The footer
+is the embed's last line, and the one slot outside the author line whose icon
+renders to the left of its text — bottom-left, which is exactly where a
+signature belongs. So the footer reads `@login · run <id> · <sha>` with the
+opener's avatar beside it, the avatar still built from the numeric account id
+exactly as 55 and 86 built it. A bot opener is named like anybody else, and a
+run with no stored author shows the handles alone and no icon.
+
+**The footer renders no markdown at all** — not a link, not even emphasis —
+which settles two questions at once and was learned the hard way: the first
+draft of this change built `[@login](profile)` into the footer and review
+caught that Discord draws that as literal syntax. So the profile link is
+dropped rather than shown as text pretending to be a link, and the login is
+cleaned by stripping alone rather than escaping, because a backslash in a
+no-markdown slot is litter rather than defusal — `some_login` keeps its
+underscore where 55's `Opened by` field showed `some\_login`. The run's own
+handles pass the same strip, because a bidi override reorders plain text as
+happily as markdown. The card's live links remain the run's own and the pull
+request's.
+
+**The sections breathe.** Between surviving field groups the card now carries
+a blank row: a field whose name and value are a single zero-width space,
+which renders as nothing but the row it occupies. It is Cujo's own literal,
+not a derived string, so the rule that strips zero-width characters from
+untrusted text is not reached by it. The spacers are budgeted in the clamp
+and inserted after it — a spacer placed ahead of the clamp could be all the
+clamp leaves of a dropped section, a dangling blank row where a section was —
+and the reserve is searched from loose to tight, taking the first layout
+where the surviving content plus the blank rows those very survivors need
+fits the total. A fixed maximum reserve would over-reserve near the limit and
+pop a real field for blank-row budget a dropped section left unused; a
+downward correction is not sound either, because a looser clamp keeps more
+groups alive and those groups need the budget back. Group membership is
+tracked by identity, so a dropped group takes its blank rows with it. The
+description-to-fields gap is fixed by Discord and stays as tight as Discord
+allows.
+
+Rejected: **keeping the opener on the author line and only adding the
+spacers**, which was the first draft of this change and still opened every
+card with a stranger's name. **An `Opened by` field instead of the footer**,
+55's original answer, which puts the name and the avatar in two different
+corners of the embed again. **Keeping the profile link by any other means**
+— a trailing field just to hold it, or link syntax left in the footer to be
+drawn literally — the first spends the field budget on a link the pull
+request field already provides, the second is text pretending to be a link.
+**Real blank lines inside field values as spacers**, which widen sections
+instead of separating them.
+
+## 101. The page does not bounce
 
 The board is an instrument in a frame: the chamber is pinned and the record
 rises over it as a sheet, and neither half moves of its own accord. The
@@ -5408,7 +5594,7 @@ body**, the old iOS workaround, which is a layout change disguised as a
 scroll tweak and breaks the sticky hero and the sticky approve bar to remove
 a bounce.
 
-## 99. The key waits for a stay
+## 102. The key waits for a stay
 
 **Refines 89.**
 
@@ -5441,7 +5627,7 @@ a strobe. **Delaying the focus store instead of the swap**, which would lag
 the star lighting under the pointer — the one effect that must stay
 immediate.
 
-## 100. The verdict card stops linking out
+## 103. The verdict card stops linking out
 
 **Reverses part of 91.**
 
@@ -5462,3 +5648,4 @@ panel, the approve bar; only the card no longer spends the fact.
 Rejected: **keeping it behind a disclosure**, a control that reveals one
 link nobody asked for. **Moving it into the review panel**, which already
 is the review and would carry a link to itself.
+||||||| 8a2fc41
