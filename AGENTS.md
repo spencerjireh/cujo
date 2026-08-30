@@ -34,7 +34,11 @@ Single tests:
 pnpm --filter @cujo/cujo test -- tests/review/fold.test.ts  # one vitest file
 pnpm --filter @cujo/cujo exec vitest run -t "name pattern"  # one test by name
 uv run pytest sandbox/tests/test_cli.py -k name             # one Python test
+uv run pytest sandbox/tests/test_cli.py -k name -n0         # ...in one process
 ```
+
+`pytest` runs under `pytest-xdist` by default (decision 78). Add `-n0` when you
+are debugging one test and want its output unbuffered in a single process.
 
 Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/web`, `@cujo/gh-app-auth`,
 `@cujo/brand`.

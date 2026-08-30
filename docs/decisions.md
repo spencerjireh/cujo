@@ -83,12 +83,13 @@ that is reversed after it was built or shown is noted here rather than deleted
 75. [The record is one field of a fixed length, and an empty one is armed](#75-the-record-is-one-field-of-a-fixed-length-and-an-empty-one-is-armed)
 76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
 77. [Detonation covers every ecosystem `MANIFESTS` recognises](#77-detonation-covers-every-ecosystem-manifests-recognises)
-78. [The chamber may have air in it, and the air is two files](#78-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
-79. [Depth is time; across the volume means nothing, and says so](#79-depth-is-time-across-the-volume-means-nothing-and-says-so)
-80. [The record is a galaxy, and a run is a star with orbits](#80-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
-81. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#81-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
-82. [A lane says how bad, not what happened; the sentence is where the sentence fits](#82-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
-83. [An observed zero is a result; an unobserved one is not](#83-an-observed-zero-is-a-result-an-unobserved-one-is-not)
+78. [The Python suite runs in parallel, and a superseded run is cancelled](#78-the-python-suite-runs-in-parallel-and-a-superseded-run-is-cancelled)
+79. [The chamber may have air in it, and the air is two files](#79-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
+80. [Depth is time; across the volume means nothing, and says so](#80-depth-is-time-across-the-volume-means-nothing-and-says-so)
+81. [The record is a galaxy, and a run is a star with orbits](#81-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
+82. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#82-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
+83. [A lane says how bad, not what happened; the sentence is where the sentence fits](#83-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
+84. [An observed zero is a result; an unobserved one is not](#84-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -797,7 +798,7 @@ was a path that skipped Access: fetching `https://cujo.spencerjireh.com/`
 against the origin IP returned the operator UI with no login. Nothing leaked,
 because `access.ts` re-checks the assertion on every request (Contract 6), so
 `/api/*` answered `401` and only the empty shell rendered, which is the case
-the second gate was written for. A Hetzner Cloud firewall now accepts ports 80
+the second gate was written for. A Hetzner Cloud firewall now accepts ports 81
 and 443, TCP and the UDP used by HTTP/3, only from Cloudflare's published
 ranges. Port 22 stays open: the Coolify control plane deploys over it from
 another host (see 2), its egress address is not fixed, and narrowing it would
@@ -3069,8 +3070,8 @@ time and loses the two spans whose other end is on the run record.
 
 ## 68. Nothing in the chamber exists that is not a measurement
 
-**Amended by 78**, which narrows this rule to geometry and admits one named
-decorative layer, **and by 80**, which deletes the room — the floor ticks, the
+**Amended by 79**, which narrows this rule to geometry and admits one named
+decorative layer, **and by 81**, which deletes the room — the floor ticks, the
 wall ribs, the shell and the chain — and keeps the rule: one gate per layer
 that holds a run is what the occupancy strip becomes. Not reversed: everything
 below still holds of every object that carries a fact.
@@ -3992,13 +3993,130 @@ the install, so filesystem writes, egress, and credential reads are reported
 the same way they are for npm and PyPI. No existing behaviour changes for
 Python or Node repos.
 
-## 78. The chamber may have air in it, and the air is two files
+## 78. The Python suite runs in parallel, and a superseded run is cancelled
 
-**Amended by 80**, which makes the sweep a plane again — a layer is one depth,
+CI took six minutes, and one step was five minutes forty-four of it: `uv run
+pytest`. Every other job finished well inside two minutes — `contract` at 1.8,
+`node` at 1.0, the three `docker` builds at half a minute each in parallel. The
+Python job was not slow among peers; it was the entire critical path, and the
+rest of the matrix had been waiting on it for as long as it has existed.
+
+The step is not slow because the tests are heavy. It is slow because it is
+serial. Almost every test in `sandbox/tests/` spawns `python3 -m cujo_sniff` and
+blocks on it, several start and stop the sensor daemons, and one builds a
+virtualenv and installs a package — so the suite spends its time on process
+startup and IO, on a runner with four cores and one of them working. The same
+261 tests take 34.1s serially on a developer machine and 10.9s to 14.6s under
+`pytest-xdist` over five consecutive runs.
+
+**Running four at a time found a race in the suite on the first try.**
+`test_health.py`'s stand-in daemon handed its pid over the instant `Popen`
+returned, but `daemon_alive` reads `/proc/<pid>/cmdline` and wants `cujo_sniff`
+in it — and until the child reaches `execve` that file still holds the parent's
+argv. A health check winning that window reads a live daemon as dead. It could
+never fail on a developer machine here, because macOS has no procfs and
+`daemon_alive` stops at the pid check, so the branch only runs in CI; and it was
+rare enough on one core to have never been seen. The fixture now waits for the
+child to announce itself, which cannot happen before the exec. Worth recording
+as a cost of this decision honestly: parallelism did not create that bug, but it
+is the reason the suite is a place where such bugs surface rather than lurk.
+
+**Measured in CI, the step went from 344.3s to 177.6s on four workers, and the
+whole run from six minutes to 193s.** That is 1.9x, not the 3x the local ratio
+predicts, and the gap is the point: the runner's four vCPUs are two physical
+cores with hyperthreading, so four workers that each spawn and wait on a child
+process contend for two cores' worth of real execution. A developer machine with
+four physical cores is not a model of this runner. The remaining ceiling is
+cores, not test code — `python` is still the critical path at 189s against
+`contract`'s 117s, and the next real gain would come from a larger runner or
+from tests that stop shelling out, neither of which is worth doing yet.
+
+**The isolation this depends on was already there, which is why the change is a
+flag and not a refactor.** The `cli` fixture roots `HOME`, `CUJO_DIR` and
+`CUJO_ENVS_DIR` in the test's own `tmp_path`, and `setup` takes `--proxy-port 0`
+and gets an ephemeral port. There is no shared directory and no fixed port for
+two workers to fight over. That was written for the sandbox's benefit rather
+than for parallelism, and it happens to be exactly the property parallelism
+needs. It is now load-bearing for a second reason: a test that reaches for a
+fixed path or a fixed port will fail here intermittently, under a worker count
+that varies by machine, which is the worst way to find out.
+
+`-n auto` lives in `addopts` and not in the workflow, so that `uv run pytest` is
+one command with one meaning in CI, in `AGENTS.md`, and on a developer machine.
+A flag in the workflow would have made the documented command a slower thing
+than the one CI actually runs, and the gap would only be visible to somebody
+reading the YAML.
+
+**A second run on the same branch answers a question nobody asked.** The
+workflow had no `concurrency` group, so two runs on one branch both finished in
+full when only the later one described the code now on it. Eight of the last
+twenty runs were this, and the pairs starting two, three and four seconds apart
+turned out not to be double pushes: each is a `pull_request` run beside a
+`workflow_dispatch` run that a person started by hand on the same branch,
+seconds later, for the same commit.
+
+That is why the group does not key on `github.event.pull_request.number`. A
+`workflow_dispatch` run has no pull request, so a key built from the number
+falls back to a different expression and puts the manual run in its own group —
+leaving the one pairing this is here to collapse running exactly as before,
+while looking like it had been fixed. The branch name is the thing both events
+actually share.
+
+**A branch name is not an identity, though, which is the second half of the
+key.** Two forks can both offer `patch-1`, and a group keyed on the branch alone
+would put those two pull requests together; with `cancel-in-progress` one
+stranger's push would cancel another's run and leave that pull request with no
+completed CI — a worse failure than the duplication being fixed, because it is
+silent and it lands on somebody who did nothing. So the group is
+`github.event.pull_request.head.repo.full_name || github.repository` and then
+the branch, which separates forks while still letting a `workflow_dispatch` run
+share the group with the `pull_request` run for the same branch here. Every pull
+request this repository has ever had is from a branch on the repository itself,
+so this is a latent bug rather than an observed one; it is in the key because
+the cost of carrying it is one expression and the cost of hitting it is a
+contributor who cannot see why their CI never finished.
+
+**Both of those keys looked right when they were written, so the requirement is
+executable.** `repo_checks/test_ci_concurrency.py` reads the group out of the
+workflow, evaluates the `${{ a || b }}` subset against the event shapes GitHub
+would really supply, and asserts the two properties: a dispatch run lands in its
+PR's group, and two forks offering one branch name do not. The number-based key
+fails the first and the branch-only key fails the second, each on the test that
+names it. The temptation was to assert the expression string instead, which
+would have restated the workflow in a second place and passed on both — a
+literal written beside a change is written from the same understanding that
+produced it. `repo_checks/` is deliberately not called `tests`, which would
+shadow the `tests` package `sandbox/tests/conftest.py` imports from.
+
+**A fixture that answers "null" to a question it was never taught is the same
+bug one level up.** The first draft of that evaluator resolved any unknown
+context path to null, so a key could reach for a field the fixture had never
+described — `github.run_id` in the middle of a fallback chain, say — and the
+operand would be skipped here while GitHub selected it for real. The dispatch
+and pull_request groups would then match in the test and differ in production,
+which is worse than no test, because it reports success. So an unmodelled path
+raises, and only a field GitHub genuinely supplies as null reads as null. The
+per-run identifiers are modelled too, each unique per run: any of them in a
+grouping key gives every run its own group and cancels nothing, and that now
+fails an assertion instead of going unnoticed.
+
+Rejected: **marking the slow tests and skipping them in CI**, which buys the
+time back by not running the detonation test — the one that proves the product's
+central claim, and the last one that should be optional. **Sharding the suite
+across matrix jobs**, which parallelises across runners instead of across cores,
+pays a fresh checkout and `uv sync` per shard, and splits one readable report
+into several. **`-n auto` in the workflow only**, above. **Caching the Docker
+layers and deduplicating the three builds of the same apps** — real duplication,
+but every one of those builds is off the critical path, so it is work that
+changes no wall clock until this decision lands, and possibly not after.
+
+## 79. The chamber may have air in it, and the air is two files
+
+**Amended by 81**, which makes the sweep a plane again — a layer is one depth,
 so the objection below to a plane no longer applies — and promotes the dust to
 a star field. Still two files.
 
-**Amended by 79**, which narrows the rule once more — a specimen's depth is a
+**Amended by 80**, which narrows the rule once more — a specimen's depth is a
 measurement and its position across the volume is not — and reverses two of the
 choices below: phones no longer keep the flat elevation, because there is no
 longer a flat elevation, and the sweep is no longer a plane. Not reversed:
@@ -4118,9 +4236,9 @@ specimen, which would have drawn a chain and a rail the WebGL version does not:
 two drawings of one run have to be one drawing, so it got its own glyph with the
 same rig.
 
-## 79. Depth is time; across the volume means nothing, and says so
+## 80. Depth is time; across the volume means nothing, and says so
 
-**Amended by 80**, which keeps the rule — depth is time, position across it
+**Amended by 81**, which keeps the rule — depth is time, position across it
 means nothing and the key says so — and replaces what it was applied to: the
 field is three layers, the shape is a star with orbits, the chain is not drawn,
 the camera stands outside because there is no mouth, and the sweep is a plane.
@@ -4128,7 +4246,7 @@ Not reversed: the arm split by strength rather than hue, `sandboxMs` on a list
 row, the serializer guard, the deleted flat elevation, the reordered headline.
 
 Decision 68 said no object in the chamber exists that is not a
-measurement. Decision 78 narrowed that to geometry and admitted one named
+measurement. Decision 79 narrowed that to geometry and admitted one named
 decorative layer, `atmosphere.ts` and `post.ts`, on the grounds that a layer
 describing the medium is not a claim about a run. Both still hold of everything
 that carries a fact. This narrows the rule once more, at the one place left
@@ -4139,7 +4257,7 @@ axis by `SPACING`. That is honest and it reads as a row of pins in a case — a
 corridor with a rail down the middle of it, most of a full-height frame holding
 nothing. **A specimen's depth is still time. Its height and its lateral position
 are a deterministic function of its run id and mean nothing at all.** The seam is
-one file and it is checkable the way 78's is: `scatter.ts` takes an id and a
+one file and it is checkable the way 79's is: `scatter.ts` takes an id and a
 depth, imports `chamber-layout` and `ease`, and knows nothing else about a run.
 
 Deterministic matters as much as decorative. A field reshuffled on each poll
@@ -4182,7 +4300,7 @@ it the only thing left saying a scattered field is a *series*.
 
 **The sweep rides it.** A plane crossing the volume was right while one depth was
 one run; over a field it lights every run at that depth together, which is
-exactly the defect decision 78 narrowed the envelope to remove, arriving back by
+exactly the defect decision 79 narrowed the envelope to remove, arriving back by
 a different route. A cursor on the chain visits them in the order the board holds
 them however they are scattered, and "at most one specimen more than half lit" is
 still asserted — now against the tightest gap on a real scattered path rather
@@ -4269,7 +4387,7 @@ screen while a canvas is still importing — `Chamber` reports three states rath
 than a boolean, because "not yet" and "never" used to lay out identically and no
 longer do.
 
-This reverses 78's "phones keep the flat elevation" and its rejection of a third
+This reverses 79's "phones keep the flat elevation" and its rejection of a third
 `BOXES` preset, which is now moot: `SpecimenGlyph` survives as its own file, and
 it was always a different job.
 
@@ -4297,9 +4415,9 @@ presence floor** so a clean run reads as an object anyway — a calm board is
 calm, which is the reading `brand/brand.md` asks for and the one a maintainer
 wants to be able to take at a glance.
 
-## 80. The record is a galaxy, and a run is a star with orbits
+## 81. The record is a galaxy, and a run is a star with orbits
 
-Decision 79 scattered the record across a box and made a specimen a solid.
+Decision 80 scattered the record across a box and made a specimen a solid.
 Looking at it running, four things were wrong and they were one thing: ten runs
 spaced down a thirteen-unit corridor, inside a wireframe box with rails, is a
 hallway with objects in it. The depth was too great to read as layers and too
@@ -4322,7 +4440,7 @@ as it had no arm.
 
 **The four ring planes are the four tetrahedral directions the arms used to
 leave the core along, now used as normals.** That is the one piece of the old
-shape that survives, and it survives for the reason 79 chose it: every pair is
+shape that survives, and it survives for the reason 80 chose it: every pair is
 109.47° apart, the widest four planes can be, and each projects down the view
 axis to an ellipse with the same minor/major ratio, squashed along one of the
 four 45° diagonals. So `tests` is still upper-left and `detonation` lower-left
@@ -4354,7 +4472,7 @@ thirds the size, is a galaxy with a front, a middle and a back.
 
 Within a layer a run's place is a function of its slot and its id: slots at
 equal angles round a band, wider than tall, jittered by the id by less than
-half the gap to the next slot. It still means nothing (79), and the key still
+half the gap to the next slot. It still means nothing (80), and the key still
 says so. Two things are tested rather than eyeballed: no two runs in a layer
 come within one and a half rings of each other whatever their ids, and no band
 crosses the clear line for its layer, which is higher toward the front because
@@ -4379,7 +4497,7 @@ still two files, and that is exactly why the lattice lives there and not in
 
 ### The sweep is a plane again
 
-78 narrowed the sweep from a plane to a cursor on the chain because the record
+79 narrowed the sweep from a plane to a cursor on the chain because the record
 was a scattered field and a plane lit every run at one depth together. A layer
 *is* one depth. A plane lights one layer at a time, oldest first, which is what
 an instrument reading a record in three pages looks like, and "at most one layer
@@ -4412,15 +4530,15 @@ the callout, and the callout already follows the pointer. **Keeping the box
 with the stars inside it**, which is the hallway. **Turning the rings to face
 the camera**, which costs a ring's tilt its meaning.
 
-## 81. A star's tilts are its own, the read walks the stars, and the copy is a caption
+## 82. A star's tilts are its own, the read walks the stars, and the copy is a caption
 
-Decision 80 was looked at running, with a live run on the board. Four things
+Decision 81 was looked at running, with a live run on the board. Four things
 were wrong, and this time they were four things.
 
 ### The tilts are the run's own
 
 Four tori on four fixed tetrahedral tilts around a sphere is the Bohr atom,
-and thirty of them is thirty of the same atom. The one property 80 kept the
+and thirty of them is thirty of the same atom. The one property 81 kept the
 tetrahedral set for — every ring the same ellipse, each on its own diagonal,
 so a tilt *is* its check and two runs compare by silhouette — was not being
 read by anyone: a reader learning which diagonal is `probes` from a galaxy
@@ -4431,10 +4549,10 @@ each jittered again by less than half a quarter, a polar lean drawn between
 two bounds so no ring is ever edge-on or flat, and alternate rings leaning
 away from the reader so a system is not a stack of dishes. Every star is its
 own system and no two share a silhouette. This **reverses** the "tilt is the
-check" claim of 80; what survives is that a ring's colour, radius and arc are
+check" claim of 81; what survives is that a ring's colour, radius and arc are
 measurements, which was always the part that carried anything.
 
-Seeded and never stored, for the same reason a place in a band is (79): one
+Seeded and never stored, for the same reason a place in a band is (80): one
 hash per ring on every build is cheaper than remembering thirty runs' tilts,
 it holds across rebuilds, and the run page's glyph and the key's diagram
 project the same normals the scene orients by, so the star beside a title is
@@ -4443,7 +4561,7 @@ already used moves to `hash.ts` and both draw from it.
 
 ### The read walks the stars
 
-The plane of 80 lit a whole layer at once and crossed the record once per
+The plane of 81 lit a whole layer at once and crossed the record once per
 poll — every five seconds while a run was live, which is exactly when a
 reader is watching — and every star in the layer scaled up by half as it
 passed. That is a strobe, and it got faster when the board got busier. Three
@@ -4454,7 +4572,7 @@ changes, in `wash.ts`:
   ranges of index, so oldest-first *is* back layer first, and one layer is
   finished before the next begins. "At most two runs more than half lit, and
   they are neighbours" and "every run of a layer peaks before any run of the
-  next" are asserted, as the layer claim of 80 was. This is what 78's cursor
+  next" are asserted, as the layer claim of 81 was. This is what 79's cursor
   on the chain did, without drawing the chain.
 - **It takes at least fifteen seconds** whatever the poll interval, and a
   poll that lands while a wash is walking starts nothing. The wash still
@@ -4503,14 +4621,14 @@ Rejected: **coplanar rings**, which are a planetary system and are legible,
 but two checks of near-equal duration draw one ring, and a ring hidden by
 another is a check that did not happen. **A wash decoupled from polling**,
 a fixed loop with no read behind it, which would make the light decoration
-by 78's own test. **Removing the sweep**, which leaves a board that never
+by 79's own test. **Removing the sweep**, which leaves a board that never
 shows it is reading. **Dropping the arc split on the board** for one solid
 ring per check: the share is the one thing on a ring the timeline does not
 also say louder, and the board and the run page have to be the same drawing.
 **Re-randomising tilts on every rebuild**, which re-tilts every star each
 poll while a run is live. **Text labels on stars**, still the callout. **The diagram in the hero**, beside the stats: tried, and it competed with the galaxy it was a key to.
 
-## 82. A lane says how bad, not what happened; the sentence is where the sentence fits
+## 83. A lane says how bad, not what happened; the sentence is where the sentence fits
 
 The run page had four places where a thing was said in the wrong size for the
 box it was said in, and the same fix in each: put the short form where the eye
@@ -4580,7 +4698,7 @@ which apps/web has none of and which would put a check name in the URL bar as
 though it were a route. **Keeping the pinned bar on finished runs** as a
 consistent page footer, which is a strip of window spent on "nothing to do".
 
-## 83. An observed zero is a result; an unobserved one is not
+## 84. An observed zero is a result; an unobserved one is not
 
 The report card is what an operator reads before blocking a merge, and it was a
 dump. Four tables with no column headers, so `185.220.101.4:443 | 3.1 KB |

@@ -12,7 +12,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 /**
- * The wash is the board re-reading the API (decision 68). Since decision 81 it
+ * The wash is the board re-reading the API (decision 68). Since decision 82 it
  * walks the record run by run rather than crossing it as a plane.
  *
  * The claims worth asserting are the ones nobody can check by looking: that
