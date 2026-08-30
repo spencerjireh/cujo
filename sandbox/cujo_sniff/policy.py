@@ -41,6 +41,12 @@ INTERPRETER_NAMES = frozenset(
         "node",
         "bash",
         "sh",
+        "ruby",
+        "perl",
+        "deno",
+        "bun",
+        "tsx",
+        "ts-node",
     }
 )
 # Above this a file is compared by (mtime, size) alone, and the report says so.
@@ -164,6 +170,8 @@ KNOWN_INDEX_HOSTS = frozenset(
         "static.crates.io",
         "proxy.golang.org",
         "sum.golang.org",
+        "rubygems.org",
+        "index.rubygems.org",
     }
 )
 
@@ -221,7 +229,14 @@ SENSITIVE_ABS_PATHS = (
     "/etc/ld.so.preload",
 )
 
-NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
+NOISE_READ_PARTS = (
+    "/site-packages/",
+    "/dist-packages/",
+    "/__pycache__/",
+    "/node_modules/",
+    "/.gem/",
+    "/vendor/",
+)
 # Directory prefixes end in "/" so /usr/libexec is not taken for /usr/lib.
 NOISE_READ_PREFIXES = ("/usr/lib/", "/usr/local/lib/", "/proc/", "/sys/", "/dev/", "/etc/ld.so")
 NOISE_READ_SUFFIXES = (".pyc", ".dist-info/METADATA", ".dist-info/RECORD")

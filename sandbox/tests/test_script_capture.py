@@ -128,6 +128,76 @@ def test_capture_sh_interpreter(tmp_path: Path) -> None:
     assert content is not None
 
 
+def test_capture_ruby_script(tmp_path: Path) -> None:
+    """A ruby invocation with a script file is captured."""
+    script = tmp_path / "probe.rb"
+    script.write_text("puts 'hello'")
+    content, truncated = capture_script(["ruby", str(script)], tmp_path)
+    assert content is not None
+    assert "hello" in content
+    assert truncated is False
+
+
+def test_capture_perl_script(tmp_path: Path) -> None:
+    """A perl invocation with a script file is captured."""
+    script = tmp_path / "check.pl"
+    script.write_text("print 'ok\\n';")
+    content, truncated = capture_script(["perl", str(script)], tmp_path)
+    assert content is not None
+    assert "ok" in content
+    assert truncated is False
+
+
+def test_capture_deno_run_script(tmp_path: Path) -> None:
+    """A deno invocation with a script file is captured."""
+    script = tmp_path / "app.ts"
+    script.write_text("console.log('deno')")
+    content, truncated = capture_script(["deno", str(script)], tmp_path)
+    assert content is not None
+    assert "deno" in content
+    assert truncated is False
+
+
+def test_capture_deno_run_subcommand(tmp_path: Path) -> None:
+    """deno run app.ts correctly skips the 'run' subcommand."""
+    script = tmp_path / "app.ts"
+    script.write_text("console.log('deno-run')")
+    content, truncated = capture_script(["deno", "run", str(script)], tmp_path)
+    assert content is not None
+    assert "deno-run" in content
+    assert truncated is False
+
+
+def test_capture_bun_script(tmp_path: Path) -> None:
+    """A bun invocation with a script file is captured."""
+    script = tmp_path / "index.ts"
+    script.write_text("console.log('bun')")
+    content, truncated = capture_script(["bun", str(script)], tmp_path)
+    assert content is not None
+    assert "bun" in content
+    assert truncated is False
+
+
+def test_capture_bun_run_subcommand(tmp_path: Path) -> None:
+    """bun run app.ts correctly skips the 'run' subcommand."""
+    script = tmp_path / "index.ts"
+    script.write_text("console.log('bun-run')")
+    content, truncated = capture_script(["bun", "run", str(script)], tmp_path)
+    assert content is not None
+    assert "bun-run" in content
+    assert truncated is False
+
+
+def test_capture_tsx_script(tmp_path: Path) -> None:
+    """A tsx invocation with a script file is captured."""
+    script = tmp_path / "app.tsx"
+    script.write_text("console.log('tsx')")
+    content, truncated = capture_script(["tsx", str(script)], tmp_path)
+    assert content is not None
+    assert "tsx" in content
+    assert truncated is False
+
+
 def test_capture_full_path_interpreter(tmp_path: Path) -> None:
     """An interpreter specified with a full path is recognized."""
     script = tmp_path / "test.py"
@@ -188,6 +258,39 @@ def test_capture_double_dash_terminates_flags(tmp_path: Path) -> None:
     script = tmp_path / "test.py"
     script.write_text("pass")
     content, _ = capture_script(["python3", "--", str(script)], tmp_path)
+    assert content is not None
+
+
+def test_capture_ruby_r_consumes_next(tmp_path: Path) -> None:
+    """-r consumes the next arg (Ruby require); script follows."""
+    script = tmp_path / "app.rb"
+    script.write_text("puts 'ok'")
+    content, _ = capture_script(["ruby", "-r", "json", str(script)], tmp_path)
+    assert content is not None
+    assert "ok" in content
+
+
+def test_capture_perl_M_consumes_next(tmp_path: Path) -> None:
+    """-M consumes the next arg (Perl module); script follows."""
+    script = tmp_path / "check.pl"
+    script.write_text("print 1;")
+    content, _ = capture_script(["perl", "-M", "strict", str(script)], tmp_path)
+    assert content is not None
+
+
+def test_capture_perl_I_consumes_next(tmp_path: Path) -> None:
+    """-I consumes the next arg (Perl include path); script follows."""
+    script = tmp_path / "check.pl"
+    script.write_text("print 1;")
+    content, _ = capture_script(["perl", "-I", "/opt/lib", str(script)], tmp_path)
+    assert content is not None
+
+
+def test_capture_python_I_is_standalone(tmp_path: Path) -> None:
+    """Python's -I is isolated mode (standalone); the script is not skipped."""
+    script = tmp_path / "test.py"
+    script.write_text("pass")
+    content, _ = capture_script(["python3", "-I", str(script)], tmp_path)
     assert content is not None
 
 
