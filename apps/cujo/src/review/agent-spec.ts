@@ -24,6 +24,31 @@ export function manifestChanged(files: readonly string[]): boolean {
   return files.some((f) => MANIFESTS.some((re) => re.test(f)));
 }
 
+const DOCS_EXTENSIONS = /\.(md|txt|rst|adoc|asciidoc)$/i;
+const DOCS_BASENAMES =
+  /^(LICENSE|LICENCE|CHANGELOG|AUTHORS|CONTRIBUTORS|CODEOWNERS|NOTICE)(\..*)?$/i;
+
+/**
+ * True when every changed file is documentation — prose that cannot break a
+ * build, a test, or a dependency. The agent uses this to choose
+ * `post_advisory_review` over `post_blocking_review` (decision 79).
+ *
+ * An empty list is not docs-only: a PR with no files is a metadata change,
+ * and treating it as advisory would hide a label or title manipulation from
+ * a review that was meant to judge it.
+ *
+ * A file that matches `MANIFESTS` is never documentation, even if its
+ * extension looks like prose (`requirements.txt`).
+ */
+export function isDocsOnly(files: readonly string[]): boolean {
+  if (files.length === 0) return false;
+  return files.every((f) => {
+    if (MANIFESTS.some((re) => re.test(f))) return false;
+    const base = f.split("/").pop() ?? "";
+    return DOCS_EXTENSIONS.test(base) || DOCS_BASENAMES.test(base);
+  });
+}
+
 /**
  * The rubric lives in agent/SKILL.md at the repo root so a reader (and Qodo)
  * can review it as prose. The Dockerfile copies it next to dist/.
@@ -207,6 +232,7 @@ export function buildConverseSpec(
  * that.
  */
 export function buildTurnMessage(pr: PullRequestInfo, runId = ""): string {
+  const docsOnly = isDocsOnly(pr.changedFiles);
   const payload = {
     repo: pr.repo,
     pr_number: pr.prNumber,
@@ -217,6 +243,7 @@ export function buildTurnMessage(pr: PullRequestInfo, runId = ""): string {
     clone_url: pr.cloneUrl,
     changed_files: pr.changedFiles,
     manifest_changed: manifestChanged(pr.changedFiles),
+    ...(docsOnly ? { docs_only: true } : {}),
     ...(runId ? { run_id: runId } : {}),
   };
   return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;

@@ -31,6 +31,9 @@ export function verifySignature(secret: string, body: string, header: string | u
   return timingSafeEqual(Buffer.from(given, "hex"), Buffer.from(expected, "hex"));
 }
 
+/** The label used to opt a pull request out of review (decision 79). */
+const SKIP_LABEL = "cujo:skip";
+
 interface PullRequestEvent {
   action: string;
   number: number;
@@ -40,7 +43,12 @@ interface PullRequestEvent {
    * reading; `!private` would call it public (decision 34).
    */
   repository: { full_name: string; private?: boolean };
-  pull_request: { head: { sha: string } };
+  pull_request: {
+    head: { sha: string };
+    /** Explicit `=== true`, same reasoning as `private` above (decision 79). */
+    draft?: boolean;
+    labels?: Array<{ name: string }>;
+  };
 }
 
 export interface WebhookDeps extends StartRunDeps {
@@ -381,7 +389,11 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     const repo = event.repository.full_name;
     const prNumber = event.number;
     const headSha = event.pull_request.head.sha;
-    if (event.action !== "opened" && event.action !== "synchronize") {
+    if (
+      event.action !== "opened" &&
+      event.action !== "synchronize" &&
+      event.action !== "ready_for_review"
+    ) {
       log.debug("webhook.ignored", {
         event_type: "pull_request",
         action: event.action,
@@ -390,6 +402,27 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
         pr_number: prNumber,
       });
       return c.json({ ok: true, ignored: "action" }, 200);
+    }
+    if (event.pull_request.draft === true) {
+      log.debug("webhook.ignored", {
+        event_type: "pull_request",
+        action: event.action,
+        reason: "draft",
+        repo,
+        pr_number: prNumber,
+      });
+      return c.json({ ok: true, ignored: "draft" }, 200);
+    }
+    if (event.pull_request.labels?.some((l) => l.name === SKIP_LABEL)) {
+      log.debug("webhook.ignored", {
+        event_type: "pull_request",
+        action: event.action,
+        reason: "label",
+        label: SKIP_LABEL,
+        repo,
+        pr_number: prNumber,
+      });
+      return c.json({ ok: true, ignored: "label" }, 200);
     }
     if (deps.isReady && !deps.isReady()) {
       // GitHub does not retry on its own, but a 503 shows in the delivery
