@@ -151,6 +151,14 @@ no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
 to a full run, but the turn message carries `docs_only: true` so the agent
 selects advisory mode.
 
+The label filter inspects the `labels` array on the webhook payload as
+delivered. When a PR is created with a label in the same API call (e.g.
+`gh pr create --label`), GitHub may fire the `opened` event before the label
+is applied, so the first delivery may not carry it. The label takes effect on
+subsequent deliveries (`synchronize`, `ready_for_review`). This is by design:
+the label is a filter on future deliveries, not a retroactive cancellation of
+in-flight runs.
+
 For a `pull_request` event the `apps/cujo` webhook module:
 
 1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
