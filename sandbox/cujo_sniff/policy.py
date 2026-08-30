@@ -227,10 +227,6 @@ NOISE_READ_PREFIXES = ("/usr/lib/", "/usr/local/lib/", "/proc/", "/sys/", "/dev/
 NOISE_READ_SUFFIXES = (".pyc", ".dist-info/METADATA", ".dist-info/RECORD")
 
 
-def tail(text: str, limit: int = TAIL_CHARS) -> str:
-    return text[-limit:]
-
-
 def is_sensitive(path: str, home_dir: Path | None = None) -> bool:
     """True when `path` is under a credentials, shell-rc, or cron location.
 

@@ -77,6 +77,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 69. [Losing the stream is not a verdict; only the watchdog ends a turn](#69-losing-the-stream-is-not-a-verdict-only-the-watchdog-ends-a-turn)
 70. [Probe scripts are captured by the sensor, not self-reported by the agent](#70-probe-scripts-are-captured-by-the-sensor-not-self-reported-by-the-agent)
 71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
+68. [The mechanical half of setup is one command, because none of it is a decision](#68-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
+72. [A length cap is spent on the escaped text, not on the text](#72-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3474,10 +3476,10 @@ the bottom of its output, and a manifest declares its dependencies at the top.
 Lock files are not read at all — hundreds of kilobytes that say nothing about how
 to run anything, and they would crowd out the files that do.
 
-The same cap-then-escape shape is live in `runner.py`'s `stdout_tail` and
-`stderr_tail`, where it predates this change and bounds every check report. It
-is a separate PR because it changes what shipped reports contain and deserves
-its own attribution; `scrub_tail` exists here ready for it.
+The same cap-then-escape shape was live in `runner.py`'s `stdout_tail` and
+`stderr_tail`, where it predated this change and bounded every check report.
+Decision 69 fixes it, in its own PR because it changes what shipped reports
+contain and deserves its own attribution.
 
 **The head commit is fetched by pull ref, which is what makes a fork
 reviewable.** `apps/cujo` sends `pr.base.repo.clone_url` and no credential, so
@@ -3532,3 +3534,77 @@ YAML reader in the sandbox. **Reading the lock files too**, which is where the
 resolved versions are — but detonation gets those from the manifest diff, which
 is the check that needs them. **A shallow clone**, which would be faster and
 would then not have the base commit to make a worktree from.
+
+## 72. A length cap is spent on the escaped text, not on the text
+
+`stdout_tail` and `stderr_tail` were built as `scrub(tail(out))`: take the last
+`TAIL_CHARS` characters, then escape them. Escaping is an expansion — `\x1b` is
+four characters for one, `\u202e` is six — so the cap was measured on the wrong
+quantity. A check whose output was four thousand right-to-left overrides
+returned twenty-four thousand characters against a four-thousand-character
+budget, and every one of the four checks has two of these tails.
+
+The output is written by the code under review. That is what makes this a lever
+rather than an arithmetic curiosity: the budget exists so a pull request cannot
+crowd the parent's turn with its own text, and the way to spend six times the
+budget was to print characters that escape. Nothing had to be exploited — a
+repository that legitimately prints a byte-order mark pays the same six-fold
+rate by accident.
+
+`scrub_head` and `scrub_tail` escape and measure in one pass, spending the
+budget one whole character at a time. The obvious alternative — escape
+everything, then slice the result — fixes the size and introduces a worse
+problem: it cuts `\u202e` into `\u20`, which is text the command never printed,
+in a report whose entire purpose is to say what the command did. A cap that
+fabricates evidence is not a cap worth having.
+
+**Every capped report string, including the ones that arrive later.**
+`script_content` landed on `main` from decision 70 while this was in review, and
+it came with the mirror-image of the same bug: escape first, slice the result,
+which bounds the size and cuts `\u202e` into `\u20`. In a field that exists so a
+reader can diff what the agent claimed against what the sensor saw, inventing
+two characters of evidence is the worst possible way to save space. It moves
+onto the same helper here. That is the argument for writing this down as a shape
+rather than as a list of fixed call sites: the shape is what the next person
+reaches for.
+
+**Every capped report string, and not only the two tails.** `scrub_argv` had
+the same shape — the audit hook records the arguments a process was started
+with, and a subprocess spawned with a thousand bidirectional overrides in one
+argument arrived as six thousand characters against a two-thousand budget. The
+CLI's error and traceback fields had the mirror image, escaping first and
+slicing the result, which bounds the size and cuts `\u202e` into `\u20` — text
+nothing raised, in the field a reader trusts most because it is all that is
+left. Both move onto the same two helpers. The alternative was to narrow the
+claim in the spec to the fields that honour it, which documents the bug instead
+of removing it and leaves the next person to find the same shape a third time.
+
+The truncation flag now means *either* the raw output or its escaped form was
+cut. Both are the same fact to a reader ("there was more"), and reporting only
+the raw overflow would have called a report complete when a third of it was
+dropped by the escape.
+
+`keep` characters cost one, so the ordinary repository is not charged for the
+hostile one's defence: a manifest full of newlines and tabs is unchanged.
+
+Found by Qodo on the `prepare` PR, in code written the same week. The
+pre-existing instances — `runner.py`'s tails, `scrub_argv`, the CLI envelope —
+were found by looking for the shape rather than by review, which is the argument
+for writing the finding down as a shape and not as one fix. `prepare`'s own is
+in decision 68 with the command it belongs to; the three that alter what shipped
+reports contain are here, together, so the claim and the code become true in one
+step.
+
+**Two of the tests for this were vacuous before they were right**, and both
+failure modes are worth recording. The first capped the input rather than the
+output, so it passed against the bug. The second raised an exception whose
+message happened to be a whole multiple of six characters long, so the slice
+landed exactly on an escape boundary and the old code passed too — one message
+in six does. The test now asserts the property at every alignment, because a
+single offset decides nothing when the expansion factor is six.
+
+Rejected: **escape then slice**, above — it invents text. **Raising `TAIL_CHARS`
+to cover the worst case**, which would make the common report six times larger to
+bound a rare one. **Refusing to escape inside a tail**, which was never on the
+table: the escape is the whole reason the text is safe to put in front of a
+model (decision 26's argument, one boundary over).

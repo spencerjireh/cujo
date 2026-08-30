@@ -126,7 +126,10 @@ def scrub_argv(value: Any) -> list[str]:
     out: list[str] = []
     for item in items[:MAX_ARGV_ITEMS]:
         text = item if isinstance(item, str) else repr(item)
-        out.append(scrub(text[:MAX_ARGV_CHARS]))
+        # `scrub_head` and not a slice-then-escape, for the reason in its
+        # docstring: the budget has to be charged after the expansion or it is
+        # not the budget that ships.
+        out.append(scrub_head(text, MAX_ARGV_CHARS)[0])
     if len(items) > MAX_ARGV_ITEMS:
         out.append(f"... {len(items) - MAX_ARGV_ITEMS} more arguments")
     return out
