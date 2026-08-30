@@ -54,7 +54,7 @@ const PARTS = [
     // will assume otherwise — a star sitting high looks like it means
     // something. Saying so is the whole reason this line is longer than the
     // others (decisions 70, 71).
-    text: "Depth is time, in five layers, newest in front: the three newest runs, then the next five, and so on back. Where a run sits within its layer is not a measurement of anything.",
+    text: "Depth is time, in three layers, newest in front: the six newest runs, then the next ten, then the rest. Where a run sits within its layer is not a measurement of anything.",
   },
 ];
 

@@ -11,14 +11,14 @@
  */
 
 /**
- * The record is five layers deep, and a layer is a group of runs by recency
- * (decision 71). Depth is time and nothing else; five is what a reader can
- * count, and what a full-height frame can hold with the front layer large and
- * the back one still an object rather than a dot.
+ * The record is three layers deep, and a layer is a group of runs by recency
+ * (decision 71). Depth is time and nothing else; three is what a reader can
+ * count at a glance, and what a full-height frame can hold with the front
+ * layer large and the back one still an object rather than a dot.
  */
-export const LAYER_COUNT = 5;
+export const LAYER_COUNT = 3;
 /** Distance from one layer to the next, front to back. */
-export const LAYER_SPACING = 2.0;
+export const LAYER_SPACING = 2.6;
 /**
  * Where the newest layer sits. Behind the camera's own station: the near end
  * is the closest thing on screen, and at two units a star fills a third of the
@@ -49,10 +49,10 @@ export const RECORD_X = 1.15;
  * floor is higher than an arm's was: a ring smaller than about a third of the
  * widest one is a circle round the core rather than an orbit.
  */
-export const RING_MAX = 0.45;
+export const RING_MAX = 0.3;
 export const RING_MIN = RING_MAX * 0.29;
 /** The bright arc's tube. The faint arc is drawn thinner from this. */
-export const RING_TUBE = 0.009;
+export const RING_TUBE = 0.007;
 
 /** Below this many runs the camera comes in, so one run is not a distant dot. */
 export const SPARSE_BELOW = 4;

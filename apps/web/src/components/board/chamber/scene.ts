@@ -121,7 +121,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   // It starts past the front layer, so the newest stars — the ones every
   // reader looks at first — keep their whole colour, and it takes the back
   // layer most of the way to the ground without taking its silhouette.
-  scene.fog = new Fog(palette.chamber, 3.5, 14);
+  scene.fog = new Fog(palette.chamber, 3.5, 12);
 
   const camera = new PerspectiveCamera(FOV, 1, 0.1, 60);
   // The camera is in the scene because the backdrop hangs off it: parented that
@@ -583,6 +583,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     // CSS pixels, not device pixels: that is the space `LineMaterial` measures
     // its width in, so a 1.1px gate is 1.1px on any display.
     room.setResolution(width, height);
+    atmosphere.setResolution(width, height);
     atmosphere.setFrame(FOV, camera.aspect);
     if (options.reducedMotion || frame === 0) renderOnce();
   }

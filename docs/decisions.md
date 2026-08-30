@@ -3317,7 +3317,7 @@ same rig.
 
 **Amended by 71**, which keeps the rule — depth is time, position across it
 means nothing and the key says so — and replaces what it was applied to: the
-field is five layers, the shape is a star with orbits, the chain is not drawn,
+field is three layers, the shape is a star with orbits, the chain is not drawn,
 the camera stands outside because there is no mouth, and the sweep is a plane.
 Not reversed: the arm split by strength rather than hue, `sandboxMs` on a list
 row, the serializer guard, the deleted flat elevation, the reordered headline.
@@ -3536,16 +3536,16 @@ anything; both are decoration by the rule that admits the haze and the glow,
 and what they show is the shape, which is entirely measurement. Under reduced
 motion both are at rest.
 
-### Five layers of time
+### Three layers of time
 
-The record is five layers by recency, at two units apart, holding three, five,
-six, eight and eight runs — thirty, up from ten. Depth is time and nothing else,
-as it has been since 65; what changes is that a reader can count it. Equal
-groups rather than age buckets, because a layer that can be empty is a gap the
-drawing has to explain, and the front holds three because three large stars are
-what the near end of a full-height frame can hold before one of them is a
-wall. The back holds eight because dense and small is what "older" looks like
-in a galaxy.
+The record is three layers by recency, 2.6 units apart, holding six, ten and
+fourteen runs — thirty, up from ten. Depth is time and nothing else, as it has
+been since 65; what changes is that a reader can count it. Equal groups rather
+than age buckets, because a layer that can be empty is a gap the drawing has to
+explain. It was five layers first, and five read as a wall: the apparent size
+of one layer against the next was too close to tell apart, and every ring in
+it was too large. Three layers a reader can name at a glance, with rings two
+thirds the size, is a galaxy with a front, a middle and a back.
 
 Within a layer a run's place is a function of its slot and its id: slots at
 equal angles round a band, wider than tall, jittered by the id by less than
@@ -3560,18 +3560,24 @@ a near star reaches furthest into the type.
 No shell, no rails, no ribs, no floor ticks. A galaxy is not in a box, and the
 box was what made the field read as a hallway. What remains of 68's occupancy
 rule is one gate per layer — an ellipse at the band's own extent, drawn only
-while the layer holds a run — so five gates say the record is five layers deep
-and two say it is two. The dust becomes a star field: nine hundred motes at two
+while the layer holds a run — so three gates say the record is three layers
+deep and one says it is one. The dust becomes a star field: nine hundred motes at two
 sizes in a volume far larger than the record, reaching past the back layer and
 off every edge of the frame, because a galaxy does not end where the record
-does. It is still `atmosphere.ts`, still decorative, still two files.
+does. And the lattice comes back — the wireframe volume, its rails and its
+ribs — as texture: it was the room and said something, one rib per slot; it
+says nothing now, its pitch is a fixed number, and a field of stars in the dark
+with nothing behind it reads as flat, where lines running to a vanishing point
+are the cheapest depth there is. It is still `atmosphere.ts`, still decorative,
+still two files, and that is exactly why the lattice lives there and not in
+`room.ts`.
 
 ### The sweep is a plane again
 
 69 narrowed the sweep from a plane to a cursor on the chain because the record
 was a scattered field and a plane lit every run at one depth together. A layer
 *is* one depth. A plane lights one layer at a time, oldest first, which is what
-an instrument reading a record in five pages looks like, and "at most one layer
+an instrument reading a record in three pages looks like, and "at most one layer
 more than half lit" is asserted against the layer spacing. The gate is the
 light — it goes amber and solid as the plane reaches it and settles as it
 passes — and the additive quad that framed the scene is deleted.
@@ -3579,7 +3585,7 @@ passes — and the additive quad that framed the scene is deleted.
 ### The chain is not drawn
 
 `brand/brand.md` says Cujo is a guard dog on a chain, and the chain has been in
-the chamber since 65. A line threading thirty points in five bands is a
+the chamber since 65. A line threading thirty points in three bands is a
 scribble, and there is no honest place for it in a galaxy. The mark, the name
 and the copy keep the motif; the chamber stops drawing it. This is the one
 thing here that is a loss rather than a trade, and it is written down as one.

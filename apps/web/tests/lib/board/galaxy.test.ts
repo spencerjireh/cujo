@@ -32,25 +32,25 @@ const IDS = Array.from({ length: 600 }, (_, i) => `run-${i}-${(i * 7919) % 101}`
 const SEPARATION = RING_MAX * 1.5;
 
 describe("layerOf", () => {
-  it("has five layers that hold thirty runs between them", () => {
+  it("has three layers that hold thirty runs between them", () => {
     expect(LAYER_CAPACITY).toHaveLength(LAYER_COUNT);
     expect(CAPACITY).toBe(30);
   });
 
   it("fills the layers in order, newest in front", () => {
     expect(layerOf(0)).toEqual({ layer: 0, slot: 0 });
-    expect(layerOf(2)).toEqual({ layer: 0, slot: 2 });
-    expect(layerOf(3)).toEqual({ layer: 1, slot: 0 });
-    expect(layerOf(29)).toEqual({ layer: 4, slot: 7 });
+    expect(layerOf(5)).toEqual({ layer: 0, slot: 5 });
+    expect(layerOf(6)).toEqual({ layer: 1, slot: 0 });
+    expect(layerOf(29)).toEqual({ layer: 2, slot: 13 });
   });
 
   it("puts a run past the capacity in the last layer rather than nowhere", () => {
-    expect(layerOf(30).layer).toBe(4);
-    expect(layerOf(31).layer).toBe(4);
+    expect(layerOf(30).layer).toBe(2);
+    expect(layerOf(31).layer).toBe(2);
   });
 
   it("holds fewer runs in front than behind", () => {
-    // Three large stars in front and the rest denser behind is the near-to-far
+    // Six large stars in front and the rest denser behind is the near-to-far
     // gradient a galaxy has.
     for (let i = 1; i < LAYER_CAPACITY.length; i += 1) {
       expect(LAYER_CAPACITY[i] ?? 0).toBeGreaterThanOrEqual(LAYER_CAPACITY[i - 1] ?? 0);
@@ -168,7 +168,7 @@ describe("minX", () => {
 
 describe("placeAt", () => {
   it("is the layer and slot of the index", () => {
-    expect(placeAt(4, "a")).toEqual(placeIn(1, 1, "a"));
+    expect(placeAt(7, "a")).toEqual(placeIn(1, 1, "a"));
   });
 
   it("grows wider toward the back, which is what makes the field a galaxy", () => {
