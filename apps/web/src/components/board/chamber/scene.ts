@@ -3,34 +3,37 @@
  *
  * Imperative and framework-free on purpose. React owns when this exists and
  * what data it holds; this file owns the renderer, the camera, the pointer and
- * the loop, and composes four modules that own everything else — the gates,
- * the specimens, the air, and the passes the frame is drawn through.
+ * the loop, and composes three modules that own everything else — the
+ * specimens, the air, and the passes the frame is drawn through.
  *
  * The rules, from decision 68 as amended by 80, 81, 82 and 83:
  *
- * - **No geometry exists that is not a measurement.** A gate is drawn only for
- *   a layer that holds a run, and the wash is the board re-reading the API.
- *   Anything that could be moved, resized or recoloured without a fact changing
- *   does not belong in `room.ts` or `specimens.ts`.
+ * - **No geometry exists that is not a measurement.** The stars are the runs
+ *   and the wash is the board re-reading the API; there is nothing drawn
+ *   round them. Anything that could be moved, resized or recoloured without a
+ *   fact changing does not belong in `specimens.ts`.
  * - **The exception is air, and it is one file.** `atmosphere.ts` and `post.ts`
  *   are decorative and carry no data. That is the whole of decision 80, and it
  *   is stated as a boundary so a reader can check it by looking at two imports.
  * - **Depth is time, in three layers.** The newest runs are nearest; each layer
- *   behind holds older ones. Where a run sits within its layer is a function
- *   of its id and means nothing (decision 81).
+ *   behind holds older ones. Where a run sits within its layer — round the
+ *   band, and within the layer's thickness — is a function of its id and means
+ *   nothing (decision 81).
  * - **Every specimen is drawn from its own digest.** Ring radii are check
  *   durations on one shared scale, ring colours are how each check ended, the
  *   core is the verdict at a size set by the worst thing the run found.
  *
  * Materials are unlit: this is an instrument face, not a lit room, so there are
  * no lights to tune and nothing costs a shadow pass. Depth is bought with what
- * a technical drawing uses instead — recession, fog, the gates, parallax — and
- * with a graded backdrop and a star field behind all of it.
+ * a technical drawing uses instead — recession, fog, parallax — and with a
+ * graded backdrop and a star field behind all of it. The layers are not drawn:
+ * they are read off the stars, which is what the depth jitter in `galaxy.ts`
+ * makes possible, a layer being a thickness of stars and not a sheet.
  */
 
 import { arrivalCurve, diffRecord, slideProgress } from "@/lib/board/arrival";
 import { PITCH_LIMIT, YAW_LIMIT, cameraDrift, cameraPlacement } from "@/lib/board/chamber-camera";
-import { LAYER_COUNT, layerZ, sparseness } from "@/lib/board/chamber-layout";
+import { layerZ, sparseness } from "@/lib/board/chamber-layout";
 import { approach, clamp } from "@/lib/board/ease";
 import { layerOf, placeAt } from "@/lib/board/galaxy";
 import { type Specimen, specimenSignature } from "@/lib/board/specimen";
@@ -58,7 +61,6 @@ import { WebGLRenderer } from "three";
 import { createAtmosphere } from "./atmosphere";
 import { readPalette } from "./palette";
 import { createPost } from "./post";
-import { createRoom } from "./room";
 import {
   type SpecimenNode,
   applySpecimenFrame,
@@ -75,6 +77,24 @@ const FOCUS_RATE = 0.0008;
 const SLIDE_SECONDS = 0.9;
 /** How long a new run takes to ease into the front slot. */
 const ARRIVE_SECONDS = 1.1;
+/**
+ * How long a star's beat lasts once the light reaches it. Shorter than the
+ * light's stay on one star, so the beat is over before the light moves on
+ * and no two stars are beating at once.
+ */
+const READ_PULSE_SECONDS = 0.6;
+/**
+ * How hard the read has to be before the star beats. Just under full: the
+ * read peaks at exactly 1 for one instant, which a frame can miss, and the
+ * window this opens is a few frames wide on either side of it.
+ */
+const READ_BEAT_AT = 0.92;
+/**
+ * How long after a beat the same star may beat again. Longer than the window
+ * above stays open on one pass, so a star beats once per read, and shorter
+ * than any two passes are apart (`WASH_MIN_SECONDS`), so it beats on the next.
+ */
+const READ_REARM_SECONDS = 2;
 /** The reading light: its size in scene units, and how bright at full. */
 const LIGHT_SCALE = 0.16;
 const LIGHT_OPACITY = 0.85;
@@ -146,9 +166,6 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   // The camera is in the scene because the backdrop hangs off it: parented that
   // way it is always exactly behind everything, at any angle.
   scene.add(camera);
-
-  const room = createRoom(palette);
-  scene.add(room.group);
 
   const atmosphere = createAtmosphere(palette);
   scene.add(atmosphere.group);
@@ -318,11 +335,6 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
       });
     }
 
-    // A gate per layer that holds a run, and none for one that does not.
-    const occupied = Array.from({ length: LAYER_COUNT }, () => false);
-    for (const spec of drawn) occupied[layerOf(spec.index).layer] = true;
-    room.setOccupied(occupied);
-
     sparseTarget = sparseness(drawn.length);
     if (options.reducedMotion) sparse = sparseTarget;
     applyFocus();
@@ -475,6 +487,9 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     if (washPhase(elapsedNow, washFrom, washSeconds) !== null) return;
     washSeconds = washDuration(intervalMs, nodes.length);
     washFrom = elapsedNow;
+    // A new walk reads every star afresh: each one beats once as the light
+    // reaches it, and the mark that says "already beaten" is per wash.
+    for (const node of nodes) node.readFrom = -1;
   }
 
   function draw(elapsed: number, dt: number): void {
@@ -546,6 +561,24 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
       // so a run moving back a layer is lit for wherever it is on the walk.
       const slot = node.slotFrom + (node.slotTo - node.slotFrom) * t;
       const read = cursor === null ? 0 : readStrength(cursor, slot);
+
+      // The beat: once, as the light reaches the star. The read climbs to 1
+      // and settles, so the peak is a short window; the star beats on entering
+      // it and not again until the light has long moved on — a run sliding
+      // back a slot mid-wash can re-enter the window, and one beat per read
+      // is the whole point of it.
+      if (
+        read > READ_BEAT_AT &&
+        (node.readFrom < 0 || elapsed - node.readFrom > READ_REARM_SECONDS)
+      ) {
+        node.readFrom = elapsed;
+      }
+      // `slideProgress` holds at 1 past the end; a finished beat is rest, not
+      // a star frozen at the end of one.
+      const beatAt =
+        node.readFrom < 0 ? 0 : slideProgress(node.readFrom, elapsed, READ_PULSE_SECONDS);
+      const beatProgress = beatAt >= 1 ? 0 : beatAt;
+
       applySpecimenFrame(node, {
         elapsed,
         reducedMotion: options.reducedMotion,
@@ -553,6 +586,8 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
         focus: node.focusAmount,
         dim: node.dimAmount,
         read,
+        // Under reduced motion the star only glows: no lift, no ring.
+        beat: options.reducedMotion ? 0 : beatProgress,
         arrivalScale,
         arrivalOpacity,
       });
@@ -653,6 +688,9 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     lastElapsed = 0;
     elapsedNow = 0;
     washFrom = -1;
+    // Beat marks are in the clock that was just reset; a stale one would
+    // compare against the new zero and hold a star silent for the next wash.
+    for (const node of nodes) node.readFrom = -1;
   }
 
   function resize(width: number, height: number): void {
@@ -664,9 +702,6 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     camera.aspect = width / Math.max(height, 1);
     camera.updateProjectionMatrix();
     post.setSize(width, height, ratio);
-    // CSS pixels, not device pixels: that is the space `LineMaterial` measures
-    // its width in, so a 1.1px gate is 1.1px on any display.
-    room.setResolution(width, height);
     atmosphere.setResolution(width, height);
     atmosphere.setFrame(FOV, camera.aspect);
     if (options.reducedMotion || frame === 0) renderOnce();
@@ -682,7 +717,6 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     kit.dispose();
     lightMaterial.map?.dispose();
     lightMaterial.dispose();
-    room.dispose();
     atmosphere.dispose();
     post.dispose();
     renderer.dispose();

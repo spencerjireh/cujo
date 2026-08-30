@@ -5,6 +5,7 @@ import type { Run } from "@/lib/api/types";
 import { absoluteTime, shortSha } from "@/lib/format";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { type ReactNode, useState } from "react";
+import { RunLedger } from "./RunLedger";
 
 /**
  * What this run was, in handles.
@@ -25,7 +26,12 @@ import { type ReactNode, useState } from "react";
  *
  * Collapsed by default. It is provenance, not evidence — a reader comes to this
  * page for the findings, and reaches for this only when they want to check the
- * findings against something.
+ * findings against something. It is titled "Operator details" rather than
+ * "Provenance" for the reader the page is for: a pull request author who
+ * followed a review link and has never heard the word used this way. The
+ * header used to repeat the model and the short rubric above the verdict; it
+ * no longer does, so the trigger row here is the only place they are named
+ * shut.
  *
  * Collapsed used to be a blank box with a word at each end of it, which is the
  * one state where a section that exists to name four handles named none of
@@ -79,8 +85,8 @@ export function RunProvenance({ run }: { run: Run }) {
     .join(" · ");
 
   return (
-    <section aria-label="Provenance">
-      <h2 className="mb-1 text-lg">Provenance</h2>
+    <section aria-label="Operator details">
+      <h2 className="mb-1 text-lg">Operator details</h2>
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
         What produced this verdict. None of it authorizes anything: the harness console these name
         keeps its own gate, and a held finding is answered on the pull request.
@@ -88,11 +94,15 @@ export function RunProvenance({ run }: { run: Run }) {
       <Collapsible.Root open={open} onOpenChange={setOpen}>
         <Collapsible.Trigger className="-mx-2 flex w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-sm border-t border-line px-2 py-3 text-left hover:bg-bg-raised">
           <span className="wrap-anywhere font-mono text-xs text-fg-muted">
-            {summary || "what this run was, in handles"}
+            {summary || "Operator details"}
           </span>
           <Chevron open={open} className="text-fg-muted" />
         </Collapsible.Trigger>
         <Collapsible.Content className="pb-4">
+          {/* Inside the fold with the handles, and above them: the cost is
+              the operator's number a reader is likeliest to want, and the
+              handles are the ones they copy. */}
+          <RunLedger usage={run.usage} />
           <dl>
             {run.model ? <Entry label="model">{run.model}</Entry> : null}
             {run.rubric_sha256 ? <Entry label="rubric">{run.rubric_sha256}</Entry> : null}

@@ -31,8 +31,12 @@ import { SpecimenDiagram } from "./SpecimenDiagram";
  * a reader meets those words — on a badge and in a row.
  */
 
-/** Named as the hero's caption names them, so the two read as one sentence. */
-const PARTS = [
+/**
+ * Named as the hero's caption names them, so the two read as one sentence.
+ * Shared with `SpecimenKey`, the compact key the hero shows while a specimen is
+ * hovered, so the two keys cannot drift apart.
+ */
+export const PARTS = [
   {
     label: "verdict",
     text: "The core. Bigger the worse the finding.",
@@ -92,10 +96,12 @@ export function Legend() {
                   {/* Reduced strength for a status that reached no conclusion,
                       which is how the rack draws the same distinction: `clean`
                       and `error` are both info blue by brand rule, and only
-                      one of them is a result. */}
+                      one of them is a result. `running` is exempt: it has its
+                      own hue, and it is the one swatch that should not be
+                      faint. */}
                   <span
                     className={`h-2 w-2 shrink-0 translate-y-px ${TONE_FILL[tone]} ${
-                      isVerdict(status) ? "" : "opacity-45"
+                      isVerdict(status) || status === "running" ? "" : "opacity-45"
                     }`}
                     aria-hidden="true"
                   />

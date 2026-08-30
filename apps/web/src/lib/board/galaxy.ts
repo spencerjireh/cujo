@@ -16,12 +16,20 @@
  * thing on screen and reaches furthest into the type. Both are tested rather
  * than eyeballed.
  *
+ * Depth has the same split. *Which* layer a run is in is a measurement — its
+ * age, by decisions 81 and 82 — and where inside that layer's thickness it
+ * sits is decoration, seeded off the id the same way its place round the band
+ * is. The jitter is a third of the spacing each way, so the layers stay apart
+ * and a reader can still count three; layer 0 jitters only backward, so the
+ * newest star is never in front of the front. Without it three flat discs of
+ * stars read as three sheets, which is a diagram and not a field.
+ *
  * Deterministic and seeded off the id, so a run never moves within its layer.
  * It does move *between* layers as newer runs arrive, which is the record
  * advancing, and the scene slides it.
  */
 
-import { LAYER_COUNT, RECORD_X, layerZ } from "./chamber-layout";
+import { LAYER_COUNT, LAYER_SPACING, RECORD_X, layerZ } from "./chamber-layout";
 import { uniforms } from "./hash";
 import type { Vec3 } from "./orbit";
 
@@ -53,6 +61,12 @@ const JITTER_ANGLE = (3 * Math.PI) / 180;
 const JITTER_RADIUS = 0.1;
 /** The widest a jittered radius can be, as a factor. What the band's edge uses. */
 export const BAND_REACH = 1 + JITTER_RADIUS;
+/**
+ * How far a run may sit off its layer's depth, either way. A third of the
+ * spacing: two thirds of it between the nearest stars of two layers is what
+ * keeps the layers countable, and less than a sixth was three sheets again.
+ */
+export const DEPTH_JITTER = LAYER_SPACING / 3;
 
 /**
  * A fixed turn per layer, so the slots of one band never line up with the
@@ -67,7 +81,7 @@ export interface Band {
   z: number;
   /** Centre. Every band sits on the record's own height. */
   x: number;
-  /** Outer extent, jitter included, which is what a gate is drawn at. */
+  /** Outer extent, jitter included: the edge the clear line is measured from. */
   rx: number;
   ry: number;
 }
@@ -115,10 +129,10 @@ export function layerOf(index: number): Place {
   return { layer: last, slot: (index - start) % (LAYER_CAPACITY[last] ?? 1) };
 }
 
-/** Two draws from the id, each as a uniform in [-1, 1). One hash, not two. */
-function draws(id: string): [number, number] {
-  const [a = 0, b = 0] = uniforms(id, 2);
-  return [a * 2 - 1, b * 2 - 1];
+/** Three draws from the id, each as a uniform in [-1, 1). One hash, not three. */
+function draws(id: string): [number, number, number] {
+  const [a = 0, b = 0, c = 0] = uniforms(id, 3);
+  return [a * 2 - 1, b * 2 - 1, c * 2 - 1];
 }
 
 /**
@@ -127,17 +141,23 @@ function draws(id: string): [number, number] {
  * The slot fixes the angle round the band and the id jitters it, in angle and
  * in radius, by less than half the gap to the next slot — so two runs in one
  * layer keep their distance whatever their ids, and the band's edge is where
- * the jitter runs out.
+ * the jitter runs out. The id also sets the depth within the layer, which is
+ * the one part of the position that touches the time axis: the layer is the
+ * measurement, the place inside its thickness is not, and the jitter is
+ * bounded so no run is ever nearer the layer behind than its own.
  */
 export function placeIn(layer: number, slot: number, id: string): Vec3 {
   const band = bandOf(layer);
   const capacity = LAYER_CAPACITY[band.layer] ?? 1;
-  const [a, b] = draws(id);
+  const [a, b, c] = draws(id);
   const angle = (slot / capacity) * 2 * Math.PI + layerTurn(band.layer) + a * JITTER_ANGLE;
   const radius = (BAND_RADIUS[band.layer] ?? 0) * (1 + b * JITTER_RADIUS);
   const x = band.x + Math.cos(angle) * radius;
   const y = Math.sin(angle) * radius * BAND_FLATTEN;
-  return { x: Math.max(x, minX(band.layer)), y, z: band.z };
+  // The front layer only jitters backward. `FRONT_Z` is where the newest
+  // thing on screen is, and a star ahead of it would be ahead of the record.
+  const depth = band.layer === 0 ? -Math.abs(c) * DEPTH_JITTER : c * DEPTH_JITTER;
+  return { x: Math.max(x, minX(band.layer)), y, z: band.z + depth };
 }
 
 /** Where a run at this index of the record sits. */

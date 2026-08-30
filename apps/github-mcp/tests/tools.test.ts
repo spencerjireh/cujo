@@ -164,8 +164,8 @@ describe("the composed body", () => {
     const at = (needle: string) => body().indexOf(needle);
     expect(at("Machine-readable summary")).toBeGreaterThan(at("**Advisory**"));
     expect(at("/cujo confirm")).toBeGreaterThan(at("Machine-readable summary"));
-    expect(at("Full evidence")).toBeGreaterThan(at("/cujo confirm"));
-    expect(at("<!-- cujo:")).toBeGreaterThan(at("Full evidence"));
+    expect(at("View the full evidence")).toBeGreaterThan(at("/cujo confirm"));
+    expect(at("<!-- cujo:")).toBeGreaterThan(at("View the full evidence"));
   });
 });
 

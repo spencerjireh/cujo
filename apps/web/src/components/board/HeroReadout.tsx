@@ -110,16 +110,13 @@ export function HeroStats({
           fifth of five. Three columns and not five, because a five-column
           measure here breaks a label across two lines and the row stops
           sharing a baseline. */}
+      {/* Ordered by what a reader came to learn. What the checks found comes
+          first, with critical called out in its own colour because it is the
+          one number here that means somebody has to look; then what is
+          running now; and only then the size of the record, which is context
+          and not a reading. The counts used to lead, and a page with four
+          criticals on it opened with "1 repository". */}
       <dl className="grid grid-cols-2 gap-x-8 gap-y-5 font-mono text-xs text-[var(--chamber-fg-muted)] sm:grid-cols-3">
-        <Stat label={plural(metrics.total, "run", "runs")} value={String(metrics.total)} />
-        <Stat
-          label={plural(metrics.repos, "repository", "repositories")}
-          value={String(metrics.repos)}
-        />
-        <Stat label="live now" value={String(metrics.live)} />
-        {/* What the checks found, not how many runs went badly — the verdict
-            count says that. Critical is called out in its own colour because it
-            is the one number on this line that means somebody has to look. */}
         <Stat
           label="findings"
           value={metrics.findings.total}
@@ -131,9 +128,15 @@ export function HeroStats({
             ) : null
           }
         />
+        <Stat label="live now" value={String(metrics.live)} />
         {metrics.newestAt ? (
           <Stat label="last run" value={<RelativeTime iso={metrics.newestAt} />} />
         ) : null}
+        <Stat label={plural(metrics.total, "run", "runs")} value={String(metrics.total)} />
+        <Stat
+          label={plural(metrics.repos, "repository", "repositories")}
+          value={String(metrics.repos)}
+        />
       </dl>
       {/* One sentence, which is all a reader needs to decode the drawing; the
           key below the record carries the rest (decision 83). */}

@@ -342,7 +342,7 @@ describe("buildRunCard", () => {
 
     it("carries no URL in the footer at all, whatever the login", () => {
       // The login-derived profile link retired with the footer placement
-      // (decision 88): footer text renders no markdown, so the card's live
+      // (decision 98): footer text renders no markdown, so the card's live
       // links stay the run's own and the pull request's.
       for (const login of ["octocat", "a b", "-lead", "x".repeat(40), "o/r", "https://evil"]) {
         const footer = embedOf({ prAuthorLogin: login })?.footer;
