@@ -13,16 +13,20 @@
  */
 
 import type { CheckName, DigestCheck, RunStatus, RunSummary, Severity } from "@/lib/api/types";
+import { duration } from "@/lib/format";
 
 /**
- * Four tones, not eight. Several statuses are the same claim about the pull
- * request — `blocked_unattended` and `blocked_posted` differ in who decided,
- * which the *label* says and the colour does not have to.
+ * Six tones, not eight statuses. Several statuses are the same claim about the
+ * pull request — `blocked_unattended` and `blocked_posted` differ in who
+ * decided, which the *label* says and the colour does not have to. `live` is
+ * green and is the one tone that is not a verdict: it says the thing is still
+ * executing, and it was inert grey until decision 94, when a running run on a
+ * board full of verdicts was the one star nobody could find.
  */
-export type Tone = "critical" | "amber" | "info" | "inert" | "bone";
+export type Tone = "critical" | "amber" | "info" | "inert" | "bone" | "live";
 
 const STATUS_TONE: Record<RunStatus, Tone> = {
-  running: "inert",
+  running: "live",
   clean: "info",
   blocked_pending: "amber",
   blocked_unattended: "critical",
@@ -44,6 +48,7 @@ export const TONE_TEXT: Record<Tone, string> = {
   info: "text-sev-info",
   inert: "text-fg-muted",
   bone: "text-fg",
+  live: "text-sev-live",
 };
 
 export const TONE_BG: Record<Tone, string> = {
@@ -52,6 +57,7 @@ export const TONE_BG: Record<Tone, string> = {
   info: "bg-sev-info-bg",
   inert: "bg-sev-low-bg",
   bone: "bg-bg-raised",
+  live: "bg-sev-live-bg",
 };
 
 /** A solid fill in the tone itself, for a bar rather than a badge. */
@@ -61,6 +67,7 @@ export const TONE_FILL: Record<Tone, string> = {
   info: "bg-sev-info",
   inert: "bg-fg-muted",
   bone: "bg-fg",
+  live: "bg-sev-live",
 };
 
 /**
@@ -91,6 +98,22 @@ export const TONE_CHAMBER_VAR: Record<Tone, string> = {
   // has its own token because it is a different job.
   inert: "--chamber-inert",
   bone: "--chamber-fg-muted",
+  live: "--chamber-live",
+};
+
+/**
+ * The same tones on the page's own ground, for the one specimen drawn outside
+ * the chamber: the run page's, which sits on `--bg` and follows the reader's
+ * theme (decision 95). Bone is the page's foreground, not the chamber's muted
+ * one, because on a light page muted bone is a ring nobody can see.
+ */
+export const TONE_PAGE_VAR: Record<Tone, string> = {
+  critical: "--sev-critical",
+  amber: "--sev-high",
+  info: "--sev-info",
+  inert: "--sev-low",
+  bone: "--fg",
+  live: "--sev-live",
 };
 
 export const STATUS_LABELS: Record<RunStatus, string> = {
@@ -141,15 +164,14 @@ export function checkOutcome(check: DigestCheck | undefined): CheckOutcome {
  * calm review is nearly colourless, and the eye goes straight to the one arm
  * that is not.
  *
- * A check still running is inert, not blue. Blue is a verdict in the chamber —
- * a clean run's core and an errored run's core — and giving it a second
- * meaning on an arm would make one hue say two things in a single drawing.
- * Inert is what "no measurement yet" already means, and the arm is not relying
- * on hue to say it: a running check is drawn at the shorter unmeasured length,
- * and its whole specimen breathes while the run is live.
- *
- * This map feeds the chamber alone. The record's sensor strip keeps its own
- * classes: it draws no cores, so blue is free there and carries the pulse.
+ * A check still running is live green, and so is a running run's core. It
+ * was inert: blue is a verdict in the chamber and could not be spent on an
+ * arm, and grey was what "no measurement yet" already meant. Grey was also
+ * invisible — the one star on the board that was doing something was the one
+ * a reader could not find — so decision 94 gave running its own hue, one that
+ * is not on the severity ramp and so cannot be read as a verdict. The record's
+ * sensor strip and the rack's segment use the same token, so the four
+ * drawings of a running check agree.
  *
  * `absent` never reaches a renderer — an arm of length zero is not drawn, in
  * the scene or in the flat elevation — so its tone is what a gap would be
@@ -158,13 +180,46 @@ export function checkOutcome(check: DigestCheck | undefined): CheckOutcome {
 export const OUTCOME_TONE: Record<CheckOutcome, Tone> = {
   done: "bone",
   error: "critical",
-  running: "inert",
+  running: "live",
   absent: "inert",
 };
 
 /** The digest's checks, or an empty map for a run that never folded one. */
 export function checksOf(run: RunSummary): Partial<Record<CheckName, DigestCheck>> {
   return run.digest?.checks ?? {};
+}
+
+/** What one segment of a sensor strip, or one ring, says when spoken. */
+export const OUTCOME_SPOKEN: Record<CheckOutcome, string> = {
+  done: "reported",
+  error: "errored",
+  running: "running",
+  absent: "did not run",
+};
+
+/**
+ * One check, in words: how it ended, how long it took, and how much of that
+ * was the sandbox executing the pull request. The same sentence the chamber's
+ * callout, the record's tooltip and the record's expanded row all speak, so
+ * the three cannot describe one ring three ways. Pure, and given the check
+ * rather than the run, so the callout can call it from a specimen's bar.
+ */
+export function checkSentence(
+  name: string,
+  check:
+    | { status: CheckOutcome | DigestCheck["status"]; ms: number | null; sandboxMs: number | null }
+    | undefined,
+): string {
+  const outcome = check ? check.status : "absent";
+  const parts = [OUTCOME_SPOKEN[outcome]];
+  if (check?.ms != null) {
+    const took = duration(new Date(0).toISOString(), new Date(check.ms).toISOString());
+    if (took) parts.push(took);
+    if (check.sandboxMs != null && check.ms > 0) {
+      parts.push(`${Math.round((check.sandboxMs / check.ms) * 100)}% in the sandbox`);
+    }
+  }
+  return `${name}: ${parts.join(", ")}`;
 }
 
 /**

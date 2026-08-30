@@ -1,4 +1,4 @@
-import { approach, clamp, clamp01, easeInOutSine, easeOutCubic } from "@/lib/board/ease";
+import { approach, beat, clamp, clamp01, easeInOutSine, easeOutCubic } from "@/lib/board/ease";
 import { describe, expect, it } from "vitest";
 
 describe("clamp", () => {
@@ -37,6 +37,41 @@ describe("easing curves", () => {
 
   it("leaves fast and settles, which is what an arrival wants", () => {
     expect(easeOutCubic(0.5)).toBeGreaterThan(0.5);
+  });
+});
+
+describe("beat", () => {
+  it("rests at both ends and outside the interval", () => {
+    expect(beat(0)).toBe(0);
+    expect(beat(1)).toBe(0);
+    expect(beat(-0.5)).toBe(0);
+    expect(beat(1.5)).toBe(0);
+  });
+
+  it("peaks at a third of the way, which is what makes it a beat", () => {
+    expect(beat(1 / 3)).toBeCloseTo(1, 6);
+  });
+
+  it("rises, then settles, and never turns back", () => {
+    let previous = 0;
+    for (let t = 0.01; t <= 1 / 3 + 1e-9; t += 0.01) {
+      const value = beat(t);
+      expect(value).toBeGreaterThanOrEqual(previous);
+      previous = value;
+    }
+    previous = beat(1 / 3);
+    for (let t = 1 / 3; t <= 1; t += 0.01) {
+      const value = beat(t);
+      expect(value).toBeLessThanOrEqual(previous + 1e-9);
+      previous = value;
+    }
+  });
+
+  it("stays within 0 and 1", () => {
+    for (let t = -0.2; t <= 1.2; t += 0.005) {
+      expect(beat(t)).toBeGreaterThanOrEqual(0);
+      expect(beat(t)).toBeLessThanOrEqual(1);
+    }
   });
 });
 

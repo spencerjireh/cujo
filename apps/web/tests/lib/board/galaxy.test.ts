@@ -1,7 +1,8 @@
-import { LAYER_COUNT, RECORD_X, RING_MAX, layerZ } from "@/lib/board/chamber-layout";
+import { LAYER_COUNT, LAYER_SPACING, RECORD_X, RING_MAX, layerZ } from "@/lib/board/chamber-layout";
 import {
   BAND_FLATTEN,
   CAPACITY,
+  DEPTH_JITTER,
   LAYER_CAPACITY,
   bandOf,
   layerOf,
@@ -70,11 +71,50 @@ describe("placeIn", () => {
     expect(seen.size).toBeGreaterThan(IDS.length * 0.9);
   });
 
-  it("sits every run at its layer's depth and nowhere else", () => {
+  /**
+   * Depth to the layer is the measurement; where inside the layer's thickness
+   * a run sits is decoration, like its place round the band. The jitter is
+   * bounded so the first claim survives the second.
+   */
+  it("sits every run within its layer's thickness", () => {
     for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
       for (const id of IDS.slice(0, 50)) {
-        expect(placeIn(layer, 0, id).z).toBe(layerZ(layer));
+        expect(Math.abs(placeIn(layer, 0, id).z - layerZ(layer))).toBeLessThanOrEqual(DEPTH_JITTER);
       }
+    }
+  });
+
+  it("never puts a run in the front layer ahead of the front", () => {
+    for (const id of IDS) {
+      expect(placeIn(0, 0, id).z).toBeLessThanOrEqual(layerZ(0));
+    }
+  });
+
+  it("keeps the layers apart, so depth still counts to three", () => {
+    expect(DEPTH_JITTER * 2).toBeLessThan(LAYER_SPACING);
+    const range = Array.from({ length: LAYER_COUNT }, () => ({
+      near: Number.NEGATIVE_INFINITY,
+      far: Number.POSITIVE_INFINITY,
+    }));
+    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
+      const capacity = LAYER_CAPACITY[layer] ?? 0;
+      const span = range[layer];
+      if (!span) throw new Error("unreachable");
+      for (let slot = 0; slot < capacity; slot += 1) {
+        for (const id of IDS) {
+          const z = placeIn(layer, slot, id).z;
+          span.near = Math.max(span.near, z);
+          span.far = Math.min(span.far, z);
+        }
+      }
+    }
+    // Nearer layers have the larger z. The far edge of one must stay in front
+    // of the near edge of the next.
+    for (let layer = 1; layer < LAYER_COUNT; layer += 1) {
+      const front = range[layer - 1];
+      const behind = range[layer];
+      if (!front || !behind) throw new Error("unreachable");
+      expect(front.far).toBeGreaterThan(behind.near);
     }
   });
 

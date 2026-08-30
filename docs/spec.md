@@ -847,8 +847,9 @@ a request header back, and that is how one reaches a log line.
 Both also take an optional `run_id`, which the agent copies verbatim from the
 turn payload and never writes into the body itself. `github-mcp` validates it
 as a UUID, builds the link from its own `CUJO_PUBLIC_BASE_URL`, and appends the
-footer — a rule, then `Full evidence: <url>` — after the composed body, so the
-link is always last, always the same shape, and always on Cujo's own host
+footer — a rule, then a bold link reading *View the full evidence* whose target
+is that URL — after the composed body, so the link is always last, always the
+same shape, and always on Cujo's own host
 (decision 36). The agent supplies neither the format nor the destination. The
 same URL is built once and appears twice, in the footer and as `run_url` inside
 the machine-readable block, so the visible link and the parseable one cannot
@@ -867,8 +868,8 @@ the sentence naming them is composed here rather than quoted for the agent to
 reproduce. Only `post_advisory_review` and `post_blocking_review` take
 `accusation_follows`; `post_gated_review` has no such parameter, so the prompt
 cannot reach the accusation — where it would ask for the very approval that let
-that call run (decision 60). It sits directly above `Full evidence: <url>`,
-which stays last.
+that call run (decision 60). It sits directly above the evidence link, which
+stays last.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.
