@@ -23,7 +23,7 @@ import {
   reviewMarker,
   runUrl,
 } from "./body";
-import { validateAnchors } from "./diff";
+import { appendMovedComments, validateAnchors } from "./diff";
 import type { ExistingReview, GitHubClient } from "./github";
 
 export const reviewInputShape = {
@@ -333,7 +333,14 @@ export async function postReview(
       // composed inside it would vanish with it.
       body: appendReviewMarker(
         appendRunFooter(
-          appendConfirmPrompt(composed, accusationFollows),
+          appendConfirmPrompt(
+            // A legacy comment's text lives nowhere but the comment, so one
+            // whose anchor GitHub refused would vanish from the review
+            // altogether. A derived one is already in the composed body and
+            // marked there, which is why this runs on the legacy path only.
+            legacy.length > 0 ? appendMovedComments(composed, moved) : composed,
+            accusationFollows,
+          ),
           publicBaseUrl,
           input.run_id,
         ),

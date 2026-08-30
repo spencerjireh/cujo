@@ -219,6 +219,31 @@ describe("a call from a session pinned to the old rubric", () => {
     ]);
   });
 
+  it("keeps a rejected comment in the body rather than dropping it", async () => {
+    // A derived comment that loses its anchor is still printed in the composed
+    // body, marked in place. A legacy one is not — its text exists nowhere
+    // else — so refusing its anchor would delete it from the review.
+    const { log } = capture();
+    const { github, posted } = poster();
+    await postReview(
+      github,
+      "COMMENT",
+      "post_advisory_review",
+      {
+        ...input,
+        comments: [
+          { path: "a.py", line: 2, body: "on a line that exists" },
+          { path: "a.py", line: 404, body: "on a line that does not" },
+        ],
+      },
+      "",
+      log,
+    );
+    expect(posted().comments).toHaveLength(1);
+    expect(posted().body).toContain("### Findings without a diff anchor");
+    expect(posted().body).toContain("`a.py:404` (RIGHT): on a line that does not");
+  });
+
   it("still gets a composed body, with its prose kept below the findings", async () => {
     const { log } = capture();
     const { github, posted } = poster();

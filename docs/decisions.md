@@ -3839,6 +3839,15 @@ pure formatter is not the trusted side depending on the write-only server
 (decision 5) — neither imports the other, and both depend on one definition of
 what a review looks like.
 
+Both callers hand the renderer values a model wrote, and only one of them has a
+schema in front: `apps/github-mcp` parses with Zod, while `apps/cujo` reads the
+raw `model.message` tool call so it can project a run the server never saw.
+Nothing in the renderer may therefore throw on a shape — a `coverage: {}` from a
+confused model would otherwise throw inside `fold`, which is pure and replayed
+on every rehydration, and that run could never be projected again. A section
+built from a value that is not the shape it claims is omitted rather than
+guessed at, which is the same rule the check reports are read by.
+
 Known limit: the board's reproduction differs from the posted copy in two ways,
 both of them things this side cannot know. The machine block's `run_url` is
 null, because the board *is* that page; and no finding is marked

@@ -166,6 +166,11 @@ export function parseReport(text: string): unknown | null {
 const CALL_TOOL = "call_tool";
 const REVIEW_MCP_SERVER = "github-mcp";
 
+/** A plain object, which is what a `coverage` value has to be to render. */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -208,11 +213,20 @@ export function parseReview(
   // arguments off the `model.message` event, before `github-mcp`'s schema sees
   // them — and `github-mcp` prefers them too, so the board matches what posted.
   const sent = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];
-  const input = {
+  // Cast, but only after checking the shape. These are raw values off a
+  // `model.message` tool call — `apps/cujo` reads them before `github-mcp`'s
+  // Zod schema ever sees the call, so nothing has validated them, and a `cast`
+  // asserts a type at compile time while proving nothing at run time. The
+  // renderer is defensive about this too; belt and braces, because a throw here
+  // is inside `fold`, which is replayed on every rehydration, so one malformed
+  // review would be a run that can never be projected again.
+  const input: RenderInput = {
     body,
-    findings: (findings as RenderInput["findings"]) ?? [],
-    coverage: args.coverage as RenderInput["coverage"],
-    egress: args.egress as RenderInput["egress"],
+    findings: findings as RenderInput["findings"],
+    coverage: isObject(args.coverage)
+      ? (args.coverage as unknown as RenderInput["coverage"])
+      : undefined,
+    egress: Array.isArray(args.egress) ? (args.egress as RenderInput["egress"]) : undefined,
   };
   const reviewTool = tool as DraftedReview["tool"];
   return {

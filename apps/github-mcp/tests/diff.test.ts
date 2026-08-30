@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDiffLines, validateAnchors } from "../src/diff";
+import { appendMovedComments, parseDiffLines, validateAnchors } from "../src/diff";
 
 const PATCH = [
   "@@ -10,4 +10,5 @@ def total(order):",
@@ -69,5 +69,27 @@ describe("validateAnchors", () => {
     expect(inline).toEqual([]);
     // The rendered section is unchanged; only the shape carrying it grew.
     expect(moved.map((m) => m.comment)).toEqual(comments);
+  });
+});
+
+describe("appendMovedComments", () => {
+  // Kept for the deprecated `comments[]` path only (decision 74): a legacy
+  // comment's text lives nowhere but the comment, so a refused anchor would
+  // drop it from the review entirely.
+  it("leaves the body alone when nothing moved", () => {
+    expect(appendMovedComments("Summary\n", [])).toBe("Summary\n");
+  });
+
+  it("adds a section listing each moved finding", () => {
+    const body = appendMovedComments("Summary", [
+      { comment: { path: "a.py", line: 3, body: "thing" }, reason: "file_not_in_diff" },
+      {
+        comment: { path: "b.py", line: 8, side: "LEFT", body: "other" },
+        reason: "line_not_in_hunk",
+      },
+    ]);
+    expect(body).toBe(
+      "Summary\n\n### Findings without a diff anchor\n\n- `a.py:3` (RIGHT): thing\n- `b.py:8` (LEFT): other\n",
+    );
   });
 });

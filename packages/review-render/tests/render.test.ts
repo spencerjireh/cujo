@@ -382,6 +382,50 @@ describe("findings that cannot be rendered", () => {
   });
 });
 
+describe("input a model got wrong", () => {
+  /**
+   * Nothing here may throw on a shape. `apps/github-mcp` parses with Zod, but
+   * `apps/cujo` calls this with the raw `model.message` tool call so it can
+   * project a run — inside `fold`, which is pure and replayed on every
+   * rehydration. A throw there is a run that can never be projected again.
+   */
+  const bad = (over: Record<string, unknown>) =>
+    renderReviewBody({ body: "A verdict.", findings: [], ...over } as RenderInput, options());
+
+  it("survives a coverage object with no arrays in it", () => {
+    expect(() => bad({ coverage: {} })).not.toThrow();
+    expect(bad({ coverage: {} })).toContain("Ran: nothing.");
+  });
+
+  it("survives coverage and egress of the wrong type entirely", () => {
+    for (const over of [
+      { coverage: "tests ran" },
+      { coverage: [] },
+      { egress: {} },
+      { egress: "pypi.org" },
+      { findings: {} },
+      { findings: "one critical" },
+      { body: 42 },
+    ]) {
+      expect(() => bad(over)).not.toThrow();
+    }
+  });
+
+  it("omits a section built from a value that is not the shape it claims", () => {
+    // Rendering one anyway would be a claim nobody made.
+    expect(bad({ coverage: "tests ran" })).not.toContain("### Coverage");
+    expect(bad({ egress: {} })).not.toContain("Egress:");
+  });
+
+  it("skips a finding that is not an object without losing the rest", () => {
+    const body = bad({
+      findings: [null, "a string", { severity: "warn", title: "kept", check: "probes" }],
+    });
+    expect(body).toContain("kept");
+    expect(body).toContain("0 critical, 1 warn");
+  });
+});
+
 describe("the golden bodies", () => {
   it("renders a clean advisory", () => {
     expect(

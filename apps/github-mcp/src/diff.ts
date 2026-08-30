@@ -140,3 +140,22 @@ export function validateAnchors(files: PullFile[], comments: ReviewComment[]): A
   }
   return { inline, moved };
 }
+
+/**
+ * Append the legacy comments that lost their anchor to the review body.
+ *
+ * Retired for findings-derived comments (decision 74) — a finding whose anchor
+ * GitHub refused is already printed in the composed body and marked there, so
+ * exiling it to a section of its own would print it twice. It survives for the
+ * deprecated `comments[]` path, where the same is not true: a legacy comment's
+ * text lives nowhere but the comment, so a rejected anchor drops it from the
+ * review entirely. That is a regression this function exists to prevent, and
+ * it goes when `comments[]` does.
+ */
+export function appendMovedComments(body: string, moved: MovedComment[]): string {
+  if (moved.length === 0) return body;
+  const lines = moved.map(
+    ({ comment: c }) => `- \`${c.path}:${c.line}\` (${c.side ?? "RIGHT"}): ${c.body.trim()}`,
+  );
+  return `${body.trimEnd()}\n\n### Findings without a diff anchor\n\n${lines.join("\n")}\n`;
+}

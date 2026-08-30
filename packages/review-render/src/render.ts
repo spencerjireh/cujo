@@ -151,6 +151,21 @@ function isSeverity(value: unknown): value is Severity {
 }
 
 /**
+ * An array, or an empty one.
+ *
+ * Every value reaching this file was written by a model, and only one of the
+ * two callers has a schema in front of it: `apps/github-mcp` parses with Zod,
+ * while `apps/cujo` reads the raw `model.message` tool call so it can project a
+ * run the server never saw. A `coverage: {}` from a confused model would throw
+ * on `.map` there — inside `fold`, which is pure and replayed on every
+ * rehydration, so the run could never be projected again. Nothing here may
+ * throw on a shape; a malformed section renders as absent instead.
+ */
+function list<T>(value: readonly T[] | undefined): readonly T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/**
  * Normalize the findings once, for both the body and the inline comments.
  *
  * One normalizer and not two, because the alternative is an inline comment and
@@ -164,7 +179,7 @@ function prepareFindings(
   const prepared: Prepared[] = [];
   const seen = new Set<string>();
 
-  for (const finding of findings) {
+  for (const finding of list(findings)) {
     if (typeof finding?.title !== "string" || finding.title.trim() === "") continue;
     if (!isSeverity(finding.severity)) continue;
 
@@ -241,7 +256,7 @@ export interface Counts {
 
 export function severityCounts(findings: readonly RenderFinding[]): Counts {
   const counts: Counts = { critical: 0, warn: 0, info: 0, held: 0 };
-  for (const finding of findings) {
+  for (const finding of list(findings)) {
     if (isSeverity(finding.severity)) counts[finding.severity] += 1;
     if (finding.held === true) counts.held += 1;
   }
@@ -320,6 +335,7 @@ function plural(count: number, one: string, many: string): string {
  */
 function isLegacyBody(input: RenderInput, prepared: readonly Prepared[]): boolean {
   if (input.coverage || input.egress) return false;
+  if (typeof input.body !== "string") return false;
   if (prepared.some((f) => f.detail || f.next || f.held)) return false;
   return input.body.trim().includes("\n");
 }
@@ -356,11 +372,11 @@ function findingBlock(finding: Prepared, unanchored: ReadonlySet<string>): strin
 }
 
 function coverageSection(coverage: Coverage): string {
-  const ran = coverage.ran.map((entry) => {
+  const ran = list(coverage.ran).map((entry) => {
     const note = entry.note ? ` (${safeText(entry.note)})` : "";
     return `${safeText(entry.check)}${note}`;
   });
-  const skipped = coverage.skipped.map(
+  const skipped = list(coverage.skipped).map(
     (entry) => `${safeText(entry.check)} — ${safeText(entry.reason)}`,
   );
   const lines = [`Ran: ${ran.length > 0 ? `${ran.join(", ")}.` : "nothing."}`];
@@ -370,7 +386,8 @@ function coverageSection(coverage: Coverage): string {
   return `### Coverage\n\n${lines.join("\n")}`;
 }
 
-function egressSection(hosts: readonly EgressHost[]): string {
+function egressSection(input: readonly EgressHost[]): string {
+  const hosts = list(input).filter((host) => host && typeof host.host === "string");
   if (hosts.length === 0) return "Egress: no host was contacted.";
 
   const unknown = hosts.filter((host) => !host.known);
@@ -415,7 +432,8 @@ function egressSection(hosts: readonly EgressHost[]): string {
  * have the folds above.
  */
 function machineBlock(
-  input: RenderInput,
+  coverage: Coverage | undefined,
+  egress: readonly EgressHost[] | undefined,
   options: RenderOptions,
   prepared: readonly Prepared[],
   counts: Counts,
@@ -426,8 +444,8 @@ function machineBlock(
     verdict: verdictOf(options.tool),
     tool: options.tool,
     counts,
-    coverage: input.coverage ?? null,
-    egress: input.egress ?? null,
+    coverage: coverage ?? null,
+    egress: egress ?? null,
     findings: prepared.map((finding) => ({
       check: finding.check,
       severity: finding.severity,
@@ -473,7 +491,7 @@ export function renderReviewBody(input: RenderInput, options: RenderOptions): st
 
   const blocks: string[] = [headline];
 
-  const lede = safeText(input.body);
+  const lede = typeof input.body === "string" ? safeText(input.body) : "";
   if (lede && !legacy) blocks.push(lede);
 
   const critical = prepared.filter((f) => f.severity === "critical");
@@ -506,15 +524,22 @@ export function renderReviewBody(input: RenderInput, options: RenderOptions): st
     );
   }
 
-  if (input.coverage) blocks.push(coverageSection(input.coverage));
-  if (input.egress) blocks.push(egressSection(input.egress));
+  // Rendered only when the value is the shape it claims: a section built from
+  // a malformed one would be a claim nobody made.
+  const coverage =
+    input.coverage && typeof input.coverage === "object" && !Array.isArray(input.coverage)
+      ? input.coverage
+      : undefined;
+  const egress = Array.isArray(input.egress) ? input.egress : undefined;
+  if (coverage) blocks.push(coverageSection(coverage));
+  if (egress) blocks.push(egressSection(egress));
 
   // Visible, and deliberately not a fold. For a session still pinned to the old
   // rubric this prose is the entire substance of the review, and collapsing it
   // would hide the only thing the run produced.
   if (lede && legacy) blocks.push(`### Notes\n\n${demoteHeadings(lede)}`);
 
-  blocks.push(machineBlock(input, options, prepared, counts, unanchored));
+  blocks.push(machineBlock(coverage, egress, options, prepared, counts, unanchored));
 
   return blocks.join("\n\n");
 }
