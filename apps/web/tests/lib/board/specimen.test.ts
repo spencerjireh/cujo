@@ -1,5 +1,5 @@
 import type { RunDigest, RunStatus, RunSummary } from "@/lib/api/types";
-import { armScale, specimensFrom } from "@/lib/board/specimen";
+import { armScale, specimenSignature, specimensFrom } from "@/lib/board/specimen";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -27,6 +27,11 @@ function row(over: Partial<RunSummary> & { id: string; status: RunStatus }): Run
 
 function digest(checks: RunDigest["checks"]): RunDigest {
   return { checks, findings: { critical: 0, warn: 0, info: 0 }, durationMs: null };
+}
+
+/** One entry in a digest's `checks`, which is a status and how long it ran. */
+function mark(status: "done" | "error" | "running", ms: number | null) {
+  return { status, ms };
 }
 
 describe("armScale", () => {
@@ -209,5 +214,78 @@ describe("specimensFrom findings", () => {
     expect(spec?.findingTotal).toBe(0);
     expect(spec?.worst).toBeNull();
     expect(spec?.unmeasured).toBe(true);
+  });
+});
+
+/**
+ * What the chamber compares to decide whether a poll changed a drawing.
+ *
+ * The list is refetched every five seconds and comes back equal almost every
+ * time, so "changed" has to mean *would be drawn differently* rather than "is a
+ * new object" — otherwise every poll rebuilds twenty-four nodes to redraw the
+ * same picture.
+ */
+describe("specimenSignature", () => {
+  const one = (over: Partial<RunSummary> & { id: string; status: RunStatus }) => {
+    const [spec] = specimensFrom([row(over)], 10);
+    if (!spec) throw new Error("no specimen");
+    return spec;
+  };
+
+  it("is the same for two runs that would be drawn identically", () => {
+    const a = one({ id: "a", status: "clean", digest: digest({ tests: mark("done", 1_000) }) });
+    const b = one({ id: "b", status: "clean", digest: digest({ tests: mark("done", 1_000) }) });
+    expect(specimenSignature(a)).toBe(specimenSignature(b));
+  });
+
+  it("changes when a check ends differently", () => {
+    const running = one({
+      id: "a",
+      status: "running",
+      digest: digest({ tests: mark("running", null) }),
+    });
+    const errored = one({
+      id: "a",
+      status: "clean",
+      digest: digest({ tests: mark("error", 900) }),
+    });
+    expect(specimenSignature(running)).not.toBe(specimenSignature(errored));
+  });
+
+  it("changes when the verdict changes", () => {
+    const pending = one({ id: "a", status: "blocked_pending" });
+    const posted = one({ id: "a", status: "blocked_posted" });
+    expect(specimenSignature(pending)).not.toBe(specimenSignature(posted));
+  });
+
+  it("changes when the findings do", () => {
+    const clean = one({
+      id: "a",
+      status: "clean",
+      digest: { checks: {}, findings: { critical: 0, warn: 0, info: 0 }, durationMs: null },
+    });
+    const found = one({
+      id: "a",
+      status: "clean",
+      digest: { checks: {}, findings: { critical: 1, warn: 0, info: 0 }, durationMs: null },
+    });
+    expect(specimenSignature(clean)).not.toBe(specimenSignature(found));
+  });
+
+  /**
+   * The one exclusion, and the reason the record can slide: a run that only
+   * moved a slot back is the same specimen and must not be rebuilt.
+   */
+  it("does not change when a run only moves down the record", () => {
+    const [first, second] = specimensFrom(
+      [
+        row({ id: "new", status: "clean", digest: digest({ tests: mark("done", 1_000) }) }),
+        row({ id: "a", status: "clean", digest: digest({ tests: mark("done", 1_000) }) }),
+      ],
+      10,
+    );
+    if (!first || !second) throw new Error("no specimens");
+    expect(first.index).not.toBe(second.index);
+    expect(specimenSignature(first)).toBe(specimenSignature(second));
   });
 });

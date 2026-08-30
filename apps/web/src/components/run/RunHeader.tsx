@@ -5,6 +5,7 @@ import { setupWindow } from "@/lib/board/setup";
 import { avatarUrl, duration, prUrl, profileUrl, shortSha } from "@/lib/format";
 import Image from "next/image";
 import Link from "next/link";
+import { RunSpecimen } from "./RunSpecimen";
 
 const AVATAR = 20;
 
@@ -72,26 +73,35 @@ export function RunHeader({ run }: { run: Run }) {
       <Link href="/" className="font-mono text-xs text-fg-muted no-underline hover:text-accent">
         ← all runs
       </Link>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-        {/* The pull request's own title when there is one, and `repo #N` when
-            there is not — the shape every run had before titles were stored. */}
-        <h1 className="wrap-anywhere text-2xl">
-          <a
-            href={prUrl(run.repo, run.pr_number)}
-            target="_blank"
-            rel="noreferrer"
-            className="text-fg underline decoration-line underline-offset-4 hover:decoration-accent"
-          >
-            {run.pr_title ?? `${run.repo} #${run.pr_number}`}
-          </a>
-        </h1>
-        <StatusBadge status={run.status} />
+      {/* The shape beside the name. A reader who followed a specimen from the
+          chamber arrives holding an object, and until now the run page took it
+          away — the same run, described in words, with nothing to recognise. */}
+      <div className="mt-2 flex items-start gap-4">
+        <RunSpecimen run={run} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {/* The pull request's own title when there is one, and `repo #N`
+                when there is not — the shape every run had before titles were
+                stored. */}
+            <h1 className="wrap-anywhere text-2xl">
+              <a
+                href={prUrl(run.repo, run.pr_number)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-fg underline decoration-line underline-offset-4 hover:decoration-accent"
+              >
+                {run.pr_title ?? `${run.repo} #${run.pr_number}`}
+              </a>
+            </h1>
+            <StatusBadge status={run.status} />
+          </div>
+          {run.pr_title ? (
+            <p className="mt-1 font-mono text-xs text-fg-muted">
+              {run.repo} #{run.pr_number}
+            </p>
+          ) : null}
+        </div>
       </div>
-      {run.pr_title ? (
-        <p className="mt-1 font-mono text-xs text-fg-muted">
-          {run.repo} #{run.pr_number}
-        </p>
-      ) : null}
       <p className="mt-2 font-mono text-xs text-fg-muted">
         <Author run={run} />
         {shortSha(run.head_sha)} · started <RelativeTime iso={run.created_at} />

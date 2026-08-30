@@ -23,8 +23,16 @@ import type { ChamberHandle } from "./chamber/scene";
  * a renderer it would spend a frame budget on.
  */
 
-/** Below this width the scene is a smear; the flat elevation says more. */
-const MIN_WIDTH = 640;
+/**
+ * Below this width the scene is a smear; the flat elevation says more.
+ *
+ * 768 rather than 640, and the change is a correction: this constant and the
+ * CSS gate that hides the component have to agree, and they did not. The gate
+ * was `lg` (1024) while this said 640, so between those widths the component
+ * was hidden and the renderer would have started anyway had it ever been
+ * shown. The gate is now `md`, and `md` is 768.
+ */
+const MIN_WIDTH = 768;
 /** How many runs the chamber draws. The record below still lists them all. */
 const CAPACITY = 24;
 /** Kept clear of the frame edge, so the callout never hangs off the volume. */
