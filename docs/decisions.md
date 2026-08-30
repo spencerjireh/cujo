@@ -92,6 +92,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 84. [A lane says how bad, not what happened; the sentence is where the sentence fits](#84-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
 85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 86. [The alert gets its own card, and the opener takes the author line](#86-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line)
+87. [The evidence footer is a link, not a URL](#87-the-evidence-footer-is-a-link-not-a-url)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -4904,3 +4905,34 @@ by 55 and still: a large image on every card, squeezing the fields on a narrow
 client. **Keeping both the author line and the field**, which names one person
 twice. **Deduping criticals in the fold**, which changes what the review
 records rather than what the card shows.
+
+## 87. The evidence footer is a link, not a URL
+
+Decision 36 gave every public review a footer and settled who composes it. It
+left the shape at the shape a first draft has: a rule, then
+`Full evidence: <url>`, where the URL is a 36-character UUID sitting on a line
+of its own. GitHub autolinks it, so it worked — it just did not read as an
+invitation. The run page is the only thing the review asks anybody to open,
+and that line was the least legible one in the body.
+
+It is now a labelled markdown link: `**[View the full evidence →](<url>)**`.
+Same rule above it, same position last, same URL, with the UUID behind the
+words rather than in front of them.
+
+Nothing in decision 36's argument moves. `body.ts` composes the footer, the
+label is a literal in this repository, and the target is still
+`<CUJO_PUBLIC_BASE_URL>/runs/<uuid>` — a base this process was configured
+with and an id validated as a UUID. The agent supplies neither the format nor
+the destination, so a pull request that talks the model into relaying
+something else still chooses neither the link text nor the host. Both gating
+conditions stand: no `run_id`, which is a private repository, or no base URL
+means no footer at all. `runUrl` is untouched, so the visible link and
+`run_url` in the machine-readable block still come from one call (decision
+74), and the board is unaffected either way — `apps/cujo` folds with
+`runUrl: null` because the board *is* the run page.
+
+Rejected: **a `> [!NOTE]` callout**, which spends a boxed alert on one line and
+degrades to a blockquote anywhere that is not GitHub. **Keeping the raw URL
+beside the link**, which puts the 36 characters straight back. **Naming the
+run in the link text** (`run bc0362c7`), which trades the call to action for
+an identifier the reader has no use for with the page one click away.

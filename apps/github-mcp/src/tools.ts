@@ -140,7 +140,7 @@ export const reviewInputShape = {
       "Every host contacted, each marked known or unknown. The server writes the summary line and the host table.",
     ),
   // An id, not a URL. A URL from the agent would let whatever it just read in
-  // the pull request choose where "Full evidence" points, and `z.string().url()`
+  // the pull request choose where the evidence link points, and `z.string().url()`
   // additionally accepts embedded newlines — WHATWG parsing strips them, Zod
   // returns the original, and the footer would carry injected Markdown. A UUID
   // admits neither: this server owns the host and the shape.
