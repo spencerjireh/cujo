@@ -7,7 +7,7 @@ import {
   mergeFindings,
   missingCheckFindings,
 } from "./findings";
-import { checkTimings } from "./timings";
+import { checkTimings, emptySetup, settleSetup } from "./timings";
 import {
   CHECK_NAMES,
   type CheckName,
@@ -123,6 +123,7 @@ export function emptyProjection(): Projection {
     error: null,
     summary: null,
     usage: emptyUsage(),
+    setup: emptySetup(),
   };
 }
 
@@ -221,6 +222,9 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
     switch (event.type) {
       case "turn.created": {
         if (!p.turnIds.includes(event.turnId)) p.turnIds.push(event.turnId);
+        // The run's first turn, not its latest: an approval answered or a turn
+        // retried adds another, and the setup window belongs to the first.
+        p.setup.turnCreatedAt ??= event.createdAt;
         const approval = event.input?.find(
           (item): item is TrueForgeApi.UserToolApprovalEvent => item.type === "user.tool_approval",
         );
@@ -230,12 +234,21 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         }
         break;
       }
+      // Where Daytona finished provisioning. Session-scoped, and `hydrate`
+      // scopes a fold to this run's own turns, so a second run on the same pull
+      // request sees none and the field stays null — which is the honest
+      // record of a sandbox that already existed.
+      case "sandbox.created": {
+        p.setup.sandboxCreatedAt ??= event.createdAt;
+        break;
+      }
       case "model.message": {
         // Counted before the map is written, so the same event arriving twice
         // adds once. The runner dedupes by id and `hydrate` replaces by id, so
         // today's input is already unique — but a sum that depends on a
         // caller's invariant is a sum that silently doubles the day it changes.
-        if (!messages.has(event.id) && event.usage) {
+        const fresh = !messages.has(event.id);
+        if (fresh && event.usage) {
           const check = p.checks.find((c) => c.threadId === event.threadId);
           if (check) {
             check.usage ??= emptyUsage();
@@ -244,6 +257,11 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         }
         messages.set(event.id, event);
         if (event.threadId === "main") {
+          p.setup.agentStartedAt ??= event.createdAt;
+          // The round trips setup cost. Counted only until the first check
+          // exists, and only for an id not seen before — the same dedupe the
+          // usage sum above needs, for the same reason.
+          if (fresh && p.setup.firstCheckAt === null) p.setup.messages += 1;
           for (const call of event.toolCalls ?? []) {
             const review = parseReview(call);
             if (review) recordReview(p, review);
@@ -255,16 +273,24 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
       }
       case "thread.created": {
         if (p.checks.some((c) => c.threadId === event.threadId)) break;
+        const isCheck = (CHECK_NAMES as readonly string[]).includes(event.title as CheckName);
         p.checks.push({
           threadId: event.threadId,
           title: event.title,
-          isCheck: (CHECK_NAMES as readonly string[]).includes(event.title as CheckName),
+          isCheck,
           status: "running",
           report: null,
           error: null,
           startedAt: event.createdAt ?? null,
           endedAt: null,
         });
+        // Setup ends at the first thread the rubric named for a check, and not
+        // at any thread: a helper subagent spawned mid-setup would otherwise
+        // close the window early and report a setup that never happened.
+        if (isCheck && p.setup.firstCheckAt === null) {
+          p.setup.firstCheckAt = event.createdAt ?? null;
+          settleSetup(p.setup);
+        }
         break;
       }
       case "thread.done": {

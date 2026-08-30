@@ -70,6 +70,10 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   // What the run cost and where its time went. The per-check half rides inside
   // `checks`, so only the run total is named here.
   "usage",
+  // Where the run went before the first check existed. Four event timestamps
+  // and a count of the parent's own messages: it names no person, and every
+  // stamp in it is a time at which this public run did something.
+  "setup",
 ];
 
 /**
@@ -127,6 +131,7 @@ export const PUBLIC_RUN_FIELDS = [
   "model",
   "rubric_sha256",
   "usage",
+  "setup",
 ] as const;
 
 /**
@@ -238,6 +243,10 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     // zeros, because a run from before the field did not cost nothing — it has
     // no record, which is a different claim (decision 54).
     usage: projection.usage ?? null,
+    // Same `?? null`, same reason. Copied off the projection rather than
+    // derived here: `settleSetup` lives in `review/timings`, and this module
+    // may not import it (the import allowlist in serialize.test.ts).
+    setup: projection.setup ?? null,
   };
 }
 
