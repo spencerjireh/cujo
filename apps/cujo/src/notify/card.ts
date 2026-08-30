@@ -54,19 +54,12 @@ const CUJO_ICON_URL =
   "https://raw.githubusercontent.com/spencerjireh/cujo/main/brand/logo/avatar-64.png";
 
 /**
- * A GitHub login, and nothing else. Alphanumeric with interior hyphens, 39
- * characters at most — GitHub cannot issue a login outside this set, so the
- * check should never fire; it is here so rule 7 of Contract 7 is enforced by
- * code rather than assumed. A bot login (`dependabot[bot]`) fails it by
- * design: its profile is at `/apps/<name>`, a second URL shape nobody needs,
- * so a bot is named and not linked.
- */
-const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-
-/**
  * Built from the numeric account id, never from the login: an avatar is a URL
  * and a login is a string somebody else chose. `s=64` because the footer icon
- * renders around 20px and the extra pixels cost nothing.
+ * renders around 20px and the extra pixels cost nothing. Since decision 88 it
+ * is also the only URL a card builds out of the opener — the login-based
+ * profile link retired with the footer placement, because footer text renders
+ * no markdown and a link there would show as literal syntax.
  */
 function avatarUrl(authorId: number | null): string | undefined {
   return authorId === null ? undefined : `https://avatars.githubusercontent.com/u/${authorId}?s=64`;
@@ -126,6 +119,37 @@ export function truncate(input: string, max: number): string {
 /** The one way untrusted text enters a payload. */
 function clean(input: string, max: number): string {
   return truncate(escapeMarkdown(input), max);
+}
+
+/**
+ * The replace chain behind every payload string: invisible characters
+ * removed, addresses defanged, whitespace folded. No escaping — the callers
+ * that render markdown add it, and the ones that cannot must not.
+ */
+function stripOnly(input: string): string {
+  return input
+    .replace(STRIP, "")
+    .replace(/\r\n?|\n|\t/g, " ")
+    .replace(DEFANG_SCHEME, "$1[:]//")
+    .replace(DEFANG_HOST, "www[.]");
+}
+
+/**
+ * `escapeMarkdown` without the escape pass, for the slots that render no
+ * markdown at all: `footer.text`, like `author.name`, draws a backslash
+ * rather than defusing one, so `some_login` must not be escaped there.
+ */
+export function plainText(input: string, max: number): string {
+  return truncate(stripOnly(input), max);
+}
+
+/**
+ * Exactly `n` code points, after stripping: a run handle is a fixed-width
+ * fragment and must not pay `truncate`'s ellipsis the way a sentence does —
+ * `plainText(id, 8)` would render seven characters and a dot.
+ */
+function handle(input: string, n: number): string {
+  return [...stripOnly(input)].slice(0, n).join("");
 }
 
 /**
@@ -303,34 +327,32 @@ const AUTHOR: DiscordEmbed["author"] = {
 
 /**
  * The footer, bottom-left: the pull request's opener when the run records one,
- * then the run's own handles — `[@login](profile) · run <id> · <sha>`, with
- * the opener's avatar to the left of it all. Null login for a run recorded
- * before the author was stored, or one whose PR read never completed, leaves
- * the handles alone and no icon, exactly the footer that existed before the
- * opener moved in.
+ * then the run's own handles — `@login · run <id> · <sha>`, with the opener's
+ * avatar to the left of it all. Null login for a run recorded before the
+ * author was stored, or one whose PR read never completed, leaves the handles
+ * alone and no icon, exactly the footer that existed before the opener moved
+ * in.
  *
- * Footer text renders markdown, which the author line never did — the reason
- * 55 refused this slot for a name. So the login goes through `clean` and an
- * underscored login shows its escape (`some\_login`): the price of the
- * placement, taken knowingly (decision 88). The profile link is assembled
- * rather than escaped, and only for a login the allowlist above accepts, so a
- * bot opener (`dependabot[bot]`) keeps its avatar — built from the numeric
- * account id, never the login — while losing the link its login cannot have.
+ * Footer text renders no markdown at all — not a link, not even emphasis — so
+ * the profile link 55's field carried cannot live here and is dropped rather
+ * than shown as literal `[@login](url)` syntax, and the login is cleaned with
+ * `plainText` rather than escaped, because a backslash would draw. The
+ * handles are sanitized too: id and SHA are strings the store handed over,
+ * and a bidi override reorders plain text as happily as markdown. The avatar
+ * is built from the numeric account id, never the login, so a bot opener
+ * (`dependabot[bot]`) is named with brackets drawn and shown with its icon
+ * like anybody else.
  */
 function openerFooter(
   login: string | null,
   authorId: number | null,
   run: RunRecord,
 ): { text: string; icon_url?: string } {
-  const tail = `run ${run.id.slice(0, 8)} · ${run.headSha.slice(0, 7)}`;
+  const tail = `run ${handle(run.id, 8)} · ${handle(run.headSha, 7)}`;
   if (!login) return { text: truncate(tail, LIMITS.footer) };
-  // The same assembly the `Opened by` field used: the login escaped, the URL
-  // concatenated after, and only for a login the allowlist accepts.
-  const name = clean(login, 120);
-  const who = LOGIN.test(login) ? `[@${name}](https://github.com/${login})` : `@${name}`;
   const icon = avatarUrl(authorId);
   return {
-    text: truncate(`${who} · ${tail}`, LIMITS.footer),
+    text: truncate(`@${plainText(login, 120)} · ${tail}`, LIMITS.footer),
     ...(icon ? { icon_url: icon } : {}),
   };
 }
@@ -407,6 +429,43 @@ function withSpacers(
   return spaced;
 }
 
+/**
+ * Clamp, then lay the spacers between whatever survived — at the loosest
+ * reserve the payload can actually carry.
+ *
+ * The reservation has to be known before the clamp runs, so a first draft
+ * reserved for every group there was and kept that reserve: near the limit,
+ * that over-reserves, popping a real field for blank-row budget a dropped
+ * section left unused. But correcting the reserve *downward* after the fact
+ * is not sound either — a looser clamp keeps more groups alive, which needs
+ * more spacers, which is the budget the correction just gave away; the two
+ * quantities chase each other. The sound order is the other one: try the
+ * reserves from loose to tight and take the first layout that is valid,
+ * where valid means the surviving content plus the blank rows those very
+ * survivors need fits the 6000 total. A layout at reserve r always fits
+ * (content ≤ 6000−2r, blank rows ≤ 2r), so the search terminates; and the
+ * first valid r keeps at least as much content as any single fixed reserve
+ * would have, because the fixed one is simply the last r the search tries.
+ *
+ * Exported because the property is the point, not the pixels: a test packs
+ * synthetic groups to the exact character where a fixed reserve loses a
+ * field this search keeps.
+ */
+export function layoutSections(embed: DiscordEmbed, groups: DiscordEmbedField[][]): DiscordEmbed {
+  const maxReserve = Math.max(0, groups.length - 1);
+  for (let reserve = 0; ; reserve += 1) {
+    const clamped = clamp(embed, reserve, reserve * SPACER_CHARS);
+    const present = new Set(clamped.fields ?? []);
+    const survivors = groups.filter((group) => group.some((field) => present.has(field))).length;
+    const blankRows = Math.max(0, survivors - 1);
+    const valid = embedLength(clamped) + blankRows * SPACER_CHARS <= LIMITS.total;
+    if (valid || reserve >= maxReserve) {
+      const spaced = withSpacers(clamped.fields ?? [], groups);
+      return spaced.length > 0 ? { ...clamped, fields: spaced } : clamped;
+    }
+  }
+}
+
 export interface CardInput {
   run: RunRecord;
   projection: Projection;
@@ -480,10 +539,9 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
   }
 
   const url = runUrl(links, run);
-  // Spacers are reserved before the clamp and inserted after it, so a dropped
-  // section takes its blank rows with it and the payload still fits.
-  const spacers = groups.length - 1;
-  const embed = clamp(
+  // Spacers are reserved before the clamp, inserted after it, and the reserve
+  // is then corrected to what actually survived (see `layoutSections`).
+  const embed = layoutSections(
     {
       title,
       // Ours, never derived. No projection string may reach a URL field, or a
@@ -499,15 +557,10 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
       footer: openerFooter(run.prAuthorLogin, run.prAuthorId, run),
       timestamp: run.updatedAt,
     },
-    spacers,
-    spacers * SPACER_CHARS,
+    groups,
   );
-  const spaced = withSpacers(embed.fields ?? [], groups);
 
-  return {
-    embeds: [{ ...embed, fields: spaced.length > 0 ? spaced : undefined }],
-    allowed_mentions: { parse: [] },
-  };
+  return { embeds: [embed], allowed_mentions: { parse: [] } };
 }
 
 export interface PingInput {

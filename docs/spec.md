@@ -1184,31 +1184,35 @@ embed carries one colour and is read on a dark client.
 the two lines). Cujo takes the author line — a fixed name and its own mark,
 the first thing a channel reads on every card. The person who opened the pull
 request takes the footer, the embed's last line, where an icon renders to the
-left of its text: their avatar, then `[@login](profile) · run <id> · <sha>`.
-The profile link is only for a login the rule 7 allowlist accepts, and the
-avatar is still built from the numeric account id, so a bot opener keeps its
-icon and loses the link. Footer text renders markdown — the reason 55 refused
-this slot for a name — so the login is escaped there and `some_login` shows
-its backslash: the known price of the placement. `Head` shares its inline row
-with `Pull request` (the card's link to `https://github.com/<repo>/pull/<n>`,
-structural, shape-checked in code, and a private run's only live link) and the
-`Findings` counts. Both identities are on every status, including `running`
-and `superseded`: who opened a pull request cannot change under the card, so
-the rule that keeps those two sparse does not reach them — and because the
-clamp only drops fields, neither the author line nor the footer is anything
-the 6000-character budget can take. A run recorded before the author was
-stored, or one whose account has since been deleted, shows the handles alone
-in the footer, with no icon.
+left of its text: their avatar, then `@login · run <id> · <sha>`. Footer text
+renders no markdown at all — not a link, not even emphasis — so the profile
+link 55's field carried cannot live there and is dropped rather than drawn as
+literal `[@login](url)` syntax, and the login is cleaned by stripping alone,
+because an escape backslash in a no-markdown slot is litter rather than
+defusal. The avatar is still built from the numeric account id, and the run's
+own handles pass the same strip. `Head` shares its inline row with `Pull
+request` (the card's link to `https://github.com/<repo>/pull/<n>`, structural,
+shape-checked in code, and a private run's only live link) and the `Findings`
+counts. Both identities are on every status, including `running` and
+`superseded`: who opened a pull request cannot change under the card, so the
+rule that keeps those two sparse does not reach them — and because the clamp
+only drops fields, neither the author line nor the footer is anything the
+6000-character budget can take. A run recorded before the author was stored,
+or one whose account has since been deleted, shows the handles alone in the
+footer, with no icon.
 
 **The sections breathe** (decision 88). Between surviving field groups the
 card carries a blank row: a field whose name and value are a single zero-width
 space, which renders as nothing but the row it occupies. It is Cujo's own
 literal and not a derived string, so rule 4's removal of zero-width
-characters — a rule about untrusted text — does not reach it; the spacers are
-reserved in the clamp's budget before it runs and inserted after it, so a
-section the clamp drops takes its blank rows with it and no blank row is ever
-left dangling. The gap between the description and the fields is fixed by
-Discord and cannot breathe.
+characters — a rule about untrusted text — does not reach it. Spacers are
+budgeted in the clamp and inserted after it, so a section the clamp drops
+takes its blank rows with it and no blank row is ever left dangling; and the
+budget is searched from loose to tight, taking the first layout where the
+surviving content plus the blank rows those very survivors need fits the
+total, so no field is dropped for blank-row budget a dropped section left
+unused. The gap between the description and the fields is fixed by Discord
+and cannot breathe.
 
 **A check says what it measured, not a tick** (decision 86, on 65's precedent
 for the list row). The `Checks` field carries, per check, its terminal state
@@ -1284,15 +1288,14 @@ request. So, without exception:
    the clamp runs and inserted after it, so what survives always fits with
    its blank rows (decision 88).
 7. No derived string reaches an embed URL field unless it passed a strict
-   allowlist first (decision 55; the slots moved again with decision 88, the
-   allowlists did not). There are exactly two, both about the pull request's
-   author: the avatar is built from the numeric account id and sits in the
-   footer, and the profile link only from a login matching
-   `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`. GitHub cannot issue a login outside
-   that set, so the check should never fire; it is there so the rule is
-   enforced by code rather than assumed. A bot login (`dependabot[bot]`) fails
-   it by design and is named — still with its avatar, which is built from the
-   id — but without a link.
+   allowlist first (decision 55). Since decision 88 there is exactly one: the
+   pull request author's avatar, built from the numeric account id and placed
+   in the footer icon. GitHub issues no account id but a number, so the check
+   should never fire; it is there so the rule is enforced by code rather than
+   assumed. The second allowlist 55 and 86 kept — a profile link for a login
+   matching `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$` — retired with the footer
+   placement, because footer text renders no markdown and there is no longer
+   any slot a login-built URL could occupy.
 8. The ping's `content` is structural only — the repo (validated when the
    channel was bound), the PR number, and Cujo's own link, wrapped in angle
    brackets so Discord does not unfurl it beside the embed. The ping's embed
