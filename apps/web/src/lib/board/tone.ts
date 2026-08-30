@@ -200,15 +200,29 @@ export function worstSeverity(counts: FindingCounts | undefined): Severity | nul
 }
 
 /**
- * One number to sort a record column by, and to scale a core with.
+ * Orders two runs by what they found, worst severity first.
  *
- * Ranked rather than summed: a run with one critical outranks a run with nine
- * infos, and adding the counts would say the opposite. The gaps are wide enough
- * that no realistic number of a lower severity can climb past a higher one.
+ * A comparator and not a weight. Folding the three counts into one number —
+ * `critical * 10_000 + warn * 100 + info` — is the obvious way to make the
+ * record column sortable, and it is wrong: a hundred and one warns outrank a
+ * critical, because the counts come off an unbounded findings array and no
+ * fixed multiplier can be large enough. Comparing rank by rank cannot invert at
+ * any count.
+ *
+ * A run that folded no digest sorts below a run that found nothing. Those are
+ * different claims — one is the absence of a measurement, the other is a
+ * result — and the column already draws them differently.
  */
-export function findingWeight(counts: FindingCounts | undefined): number {
-  if (!counts) return 0;
-  return (counts.critical ?? 0) * 10_000 + (counts.warn ?? 0) * 100 + (counts.info ?? 0);
+export function compareFindings(
+  a: FindingCounts | null | undefined,
+  b: FindingCounts | null | undefined,
+): number {
+  if (!a || !b) return (a ? 1 : 0) - (b ? 1 : 0);
+  for (const severity of SEVERITY_ORDER) {
+    const difference = (a[severity] ?? 0) - (b[severity] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 /** How many findings a run produced, across every severity. */

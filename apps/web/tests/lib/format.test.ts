@@ -33,6 +33,16 @@ describe("usd", () => {
     expect(usd(0)).toBe("$0.00");
   });
 
+  it("bounds an estimate too small for four places instead of rounding it away", () => {
+    // Four decimals moved the failure down rather than fixing it: a call
+    // priced at three hundredths of a cent still rendered `$0.0000`, which is
+    // the same lie about the same number.
+    expect(usd(0.00003)).toBe("<$0.0001");
+    expect(usd(0.000_000_9)).toBe("<$0.0001");
+    // The boundary itself is representable, so it is printed.
+    expect(usd(0.0001)).toBe("$0.0001");
+  });
+
   it("uses cents above a cent", () => {
     expect(usd(0.37)).toBe("$0.37");
     expect(usd(12.5)).toBe("$12.50");

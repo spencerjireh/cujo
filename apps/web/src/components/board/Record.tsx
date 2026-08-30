@@ -10,8 +10,8 @@ import {
   STATUS_LABELS,
   TONE_FILL,
   TONE_TEXT,
+  compareFindings,
   findingTotal,
-  findingWeight,
   statusTone,
 } from "@/lib/board/tone";
 import { duration, shortSha } from "@/lib/format";
@@ -113,12 +113,14 @@ const columns = helper.columns([
     header: "Checks",
     cell: (cell) => <SensorStrip run={cell.row.original} />,
   }),
-  // Sorted by rank and not by count, so one critical outranks nine infos. A
-  // run with no digest weighs nothing, which puts it below a clean run rather
-  // than above one — it found nothing because nothing looked.
-  helper.accessor((run) => findingWeight(run.digest?.findings), {
+  // Ordered rank by rank rather than by a folded weight, so no number of a
+  // lower severity can climb past a higher one. The accessor exists only to
+  // give the column a value; `compareFindings` is what decides the order.
+  helper.accessor((run) => run.digest?.findings ?? null, {
     id: "findings",
     header: "Found",
+    sortFn: (rowA, rowB) =>
+      compareFindings(rowA.original.digest?.findings, rowB.original.digest?.findings),
     cell: (cell) => <FindingsCell run={cell.row.original} />,
   }),
   helper.accessor("status", {
@@ -198,16 +200,31 @@ export function Record({ runs }: { runs: RunSummary[] }) {
    * A filter that hides the picked run is cleared rather than obeyed — the
    * click said which run, and answering with "no runs match this filter" is
    * the wrong end of the request.
+   *
+   * **Once per pick, and no more.** The selection outlives the pointer by
+   * design, and `runs` and `data` are new arrays on every poll — five seconds
+   * apart while anything is live. Without the guard this effect scrolled and
+   * stole focus on that cadence, dragging a reader back to the selected link
+   * while they were reading or tabbing somewhere else in the record. The mark
+   * on the row stays; only the scroll and the focus are a one-time delivery.
    */
+  const delivered = useRef<string | null>(null);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      delivered.current = null;
+      return;
+    }
+    if (delivered.current === selected) return;
     if (!runs.some((run) => run.id === selected)) return;
     if (!data.some((run) => run.id === selected)) {
+      // Not marked delivered: clearing the filter re-renders, and the pass
+      // after it is the one that actually scrolls.
       setFilter("all");
       return;
     }
     const anchor = rowRefs.current.get(selected);
     if (!anchor) return;
+    delivered.current = selected;
     const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     anchor.scrollIntoView({ block: "center", behavior: smooth ? "smooth" : "auto" });
     anchor.focus({ preventScroll: true });
