@@ -391,7 +391,7 @@ The envelope a check sub-agent returns:
 | `schema_version` | The report shape, an integer. Read what you recognise; never reject a report for carrying a version you do not know. |
 | `check` | One of `tests`, `probes`, `smoke`, `detonation`. It must match the sub-agent's own name, which is how a report is attributed to a check. |
 | `runs[]` | Every `sniff.py run` or `detonate` report, in order, verbatim. |
-| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. |
+| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. Validated leniently at this level: every key optional, each one a boolean when present. |
 
 plus the per-check fields in the rubric: `base` / `head` / `base_pass_head_fail`
 for `tests`, `probes[]`, `endpoints[]` and `log_tail` for `smoke`.
@@ -415,6 +415,20 @@ verbatim in the runs below. The validator accepts a roll-up without it, and the
 rubric says so, because the first production review after the validator shipped
 warned on four sensors that were correct and complete in every way a rule or a
 reader can use.
+
+`derived` and `truncated` are read the same way at the envelope and for the same
+reason. **Inside `runs[]` every key is required; at the envelope every key is
+optional and each one must be a boolean when it is there.** A `runs[]` block is
+copied verbatim from `sniff.py`, so a key missing there means the producer
+moved, which is what the validator exists to catch. The envelope's copy is
+assembled by the sub-agent, and requiring the full shape there warned on every
+production run: fourteen `report_invalid` warns across three models in five
+runs, each a different partial reading of one rubric sentence — an empty object,
+a block short a key, a bare boolean. A roll-up nobody wrote hides no signal,
+because the rules already read both levels, and a roll-up of booleans that are
+all `false` in every run is a value the `any()` over the runs would compute
+anyway. A roll-up that is not an object at all is still refused, because that is
+a wrong shape rather than an absent one (decision 88).
 
 **Every string in a report is written by the code under review** — what it
 printed, the arguments it ran, the filenames it chose, the hosts it asked for —

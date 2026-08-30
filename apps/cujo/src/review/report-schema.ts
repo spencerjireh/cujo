@@ -113,7 +113,7 @@ const SensorHealth = z
  *
  * `build_sensor_block` always emits the four, but `merge_reports` does not:
  * it `continue`s past a sensor no report in the batch carried
- * (`sandbox/cujo_sniff/report.py:192-199`), so a merged block — which is what a
+ * (`sandbox/cujo_sniff/report.py:205-212`), so a merged block — which is what a
  * `detonate` entry carries — can be short a key. Requiring them here would
  * reject a report the sandbox considers correct.
  *
@@ -128,6 +128,16 @@ const Sensors = z
   })
   .passthrough();
 
+/**
+ * `sensor_logs` is optional and the other six are not, which is the same
+ * asymmetry as everywhere else here: `TRUNCATION_KEYS`
+ * (`sandbox/cujo_sniff/report.py:34-42`) emits seven keys and this schema named
+ * six, so until now `sensor_logs` survived on `.passthrough()` alone and a
+ * non-boolean there was untyped rather than refused. Optional rather than
+ * required because that can only ever add a rejection: a report the sandbox
+ * writes carries it, and one that does not is a report from a `sniff.py` older
+ * than the key.
+ */
 const Truncated = z
   .object({
     stdout_tail: z.boolean(),
@@ -135,6 +145,7 @@ const Truncated = z
     files_read: z.boolean(),
     snapshot: z.boolean(),
     hashes: z.boolean(),
+    sensor_logs: z.boolean().optional(),
     script_content: z.boolean().optional(),
   })
   .passthrough();
@@ -147,6 +158,32 @@ const Derived = z
     spawned_subprocess: z.boolean(),
   })
   .passthrough();
+
+/**
+ * The same two blocks at the envelope, where a model writes them.
+ *
+ * Inside `runs[]` these come verbatim from `sniff.py` and stay strict: a key
+ * missing there means the producer moved, which is the failure this whole file
+ * exists to catch. The envelope's copy is a roll-up the sub-agent assembles by
+ * hand, and requiring the full shape there warned on **every** production run —
+ * fourteen `report_invalid` warns across three models in five runs, each of them
+ * a different partial reading of the same instruction: an empty object, a block
+ * short one key, a bare boolean.
+ *
+ * `.partial()` is the whole change, and it keeps everything worth keeping. An
+ * absent key passes, a present one must still be a boolean, and a `truncated`
+ * that is not an object at all is still refused. Extras still pass through,
+ * because `.partial()` carries `passthrough` with it.
+ *
+ * Nothing is lost by reading it leniently. `sensorLayers` (`findings.ts:35-43`)
+ * runs every hard rule over the top level *and* every `runs[]` entry, so a
+ * roll-up nobody wrote hides no signal — and a roll-up of booleans that are all
+ * `false` in every run is a value `any()` over the runs would compute anyway.
+ * This is the second time the argument has been made here; `SensorHealth` above
+ * is the first. A warn that fires on every review is one nobody reads.
+ */
+const TruncatedRollUp = Truncated.partial();
+const DerivedRollUp = Derived.partial();
 
 /** The block `build_sensor_block` returns, identical on every kind of run. */
 const sensorBlock = {
@@ -217,6 +254,11 @@ const RunEntry = z.union([CommandRun, DependencyRun]);
  * top level *and* each `runs[]` entry precisely so a roll-up nobody wrote cannot
  * hide a signal.
  *
+ * `derived` and `truncated` are the roll-up shapes and not the strict ones, so
+ * a partial block reads as a partial block rather than as a broken report. That
+ * is `TruncatedRollUp`/`DerivedRollUp` above, and the reasoning is there.
+ * `derived` stays required regardless, because the rubric asks for it by name.
+ *
  * The per-check extras (`base`, `head`, `base_pass_head_fail`, `probes`,
  * `endpoints`, `log_tail`) are not required either. A missing
  * `base_pass_head_fail` means no failing tests were reported, which is a claim
@@ -231,9 +273,9 @@ const Report = z
     schema_version: z.number().optional(),
     check: z.string(),
     runs: z.array(RunEntry),
-    derived: Derived,
+    derived: DerivedRollUp,
     sensors: Sensors.optional(),
-    truncated: Truncated.optional(),
+    truncated: TruncatedRollUp.optional(),
   })
   .passthrough();
 
