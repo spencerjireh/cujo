@@ -77,15 +77,15 @@ export function coverageLine(block: SensorBlock): string | null {
  * Whether a table can speak for itself.
  *
  * `measured` — the sensor behind it was watching, so an empty table is a result
- * and renders as `none` rather than vanishing. That is the whole fix for a
- * clean check whose card used to expand to nothing at all.
+ * and keeps its heading and its `0` rather than vanishing. That is the whole
+ * fix for a clean check whose card used to expand to nothing at all.
  *
  * `blind` — the sensor was off. The table is not short, it is absent, and it
  * says so instead of showing zero rows.
  *
  * `unknown` — the report carries no health for that sensor. Behaves as the page
  * always has: rows when there are rows, nothing when there are none, because
- * neither `none` nor `not measured` is a claim this report supports.
+ * neither a zero nor `not measured` is a claim this report supports.
  */
 export type GroupState = "measured" | "blind" | "unknown";
 
@@ -99,4 +99,31 @@ export function groupState(block: SensorBlock, sensor: string): GroupState {
 /** What the sandbox said about the sensor behind a table, for the blind case. */
 export function sensorDetail(block: SensorBlock, sensor: string): string | undefined {
   return block.sensors?.[sensor]?.detail;
+}
+
+/** The four evidence tables, by the field each one reads. */
+export type TableName = "egress" | "files_read" | "fs_changes" | "subprocesses";
+
+/**
+ * Which tables hold the evidence for something this block flagged.
+ *
+ * The tables collapse, and this is what decides which of them a card opens
+ * with. The rule is that a flag is an accusation and the table under it is the
+ * proof, so the card opens showing exactly the rows that back what the bars at
+ * the top of it say — and a reader who wants the rest asks for it.
+ *
+ * `spawned_subprocess` is here and is deliberately not in `alarms`: it accuses
+ * nothing on its own, since an install spawns processes, but when the sandbox
+ * sets it the process list is the thing worth reading and it is often the most
+ * damning list in the report.
+ */
+export function flaggedTables(block: SensorBlock): Set<TableName> {
+  const out = new Set<TableName>();
+  if (block.derived?.egress_to_unknown_host) out.add("egress");
+  // The decoy is a file, and a read of anything sensitive lands in that table.
+  if (block.secret_probe?.decoy_read || block.secret_probe?.decoy_in_egress) out.add("files_read");
+  if (block.derived?.wrote_sensitive || block.derived?.wrote_outside_workspace)
+    out.add("fs_changes");
+  if (block.derived?.spawned_subprocess) out.add("subprocesses");
+  return out;
 }

@@ -1,5 +1,5 @@
 import { type SensorBlock, parseReport } from "@/lib/api/report";
-import { coverageLine, groupState, sensorDetail } from "@/lib/report/coverage";
+import { coverageLine, flaggedTables, groupState, sensorDetail } from "@/lib/report/coverage";
 import { describe, expect, it } from "vitest";
 
 function block(report: unknown): SensorBlock {
@@ -85,8 +85,38 @@ describe("coverageLine", () => {
   });
 });
 
+describe("flaggedTables", () => {
+  it("points each flag at the table that proves it", () => {
+    expect([
+      ...flaggedTables(
+        block({
+          secret_probe: { decoy_read: true },
+          derived: {
+            egress_to_unknown_host: true,
+            wrote_outside_workspace: true,
+            spawned_subprocess: true,
+          },
+        }),
+      ),
+    ]).toEqual(["egress", "files_read", "fs_changes", "subprocesses"]);
+  });
+
+  it("opens nothing for a block that flagged nothing", () => {
+    // Which is the point of it: a clean card is four headers and their counts,
+    // not four tables of rows nobody asked to see.
+    expect(flaggedTables(block({ egress: [{ host: "pypi.org" }] })).size).toBe(0);
+  });
+
+  it("counts a spawned subprocess even though it raises no alarm", () => {
+    // An install spawns processes, so this accuses nothing on its own — but
+    // when it is set, the process list is the list to read.
+    const flagged = flaggedTables(block({ derived: { spawned_subprocess: true } }));
+    expect([...flagged]).toEqual(["subprocesses"]);
+  });
+});
+
 describe("groupState", () => {
-  it("lets a watched table say `none` and an unwatched one say nothing at all", () => {
+  it("lets a watched table show its zero and an unwatched one show nothing at all", () => {
     const watched = block({ egress: [], sensors: ALL_WATCHING });
     expect(groupState(watched, "proxy")).toBe("measured");
 
@@ -98,7 +128,7 @@ describe("groupState", () => {
     expect(sensorDetail(down, "proxy")).toBe("no longer running");
 
     // No health at all: the table behaves exactly as the page always had it,
-    // because neither "none" nor "not measured" is a claim this report supports.
+    // because neither a zero nor "not measured" is a claim this report supports.
     expect(groupState(block({ egress: [] }), "proxy")).toBe("unknown");
     expect(groupState(watched, "nothing_by_this_name")).toBe("unknown");
     expect(sensorDetail(watched, "nothing_by_this_name")).toBeUndefined();
