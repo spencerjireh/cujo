@@ -405,12 +405,22 @@ export class Runner {
       // a message while sub-agents run, and neither the status nor a later
       // cancel can find it by then.
       const run = this.store.getRun(runId);
+      const timedOutTurn = this.currentTurnId(runId);
       // Awaited inside its own task, not chained with `.catch`: this runs in a
       // timer callback, where a synchronous throw has no caller to land on and
       // would take the process down rather than the turn.
-      if (run) {
+      if (run && timedOutTurn && !this.state(runId).superseded) {
         void (async () => {
           try {
+            // `cancelTurn` takes a session and stops whatever is running on it
+            // *now*, which is not necessarily what timed out. Runs share a
+            // pull request's session, and this timer stays armed until its own
+            // `consume` returns, so a supersede that lands first can have a
+            // newer head's turn running by the time this fires. Cancel only
+            // while the turn that timed out is still the one in progress.
+            const turns = await this.harness.listTurns(run.sessionId);
+            const mine = turns.find((t) => t.id === timedOutTurn);
+            if (mine?.state.status !== "running") return;
             await this.harness.cancelTurn(run.sessionId);
           } catch (error) {
             this.state(runId).log.warn("run.cancel.failed", {
@@ -554,38 +564,55 @@ export class Runner {
         s.log.warn("run.poll.failed", { session_id: run.sessionId, ...errorFields(error) });
         continue;
       }
-      // A turn the server no longer lists is not one this can wait on.
-      if (!turn) break;
-      if (turn.state.status === "running") continue;
-      s.log.info("run.stream.recovered", { turn_id: turnId, status: turn.state.status });
-      break;
-    }
-    // The stream never delivered the tail of this turn, so `hydrate` cannot
-    // help: it refreshes events already held, and cannot add the ones that were
-    // missed. Rebuild from the session the way `rehydrate` does.
-    const run = this.store.getRun(runId);
-    if (run) {
-      try {
-        const items = await this.harness.listEvents(run.sessionId);
-        // `selectRunEvents` seeds ownership from `run.turnIds` and chains
-        // forward from there. The turn being watched is this run's by
-        // definition -- it is the one it was streaming -- so name it, rather
-        // than depend on it having been recorded before the stream broke.
-        const own = new Set([...run.turnIds, ...s.subscribedTurnIds, turnId]);
-        const { events, turnIds } = Runner.selectRunEvents(
-          { ...run, turnIds: [...own] },
-          items,
-          this.foreignTurnIds(run),
-        );
-        // Never trade events in hand for none: a session that answers with
-        // nothing this run owns leaves the stream's own fold standing.
-        if (events.length > 0) {
-          s.events = events;
-          s.subscribedTurnIds = new Set([...s.subscribedTurnIds, ...turnIds]);
-        }
-      } catch (error) {
-        s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
+      if (turn?.state.status === "running") continue;
+      // The turn is over, or the server no longer lists it. Either way there is
+      // something to read back now.
+      const projection = await this.replayTurn(runId, run, turnId);
+      // `running` is the one status that means the replay taught us nothing --
+      // it failed, or came back without the terminal tail. That is not a
+      // verdict, so stay under the watchdog and read again rather than let
+      // `consume` return with the timer about to be cleared and no follower,
+      // no poller and no watchdog left to finish the run.
+      if (projection.status !== "running") {
+        s.log.info("run.stream.recovered", {
+          turn_id: turnId,
+          status: turn?.state.status ?? "unlisted",
+        });
+        return projection;
       }
+    }
+    return this.refold(runId);
+  }
+
+  /**
+   * Rebuild a run's fold from the session's persisted events.
+   *
+   * `hydrate` cannot do this: it refreshes events already held, matched by id,
+   * and the whole problem after a lost stream is the events that never arrived.
+   * This is what `rehydrate` does on restart, minus the resubscribe.
+   */
+  private async replayTurn(runId: string, run: RunRecord, turnId: string): Promise<Projection> {
+    const s = this.state(runId);
+    try {
+      const items = await this.harness.listEvents(run.sessionId);
+      // `selectRunEvents` seeds ownership from `run.turnIds` and chains forward
+      // from there. The turn being replayed is this run's by definition -- it
+      // is the one it was streaming -- so name it, rather than depend on it
+      // having been recorded before the stream broke.
+      const own = new Set([...run.turnIds, ...s.subscribedTurnIds, turnId]);
+      const { events, turnIds } = Runner.selectRunEvents(
+        { ...run, turnIds: [...own] },
+        items,
+        this.foreignTurnIds(run),
+      );
+      // Never trade events in hand for none: a session that answers with
+      // nothing this run owns leaves the stream's own fold standing.
+      if (events.length > 0) {
+        s.events = events;
+        s.subscribedTurnIds = new Set([...s.subscribedTurnIds, ...turnIds]);
+      }
+    } catch (error) {
+      s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
     }
     return this.refold(runId);
   }

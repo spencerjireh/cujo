@@ -705,6 +705,36 @@ describe("Runner.consume", () => {
       expect(cancelTurn).toHaveBeenCalledWith("s");
     });
 
+    it("keeps reading when the turn ended but its events would not come back", async () => {
+      // The turn is over, so the watch would stop -- but a replay that teaches
+      // nothing is not a verdict. Returning here would hand `consume` a
+      // `running` projection with its watchdog about to be cleared and no
+      // follower, poller or timer left to finish the run.
+      const listEvents = vi.fn(async () => {
+        throw new Error("session unreadable");
+      });
+      const { store, r, runner, opening } = lost(
+        { listTurns: vi.fn(async () => [{ id: "t1", state: { status: "done" } }]), listEvents },
+        150,
+      );
+      await runner.consume(r.id, opening);
+      expect(listEvents.mock.calls.length).toBeGreaterThan(1);
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    });
+
+    it("keeps reading when the replay comes back without the turn's tail", async () => {
+      const listEvents = vi.fn(async () => [
+        { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
+      ]);
+      const { store, r, runner, opening } = lost(
+        { listTurns: vi.fn(async () => [{ id: "t1", state: { status: "done" } }]), listEvents },
+        150,
+      );
+      await runner.consume(r.id, opening);
+      expect(listEvents.mock.calls.length).toBeGreaterThan(1);
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    });
+
     it("ends a run that has no turn to watch, rather than leaving it running", async () => {
       // The watchdog is cleared when `consume` returns, so a path that waits on
       // nothing would strand the run at `running` with nobody left to end it --
