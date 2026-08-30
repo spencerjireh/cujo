@@ -103,7 +103,9 @@ The chamber has a decorative layer — haze, a graded backdrop, dust, a glow
 behind each core (decision 69) — and it takes no token of its own. Everything
 in it is one of the four above brightened from its own value, and the glow is
 greyscale tinted by the verdict it sits behind, so light in that room can never
-introduce a hue this palette does not already spend.
+introduce a hue this palette does not already spend. The same holds of the one
+other decorative thing in there, a specimen's position across the volume
+(decision 70): it moves a shape, and never recolours one.
 
 The four signal colours are the dark severity ramp, pinned rather than
 inherited: what is drawn inside the chamber must not change hue when the page

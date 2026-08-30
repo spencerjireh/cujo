@@ -75,6 +75,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 67. [The setup window is measured, because guessing at it picks the wrong fix](#67-the-setup-window-is-measured-because-guessing-at-it-picks-the-wrong-fix)
 68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
 69. [The chamber may have air in it, and the air is two files](#69-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
+70. [Depth is time; across the volume means nothing, and says so](#70-depth-is-time-across-the-volume-means-nothing-and-says-so)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3185,6 +3186,13 @@ server rendered and must not slide from it.
 
 ## 69. The chamber may have air in it, and the air is two files
 
+**Amended by 70**, which narrows the rule once more — a specimen's depth is a
+measurement and its position across the volume is not — and reverses two of the
+choices below: phones no longer keep the flat elevation, because there is no
+longer a flat elevation, and the sweep is no longer a plane. Not reversed:
+everything here about the decorative layer, the bloom threshold, and where a
+rule with a claim in it has to live.
+
 Decision 68 made every object in the chamber a measurement, and that was the
 right rule. What it left behind was an instrument that is correct and inert.
 Materials are unlit on near-black by design, `LineBasicMaterial` ignores
@@ -3297,3 +3305,175 @@ the chamber as a hero image, which is the change this one exists to avoid.
 specimen, which would have drawn a chain and a rail the WebGL version does not:
 two drawings of one run have to be one drawing, so it got its own glyph with the
 same rig.
+
+## 70. Depth is time; across the volume means nothing, and says so
+
+Decision 68 said no object in the chamber exists that is not a
+measurement. Decision 69 narrowed that to geometry and admitted one named
+decorative layer, `atmosphere.ts` and `post.ts`, on the grounds that a layer
+describing the medium is not a claim about a run. Both still hold of everything
+that carries a fact. This narrows the rule once more, at the one place left
+where it was costing the drawing more than it was buying it.
+
+The record was a line: every specimen at one x and one y, spaced down the depth
+axis by `SPACING`. That is honest and it reads as a row of pins in a case — a
+corridor with a rail down the middle of it, most of a full-height frame holding
+nothing. **A specimen's depth is still time. Its height and its lateral position
+are a deterministic function of its run id and mean nothing at all.** The seam is
+one file and it is checkable the way 69's is: `scatter.ts` takes an id and a
+depth, imports `chamber-layout` and `ease`, and knows nothing else about a run.
+
+Deterministic matters as much as decorative. A field reshuffled on each poll
+would be an animation of nothing, and a reader who found a specimen once could
+never find it again; seeded off the id, a run sits where it sat.
+
+Two constraints, both tested rather than eyeballed. Nothing leaves the volume at
+any depth. And nothing crosses `minX(z)`, which rises toward the open face —
+the readout is at the left of the frame and a near specimen is the largest thing
+on screen, so the two of them have to be kept apart at the end where it matters.
+The spread itself is a cone rather than a box, because the camera moved: at the
+near end the frame is barely two units across, and a newest run at full spread is
+not scattered, it is off the side of the screen.
+
+The legend says this in words. A reader will otherwise assume a specimen sitting
+high means something, which is the failure mode a decorative axis has and a
+decorative haze does not.
+
+### The chamber is seen from inside it
+
+`MOUTH_Z` is the volume's near face and the camera stands 0.5 units behind it,
+so the box's near edges are out of frame and its rails and ribs run off the top
+and the sides toward the vanishing point. That is what fills the top of a
+100svh hero. A box 2.3 units tall viewed from beyond it could not: framed so its
+depth fits, its height only ever occupied a band across the middle, and the
+answer was never going to be a taller box — a taller empty box is still empty.
+
+The volume is 7.2 by 4.2 by 13 where it was 3.9 by 2.3 by 17, and the chamber
+draws ten runs where it drew twenty-four. Fewer, larger, further apart: ten
+objects a reader can tell apart beats twenty-four dots receding into one, and
+both the readings above and the record below still carry how many runs there
+have been.
+
+### The chain threads the record, and the sweep travels it
+
+The chain used to run overhead with a drop line per specimen. It threads them
+now, in order, which keeps decision 68's rule about it — its length is the
+record's length — by construction rather than by an end-point formula, and makes
+it the only thing left saying a scattered field is a *series*.
+
+**The sweep rides it.** A plane crossing the volume was right while one depth was
+one run; over a field it lights every run at that depth together, which is
+exactly the defect decision 69 narrowed the envelope to remove, arriving back by
+a different route. A cursor on the chain visits them in the order the board holds
+them however they are scattered, and "at most one specimen more than half lit" is
+still asserted — now against the tightest gap on a real scattered path rather
+than against an assumed slot spacing.
+
+It is also a soft additive light rather than the *edges* of a box of depth
+0.001. That is what a reader was actually seeing: an amber rectangle framing the
+scene, not light passing through it.
+
+### A specimen is a solid, and an arm carries two numbers
+
+Four arms in the plane facing the camera is a drawing of a run rather than an
+object: the camera drifts, the volume breathes, and nothing about the shape is
+ever revealed because there is nothing behind it. The arms leave the core along
+the four diagonals of a cube — the tetrahedral arrangement, every pair at
+109.47°, the widest four directions can be from each other.
+
+**And the flat drawing did not move.** Projected down the view axis those four
+land on exactly the 45° diagonals the specimen has always been drawn with. So
+the run page's glyph and the legend's diagram keep the silhouette a reader
+already knows, and all three call `projectArms` rather than laying the angles out
+again — which is what stops four independent copies of one shape drifting apart.
+That they agreed at all was luck.
+
+An arm's length is how long its check watched; its solid part is how much of that
+was the sandbox executing the pull request, and the thinner tail is the sub-agent
+deciding what to do next. Decision 68 rejected a second *hue* for that split by
+name, and strength is what it asked for instead. An arm whose check measured no
+share is drawn whole, never all-tail: null is not zero.
+
+The findings leave the drop line for six fixed slots around the core. Fixed
+rather than spread to fit, for two reasons and the second is why the first is not
+enough: slots make the cap visible, so one finding fills a sixth of the ring and
+six fill it; and even spacing cannot clear the arms — at five marks the spacing
+is 72° against arms 90° apart, and the best available offset still puts a mark
+4.5° from a check.
+
+The core is sized as a ratio of the arms. It was radius 0.042 against an
+`ARM_MAX` of 0.3 — the verdict drawn as the smallest thing in a picture that
+exists to show the verdict — and stating it as a ratio is what keeps that from
+happening again the next time the arms are resized.
+
+### A list row says how much of each check was execution
+
+`DigestCheck` was `{status, ms}`: one number for a check that measured two. The
+detail route has carried the split since `CheckTimings` landed, so the run page
+could say where a check's time went and the chamber, looking at the same run,
+could not. `sandboxMs` is that number on a list row, read off the timings the
+fold already computed rather than re-summed — `apps/web` ports `digest.ts` by
+hand, and a second implementation of the same sum is the most direct way to break
+the contract that both sides get the same answer.
+
+Null and never zero, now for three reasons rather than two: the check is still
+running, its report carried no `runs[]`, or the digest was stored before the
+field existed. That last one is permanent. `backfillDigest` re-derives a
+*missing* digest and not a stale one, so every already-folded run keeps a blob
+without the key for good; the `?? null` in the serializer is what stands between
+those rows and a response whose shape varies per run.
+
+**It also found a hole in decision 34's guard.** `serializePublicSummary` copied
+`digest.checks` through *by reference*, so a field added to `DigestCheck` reached
+the wire past every allowlist on both sides — `PUBLIC_DIGEST_FIELDS` classifies
+`RunDigest`'s three keys, one of which is `checks`, and it can see no further.
+The file says twice that a field must be written down before it can be published;
+that was true of the digest and not of a check inside it. Checks are shaped per
+field now, walked over `CHECK_NAMES`, with `PUBLIC_DIGEST_CHECK_FIELDS` and a
+`Record<keyof DigestCheck, true>` on both sides of the wire.
+
+### Nothing flat is served any more
+
+`ChamberFallback` is deleted. It drew the record as SVG for two audiences and
+was wrong for both. A phone got the chain hung down a hundred-pixel margin —
+the record is a long thin thing, and the same picture turned sideways is a column
+of dots — under a full screen of near-black held open for it. A desktop browser
+that refused a WebGL context got the horizontal form, a second drawing that had
+to track every change to the first.
+
+That cost was already real and this decision makes it unpayable: a flat elevation
+of a scattered field with a chain through it, seen from inside the volume, is not
+the same drawing however carefully it is redrawn, and two pictures that disagree
+are worse than one picture and a list. Both cases get the record itself. The
+hero collapses on a phone and on a browser that will not draw it, and holds its
+screen while a canvas is still importing — `Chamber` reports three states rather
+than a boolean, because "not yet" and "never" used to lay out identically and no
+longer do.
+
+This reverses 69's "phones keep the flat elevation" and its rejection of a third
+`BOXES` preset, which is now moot: `SpecimenGlyph` survives as its own file, and
+it was always a different job.
+
+### The board says what it does before it says how
+
+"Containment record", "executed in a sealed sandbox", "running the code, not
+reading it" — three statements about the mechanism and none about the job. The
+headline is still a count and not a slogan, which is what `brand/brand.md` asks
+for; it counts pull requests reviewed, and the sandbox moved to the sentence
+under it. The readout splits across the frame, claim at the top and readings at
+the bottom, because one block anchored to the bottom left of a full-height hero
+left the top of it holding nothing.
+
+Rejected: **free scatter on all three axes**, which abandons the claim the whole
+board rests on for a starfield. **Height as severity and lateral as repository**,
+which is the version of this that keeps every axis a measurement and was the
+first instinct — it makes the drawing a chart, and a chart of two facts already
+on every row is a worse use of a volume than a record you can walk into.
+**Keeping the chain overhead** with drop lines to a scattered field, which draws
+twenty-four lines to nowhere in particular and says less than one line through
+the runs themselves. **Turning each specimen to face the camera**, which always
+presents its widest profile and costs an arm's direction its meaning. **Redrawing
+the field flat** for phones, which at that width is a smudge. And **a minimum
+presence floor** so a clean run reads as an object anyway — a calm board is
+calm, which is the reading `brand/brand.md` asks for and the one a maintainer
+wants to be able to take at a glance.
