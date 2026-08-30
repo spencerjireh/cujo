@@ -283,19 +283,30 @@ say out loud. Not a summary, not a heading, not a list. The server puts it under
 headline it writes itself, so never write a verdict word — "blocked", "advisory" — into
 it.
 
-`findings` carries everything else. Per entry:
+`findings` carries everything else. **One problem is one finding.** Two findings that
+share a cause and an anchor are the same finding written twice, and a reader has to work
+out that they are not two problems: a failing test and the probe that confirms it are one
+finding whose `evidence` carries both observations, not two `critical`s pointing at the
+same line. A second check agreeing with the first belongs *inside* that finding's
+`evidence`, never beside it.
 
-- `title` — one clause of plain language, and never a sensor field name. Write "the
-  seeded decoy secret was read during detonation", not `secret_probe.decoy_read: true`.
-  The field name belongs in `evidence`.
+Per entry:
+
+- `title` — a short sentence with a subject, under about ten words, and never a sensor
+  field name. Write "the seeded decoy secret was read during detonation", not
+  `secret_probe.decoy_read: true`. The field name belongs in `evidence`.
 - `evidence` — the observation itself: the failing assertion, the host and port, the
-  path written, the timing. Numbers, not adjectives.
-- `detail` — one paragraph of judgment on every `critical`: why the evidence supports
-  the claim, and what it rules out. Optional on anything else.
+  path written, the timing. Numbers, not adjectives. Where two checks saw the same
+  thing, both go here.
+- `detail` — at most two sentences of judgment on every `critical`: why the evidence
+  supports the claim, and what it rules out. Optional on anything else, and a `warn` or
+  an `info` that needs none reads as one line, which is the point of leaving it out.
 - `next` — one imperative clause naming the action. Required on `critical`, allowed on
-  `warn`, never on `info`. It must follow from something a sensor observed. Never style,
-  architecture, naming, or preference: if you cannot point at the signal, there is no
-  `next`.
+  `warn`, never on `info`. On a `critical`, name the action the evidence supports rather
+  than listing the options the author could choose between — you have the evidence, so
+  take the position and leave the author free to disagree. It must follow from something
+  a sensor observed. Never style, architecture, naming, or preference: if you cannot
+  point at the signal, there is no `next`.
 - `path`, `line`, `side` — the anchor, when the finding is about a line in the diff. An
   anchored finding becomes an inline comment on that line automatically. **There is no
   `comments` parameter any more; do not send one.**
