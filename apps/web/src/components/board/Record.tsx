@@ -55,6 +55,31 @@ const MIN_ROWS = 5;
  */
 const GHOST_ROWS = ["ghost-a", "ghost-b", "ghost-c", "ghost-d", "ghost-e"] as const;
 
+/**
+ * How wide each column is, and which way its contents sit, keyed by column id.
+ *
+ * Without this the browser distributes width by content, and the record's
+ * rhythm changes every time the list is polled: one long pull request title
+ * lands and the duration column shifts two characters left. A log's columns
+ * have to sit still. That, and numbers that line up under each other, is most
+ * of what separates a record from a table with rules in it — the numeric
+ * columns are right-aligned and the whole table is `tabular-nums`, so a
+ * duration is comparable to the one above it by eye rather than by reading.
+ *
+ * Keyed by id rather than by position: the two lists are edited in different
+ * places, and an index would silently attach the wrong width the first time a
+ * column moved.
+ */
+const COLUMN: Record<string, string> = {
+  repo: "text-left",
+  head_sha: "w-[7rem] whitespace-nowrap text-left",
+  checks: "w-[6rem] text-left",
+  findings: "w-[7rem] text-left",
+  status: "w-[9rem] whitespace-nowrap text-left",
+  duration: "w-[5.5rem] whitespace-nowrap text-right",
+  updated_at: "w-[7.5rem] whitespace-nowrap text-right",
+};
+
 const features = tableFeatures({ rowSortingFeature, sortedRowModel: createSortedRowModel() });
 const helper = createColumnHelper<typeof features, RunSummary>();
 
@@ -99,7 +124,10 @@ const columns = helper.columns([
           {cell.row.original.repo} #{cell.row.original.pr_number}
         </span>
         {cell.row.original.pr_title ? (
-          <span className="truncate text-fg-muted">{cell.row.original.pr_title}</span>
+          // `min-w-0` as well as `truncate`: a flex child will not shrink below
+          // its content without it, so the title would push the row wide rather
+          // than ellipsing — which is exactly what `table-fixed` exists to stop.
+          <span className="min-w-0 truncate text-fg-muted">{cell.row.original.pr_title}</span>
         ) : null}
       </span>
     ),
@@ -254,7 +282,15 @@ export function Record({ runs }: { runs: RunSummary[] }) {
   return (
     <section aria-label="Every run" className="px-4 py-10 md:px-6">
       <div className="mb-6 flex flex-wrap items-baseline justify-between gap-4">
-        <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">The record</h2>
+        {/* The count belongs in the heading rather than only in the filter
+            chips: after a full screen of chamber, this is where a reader finds
+            out how much there is, and "the record" alone said nothing. */}
+        <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">
+          The record{" "}
+          <span className="text-fg-muted">
+            ({runs.length} {runs.length === 1 ? "run" : "runs"})
+          </span>
+        </h2>
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((option) => {
             const count = runs.filter((run) => matches(option.id, run.status)).length;
@@ -282,7 +318,10 @@ export function Record({ runs }: { runs: RunSummary[] }) {
         <EmptyRecord filtered={runs.length > 0} onClear={() => setFilter("all")} />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+          {/* `table-fixed`, so the widths above decide the layout rather than
+              the longest title in the current poll. `tabular-nums` so a column
+              of durations is a column and not a ragged list. */}
+          <table className="w-full table-fixed border-collapse text-sm tabular-nums">
             <thead>
               {table.getHeaderGroups().map((group) => (
                 <tr key={group.id}>
@@ -307,7 +346,9 @@ export function Record({ runs }: { runs: RunSummary[] }) {
                                 ? "descending"
                                 : "none"
                         }
-                        className="border-line border-b py-2 pr-4 text-left font-mono text-xs font-medium uppercase tracking-wider text-fg-muted"
+                        className={`border-line border-b pb-2.5 pr-4 align-bottom font-mono text-[0.6875rem] font-medium uppercase tracking-[0.16em] text-fg-muted ${
+                          COLUMN[header.column.id] ?? "text-left"
+                        }`}
                       >
                         {header.isPlaceholder ? null : sortable ? (
                           <button
@@ -353,7 +394,7 @@ export function Record({ runs }: { runs: RunSummary[] }) {
                         // The accent rule is the picked run, and it is on a
                         // border that is always there so nothing shifts by two
                         // pixels when one is picked.
-                        className={`py-3 pr-4 ${
+                        className={`py-3.5 pr-4 align-middle ${COLUMN[cell.column.id] ?? "text-left"} ${
                           index === 0
                             ? `border-l-2 pl-2 ${isSelected ? "border-accent" : "border-transparent"}`
                             : ""
@@ -392,7 +433,7 @@ export function Record({ runs }: { runs: RunSummary[] }) {
           {ghosts > 0 ? (
             <div aria-hidden="true">
               {GHOST_ROWS.slice(0, ghosts).map((id) => (
-                <div key={id} className="h-[2.6rem] border-line border-b" />
+                <div key={id} className="h-[3.1rem] border-line border-b" />
               ))}
             </div>
           ) : null}
