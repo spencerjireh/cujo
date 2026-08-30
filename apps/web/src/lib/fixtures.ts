@@ -148,10 +148,15 @@ export const findings: Finding[] = [
  */
 export const detonationDigest: RunDigest = {
   checks: {
-    tests: { status: "done", ms: 108_000 },
-    probes: { status: "done", ms: 52_000 },
-    smoke: { status: "done", ms: 70_000 },
-    detonation: { status: "done", ms: 150_000 },
+    // Four different execution shares, matching `detonationChecks` above,
+    // because the specimen draws that split as the solid part of an arm and a
+    // fixture where every lane divides identically proves nothing about it.
+    // `smoke` has none at all — a check from before `timings` existed, drawn as
+    // one undivided arm rather than as all-model.
+    tests: { status: "done", ms: 108_000, sandboxMs: 81_000 },
+    probes: { status: "done", ms: 52_000, sandboxMs: 7_000 },
+    smoke: { status: "done", ms: 70_000, sandboxMs: null },
+    detonation: { status: "done", ms: 150_000, sandboxMs: 118_000 },
   },
   findings: { critical: 2, warn: 1, info: 1 },
   durationMs: 156_000,
@@ -258,10 +263,10 @@ export const runs: RunSummary[] = [
     updated_at: at(-3_600),
     digest: {
       checks: {
-        tests: { status: "done", ms: 41_000 },
-        probes: { status: "done", ms: 22_000 },
-        smoke: { status: "done", ms: 31_000 },
-        detonation: { status: "done", ms: 48_000 },
+        tests: { status: "done", ms: 41_000, sandboxMs: null },
+        probes: { status: "done", ms: 22_000, sandboxMs: null },
+        smoke: { status: "done", ms: 31_000, sandboxMs: null },
+        detonation: { status: "done", ms: 48_000, sandboxMs: null },
       },
       findings: { critical: 0, warn: 0, info: 1 },
       durationMs: 52_000,
@@ -279,9 +284,9 @@ export const runs: RunSummary[] = [
       // A check that errored, and one that never appeared at all — the two
       // cases a sensor strip has to draw differently.
       checks: {
-        tests: { status: "done", ms: 96_000 },
-        probes: { status: "done", ms: 34_000 },
-        detonation: { status: "error", ms: null },
+        tests: { status: "done", ms: 96_000, sandboxMs: null },
+        probes: { status: "done", ms: 34_000, sandboxMs: null },
+        detonation: { status: "error", ms: null, sandboxMs: null },
       },
       findings: { critical: 1, warn: 0, info: 0 },
       durationMs: 101_000,
@@ -299,9 +304,9 @@ export const runs: RunSummary[] = [
       // Mid-flight: no duration, because a partial envelope would read as a
       // run that finished fast.
       checks: {
-        tests: { status: "running", ms: null },
-        probes: { status: "done", ms: 19_000 },
-        smoke: { status: "running", ms: null },
+        tests: { status: "running", ms: null, sandboxMs: null },
+        probes: { status: "done", ms: 19_000, sandboxMs: null },
+        smoke: { status: "running", ms: null, sandboxMs: null },
       },
       findings: { critical: 0, warn: 0, info: 0 },
       durationMs: null,
