@@ -198,3 +198,33 @@ export function specimensFrom(runs: RunSummary[], limit: number): Specimen[] {
     };
   });
 }
+
+/**
+ * Everything about a specimen that reaches the drawing, as one string.
+ *
+ * The chamber rebuilds a node's geometry when its run changes, and "changes"
+ * has to mean *would be drawn differently* rather than "is a new object" — the
+ * list is refetched every five seconds and returns an equal record almost every
+ * time. Comparing the two ends of that is what lets a poll leave twenty-four
+ * nodes alone and rebuild the one whose detonation just went red.
+ *
+ * It is the literal encoding of decision 68's third rule — two runs look alike
+ * only if they ran alike — so it belongs beside the shape it summarises rather
+ * than in the scene that consumes it. Anything absent from this string is a
+ * fact the drawing does not carry; `index` is deliberately not in it, because a
+ * specimen that only moved slot is the same specimen and slides rather than
+ * being rebuilt.
+ */
+export function specimenSignature(spec: Specimen): string {
+  const bars = spec.bars.map((bar) => `${bar.name}:${bar.outcome}:${bar.length.toFixed(3)}`);
+  const marks = spec.marks.map((mark) => mark.severity);
+  return [
+    spec.status,
+    spec.tone,
+    spec.live ? "live" : "still",
+    spec.unmeasured ? "unmeasured" : "measured",
+    spec.coreScale.toFixed(2),
+    bars.join(","),
+    marks.join(","),
+  ].join("|");
+}

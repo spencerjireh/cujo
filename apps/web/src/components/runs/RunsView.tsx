@@ -49,13 +49,16 @@ export function RunsView() {
 
   return (
     <div>
-      {/* The chamber is always dark and always full width: it is the
-          instrument's viewport, and the page is the panel around it. The scene
-          composes its record to the right of centre, so the readout sits in the
-          left half rather than on top of the specimens. */}
+      {/* The chamber is always dark, always full width, and now the whole first
+          screen: it is the instrument's viewport, and the page is the panel
+          around it. It used to be a 40rem band under a bordered header, with a
+          wash over three fifths of it — so most of the hero was not the scene,
+          and the product's central claim was a strip. The record starts below
+          the fold, which is the trade: the board says what it is first and
+          lists what it has second. */}
       <section
         aria-label="The chamber"
-        className="relative isolate overflow-hidden bg-[var(--chamber)]"
+        className="relative isolate h-[100svh] overflow-hidden bg-[var(--chamber)]"
       >
         {/* On the chamber, so it takes the pinned viewport tokens rather than
             the page's: this surface is a screen and stays dark in a lit room.
@@ -63,21 +66,25 @@ export function RunsView() {
             against the chamber and scrolls away with it. */}
         <HomeMark tone="chamber" />
         {/* Two forms of the same record, because it is a long thin thing and a
-            viewport is not always wide. Wide: the scene, with the record
-            running beside the headline, which is what the camera is framed for.
-            Narrow: the chain hangs down the right margin, because the same
-            drawing turned sideways scales to a sliver of dots. */}
-        <div className="absolute inset-0 hidden lg:block">
+            viewport is not always wide. From `md` up: the scene, framed by a
+            camera that pulls back as the frame narrows so the record still
+            fits. Below it: the chain hangs down the right margin, because the
+            same drawing turned sideways scales to a sliver of dots — and
+            because a phone should not be asked for a composed frame with a
+            bloom pass in it. */}
+        <div className="absolute inset-0 hidden md:block">
           <Chamber runs={runs} updatedAt={dataUpdatedAt} pollMs={pollMs} onLive={setSceneLive} />
         </div>
-        <div className="absolute inset-y-0 right-0 w-20 sm:w-28 lg:hidden" aria-hidden="true">
+        <div className="absolute inset-y-0 right-0 w-20 sm:w-28 md:hidden" aria-hidden="true">
           <ChamberFallback specimens={specimens} orientation="vertical" />
         </div>
-        {/* A ground for the type on the wide layout, where it sits over the
-            scene. No box, no panel — the type just gets somewhere to sit. */}
+        {/* A ground for the type, and now a band under it rather than a wash
+            across three fifths of the frame. The readout sits at the bottom
+            left, over the chamber's floor — which is its darkest region — so
+            the whole upper frame is the volume. */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-0 hidden w-3/5 bg-gradient-to-r from-[var(--chamber)] from-40% to-transparent lg:block"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[var(--chamber)] from-25% via-[var(--chamber)]/80 to-transparent"
         />
         {/* `pointer-events-none` on both this and the wash above, because they
             are painted after the canvas and span it: whichever of them the
@@ -86,7 +93,7 @@ export function RunsView() {
             here is interactive — the readout is text, the wash is decoration —
             so nothing needs the events back, and the scene reads the pointer
             for parallax off the frame underneath. */}
-        <div className="pointer-events-none relative flex min-h-[28rem] items-center py-16 pr-24 pl-4 sm:pr-32 md:pl-8 lg:min-h-[40rem] lg:pr-12 lg:pl-12">
+        <div className="pointer-events-none relative flex h-full items-end pr-24 pb-12 pl-4 sm:pr-32 md:pb-14 md:pl-8 lg:pr-12 lg:pl-12">
           <HeroReadout metrics={metrics} interactive={sceneLive} />
         </div>
       </section>

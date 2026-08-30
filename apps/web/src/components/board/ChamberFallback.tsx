@@ -157,3 +157,61 @@ export function ChamberFallback({
     </svg>
   );
 }
+
+/**
+ * One specimen, and nothing else: the shape a run has, at a size that fits
+ * beside a title.
+ *
+ * A third entry in `BOXES` above would have been the obvious way to do this and
+ * is the wrong one — that drawing always renders a chain, a rail and a drop
+ * line, and the run page's specimen hangs on none of them. It is the same rig
+ * the inline WebGL scene uses (`chamber/inline.ts`): no chain to hang from, no
+ * floor to land on, and so no marks, which are strung on a drop line that is
+ * not there. Two drawings of the same thing have to agree about what the thing
+ * is, and this is that agreement written twice because one of them cannot use a
+ * GPU.
+ *
+ * It is what a reader sees first on every run page, and all a reader sees when
+ * there is no WebGL.
+ */
+export function SpecimenGlyph({ specimen }: { specimen: Specimen }) {
+  const size = 120;
+  const centre = size / 2;
+  const arm = 30;
+
+  return (
+    <svg
+      viewBox={`0 0 ${size} ${size}`}
+      className="h-full w-full"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <title>This run, drawn as a specimen</title>
+      {specimen.bars.map((bar, i) => {
+        if (bar.length <= 0) return null;
+        const dx = i === 1 || i === 2 ? 1 : -1;
+        const dy = i === 0 || i === 1 ? -1 : 1;
+        const reach = bar.length * arm * Math.SQRT1_2;
+        return (
+          <line
+            key={bar.name}
+            x1={centre}
+            y1={centre}
+            x2={centre + dx * reach}
+            y2={centre + dy * reach}
+            stroke={`var(${TONE_CHAMBER_VAR[bar.tone]})`}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+        );
+      })}
+      <circle
+        cx={centre}
+        cy={centre}
+        r={5.5 * specimen.coreScale}
+        fill={`var(${TONE_CHAMBER_VAR[specimen.tone]})`}
+      />
+    </svg>
+  );
+}
