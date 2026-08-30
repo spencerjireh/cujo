@@ -82,7 +82,7 @@ client, and the board in `apps/web` reads that service, never the harness.
    credential.
 2. Open a pull request. Within seconds it wears an eye reaction, which proves
    delivery, and a few minutes later one review from `cujo-guard[bot]`.
-   Checked on 2026-08-31 with a repository the App had never seen,
+   Checked on 2026-08-30 with a repository the App had never seen,
    [cujo-install-check#1](https://github.com/spencerjireh/cujo-install-check/pull/1):
    reaction after 5 s, a `REQUEST_CHANGES` review for the broken test after
    1 m 41 s, and the run on the board.
@@ -155,7 +155,7 @@ Qodo reviews every pull request automatically. It reads
 reviewer would. Every Qodo comment is applied or answered with a one-line
 reason and resolved before merge, and nothing merges with an open thread.
 
-Counted from the GitHub API on 2026-08-31.
+Counted from the GitHub API on 2026-08-30.
 
 - **106** merged pull requests, every one reviewed by Qodo.
 - **93** received findings, **380** inline review threads in total, and **13**

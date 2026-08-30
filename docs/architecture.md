@@ -29,7 +29,7 @@ sandbox is thrown away afterwards.
 | **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
 | **`sandbox/`** | The in-sandbox sensor code: `sniff.py` and the `cujo_sniff` package behind it. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check, and each report says which of them was watching while it was produced (decision 54). |
 | **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes and no credential: signature-gated ingress, and an anonymous read-only `/public` group (decision 34, decision 57). |
-| **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. One hostname and one plane: the anonymous read-only board (decision 57), plus the manual at `/docs`, which is static, calls nothing, and is the only path on this site that asks to be indexed (decision 98). |
+| **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. One hostname and one plane: the anonymous read-only board (decision 57), plus the manual at `/docs`, which is static, calls nothing, and is the only path on this site that asks to be indexed (decision 98). The manual is reached from two buttons on the footer, *Manual* and *Install the App*, and from a link on the hero legend; the site has no navigation bar. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
 | **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). A card links to the board for a public run and nowhere for a private one, which has no page (decision 57). Optional: with no bot token the service runs and says nothing. |
@@ -302,7 +302,8 @@ Coolify in a single `docker-compose` project so the services share a network.
   `https://cujo.spencerjireh.com` is the anonymous read-only board, which lists
   public repos only and names no approver. `/docs` under it is the user-facing
   manual: statically rendered, dependent on nothing this deploy runs, and the
-  one path `robots.txt` allows (decision 98). There is no second plane and no
+  one path `robots.txt` allows (decision 98). Two footer buttons, *Manual* and
+  *Install the App*, and a link on the hero legend lead to it. There is no second plane and no
   credential: the operator one was deleted with its hostname (decision 57), and
   a held finding is answered with `/cujo confirm` on the pull request
   (decision 49). It proxies the JSON API at `/api/cujo/*` — forwarding only

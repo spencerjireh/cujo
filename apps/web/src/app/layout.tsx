@@ -87,7 +87,7 @@ const SOURCE = [
  * remembering its own, and arriving here after a theme was set elsewhere — a
  * system change, another tab — must not show a control claiming otherwise.
  */
-function SiteFooter() {
+export function SiteFooter() {
   return (
     <footer className="border-t border-line px-4 py-10 md:px-6">
       <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
