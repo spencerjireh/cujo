@@ -399,7 +399,7 @@ The envelope a check sub-agent returns:
 | `schema_version` | The report shape, an integer. Read what you recognise; never reject a report for carrying a version you do not know. |
 | `check` | One of `tests`, `probes`, `smoke`, `detonation`. It must match the sub-agent's own name, which is how a report is attributed to a check. |
 | `runs[]` | Every `sniff.py run` or `detonate` report, in order, verbatim. |
-| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. Validated leniently at this level: every key optional, each one a boolean when present. |
+| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. Validated leniently at this level, each in its own shape: `derived` and `truncated` hold named booleans and every key is optional; each sensor in `sensors` is an object that still owes `armed`. `derived` is required as a block; `sensors` and `truncated` may be absent. |
 
 plus the per-check fields in the rubric: `base` / `head` / `base_pass_head_fail`
 for `tests`, `probes[]`, `endpoints[]` and `log_tail` for `smoke`.
