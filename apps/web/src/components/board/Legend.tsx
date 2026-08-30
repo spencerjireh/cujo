@@ -117,8 +117,8 @@ export function Legend() {
             ))}
           </ul>
           <p className="mt-4 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            A run appears here only while its repository is public. Cujo blocks a merge on a
-            critical finding, and only after a maintainer confirms it on the pull request.
+            Cujo blocks a merge on a critical finding, and only after a maintainer confirms it on
+            the pull request.
           </p>
           <p className="mt-3 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
             The amber plane crossing the chamber is the board re-reading the API: every five seconds
