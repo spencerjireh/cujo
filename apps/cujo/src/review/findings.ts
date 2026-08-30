@@ -262,14 +262,13 @@ export function isOperationalRule(finding: Finding): boolean {
   return finding.rule !== undefined && OPERATIONAL_RULES.has(finding.rule);
 }
 
-/** The checks every review must delegate; `detonation` depends on the PR. */
+/**
+ * The checks every review must delegate when a test suite was inferred;
+ * `detonation` depends on the PR's manifest diff and is independent of the
+ * suite (decision 87).
+ */
 export const REQUIRED_CHECKS = ["tests", "probes", "smoke"] as const;
 
-/**
- * One `warn` per required check that never arrived as a sub-agent thread.
- * The rubric forbids the parent from running a check itself; when it does,
- * the hard rules have nothing to read, and the review has to say so.
- */
 /**
  * Why a check has no report, in the words that tell an operator what to do
  * about it. All three end the same way — the rules had nothing to read — and
@@ -289,12 +288,27 @@ function missingEvidence(check: CheckState | undefined): string {
   return `its sub-agent thread ended ${check.status} without a report the fold could parse; the hard rules had nothing to read`;
 }
 
+/**
+ * Whether the three suite-dependent checks were inapplicable because no test
+ * suite was inferred. The positive signal is `detonation` having run while
+ * none of the suite checks did — the agent deliberately chose to run only
+ * detonation (decision 87). When nothing ran at all, the absence is
+ * ambiguous (the agent may have failed to spawn anything) and `check_missing`
+ * should still fire.
+ */
+function suiteChecksInapplicable(checks: readonly CheckState[]): boolean {
+  const checkTitles = new Set(checks.filter((c) => c.isCheck).map((c) => c.title));
+  const hasDetonation = checkTitles.has("detonation");
+  const hasSuiteCheck =
+    checkTitles.has("tests") || checkTitles.has("probes") || checkTitles.has("smoke");
+  return hasDetonation && !hasSuiteCheck;
+}
+
 export function missingCheckFindings(checks: readonly CheckState[]): Finding[] {
-  // A thread counts only once it returned a report: one still running or
-  // ended in error without one gave the rules nothing either.
+  if (suiteChecksInapplicable(checks)) {
+    return [];
+  }
   const seen = new Set(checks.filter((c) => c.isCheck && c.report !== null).map((c) => c.title));
-  // The thread itself, when there was one, so the evidence can say which of the
-  // several ways to have no report this was.
   const byTitle = new Map(checks.filter((c) => c.isCheck).map((c) => [c.title, c]));
   return REQUIRED_CHECKS.filter((name) => !seen.has(name)).map((name) => ({
     source: "hard_rule",
