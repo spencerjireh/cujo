@@ -1,3 +1,4 @@
+import { renderReviewBody, reviewComments } from "@cujo/review-render";
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
 import { isMaliceClaim } from "../../src/review/findings";
@@ -109,7 +110,24 @@ const threadDone = (threadId: string, text: string, createdAt: string = at): Ev 
   },
 });
 
+// A call from a session pinned to the old rubric: it still sends `comments[]`,
+// and `parseReview` still reads it (decision 74).
 const review = { body: "What ran", comments: [{ path: "a.py", line: 3, body: "boom" }] };
+// What the rubric sends now: anchors ride on the findings, nothing else.
+const derivedReview = {
+  body: "A test that passed on base fails on head.",
+  findings: [
+    {
+      check: "tests",
+      severity: "critical",
+      title: "1 test passes on base and fails on head",
+      evidence: "AssertionError: 10.05 != 10.04",
+      path: "app/orders.py",
+      line: 42,
+    },
+    { check: "probes", severity: "info", title: "the probes agreed", evidence: "3 of 3" },
+  ],
+};
 const resume = (status: "allow" | "deny"): TrueForgeApi.TurnInputItem[] => [
   { type: "user.tool_approval", threadId: "main", toolCallId: "call-1", approval: { status } },
 ];
@@ -131,6 +149,48 @@ describe("fold", () => {
     expect(p.status).toBe("clean");
     expect(p.review?.tool).toBe("post_advisory_review");
     expect(p.review?.comments).toHaveLength(1);
+  });
+
+  it("derives the inline comments from a review that sent none", () => {
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", derivedReview),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    // One anchored finding, one without: only the anchored one is a comment.
+    expect(p.review?.comments).toEqual([
+      {
+        path: "app/orders.py",
+        line: 42,
+        side: "RIGHT",
+        body: "**critical \u2014 1 test passes on base and fails on head**\n\n> AssertionError: 10.05 != 10.04",
+      },
+    ]);
+  });
+
+  it("keeps the comments a legacy call sent, rather than deriving over them", () => {
+    // The guarantee for every pull request whose session predates the rubric
+    // change: its board page loses nothing.
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.review?.comments).toEqual([{ path: "a.py", line: 3, body: "boom" }]);
+  });
+
+  it("derives the held review's comments from its own findings", () => {
+    // `gatedReview` is a separate call with a separate findings list, and the
+    // withholding rule reads that list — so the derivation must follow it.
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-1", "post_gated_review", derivedReview),
+      approvalRequired("main", "call-1", "mm-call-1"),
+    ]);
+    expect(p.gatedReview?.comments).toHaveLength(1);
+    expect(p.review).toBeNull();
   });
 
   it("is error, not clean, when the turn ends without any review call", () => {
@@ -692,6 +752,9 @@ describe("parseReview", () => {
       tool: "post_blocking_review",
       toolCallId: "c1",
       body: "What ran",
+      // A legacy call: the model's own prose lands under `### Notes`, and its
+      // own comments are kept rather than derived (decision 74).
+      composedBody: expect.stringContaining("**Blocked**"),
       comments: [{ path: "a.py", line: 3, body: "boom" }],
       findings: [],
     });
@@ -964,5 +1027,105 @@ describe("the setup window", () => {
     const p = fold([turnCreated("t1", undefined, claim), mainMessage("m1", spoke)]);
     expect(p.setup.firstCheckAt).toBeNull();
     expect(p.setup.ms).toBeUndefined();
+  });
+});
+
+/**
+ * The board and the pull request describe a review the same way (decision 74).
+ *
+ * The test the first cut of that decision did not have. It derived the inline
+ * comments twice — once in `github-mcp` to post them, once in `apps/cujo` to
+ * show them — and the two drifted in three ways before review caught it: a
+ * dedupe key missing `check`, a title translated on one side only, and a board
+ * showing the one-sentence lede where GitHub had the whole review.
+ *
+ * Both sides call `@cujo/review-render` now, so what this pins is that
+ * `parseReview` really routes through it rather than growing a second
+ * implementation again.
+ */
+
+const sharedArgs = {
+  body: "A dependency added by this PR reads credentials while it installs.",
+  findings: [
+    {
+      check: "detonation",
+      severity: "critical",
+      // The case the whole decision is about: a title that is still a field
+      // name, which one side used to translate and the other did not.
+      title: "secret_probe.decoy_read: true",
+      evidence: "read at 12:04:31 during pip install",
+      detail: "Nothing in the package's stated purpose needs the environment.",
+      next: "drop the dependency, or pin an audited version",
+      path: "pyproject.toml",
+      line: 7,
+    },
+    {
+      check: "probes",
+      severity: "warn",
+      title: "no test covers the refund path",
+      evidence: "refund_window() is called by nothing under tests/",
+      path: "app/refunds.py",
+      line: 17,
+    },
+  ],
+  coverage: { ran: [{ check: "tests", note: "212 on base and head" }], skipped: [] },
+  egress: [{ host: "pypi.org", port: 443, known: true }],
+};
+
+const reviewToolCall = (name: string): TrueForgeApi.ChatCompletionMessageToolCall =>
+  ({
+    id: "call-1",
+    type: "function",
+    function: { name, arguments: JSON.stringify(sharedArgs) },
+  }) as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+
+describe("parseReview agrees with what github-mcp posts", () => {
+  it("is the body github-mcp composes, not the lede the model sent", () => {
+    const parsed = parseReview(reviewToolCall("post_blocking_review"));
+    expect(parsed?.composedBody).toBe(
+      renderReviewBody(sharedArgs as Parameters<typeof renderReviewBody>[0], {
+        tool: "post_blocking_review",
+        accusationFollows: false,
+        runUrl: null,
+      }),
+    );
+    // The lede is kept too, but it is not the review.
+    expect(parsed?.body).toBe(sharedArgs.body);
+    expect(parsed?.composedBody).not.toBe(parsed?.body);
+  });
+
+  it("carries the verdict, the findings, the coverage and the egress", () => {
+    const body = parseReview(reviewToolCall("post_blocking_review"))?.composedBody ?? "";
+    expect(body).toContain("**Blocked** — 1 critical, 1 warn");
+    expect(body).toContain("### Coverage");
+    expect(body).toContain("Egress: 1 known host.");
+  });
+
+  it("translates a field-name title exactly as the posted review does", () => {
+    const body = parseReview(reviewToolCall("post_blocking_review"))?.composedBody ?? "";
+    expect(body).toContain("**the seeded decoy secret was read**");
+    // The raw expression survives, moved to where a field name belongs.
+    expect(body).toContain("secret_probe.decoy_read: true; read at 12:04:31");
+  });
+
+  it("derives the same inline comments github-mcp derives, byte for byte", () => {
+    expect(parseReview(reviewToolCall("post_advisory_review"))?.comments).toEqual(
+      reviewComments(sharedArgs as Parameters<typeof reviewComments>[0]),
+    );
+  });
+
+  it("reads the accusation's held markers off its own call", () => {
+    const held = {
+      ...sharedArgs,
+      findings: [{ ...sharedArgs.findings[0], severity: "warn", held: true }],
+      accusation_follows: true,
+    };
+    const parsed = parseReview({
+      id: "call-2",
+      type: "function",
+      function: { name: "post_advisory_review", arguments: JSON.stringify(held) },
+    } as unknown as TrueForgeApi.ChatCompletionMessageToolCall);
+    expect(parsed?.composedBody).toContain("(1 held)");
+    expect(parsed?.composedBody).toContain("· held");
   });
 });

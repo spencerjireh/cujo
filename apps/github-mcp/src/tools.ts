@@ -13,9 +13,16 @@
  */
 
 import { type Logger, createLogger, errorFields } from "@cujo/log";
+import { type ReviewTool, renderReviewBody, reviewComments } from "@cujo/review-render";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { appendConfirmPrompt, appendReviewMarker, appendRunFooter, reviewMarker } from "./body";
+import {
+  appendConfirmPrompt,
+  appendReviewMarker,
+  appendRunFooter,
+  reviewMarker,
+  runUrl,
+} from "./body";
 import { appendMovedComments, validateAnchors } from "./diff";
 import type { ExistingReview, GitHubClient } from "./github";
 
@@ -29,28 +36,47 @@ export const reviewInputShape = {
     .string()
     .regex(/^[0-9a-f]{7,40}$/)
     .describe("Head commit SHA the review is about."),
-  body: z.string().min(1).describe("Review summary in Markdown: what ran, results, egress."),
-  comments: z
-    .array(
-      z.object({
-        path: z.string().min(1).describe("File path in the PR."),
-        line: z.number().int().positive().describe("Line in the PR diff."),
-        side: z
-          .enum(["LEFT", "RIGHT"])
-          .optional()
-          .describe("RIGHT (head, default) or LEFT (base)."),
-        body: z.string().min(1).describe("The finding, in Markdown."),
-      }),
-    )
-    .default([])
-    .describe("Inline findings. One without a valid diff anchor moves into the body."),
+  body: z
+    .string()
+    .min(1)
+    .describe(
+      "One sentence: the verdict in plain language. Not a summary — the server composes the headline, the findings, the coverage caveat and the egress line from the fields below. Never write a verdict word (blocked, advisory) into it.",
+    ),
   findings: z
     .array(
       z.object({
         check: z.string().min(1).describe("tests, probes, smoke, detonation, or review."),
         severity: z.enum(["info", "warn", "critical"]),
-        title: z.string().min(1),
-        evidence: z.string().default(""),
+        title: z
+          .string()
+          .min(1)
+          .describe(
+            "One clause of plain language: what happened, not which sensor field said so. Never a field name like secret_probe.decoy_read.",
+          ),
+        evidence: z
+          .string()
+          .default("")
+          .describe(
+            "The observation itself: the failing assertion, the host and port, the path written. Numbers, not adjectives.",
+          ),
+        detail: z
+          .string()
+          .optional()
+          .describe(
+            "One paragraph of judgment: why the evidence supports the claim, and what it rules out. Expected on every critical.",
+          ),
+        next: z
+          .string()
+          .optional()
+          .describe(
+            "One imperative clause naming the action. Required on critical, allowed on warn, never on info. It must follow from an observed signal — never style, architecture, naming, or preference.",
+          ),
+        held: z
+          .boolean()
+          .default(false)
+          .describe(
+            "This is a malice observation whose conclusion a post_gated_review call is holding back. Set it only on the findings marked warn for that reason, on the same call that passes accusation_follows.",
+          ),
         path: z.string().optional(),
         line: z.number().int().positive().optional(),
         side: z.enum(["LEFT", "RIGHT"]).optional(),
@@ -58,7 +84,60 @@ export const reviewInputShape = {
     )
     .default([])
     .describe(
-      "Every finding with its severity. Not posted; Cujo reads it from the tool call to show the run.",
+      "Every finding. The server renders them by severity and derives the inline comments from them: one carrying path and line becomes a comment on that diff line. There is no comments parameter.",
+    ),
+  // Deprecated, and kept only for the migration (decision 74). The rubric no
+  // longer asks for this and new calls do not send it — anchors ride on the
+  // findings. But a session pins its rubric at creation (decision 16), so an
+  // in-flight pull request goes on sending the old shape for as long as its
+  // session lives, and deleting the key outright made Zod strip it: those
+  // reviews would have posted whatever the findings happened to anchor and
+  // silently dropped the comments the model actually wrote. Present and
+  // preferred when non-empty, so a legacy call posts exactly what it always
+  // did. Remove it once no session predating decision 74 can still be running.
+  comments: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        line: z.number().int().positive(),
+        side: z.enum(["LEFT", "RIGHT"]).optional(),
+        body: z.string().min(1),
+      }),
+    )
+    .default([])
+    .describe(
+      "Deprecated; do not send. Anchor a finding with path and line instead and it becomes an inline comment. Accepted only so a session created before the review body was composed server-side keeps posting the comments it wrote.",
+    ),
+  coverage: z
+    .object({
+      ran: z
+        .array(
+          z.object({
+            check: z.string().min(1),
+            note: z.string().optional().describe('Short, e.g. "212 on base and head".'),
+          }),
+        )
+        .default([]),
+      skipped: z
+        .array(z.object({ check: z.string().min(1), reason: z.string().min(1) }))
+        .default([]),
+    })
+    .optional()
+    .describe(
+      "What this review covers and what it does not. Do not write the caveat into body: a caveat in a parenthesis is a caveat nobody reads.",
+    ),
+  egress: z
+    .array(
+      z.object({
+        host: z.string().min(1),
+        port: z.number().int().positive().optional(),
+        known: z.boolean(),
+        note: z.string().optional(),
+      }),
+    )
+    .optional()
+    .describe(
+      "Every host contacted, each marked known or unknown. The server writes the summary line and the host table.",
     ),
   // An id, not a URL. A URL from the agent would let whatever it just read in
   // the pull request choose where "Full evidence" points, and `z.string().url()`
@@ -111,7 +190,7 @@ export interface ReviewResult {
 }
 
 /** The tools that post a review. The name rides on the log line, so it is passed. */
-export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+export type { ReviewTool };
 
 export async function postReview(
   github: GitHubClient,
@@ -187,12 +266,23 @@ export async function postReview(
     // Two genuinely simultaneous calls can still both post. Closing that needs
     // state neither this server nor GitHub has: `github-mcp` is stateless by
     // design (decision 5) and builds a fresh MCP server per request.
+    // Read by presence and not by tool name: `post_gated_review` registers the
+    // bare shape, so the key does not exist on it at all (decision 60). Hoisted
+    // to a const because the renderer and the maintainer prompt both need it.
+    const accusationFollows = "accusation_follows" in input && input.accusation_follows === true;
     const marker = reviewMarker(tool, input.head_sha, input.run_id);
     const early = await alreadyPosted(marker);
     if (early) return duplicate(early);
 
     const files = await github.listPullFiles(input.repo, input.pr_number);
-    const { inline, moved } = validateAnchors(files, input.comments);
+    // Derived, not sent (decision 74). A finding carrying an anchor is an
+    // inline comment; there is no second array that could disagree with it.
+    // A legacy call's own comments win, so an in-flight session posts exactly
+    // what it always did; everything else derives from the findings, which is
+    // the one source of an anchor now (decision 74).
+    const legacy = input.comments ?? [];
+    const candidates = legacy.length > 0 ? legacy : reviewComments(input);
+    const { inline, moved } = validateAnchors(files, candidates);
     for (const { comment, reason } of moved) {
       // One line per rejected anchor, because `moved_to_body` is a count with
       // no explanation: an agent citing a file the PR does not touch and one
@@ -210,21 +300,46 @@ export async function postReview(
     const late = await alreadyPosted(marker);
     if (late) return duplicate(late);
 
+    // The whole body, composed here rather than written by the model
+    // (decision 74). An anchor `validateAnchors` refused is marked on the
+    // finding in place, which is what retired the anchorless-findings section:
+    // no comment can vanish when every finding is already in the body.
+    const composed = renderReviewBody(input, {
+      tool,
+      accusationFollows,
+      runUrl: runUrl(publicBaseUrl, input.run_id),
+      // Only meaningful when the comments came from the findings: on a legacy
+      // call these keys describe the model's own `comments[]`, which the body
+      // does not print, so marking findings against them would be guesswork.
+      unanchored:
+        legacy.length > 0
+          ? new Set<string>()
+          : new Set(
+              moved.map(
+                ({ comment }) => `${comment.path}:${comment.line}:${comment.side ?? "RIGHT"}`,
+              ),
+            ),
+    });
+
     const review = await github.createReview(input.repo, input.pr_number, {
       commitId: input.head_sha,
       event,
-      // Outward-in: the footer is last, so it sits below the findings that lost
-      // their diff anchor rather than between them and the body (decision 36).
-      // The maintainer prompt goes directly above it — both are ours, and a
-      // call to action reads better next to the evidence it points at.
-      // Outward-in, and the marker is outside even the footer: a private
-      // repository has no run id, so `appendRunFooter` returns the body
-      // unchanged there, and a marker composed inside it would vanish with it.
+      // Outward-in: the footer is last, so it sits below the composed body
+      // rather than inside it (decision 36). The maintainer prompt goes
+      // directly above it — both are ours, and a call to action reads better
+      // next to the evidence it points at.
+      // The marker is outside even the footer: a private repository has no run
+      // id, so `appendRunFooter` returns the body unchanged there, and a marker
+      // composed inside it would vanish with it.
       body: appendReviewMarker(
         appendRunFooter(
           appendConfirmPrompt(
-            appendMovedComments(input.body, moved),
-            "accusation_follows" in input && input.accusation_follows,
+            // A legacy comment's text lives nowhere but the comment, so one
+            // whose anchor GitHub refused would vanish from the review
+            // altogether. A derived one is already in the composed body and
+            // marked there, which is why this runs on the legacy path only.
+            legacy.length > 0 ? appendMovedComments(composed, moved) : composed,
+            accusationFollows,
           ),
           publicBaseUrl,
           input.run_id,

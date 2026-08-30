@@ -1,3 +1,4 @@
+import { type RenderInput, renderReviewBody, reviewComments } from "@cujo/review-render";
 import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import {
   agentFindings,
@@ -165,6 +166,11 @@ export function parseReport(text: string): unknown | null {
 const CALL_TOOL = "call_tool";
 const REVIEW_MCP_SERVER = "github-mcp";
 
+/** A plain object, which is what a `coverage` value has to be to render. */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -199,13 +205,43 @@ export function parseReview(
     args = asObject(args.input);
   }
   if (!REVIEW_TOOLS.has(tool)) return null;
-  const comments = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];
+  const findings = Array.isArray(args.findings) ? args.findings : [];
+  const body = typeof args.body === "string" ? args.body : "";
+  // A session pins its rubric at creation (decision 16), so an in-flight pull
+  // request goes on sending `comments[]` long after the rubric stopped asking
+  // for one. Those arrive here whole — `apps/cujo` reads the model's raw
+  // arguments off the `model.message` event, before `github-mcp`'s schema sees
+  // them — and `github-mcp` prefers them too, so the board matches what posted.
+  const sent = Array.isArray(args.comments) ? (args.comments as ReviewComment[]) : [];
+  // Cast, but only after checking the shape. These are raw values off a
+  // `model.message` tool call — `apps/cujo` reads them before `github-mcp`'s
+  // Zod schema ever sees the call, so nothing has validated them, and a `cast`
+  // asserts a type at compile time while proving nothing at run time. The
+  // renderer is defensive about this too; belt and braces, because a throw here
+  // is inside `fold`, which is replayed on every rehydration, so one malformed
+  // review would be a run that can never be projected again.
+  const input: RenderInput = {
+    body,
+    findings: findings as RenderInput["findings"],
+    coverage: isObject(args.coverage)
+      ? (args.coverage as unknown as RenderInput["coverage"])
+      : undefined,
+    egress: Array.isArray(args.egress) ? (args.egress as RenderInput["egress"]) : undefined,
+  };
+  const reviewTool = tool as DraftedReview["tool"];
   return {
-    tool: tool as DraftedReview["tool"],
+    tool: reviewTool,
     toolCallId: call.id,
-    body: typeof args.body === "string" ? args.body : "",
-    comments,
-    findings: Array.isArray(args.findings) ? args.findings : [],
+    body,
+    // The same renderer `github-mcp` posts with, so the board cannot describe a
+    // finding differently from the pull request does (decision 74).
+    composedBody: renderReviewBody(input, {
+      tool: reviewTool,
+      accusationFollows: args.accusation_follows === true,
+      runUrl: null,
+    }),
+    comments: sent.length > 0 ? sent : reviewComments(input),
+    findings,
   };
 }
 

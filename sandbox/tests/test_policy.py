@@ -5,7 +5,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from cujo_sniff.policy import is_noise_read, is_sensitive, should_hash
+from cujo_sniff.policy import (
+    INTERPRETER_NAMES,
+    KNOWN_INDEX_HOSTS,
+    is_noise_read,
+    is_sensitive,
+    should_hash,
+)
 
 
 def test_sensitive_paths(home_dir: Path) -> None:
@@ -177,3 +183,31 @@ def test_a_link_that_resolves_to_the_decoy_is_still_hashed(home_dir: Path) -> No
     # Even a link sitting at the decoy's own path: still a `readlink`.
     assert should_hash(str(home_dir / ".aws" / "credentials"), home_dir, symlink=True)
     assert not should_hash(str(home_dir / ".aws" / "credentials"), home_dir)
+
+
+# ── Ecosystem coverage ──────────────────────────────────────────────────────
+
+
+def test_interpreter_names_cover_daytona_runtimes() -> None:
+    """Every runtime Daytona supports has its interpreter in the set."""
+    for name in ("ruby", "perl", "deno", "bun", "tsx", "ts-node"):
+        assert name in INTERPRETER_NAMES, f"{name} missing from INTERPRETER_NAMES"
+    for name in ("python3", "node", "bash", "sh"):
+        assert name in INTERPRETER_NAMES, f"{name} missing from INTERPRETER_NAMES"
+
+
+def test_known_index_hosts_cover_major_registries() -> None:
+    """Package registries for supported ecosystems are allowlisted."""
+    for host in ("pypi.org", "registry.npmjs.org", "rubygems.org", "index.rubygems.org"):
+        assert host in KNOWN_INDEX_HOSTS, f"{host} missing from KNOWN_INDEX_HOSTS"
+    for host in ("crates.io", "proxy.golang.org"):
+        assert host in KNOWN_INDEX_HOSTS, f"{host} missing from KNOWN_INDEX_HOSTS"
+
+
+def test_noise_reads_cover_ruby_and_go_artifacts() -> None:
+    """Gem cache and vendored dependencies are filtered as noise."""
+    assert is_noise_read("/home/user/.gem/ruby/3.2.0/gems/rake-13.0.6/lib/rake.rb")
+    assert is_noise_read("/work/head/vendor/github.com/go-chi/chi/v5/chi.go")
+    assert not is_noise_read("/work/head/app/server.rb")
+    # A .gem file in the workspace is a real read, not noise.
+    assert not is_noise_read("/work/head/fixtures/sample.gem")

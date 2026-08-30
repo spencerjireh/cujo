@@ -319,4 +319,73 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(store.runs.getProjection(run.id)?.externalResume).toBe(true);
     active().stopAll();
   });
+
+  /**
+   * The wedge behind the orders-api#18 incident, pinned in full because every
+   * intuition about it turned out to be wrong.
+   *
+   * A run whose stream is lost ends on a synthetic terminal (`consume`, when
+   * every resubscribe is spent) while its turn keeps running. The next run on
+   * the pull request then cannot start, and the four facts below say why no
+   * obvious remedy works:
+   *
+   * - a *running* turn does not wedge a session at all; the cancel test above
+   *   shows a second turn simply supersedes it. Running **sub-agents** do.
+   * - the refused `startTurn` **cancels the turn on its way out**, so by the
+   *   time a heal looks, nothing is `running` and the wedge is invisible in
+   *   `listTurns`.
+   * - `cancelTurn` does **not** clear it. The sub-agents outlive their turn.
+   * - an empty-input turn **is** accepted while a message is refused, which is
+   *   what the 422 text itself advises.
+   *
+   * Last in the file on purpose: it holds a session open, and the tests above
+   * read `stub.requests.at(-1)`.
+   */
+  it("a running sub-agent wedges the session, and only empty input is accepted", async () => {
+    // Its own session, spec-identical to the shared one -- `create_sub_agent`
+    // is only offered when the spec declares an MCP server.
+    const wedged = await harness.createSession({
+      model: { name: MODEL, params: { reasoningEffort: "low" } },
+      instructions: "Do what the user message says.",
+      mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
+      config: {
+        sandbox: { enabled: false },
+        askUserQuestions: { enabled: false },
+        generativeUi: { enabled: false },
+      },
+    });
+    const statusOf = async (id: string) =>
+      (await harness.listTurns(wedged)).find((t) => t.id === id)?.state.status;
+    const tryTurn = async (input: string) =>
+      await harness.startTurn(wedged, input).then(
+        () => "started",
+        (error: unknown) => String(error),
+      );
+
+    // The parent spawns a sub-agent whose own prompt is SLOW, so the child
+    // holds the session while the parent waits on it. The parent's prompt
+    // carries that SLOW too, which is why the stub exempts a planned call.
+    const spawn = `CALL create_sub_agent ${JSON.stringify({ name: "tests", input: "SLOW" })}`;
+    const before = stub.requests.length;
+    const parent = await harness.startTurn(wedged, spawn);
+    await new Promise((r) => setTimeout(r, 5_000));
+    // Guard the premise: without the spawn tool the stub answers with plain
+    // text, nothing runs, and everything below passes vacuously. The second
+    // request is the child, which is the one still sleeping.
+    const mine = stub.requests.slice(before);
+    expect(mine[0]?.tools?.map((t) => t.function.name)).toContain("create_sub_agent");
+    expect(mine.length).toBeGreaterThan(1);
+    expect(await statusOf(parent)).toBe("running");
+
+    // The incident: the session refuses the next head's turn.
+    expect(await tryTurn("second")).toContain("422");
+    // ... and the refusal cancelled the turn on its way out, so a heal that
+    // looks for a running turn finds nothing to act on.
+    expect(await statusOf(parent)).toBe("cancelled");
+    // Cancelling does not release the session: the sub-agents outlive it.
+    await harness.cancelTurn(wedged);
+    expect(await tryTurn("third")).toContain("422");
+    // Empty input is the one thing the session still accepts.
+    await expect(harness.client.sessions.createTurn(wedged, { input: [] })).resolves.toBeDefined();
+  }, 120_000);
 });

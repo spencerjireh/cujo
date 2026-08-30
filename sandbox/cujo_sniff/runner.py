@@ -27,13 +27,14 @@ from cujo_sniff.daemons import daemon_alive
 from cujo_sniff.jsonl import file_size, read_jsonl
 from cujo_sniff.policy import (
     DEFAULT_PROXY_PORT,
+    INTERPRETER_NAMES,
+    MAX_SCRIPT_CHARS,
     SCHEMA_VERSION,
     SENSED_LOCK_TIMEOUT_S,
     TAIL_CHARS,
-    tail,
 )
 from cujo_sniff.report import build_sensor_block, health
-from cujo_sniff.scrub import KEEP_IN_TEXT, scrub, scrub_argv
+from cujo_sniff.scrub import KEEP_IN_TEXT, scrub_argv, scrub_head, scrub_tail
 from cujo_sniff.sensors.fsdiff import Snapshot, diff_snapshots, snapshot
 
 
@@ -170,6 +171,79 @@ def sensed_window(ctx: Context, timeout: float = SENSED_LOCK_TIMEOUT_S) -> Itera
         fh.close()
 
 
+_TERMINATES_SCRIPT = frozenset({"-c", "-m", "--module", "-e", "--eval", "--require"})
+_CONSUMES_NEXT = frozenset(
+    {
+        "-c",
+        "-m",
+        "-W",
+        "-X",
+        "-Q",
+        "-e",
+        "--require",
+        "--loader",
+        "-r",
+        "-M",
+    }
+)
+_CONSUMES_NEXT_PERL = _CONSUMES_NEXT | frozenset({"-I"})
+_SUBCOMMAND_RUNTIMES = frozenset({"deno", "bun"})
+
+
+def capture_script(argv: list[str], cwd: Path) -> tuple[str | None, bool]:
+    """Read the script file when argv looks like an interpreter invocation.
+
+    Returns (content_or_none, was_truncated). The content is scrubbed and
+    capped at MAX_SCRIPT_CHARS so a large generated file cannot inflate the
+    report. Returns (None, False) when the command is not a script invocation
+    or the file cannot be read.
+    """
+    if len(argv) < 2:
+        return None, False
+    interpreter = Path(argv[0]).name
+    if interpreter not in INTERPRETER_NAMES:
+        return None, False
+    consumes = _CONSUMES_NEXT_PERL if interpreter == "perl" else _CONSUMES_NEXT
+    i = 1
+    if interpreter in _SUBCOMMAND_RUNTIMES and argv[i] == "run":
+        i = 2
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--":
+            i += 1
+            break
+        if arg in _TERMINATES_SCRIPT:
+            return None, False
+        if arg in consumes:
+            i += 2
+            continue
+        if not arg.startswith("-"):
+            break
+        i += 1
+    else:
+        return None, False
+    if i >= len(argv):
+        return None, False
+    script_path = Path(argv[i])
+    if not script_path.is_absolute():
+        script_path = cwd / script_path
+    if not script_path.is_file():
+        return None, False
+    try:
+        with script_path.open(errors="replace") as fh:
+            raw = fh.read(MAX_SCRIPT_CHARS + 1)
+    except OSError:
+        return None, False
+    # `scrub_head` rather than a cap and a `scrub()` in either order. Capping
+    # first bounds the wrong quantity, because escaping expands; escaping first
+    # and slicing the result bounds the right one and cuts `\u202e` into
+    # `\u20`, which is text the script did not contain. The budget is spent one
+    # whole character at a time, and `truncated` is true when the read stopped
+    # at the byte budget or the escape overflowed the character one.
+    content, escaped_over = scrub_head(raw, MAX_SCRIPT_CHARS, KEEP_IN_TEXT)
+    return content, len(raw) > MAX_SCRIPT_CHARS or escaped_over
+
+
 def run_sensed(
     ctx: Context, argv: list[str], *, check: str, workspace_roots: list[Path], cwd: Path
 ) -> dict[str, Any]:
@@ -182,6 +256,7 @@ def run_sensed(
     # earlier check left running keeps writing to that check's log.
     audit_log = paths["audit_dir"] / f"{os.urandom(6).hex()}.jsonl"
     audit_log.parent.mkdir(parents=True, exist_ok=True)
+    script_content, script_truncated = capture_script(argv, cwd)
     walk = {"state_dir": ctx.state_dir, "home_dir": ctx.home}
     with sensed_window(ctx) as exclusive:
         offsets = {k: file_size(paths[k]) for k in ("proxy_log", "decoy_log")}
@@ -205,6 +280,15 @@ def run_sensed(
         # Inside the window: a daemon that dies while the command runs is the
         # thing being looked for, so it is checked before the lock is released.
         sensors = {**daemon_health(ctx, config), "fs_diff": snapshot_health(before, after)}
+    # Escaping expands -- four characters for a control byte, six for a
+    # bidirectional override -- so the cap has to be spent on the escaped text.
+    # Capping first and escaping afterwards bounded the wrong quantity: a check
+    # that printed 4000 right-to-left overrides returned 24,000 characters
+    # against a 4000-character budget, and the output is written by the code
+    # under review. The flag is now true when either the raw output or its
+    # escaped form was cut, because both are the same fact to a reader.
+    stdout_tail, stdout_cut = scrub_tail(out, TAIL_CHARS, KEEP_IN_TEXT)
+    stderr_tail, stderr_cut = scrub_tail(err, TAIL_CHARS, KEEP_IN_TEXT)
     block = build_sensor_block(
         proxy_rows=proxy_rows,
         audit_rows=audit_rows,
@@ -214,14 +298,15 @@ def run_sensed(
         check=check,
         sensors=sensors,
         truncated={
-            "stdout_tail": len(out) > TAIL_CHARS,
-            "stderr_tail": len(err) > TAIL_CHARS,
+            "stdout_tail": stdout_cut,
+            "stderr_tail": stderr_cut,
             "snapshot": before.truncated or after.truncated,
             # A file too large to hash falls back to metadata, which is exactly
             # what a restored mtime defeats. Saying so is the difference between
             # a comparison that was not made and one that came back clean.
             "hashes": bool(before.uncompared or after.uncompared),
             "sensor_logs": torn_lines > 0,
+            "script_content": script_truncated,
         },
         home_dir=ctx.home,
         cwd=cwd,
@@ -234,7 +319,8 @@ def run_sensed(
         # False means another sensed command overlapped this one, so rows in
         # this report may belong to it.
         "window_exclusive": exclusive,
-        "stdout_tail": scrub(tail(out), KEEP_IN_TEXT),
-        "stderr_tail": scrub(tail(err), KEEP_IN_TEXT),
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
+        "script_content": script_content,
         **block,
     }

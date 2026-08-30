@@ -8,7 +8,15 @@ text around it arrives as a character that does not.
 
 from __future__ import annotations
 
-from cujo_sniff.scrub import KEEP_IN_TEXT, MAX_ARGV_CHARS, MAX_ARGV_ITEMS, scrub, scrub_argv
+from cujo_sniff.scrub import (
+    KEEP_IN_TEXT,
+    MAX_ARGV_CHARS,
+    MAX_ARGV_ITEMS,
+    scrub,
+    scrub_argv,
+    scrub_head,
+    scrub_tail,
+)
 
 
 def test_control_characters_become_visible_escapes() -> None:
@@ -93,3 +101,67 @@ def test_every_invisible_and_reordering_character_escapes_not_just_the_famous_on
     # And nothing ordinary is caught by widening the net.
     for ch in ("a", " ", "é", "→", "中", "\u00a0"):
         assert scrub(ch) == ch, repr(ch)
+
+
+class TestTheBudgetIsSpentOnTheEscapedText:
+    """Where the cap goes decides whether the cap holds.
+
+    Escaping is an expansion -- one character in, four or six out -- so a cap
+    applied to the input is not a cap on the output. Every string these bound is
+    written by the pull request, and the budget exists to stop it from crowding
+    out the turn, so the measurement has to happen after the expansion.
+    """
+
+    def test_a_plain_string_shorter_than_the_limit_is_untouched(self) -> None:
+        assert scrub_head("pytest -q", 100) == ("pytest -q", False)
+        assert scrub_tail("pytest -q", 100) == ("pytest -q", False)
+
+    def test_escaping_is_charged_at_its_full_width(self) -> None:
+        # One character in, six out: the budget buys one, not six.
+        assert scrub_head("‮", 6) == ("\\u202e", False)
+        assert scrub_head("‮", 5) == ("", True)
+        assert scrub_head("\x1b", 4) == ("\\x1b", False)
+        assert scrub_head("\x1b", 3) == ("", True)
+
+    def test_an_escape_is_never_cut_in_half(self) -> None:
+        """`\\u20` is text the file did not contain, which is the thing to avoid."""
+        text, truncated = scrub_head("ab" + "‮" * 4, 10)
+        assert truncated is True
+        assert text == "ab\\u202e"
+        assert "\\u20" not in text[2:].replace("\\u202e", "")
+
+    def test_head_keeps_the_front_and_tail_keeps_the_back(self) -> None:
+        assert scrub_head("abcdef", 3) == ("abc", True)
+        assert scrub_tail("abcdef", 3) == ("def", True)
+
+    def test_kept_characters_cost_one_and_are_not_escaped(self) -> None:
+        assert scrub_head("a\nb", 3, keep=KEEP_IN_TEXT) == ("a\nb", False)
+        # Without `keep` the same newline is an escape, and costs four.
+        assert scrub_head("a\nb", 3) == ("a", True)
+
+    def test_the_worst_case_is_bounded_by_the_limit_and_not_by_six_times_it(self) -> None:
+        hostile = "‮" * 4000
+        text, truncated = scrub_head(hostile, 4000, keep=KEEP_IN_TEXT)
+        assert truncated is True
+        assert len(text) <= 4000
+        text, truncated = scrub_tail(hostile, 4000, keep=KEEP_IN_TEXT)
+        assert truncated is True
+        assert len(text) <= 4000
+
+
+def test_a_hostile_argv_element_cannot_spend_more_than_its_budget() -> None:
+    """`argv` is chosen by the code under review as surely as its output is.
+
+    The audit hook records the arguments a process was started with, so a
+    subprocess spawned with a thousand bidi overrides in one argument used to
+    arrive as six thousand characters against a two-thousand budget.
+    """
+    hostile = "\u202e" * MAX_ARGV_CHARS
+    (only,) = scrub_argv([hostile])
+    assert len(only) <= MAX_ARGV_CHARS
+    # Whole escapes, and nothing else.
+    assert set(only.split("\\u202e")) <= {""}
+
+
+def test_an_ordinary_argv_element_is_not_charged_for_the_hostile_one() -> None:
+    assert scrub_argv(["pytest", "-q", "tests/"]) == ["pytest", "-q", "tests/"]

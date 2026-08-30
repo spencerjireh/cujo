@@ -74,9 +74,19 @@ that is reversed after it was built or shown is noted here rather than deleted
 66. [The sandbox must never crash silently; sensor logs count what they lost](#66-the-sandbox-must-never-crash-silently-sensor-logs-count-what-they-lost)
 67. [The setup window is measured, because guessing at it picks the wrong fix](#67-the-setup-window-is-measured-because-guessing-at-it-picks-the-wrong-fix)
 68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
-69. [The chamber may have air in it, and the air is two files](#69-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
-70. [Depth is time; across the volume means nothing, and says so](#70-depth-is-time-across-the-volume-means-nothing-and-says-so)
-71. [The record is a galaxy, and a run is a star with orbits](#71-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
+69. [Losing the stream is not a verdict; only the watchdog ends a turn](#69-losing-the-stream-is-not-a-verdict-only-the-watchdog-ends-a-turn)
+70. [Probe scripts are captured by the sensor, not self-reported by the agent](#70-probe-scripts-are-captured-by-the-sensor-not-self-reported-by-the-agent)
+71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
+72. [A length cap is spent on the escaped text, not on the text](#72-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
+73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
+74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
+75. [The record is one field of a fixed length, and an empty one is armed](#75-the-record-is-one-field-of-a-fixed-length-and-an-empty-one-is-armed)
+76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
+77. [Detonation covers every ecosystem `MANIFESTS` recognises](#77-detonation-covers-every-ecosystem-manifests-recognises)
+78. [The chamber may have air in it, and the air is two files](#78-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
+79. [Depth is time; across the volume means nothing, and says so](#79-depth-is-time-across-the-volume-means-nothing-and-says-so)
+80. [The record is a galaxy, and a run is a star with orbits](#80-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
+81. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#81-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2623,6 +2633,11 @@ which inotify does not report.
 
 ## 59. The checks start together, because nothing was ever waiting
 
+**Superseded in part by 73.** Three of the four still start together. The
+reasoning here is unchanged and is what 69 is built on; only the claim that one
+moment is the earliest for all four is wrong, and it was wrong because the
+install was not in this entry's frame.
+
 A measured run: **17.8 seconds of sandbox commands inside about 800 seconds of
 wall clock**, with 156 of those seconds spent before the first check started.
 The sandbox is not the cost; the model's own turns are. And the largest
@@ -2979,6 +2994,7 @@ the hard rules can read. None of the three changes alters a report's shape in
 a way that breaks an older consumer, because `truncated` uses `.passthrough()`
 (decision 62).
 
+
 ## 67. The setup window is measured, because guessing at it picks the wrong fix
 
 Three runs on `orders-api`, read off the public API after decision 59 landed:
@@ -3051,8 +3067,8 @@ time and loses the two spans whose other end is on the run record.
 
 ## 68. Nothing in the chamber exists that is not a measurement
 
-**Amended by 69**, which narrows this rule to geometry and admits one named
-decorative layer, **and by 71**, which deletes the room — the floor ticks, the
+**Amended by 78**, which narrows this rule to geometry and admits one named
+decorative layer, **and by 80**, which deletes the room — the floor ticks, the
 wall ribs, the shell and the chain — and keeps the rule: one gate per layer
 that holds a run is what the occupancy strip becomes. Not reversed: everything
 below still holds of every object that carries a fact.
@@ -3187,13 +3203,800 @@ pure enough for its own unit test. Only the *animation* suppression stays per
 instance, because a toggle mounted later still starts from the position the
 server rendered and must not slide from it.
 
-## 69. The chamber may have air in it, and the air is two files
 
-**Amended by 71**, which makes the sweep a plane again — a layer is one depth,
+## 69. Losing the stream is not a verdict; only the watchdog ends a turn
+
+A run on `orders-api#18` lost its SSE stream. `Runner.consume` spent its three
+resubscribes over twenty-two seconds, injected a synthetic `turn.done`, and the
+run ended `error: "turn stream lost"`. The turn was not dead. Its sub-agents
+were still running, and the next run on the pull request could not start:
+
+```
+422 Cannot process user messages while sub agents are running
+```
+
+The first fix proposed for that 422 was to find the live turn and cancel it.
+A contract test against a real TrueForge (`trueforge.contract.test.ts`) says
+neither half of that works. Four facts, none of them what we assumed:
+
+- a *running turn* does not wedge a session at all — starting a second turn
+  supersedes it, which the neighbouring test has always shown. Running
+  **sub-agents** are what TrueForge refuses to interrupt;
+- the refused `startTurn` **cancels the turn on its way out**, so by the time
+  any heal looks, the turn reads `cancelled` and the wedge is invisible;
+- **`cancelTurn` does not release the session**. The sub-agents outlive it, and
+  the retry after a cancel is refused exactly as the first attempt was;
+- only an empty-input turn is accepted, which is what the 422 text advises.
+
+So the 422 is not a defect to route around. TrueForge is refusing to interrupt
+work in progress, correctly. The defect is upstream: Cujo abandoned a turn that
+was still working and published a verdict about it.
+
+That verdict was wrong three ways over. It claims an observation Cujo never
+made, which is the one thing decision 54 exists to forbid — the code said so
+itself, in a comment admitting the error was "indistinguishable from a turn that
+genuinely failed on its merits". It can be contradicted by reality, because the
+abandoned turn still holds `github-mcp` and can post its review afterwards. And
+it caused the 422: `error` hides a run from `listUnfinishedRuns`, so `startRun`
+stopped superseding it, so its turn was never cancelled, so the next head landed
+on a busy session. Failing fast created the bug it looked like it was avoiding.
+
+The rule now is that a failure is reported only when it is observed. When the
+resubscribes are spent, the run watches the turn through `listTurns` and folds
+the verdict it really reached from the persisted events, the same way a restart
+rebuilds one. A read that fails is not a verdict either; it is retried. The
+thirty-minute watchdog is unchanged and is now the only place a run ends without
+a terminal event — and because that *is* a decision rather than a guess, it
+cancels the turn it ends, which is the cleanup no path had before.
+
+Note this is what `docs/spec.md` already said: the `error` row has always read
+"the stream was lost and the replayed turns show no terminal event **after the
+turn timeout**". The code was failing at twenty-two seconds against a
+thirty-minute budget. This brings the two back into line rather than changing
+the contract.
+
+Chosen over / Rejected: **detecting a running turn and cancelling it**, ruled
+out by the second and third facts above — there is nothing left to detect and
+the cancel does not work; **sending empty input to unstick the session**, the
+only call TrueForge still accepts, but a remedy for a state Cujo should not
+reach, and it asks a run to wait an unbounded time on work it already abandoned;
+**a second liveness check in `startReview` before it claims a head**, which
+duplicates `Runner.start`'s job by different means — `start` is the choke point
+both the webhook and `/cujo review` pass through, and that kind of duplication
+is what put two bugs in review on PR #72; **cancelling the turn where the stream
+is given up on**, which looks like the root-cause fix but destroys evidence: a
+turn whose subscriber died may still finish and post a real review, and
+cancelling guarantees it cannot; and **keeping the synthetic terminal but
+cancelling beside it**, which leaves the false verdict in place and only tidies
+up after it.
+
+This does not reverse decision 39's rejection of *matching the 422 text*.
+Nothing here reads an error message; the turn's state is read from `listTurns`
+and the verdict from the events.
+
+Known limit: a run whose stream dies now sits `running` — the reaction on
+"eyes", the board in progress — until the turn really ends, where before it
+flipped to `error` inside a minute. That feedback was wrong whenever it fired,
+but it was faster. If thirty minutes is too long to leave a pull request author
+waiting, the lever is `CUJO_TURN_TIMEOUT_MS`, which is a real bound, and not a
+fabricated verdict at twenty-two seconds. A second limit: dropping the synthetic
+terminal from this path also drops the flag that made a stream-lost run
+ineligible for `retryTurn`, so a turn that genuinely ended in error and posted
+nothing now gets the one retry every other error already got. That is the flag
+working as intended — it existed to stop Cujo retrying its own fabrication — but
+it is a behaviour change, and the watchdog keeps the flag so a timeout still
+never doubles its own budget.
+
+
+## 70. Probe scripts are captured by the sensor, not self-reported by the agent
+
+**Status:** active — introduced with `script_content` in `run_sensed`.
+
+**Context.** The rubric asks the agent to include `{script, expectation,
+outcome}` for every probe it runs, and the agent does include them in its
+review text. But this is self-reported: the agent could hallucinate a script
+or omit an inconvenient one, and the trusted side has no way to verify
+because by the time the review is written the sandbox is gone.
+
+**Decision.** `run_sensed` captures the script file *before* the subprocess
+starts. When `argv[0]` resolves to a known interpreter name (`python3`,
+`node`, `bash`, `sh`, and versioned Python names) and the first positional
+argument is a readable file, the file is read, scrubbed through `scrub()`,
+and capped at `MAX_SCRIPT_CHARS` (8 000 characters). The result is stored
+as `script_content` (string or `null`) on the per-run dict alongside `argv`.
+`truncated.script_content` is true when the cap cut the file short.
+
+`null` means no script was identified — either the command was not an
+interpreter invocation (e.g. `npm test`) or the argument was not a file
+(e.g. `python3 -m pytest`). It does *not* mean the capture failed.
+
+**Consequences.** Probe transparency no longer depends on agent honesty.
+The trusted side and the review reader can diff the agent's claimed script
+against what the sensor actually saw. The cap and scrub prevent a large
+generated file from inflating the report or leaking decoy material. The
+field is nullable and optional in the Zod schema, so older reports that
+lack it pass validation unchanged (decision 62 passthrough).
+
+## 71. The mechanical half of setup is one command, because none of it is a decision
+
+Rubric steps 2 through 4 were `git clone`, `git checkout`, `git worktree add`,
+and `cat .cujo.yml`, followed by however many reads it took to find a `test`
+command in `pyproject.toml`, `package.json`, a `Makefile` or a CI workflow.
+Every one of them was its own command and therefore its own model round trip,
+and not one depends on what the model made of the one before. They were separate
+because the rubric numbered them separately.
+
+`sniff.py prepare` does all of it and returns `cujo_yml` — the base copy — with
+`files`, the head's build files. The parent settles policy and infers the
+commands from one result. Setup becomes: fetch the tarball, `prepare`, `setup`,
+install.
+
+**It parses no YAML, and that is the floor.** Decision 46 leaves nothing under
+`sandbox/` able to import a third-party module, so `allow_hosts` would have to
+come out of a hand-rolled reader. Hand-rolling YAML to save one round trip is a
+bad trade in a file whose whole purpose is to be believed, so the raw text goes
+back and the parent still composes its own `--allow-host` list. Two commands is
+therefore the minimum without a YAML parser, and two is enough.
+
+**In Python rather than as a longer `&&` chain**, which was the obvious cheaper
+answer. Three things follow from the choice and none would from the chain.
+`sandbox/tests/` covers it — fifty cases, hermetic, cloning a repository
+built in `tmp_path` — where rubric prose is covered by nothing, which is the
+argument decision 41 already made about serialising the checks. The output is
+one JSON object with `steps[]`, so a failure names the git call that failed
+instead of arriving as a shell transcript. And it is a place to put a refusal:
+
+**And it refuses a clone URL whose host is not one Cujo reviews.** The URL is
+supposed to arrive from `apps/cujo`, which reads it from the GitHub API — but it
+reaches the sandbox in a turn message that also carries the pull request's own
+title and body, and the model composes the argv. "It comes from the API"
+describes where the value starts, not where it must have come from, so a pull
+request that talked the model into a different `--clone-url` would have this box
+clone and report on somebody else's code, under this pull request's name.
+`api.github.com` is already hardcoded in `clients/github.ts`, so naming the same
+host here narrows nothing that works today; it is a list because a GitHub
+Enterprise deployment would add to it, and that day the trusted side changes too.
+
+The host alone was not enough, which took a second pass to see: every public
+repository on GitHub shares it, so the check refused an attacker's *server* and
+allowed an attacker's *repository*. The URL now has to name the repository the
+run is for, compared against `--repo` from the same turn message, folded for
+case because GitHub resolves owners and names that way.
+
+**`prepare` refuses a clone URL carrying a credential.** `AGENTS.md` has always
+said no token, key or clone credential may reach the sandbox, and nothing
+enforced it — the rule held because private repositories are a non-goal, so no
+credential existed. That is a fact about today's callers, not a property of the
+box. The scheme check (`http`/`https` only) also refuses `ssh://`, the scp-like
+`git@host:path`, and anything starting with `-` that git would read as an
+option; a query string or fragment is refused outright, because that is where a
+signed URL puts its token and deciding which parameters are secret is a guessing
+game; the refusal never echoes the URL back, and the clone URL is redacted from
+the recorded `steps[].argv` as a second line. The SHAs are checked against
+`[0-9a-fA-F]{7,40}` before git runs, for the same reason.
+
+**It never deletes a directory it did not create.** The first version
+`rmtree`d whatever `--head` and `--base` pointed at. Those arrive on argv, argv
+is composed by the model, and the model has just finished reading a pull
+request — so "the caller would not pass `/`" is a statement about today's prompt
+and not a property of this command. A path is replaced only when it is absent,
+or when a marker this command wrote sits beside it; anything else is somebody's
+data and is refused before git runs.
+
+The marker is the second version. The first asked whether the directory held a
+`.git`, which is true of every checkout on the machine — so it enforced "never
+delete a directory that is not a git repository" while the heading above claimed
+"never delete a directory it did not create". A weaker property wearing the
+stronger one's name is worse than no property, because it is the heading people
+read, and with `--head` model-composed the gap between the two was reachable.
+The marker is a sibling and not a file inside, because `git clone` and
+`git worktree add` both want a target that does not exist yet, and it is written
+before anything is removed, so a run that dies halfway leaves a state the next
+run still recognises as its own.
+
+The alternative was requiring both paths under `/work`. It was rejected because
+the tests point at `tmp_path` and would then have needed a container to run at
+all — and a rule that can only be tested in production is the kind that stops
+being true.
+
+**It reads only real files inside the checkout.** A build file's name is the
+pull request's to choose, and so is whether that name is a symlink:
+`pyproject.toml -> /etc/shadow` would otherwise turn a manifest reader into an
+arbitrary-file reader aimed at the box the sensors run in, and hand the result
+back as JSON. Every candidate must be a non-symlink resolving under the clone
+root, and the walk does not follow directory symlinks.
+
+**The cap bounds the read and not just the output.** Reading a file whole and
+trimming afterwards means a hundred-megabyte manifest costs a hundred megabytes
+to discover it was too long, and the file is written by the pull request, which
+makes that a lever rather than a curiosity. At most four bytes per permitted
+character are read — UTF-8's worst case — plus one to tell a file that exactly
+fits from one that does not.
+
+**And the budget is spent on the escaped text, not the text.** This one was
+wrong first. Escaping is an expansion — `\x1b` is four characters for one,
+`\u202e` is six — so capping the input and calling `scrub` afterwards is a cap
+on the wrong quantity: four thousand permitted characters of right-to-left
+override leave as twenty-four thousand, and across forty files that is a
+megabyte of prompt where the documented budget is a hundred and sixty kilobytes.
+The file is chosen by the pull request, so the gap is a lever on exactly the
+thing the budget exists to protect. `scrub_head` and `scrub_tail` therefore
+escape and measure in one pass, spending the budget one whole character at a
+time: escaping everything first and slicing the result would fix the size and
+cut `\u202e` into `\u20`, which is text the file never contained. A kept
+newline still costs one, so the ordinary manifest is not charged for the
+hostile one's defence.
+
+**`.cujo.yml` is never truncated, and never in `truncated`.** This was the
+sharpest of the review findings, because the bug was assembled out of two
+correct pieces. `truncated` names what came back capped so the model can re-read
+it — from `/work/head`, which is right for a build file and is the whole point
+of reading them. Putting the base policy file in that same list pointed that
+sentence at the pull request's own copy, so a `.cujo.yml` long enough to cap
+would have let a pull request supply its own `allow_hosts`. The trust boundary
+was drawn correctly and then routed around by a list that meant something else.
+
+So policy gets its own budget, four times larger and separate, and its own
+`cujo_yml_error` field. Past the budget it is **unreadable**, not partial: half a
+policy is worse than none, because the half that did not fit may be the
+allowlist, and a reviewer that reads `test:` and misses the hosts proceeds
+confidently with the wrong permissions. Absent and unreadable stay distinguishable,
+which is decision 54's rule applied to two absences that are not the same fact.
+
+**"I could not look" is never reported as "there is nothing there."** Both
+started as silence, and both silences were load-bearing. `_read` answers None
+for a path it refuses and for a path that will not open, and collapsing that
+into a null `cujo_yml` told the rubric the repository has no policy — so a
+`.cujo.yml` that was a symlink out of the tree would have started a run with no
+`allow_hosts` and nothing said. The same shape sat in `_collect`, where a
+refused manifest vanished from `files` without appearing in `truncated` or
+`omitted`, and a repository whose only test command lived in that file reviewed
+as a repository with no test suite. Both now say so: `cujo_yml_error` covers
+unreadable as well as oversized, and `unreadable[]` names the build files that
+matched and could not be read.
+
+This is the same rule three times over — a cap that was not applied, a file that
+was not read, a comparison that was not made are all facts to report, never
+absences to imply (decision 54). The symlink guard was right and the reporting
+of it was not, which is the more interesting half: a refusal that is silent is a
+refusal an attacker can aim.
+
+`is_symlink()` is asked before `exists()`, because `exists()` follows a link and
+a dangling one would otherwise land back in "the repository has no policy" — the
+exact case the check exists for.
+
+**And reporting it was not enough: the rubric was told what to do about it.**
+The first version of that fix said to go and read the file directly, which is
+the one answer that cannot be given. A path is in `unreadable` *because* `_read`
+would not touch it — nearly always a symlink out of the checkout — so telling
+the parent to open it walks straight around the containment guard and hands the
+pull request whatever it aimed the link at. Reporting a refusal and then
+instructing the reader to undo it is worse than not reporting it, because it
+launders the refusal into permission.
+
+So the outcome is four values and not a nullable string: `read`, `absent`,
+`too_large`, `unreadable`. `too_large` is an ordinary file inside the checkout
+and the parent may open it. `unreadable` stops the run. A sentence explaining
+why the field is null is not something a rubric can branch on, and this needed
+branching.
+
+And the rubric treats an unreadable policy as **blocking**, not as a note. The
+first wording said to read it from `/work/base` "if you need it", which asks the
+parent a question it cannot answer: the part it did not get is exactly the part
+that would have changed its mind. `allow_hosts` appears in no build file, and a
+policy `test` overrides whatever was inferred, so proceeding on inference is
+proceeding with the wrong permissions and calling it a clean read.
+
+Everything else read is written by the pull request, so it goes back through the
+escape and the cap like any other untrusted string, and anything capped is named
+in `truncated` rather than silently shortened (decision 54). The cap takes the
+**head** of a file where the tail form takes the end: a command's failure is at
+the bottom of its output, and a manifest declares its dependencies at the top.
+Lock files are not read at all — hundreds of kilobytes that say nothing about how
+to run anything, and they would crowd out the files that do.
+
+The same cap-then-escape shape was live in `runner.py`'s `stdout_tail` and
+`stderr_tail`, where it predated this change and bounded every check report.
+Decision 69 fixes it, in its own PR because it changes what shipped reports
+contain and deserves its own attribution.
+
+**The head commit is fetched by pull ref, which is what makes a fork
+reviewable.** `apps/cujo` sends `pr.base.repo.clone_url` and no credential, so
+for a pull request opened from a fork the head commit lives in a repository the
+sandbox never sees, and the old rubric's `git clone && git checkout <sha>` would
+have failed at the checkout with no check run at all. Nobody noticed because
+every demo pull request is a branch on the target repository. GitHub publishes
+each pull request's head on the *base* repository as `refs/pull/<n>/head`,
+publicly, so one extra fetch reaches it with no token and no second host at the
+boundary. The PR number is already in the turn message and already listed as
+permitted public metadata, so this adds no crossing.
+
+Fetched **always**, and not as a fallback for when the checkout fails. The ref
+exists for a same-repository pull request too, so one path serves both — and a
+fallback would put the fork case on the branch least likely to be exercised,
+which is the same reasoning that keeps the sensor lock uniform in decision 41.
+
+**And it refuses when the ref has moved.** `refs/pull/<n>/head` tracks the pull
+request, so between the webhook and the clone it can advance past `--head-sha`.
+Reviewing the newer commit would attach every finding to a SHA the run does not
+claim, on a page that names the old one. `prepare` stops and names both;
+`supersede` is the mechanism that already handles a new push, and refusing is
+what lets it.
+
+**A walk, not a list of root-relative names, and the omissions are counted.**
+The repository under review need not be one project at its own root: the demo
+target holds six services under `services/<name>/` and has no root manifest at
+all, so a root-only reader would return nothing and the parent would go back to
+opening files one at a time — the round trip this exists to remove. Two
+directories deep, skipping `node_modules` and its kin, shallowest first when the
+file cap bites, and `omitted` counts what the cap dropped. That count is
+load-bearing downstream: "no test suite found" skips every check and becomes the
+entire review, so it has to mean the repository has none and never that one
+capped result failed to name one. The rubric says so, and the manifest set
+covers every language the reviewer might meet rather than the ones we thought of
+first — the demo target alone is C++, Go, Node, PHP, Python and Rust.
+
+**The deploy ordering is safe in the one direction it has to be.** The tarball
+is `main`-relative and updates the moment this merges, while `apps/cujo` serves
+the old rubric until the image swaps, so the window holds a new tarball beside
+an old rubric — and the old rubric never calls `prepare`. The dangerous
+direction, an old tarball meeting a new rubric, cannot occur (`CONTRIBUTING.md`,
+"Merging deploys").
+
+Rejected: **requiring `/work`** for the checkout paths, above. **Cloning the
+fork's own repository**, which avoids the ref trick and adds a second untrusted
+host to the crossings table for nothing. **Reviewing whatever the pull ref
+points at**, which would keep the run moving and make its recorded `head_sha` a
+lie. **One longer `&&` chain**, for the three reasons above. **Teaching
+`prepare` to parse `.cujo.yml`**, which buys one round trip for a hand-written
+YAML reader in the sandbox. **Reading the lock files too**, which is where the
+resolved versions are — but detonation gets those from the manifest diff, which
+is the check that needs them. **A shallow clone**, which would be faster and
+would then not have the base commit to make a worktree from.
+
+## 72. A length cap is spent on the escaped text, not on the text
+
+`stdout_tail` and `stderr_tail` were built as `scrub(tail(out))`: take the last
+`TAIL_CHARS` characters, then escape them. Escaping is an expansion — `\x1b` is
+four characters for one, `\u202e` is six — so the cap was measured on the wrong
+quantity. A check whose output was four thousand right-to-left overrides
+returned twenty-four thousand characters against a four-thousand-character
+budget, and every one of the four checks has two of these tails.
+
+The output is written by the code under review. That is what makes this a lever
+rather than an arithmetic curiosity: the budget exists so a pull request cannot
+crowd the parent's turn with its own text, and the way to spend six times the
+budget was to print characters that escape. Nothing had to be exploited — a
+repository that legitimately prints a byte-order mark pays the same six-fold
+rate by accident.
+
+`scrub_head` and `scrub_tail` escape and measure in one pass, spending the
+budget one whole character at a time. The obvious alternative — escape
+everything, then slice the result — fixes the size and introduces a worse
+problem: it cuts `\u202e` into `\u20`, which is text the command never printed,
+in a report whose entire purpose is to say what the command did. A cap that
+fabricates evidence is not a cap worth having.
+
+**Every capped report string, including the ones that arrive later.**
+`script_content` landed on `main` from decision 70 while this was in review, and
+it came with the mirror-image of the same bug: escape first, slice the result,
+which bounds the size and cuts `\u202e` into `\u20`. In a field that exists so a
+reader can diff what the agent claimed against what the sensor saw, inventing
+two characters of evidence is the worst possible way to save space. It moves
+onto the same helper here. That is the argument for writing this down as a shape
+rather than as a list of fixed call sites: the shape is what the next person
+reaches for.
+
+**Every capped report string, and not only the two tails.** `scrub_argv` had
+the same shape — the audit hook records the arguments a process was started
+with, and a subprocess spawned with a thousand bidirectional overrides in one
+argument arrived as six thousand characters against a two-thousand budget. The
+CLI's error and traceback fields had the mirror image, escaping first and
+slicing the result, which bounds the size and cuts `\u202e` into `\u20` — text
+nothing raised, in the field a reader trusts most because it is all that is
+left. Both move onto the same two helpers. The alternative was to narrow the
+claim in the spec to the fields that honour it, which documents the bug instead
+of removing it and leaves the next person to find the same shape a third time.
+
+The truncation flag now means *either* the raw output or its escaped form was
+cut. Both are the same fact to a reader ("there was more"), and reporting only
+the raw overflow would have called a report complete when a third of it was
+dropped by the escape.
+
+`keep` characters cost one, so the ordinary repository is not charged for the
+hostile one's defence: a manifest full of newlines and tabs is unchanged.
+
+Found by Qodo on the `prepare` PR, in code written the same week. The
+pre-existing instances — `runner.py`'s tails, `scrub_argv`, the CLI envelope —
+were found by looking for the shape rather than by review, which is the argument
+for writing the finding down as a shape and not as one fix. `prepare`'s own is
+in decision 68 with the command it belongs to; the three that alter what shipped
+reports contain are here, together, so the claim and the code become true in one
+step.
+
+**Two of the tests for this were vacuous before they were right**, and both
+failure modes are worth recording. The first capped the input rather than the
+output, so it passed against the bug. The second raised an exception whose
+message happened to be a whole multiple of six characters long, so the slice
+landed exactly on an escape boundary and the old code passed too — one message
+in six does. The test now asserts the property at every alignment, because a
+single offset decides nothing when the expansion factor is six.
+
+Rejected: **escape then slice**, above — it invents text. **Raising `TAIL_CHARS`
+to cover the worst case**, which would make the common report six times larger to
+bound a rare one. **Refusing to escape inside a tail**, which was never on the
+table: the escape is the whole reason the text is safe to put in front of a
+model (decision 26's argument, one boundary over).
+
+## 73. `detonation` starts during setup, and the install takes the lock so it can
+
+This corrects **decision 59**, which stands in every other respect and is the
+argument this is built on. 59 established that no check waits on another and
+moved all four to one spawn. Three of the four still start together. What 59 got
+wrong is that one moment is the earliest moment for all four, and it got it
+wrong because the repository's install was not in its frame: it reasoned about
+the checks and the lock, and the install is neither.
+
+`detonation` needs the two trees and the armed sensors. It does not need an
+installed repository — it installs each added specifier into its **own** fresh
+environment, which is the entire point of the check. So it can start before the
+install rather than after it, and on the measured run that mattered: on
+`orders-api` PR 17 detonation was the longest check at 151 seconds, of which
+18 were its wrapped command. The other 133 were reading a manifest diff and
+deciding specifiers, and that reading is free while an install runs.
+
+**The size of the gain is unmeasured, and this ships anyway.** What overlaps is
+detonation's thinking with the installs, so the gain is bounded by how long the
+installs take — and no run has ever reported that number, because the parent's
+installs were unwrapped and therefore unsensed. The 133 seconds above says how
+much thinking there is to overlap, not how much of it fits.
+
+The measurement now exists: wrapping the install makes it a sensed command with
+its own `duration_s`, and decision 67's `setup` window gives the whole span it
+sits inside. So the first run after this merges reports the number that decides
+whether the change was worth making, which is the honest order — the alternative
+was holding the PR to gather evidence its own merge is what produces.
+
+It ships on the second argument rather than the first. Wrapping the install is
+correct on its own: an unwrapped install runs beside the checks holding no lock,
+and decision 41's whole claim is that a report is the slice written while one
+command ran. That was true before this PR and the wrap fixes it either way. If
+the install span comes back small, the reordering is worth reversing and the
+wrap is not.
+
+**59 explicitly rejected moving `detonation`, and that rejection is not this
+one.** It rejected spawning three and keeping detonation **last**, on the ground
+that the slowest check is the worst one to start last. This is the opposite
+change and 59's reasoning supports it.
+
+**The install has to take the sensor lock, or this is a false-positive
+generator.** `runner.sensed_window` says why in its own docstring: the proxy and
+decoy logs are shared by every check and a report is the slice written while one
+command ran. The per-command audit log makes `files_read` and `subprocesses`
+safe, but `proxy_log` and `decoy_log` are global and sliced by byte offset. The
+parent's install was unwrapped, so it held no lock — put a live `pip install`
+beside a spawned `detonation` and detonation's report claims the install's
+egress and any decoy read it caused. Those feed `egress_to_unknown_host`
+(scoped to `detonation`) and `decoy_read` (any check), both hard rules, both
+`critical`. That is the exact failure decision 58 removed, rebuilt on the other
+side.
+
+So the rubric wraps the install in `sniff.py run --check setup`. The windows
+then queue instead of overlapping, which is what decision 41's lock is for, and
+detonation's own wrapped command waits for the install exactly as any second
+sensed command waits — that wait was always expected and is not the part that
+was overlapping.
+
+**Wrapping the install is not the parent running a check.** `--check setup` is
+not one of the four names; the fold builds a `CheckState` only from
+`thread.created`, so a report printed on the parent thread is folded by nothing
+and reaches no hard rule. The rubric's "you, the parent, never run a check
+yourself" needed the distinction spelled out, because it now runs a sensed
+command and that rule reads as though it forbade one. It forbids producing
+evidence, and this produces none.
+
+**The gain is bounded by the install, and decision 67 measures it.** If the
+installs turn out to be short, this bought little for a rubric that is harder to
+read — which is why it lands after the measurement rather than before it.
+
+Rejected: **leaving the install unwrapped and accepting the overlap**, which is
+a hard rule firing on a check that did nothing. **Wrapping the install and
+reporting it as a fifth check**, which puts the whole dependency tree's install
+in front of the hard rules — detonation already covers the added dependencies,
+deliberately and one at a time, and a `critical` sourced from a check the rubric
+never named is worse than no check. **Spawning all four during setup**, which
+puts `tests`, `probes` and `smoke` to work against a tree that is not installed
+yet.
+
+## 74. The server owns the review body, not only its footer
+
+Decision 36 moved the evidence footer out of the rubric and into `body.ts`, on
+the argument that a rule telling a model to end its body a particular way is a
+rule that fails silently. Everything above the footer was left to the model, and
+the posted reviews show what that bought. On spencerjireh/orders-api #8 and #19
+the verdict is nowhere near the top — #19 opens with four provenance bullets and
+the reader reaches line 12 before learning anything decided; a sensor field name
+is used as a claim, `secret_probe.decoy_read: true`; the coverage caveat is a
+parenthesis reading "Other five services not run", when Cujo had executed one of
+six services; an `info` finding and a credential read are set in the same
+weight; there is not one inline comment, because every anchor was rejected and
+dumped into a section called "Findings without a diff anchor"; and there is
+nothing an agent reading the pull request could parse. Each of those is the
+failure decision 36 named, one layer up.
+
+**The review body is composed by `github-mcp` from structured input.** The model
+supplies findings and judgment; `render.ts` owns the headline, the ordering, the
+sections and the folds. `body` stays required and becomes one sentence — the
+verdict in plain language — and everything around it is built from `findings[]`,
+`coverage` and `egress`. What a review looks like is now testable prose with two
+golden cases, rather than a rule somebody hopes a model followed.
+
+**It reaches every session at once, which is why it is worth doing here rather
+than in the rubric.** A session pins its rubric at creation (decision 16), so a
+rubric edit only ever reaches new pull requests. `github-mcp` is stateless with a
+fresh server per request, so the rendering change applies to the next review on
+every open pull request, including ones created months before it shipped.
+
+**The verdict word comes from the tool, never from the model.** `Advisory`,
+`Blocked` and `Accusation, pending confirmation` are functions of which tool was
+called; `accusation_follows` adds the held count and the held markers and
+nothing else. A model cannot write "blocked" onto an advisory review, because
+the word is not a thing it supplies.
+
+**`comments[]` is deprecated and derived from the findings.** It was always a
+second copy of an anchor the finding already carried (`path`, `line`, `side` —
+Contract 3), and keeping two copies is what let #8 post a critical finding in
+the body with no comment on any line. One rule, one place: a finding with a
+usable anchor is an inline comment. The parameter is *deprecated* rather than
+deleted, and that distinction was a review finding: deleting it from the schema
+did not stop old sessions sending one, it made Zod strip it, so a legacy review
+would have posted whatever its findings happened to anchor and dropped the
+model's own comment text in silence. It stays, unasked-for and preferred when
+present, until no session predating this entry can still be running. The
+`### Findings without a diff anchor` section goes with it. That section existed so a rejected comment would
+not vanish, and no comment can vanish when every finding is already printed in
+the body — so a rejected anchor is now marked on the finding in place, and
+`review.anchor.moved` still logs which of the three rejections it was
+(decision 37). `bad_line` becomes unreachable through the derived path and the
+branch stays anyway, because `validateAnchors` is a public function with its own
+contract.
+
+**A held finding says that it is held.** On a review passing
+`accusation_follows`, the malice observations render as `warn · held` under one
+line saying Cujo is not publishing a conclusion until a maintainer answers.
+Before this, "changed code no test covers" and "this dependency read the decoy"
+were the same word in the same weight, which is precisely the reading the
+two-call design exists to prevent. Which findings are held is a boolean the
+rubric sets, not something the server infers: `github-mcp` has no reports
+(decision 5), and matching a title is the thing this entry is deleting.
+
+**The renderer rewrites a title that is still a field name.** A title matching a
+Contract 2 field pattern *in full* — `secret_probe.decoy_read`,
+`derived.wrote_sensitive`, `base_pass_head_fail` — is replaced with the sentence
+it means, and the raw expression moves into the evidence where it belongs. It
+never fires on the hard-rule findings, which have carried plain titles since
+they were written and keep their jargon in `evidence`; it fires on the model's
+own findings, which is where #19's jargon came from. An unrecognised dotted key
+is returned unchanged, because inventing a sentence for it would be the renderer
+making a claim about somebody's pull request. Contract 3 already says a rule's
+identity is matched on an id and never on the wording of a title; this is that
+rule pointed the other way.
+
+**A collapsed JSON block makes the review readable by an agent.** Fenced, one
+line, `schema_version` first, carrying the verdict, the counts, the coverage,
+the egress, the findings and the run URL. It is additive-only in the sense
+decision 54 gives that phrase: a key may be added, never renamed or removed, and
+absent input is `null` rather than a missing key. It sits in a fold because the
+audience for it is not the maintainer. `runUrl` was extracted from
+`appendRunFooter` so the URL in that block and the URL in the footer cannot come
+to disagree.
+
+**Legacy input still renders, and had to.** Every pull request open when this
+deploys keeps sending a prose body and a `comments[]` array until its session is
+replaced, and both shapes arrive on the same deploy. A prose body is detected —
+conservatively, on a newline, since a lede has none — and folded under
+`### Notes` with its headings demoted two levels so they cannot outrank the
+composed ones; the headline and findings are composed from `findings[]` as
+usual; coverage and egress are simply absent. The anchors survive the removal of
+`comments[]` on both sides: the old rubric already required them on the findings
+too, and `apps/cujo` reads the model's raw tool-call arguments off the
+`model.message` event, before Zod strips a key it no longer declares, so an
+in-flight review keeps the exact comments it was posted with.
+
+`details` and `summary` join the sanitizer allowlist in `apps/web`, which had
+neither, so the folds render on the board the way they render on GitHub. `open`
+deliberately does not: without it every fold is collapsed in both places, and a
+review cannot force a wall of JSON open on the run page.
+
+Chosen over / Rejected: **tightening the rubric again**, which is the option
+decision 36 already rejected for the footer and which this entry is the second
+piece of evidence against — a model can produce a perfect body on Tuesday and a
+different one on Wednesday, and nothing fails; **a template the model fills in**,
+which is the same rule with more words and the same silence when it is ignored;
+**keeping `comments[]` alongside `findings[]`**, which is two sources for one
+anchor and is how #8 posted a critical finding with no comment on any line;
+**inferring which warns are held from the finding text**, which would put prose
+matching back into the trusted side one paragraph after Contract 3 forbids it;
+**rendering the machine-readable block visibly**, which puts the least
+human-readable thing in the review at eye level; **deriving the board's inline
+comments in `http/public/serialize.ts`**, which would push a derivation into a
+module with an import allowlist and break the sentinel fixtures that guard it;
+**two independent derivations of the comment format**, which is what the first
+cut of this entry shipped and what the section below is about; and **making `github-mcp` read the check reports** so it could classify a
+finding itself, which widens a write-only server (decision 5) into one that
+knows what it is posting about.
+
+### The renderer is a package, because two processes must agree on one format
+
+The first cut of this entry put the renderer inside `apps/github-mcp` and had
+`apps/cujo` derive the inline comments a second time, on the reasoning that
+re-deriving is the trade decision 21 already takes for the hard rules. That
+reasoning was wrong and the review found three separate bugs in it: a dedupe key
+missing `check`, so comments that posted separately collapsed on the board; a
+title translated on one side only, so *exactly the field-name titles this entry
+exists to repair* read differently in the two places; and a board rendering
+`body`, which by then was a one-sentence lede, where GitHub had the whole
+review.
+
+The distinction decision 21 turns on is that a hard rule is a **judgment** the
+trusted side must reach independently — that is the whole point of re-deriving
+it. This is a **format** two processes have to agree on exactly. Two
+implementations of one format is drift with extra steps.
+
+So `@cujo/review-render` holds it: pure functions, no IO, no config, no
+knowledge of either caller. `apps/github-mcp` composes the body it posts;
+`apps/cujo` reproduces that body and those comments for the board. Sharing a
+pure formatter is not the trusted side depending on the write-only server
+(decision 5) — neither imports the other, and both depend on one definition of
+what a review looks like.
+
+Both callers hand the renderer values a model wrote, and only one of them has a
+schema in front: `apps/github-mcp` parses with Zod, while `apps/cujo` reads the
+raw `model.message` tool call so it can project a run the server never saw.
+Nothing in the renderer may therefore throw on a shape — a `coverage: {}` from a
+confused model would otherwise throw inside `fold`, which is pure and replayed
+on every rehydration, and that run could never be projected again. A section
+built from a value that is not the shape it claims is omitted rather than
+guessed at, which is the same rule the check reports are read by.
+
+Known limit: the board's reproduction differs from the posted copy in two ways,
+both of them things this side cannot know. The machine block's `run_url` is
+null, because the board *is* that page; and no finding is marked
+`(not in this diff)`, because validating an anchor needs the pull request diff
+and `apps/cujo` does not have it. The second one is why the board's panel is
+labelled "Anchored findings" and says so, rather than claiming those comments
+landed on GitHub. Second limit: the board's own findings list still shows the
+model's raw title, so a jargon title translated in the review body is
+untranslated in the list beside it. Third: the rubric rewrite reaches only
+sessions created after it deploys, and no test asserts on the rubric's review
+prose, so a regression there is still visible only in a posted review — the same
+hazard decision 36 named, now one layer smaller.
+
+
+## 75. The record is one field of a fixed length, and an empty one is armed
+
+The record grew and shrank with what it held. Two runs left it sitting against
+whatever followed, which decision 68's ghost rules already half-answered; sixty
+pushed the key off the bottom of the page; and none pushed it as hard as an
+empty board, which swapped the table out for a bordered block of a different
+shape and height. Three different objects for one instrument, and the page moved
+under a reader every time the record changed size.
+
+It is now one field with a floor and a ceiling, both measured in its own rows.
+The floor is five rows, held by ruled lines under a short record and by the
+empty block's own height. The ceiling is twelve and a half, and the scrollport
+is the table's own so the column header stays pinned to the top of it. The half
+row is the affordance: a whole number would sit flush against the edge and read
+as the end of the record, and a row cut through the middle says there is more
+without a control that says so in words.
+
+The header rule under a pinned header is an inset shadow and not a border.
+`border-collapse` hands a collapsed border to the row, and the row is not the
+element that sticks, so a border there scrolls away and leaves the header
+floating on the rows.
+
+**Whether the port is a tab stop is measured, not counted.** It takes
+`role="region"`, a label and a stop only when it actually clips something, and
+the row count does not know that. The ceiling is `min(…, 70vh)`, so a short
+viewport clips at eight rows; and this is the same port the seven columns
+overflow sideways in, which a phone does at any row count including zero.
+Counting rows left both of those scrollable and unreachable from a keyboard —
+the sideways one had been unreachable since the record was first drawn. So a
+`ResizeObserver` watches the port and its children, and the effect re-measures
+when the rows or the filter change what is in it.
+
+**An empty record is the record, not a message where the record was.** The
+column header stays, the ruled lines stay at the same rhythm, and the copy sits
+on its own ground in the middle of them the way a label plate covers the part of
+a chart it annotates. A reader learns the columns before there is anything in
+them, and nothing on the page moves when the first run lands. The block is a
+sibling of the table and not a cell spanning it, because a cell is as wide as
+the table and the table is wider than a phone — the copy would have needed a
+sideways scroll to be read.
+
+The empty board carries one action, a link to the App's public page, and the
+filtered empty carries the undo instead. They are different states and the
+second is not an invitation: telling somebody to install the App because they
+clicked "Live" answers a question they did not ask. Each filter names its own
+absence — "Nothing is running", not "No run matches this filter", which makes a
+reader look back up at the chips to work out which one they picked.
+
+The install link targets `github.com/apps/cujo-guard` and not
+`/installations/new`, which bounces an anonymous reader through a login before
+they have decided anything. It is the one place the board hardcodes the App's
+slug, and renaming the App breaks it.
+
+Rejected: **a "show all" control below twelve rows**, which keeps one scroll
+surface but answers a record that is merely long with a click, and then grows
+the page exactly as before. **A centred card for the empty state**, which is
+cleaner as a standalone screen and is a different shape from the thing it
+replaces. **Drawing the ruled lines through the copy**, which is the rhythm at
+the cost of the sentence.
+
+## 76. Interpreter and index coverage is additive, not exhaustive
+
+**Status:** active — expanded `INTERPRETER_NAMES`, `KNOWN_INDEX_HOSTS`, and
+noise filters in `policy.py`.
+
+**Context.** The sandbox sensors (fsdiff, decoy, proxy) are fully
+language-agnostic at the OS level: a filesystem write or a network connection
+is detected regardless of which runtime made it. Two narrower mechanisms are
+language-aware: `INTERPRETER_NAMES` controls whether `capture_script` reads
+the script file before execution (`script_content`), and `KNOWN_INDEX_HOSTS`
+controls whether an egress connection to a package registry is classified as
+`egress_to_unknown_host`. Both are frozensets checked by membership only.
+
+**Decision.** These lists are expanded to cover every interpreter runtime
+Daytona natively supports (Ruby, Perl, Deno, Bun, tsx, ts-node) and the
+RubyGems registry. The noise filters gain entries for Go vendored deps
+(`/vendor/`), Ruby gem cache (`/.gem/`), and `.gem` suffixes. No interpreter
+for `go` or `java` is added because those compile rather than interpret — there
+is no script file to capture.
+
+Adding a name to any of these lists cannot change sensing behaviour. It can
+only improve report quality: `script_content` is populated instead of `null`,
+an egress connection is correctly classified, or a noise read is filtered
+from `files_read`. Missing a name means the safe default applies
+(`script_content: null`, `egress_to_unknown_host: true`, read left in the
+list), not a failure.
+
+**Consequences.** Script capture works for Ruby, Perl, Deno, Bun, and tsx
+scripts. Ruby installs via Bundler no longer produce false
+`egress_to_unknown_host` warnings for connections to `rubygems.org`. Go
+vendored dependency reads and Ruby gem cache reads no longer clutter
+`files_read`. No existing behaviour changes for Python or Node repos.
+
+## 77. Detonation covers every ecosystem `MANIFESTS` recognises
+
+**Status:** active — added Go and gem install paths to `detonate.py`.
+
+**Context.** `apps/cujo` already recognises `go.mod`, `go.sum`, `Gemfile`,
+and `Gemfile.lock` in its `MANIFESTS` list (`agent-spec.ts`), so a PR that
+changes those files sets `manifest_changed: true` and the agent is told a
+detonation check is warranted. But the sandbox only knew how to install npm
+and PyPI packages: `detect_source` returned `"pypi"` for anything that was
+not npm, and `cmd_detonate` had no `go install` or `gem install` path.
+
+**Decision.** `detect_source` gains two new return values: `"go"` for module
+paths containing a slash (but not `git+` URLs, which remain `"pypi"`), and
+`"gem"` for the `gem:` prefix. `cmd_detonate` dispatches to
+`_go_install_cmds` (one `go install` into an isolated `GOPATH`) and
+`_gem_install_cmds` (one `gem install --install-dir`). The CLI's `--source`
+choices are expanded to match.
+
+**Consequences.** PRs that change `go.mod` or `Gemfile` can now be detonated
+in the sandbox. The same OS-level sensors (fsdiff, decoy, proxy) observe
+the install, so filesystem writes, egress, and credential reads are reported
+the same way they are for npm and PyPI. No existing behaviour changes for
+Python or Node repos.
+
+## 78. The chamber may have air in it, and the air is two files
+
+**Amended by 80**, which makes the sweep a plane again — a layer is one depth,
 so the objection below to a plane no longer applies — and promotes the dust to
 a star field. Still two files.
 
-**Amended by 70**, which narrows the rule once more — a specimen's depth is a
+**Amended by 79**, which narrows the rule once more — a specimen's depth is a
 measurement and its position across the volume is not — and reverses two of the
 choices below: phones no longer keep the flat elevation, because there is no
 longer a flat elevation, and the sweep is no longer a plane. Not reversed:
@@ -3313,9 +4116,9 @@ specimen, which would have drawn a chain and a rail the WebGL version does not:
 two drawings of one run have to be one drawing, so it got its own glyph with the
 same rig.
 
-## 70. Depth is time; across the volume means nothing, and says so
+## 79. Depth is time; across the volume means nothing, and says so
 
-**Amended by 71**, which keeps the rule — depth is time, position across it
+**Amended by 80**, which keeps the rule — depth is time, position across it
 means nothing and the key says so — and replaces what it was applied to: the
 field is three layers, the shape is a star with orbits, the chain is not drawn,
 the camera stands outside because there is no mouth, and the sweep is a plane.
@@ -3323,7 +4126,7 @@ Not reversed: the arm split by strength rather than hue, `sandboxMs` on a list
 row, the serializer guard, the deleted flat elevation, the reordered headline.
 
 Decision 68 said no object in the chamber exists that is not a
-measurement. Decision 69 narrowed that to geometry and admitted one named
+measurement. Decision 78 narrowed that to geometry and admitted one named
 decorative layer, `atmosphere.ts` and `post.ts`, on the grounds that a layer
 describing the medium is not a claim about a run. Both still hold of everything
 that carries a fact. This narrows the rule once more, at the one place left
@@ -3334,7 +4137,7 @@ axis by `SPACING`. That is honest and it reads as a row of pins in a case — a
 corridor with a rail down the middle of it, most of a full-height frame holding
 nothing. **A specimen's depth is still time. Its height and its lateral position
 are a deterministic function of its run id and mean nothing at all.** The seam is
-one file and it is checkable the way 69's is: `scatter.ts` takes an id and a
+one file and it is checkable the way 78's is: `scatter.ts` takes an id and a
 depth, imports `chamber-layout` and `ease`, and knows nothing else about a run.
 
 Deterministic matters as much as decorative. A field reshuffled on each poll
@@ -3377,7 +4180,7 @@ it the only thing left saying a scattered field is a *series*.
 
 **The sweep rides it.** A plane crossing the volume was right while one depth was
 one run; over a field it lights every run at that depth together, which is
-exactly the defect decision 69 narrowed the envelope to remove, arriving back by
+exactly the defect decision 78 narrowed the envelope to remove, arriving back by
 a different route. A cursor on the chain visits them in the order the board holds
 them however they are scattered, and "at most one specimen more than half lit" is
 still asserted — now against the tightest gap on a real scattered path rather
@@ -3464,7 +4267,7 @@ screen while a canvas is still importing — `Chamber` reports three states rath
 than a boolean, because "not yet" and "never" used to lay out identically and no
 longer do.
 
-This reverses 69's "phones keep the flat elevation" and its rejection of a third
+This reverses 78's "phones keep the flat elevation" and its rejection of a third
 `BOXES` preset, which is now moot: `SpecimenGlyph` survives as its own file, and
 it was always a different job.
 
@@ -3492,9 +4295,9 @@ presence floor** so a clean run reads as an object anyway — a calm board is
 calm, which is the reading `brand/brand.md` asks for and the one a maintainer
 wants to be able to take at a glance.
 
-## 71. The record is a galaxy, and a run is a star with orbits
+## 80. The record is a galaxy, and a run is a star with orbits
 
-Decision 70 scattered the record across a box and made a specimen a solid.
+Decision 79 scattered the record across a box and made a specimen a solid.
 Looking at it running, four things were wrong and they were one thing: ten runs
 spaced down a thirteen-unit corridor, inside a wireframe box with rails, is a
 hallway with objects in it. The depth was too great to read as layers and too
@@ -3517,7 +4320,7 @@ as it had no arm.
 
 **The four ring planes are the four tetrahedral directions the arms used to
 leave the core along, now used as normals.** That is the one piece of the old
-shape that survives, and it survives for the reason 70 chose it: every pair is
+shape that survives, and it survives for the reason 79 chose it: every pair is
 109.47° apart, the widest four planes can be, and each projects down the view
 axis to an ellipse with the same minor/major ratio, squashed along one of the
 four 45° diagonals. So `tests` is still upper-left and `detonation` lower-left
@@ -3549,7 +4352,7 @@ thirds the size, is a galaxy with a front, a middle and a back.
 
 Within a layer a run's place is a function of its slot and its id: slots at
 equal angles round a band, wider than tall, jittered by the id by less than
-half the gap to the next slot. It still means nothing (70), and the key still
+half the gap to the next slot. It still means nothing (79), and the key still
 says so. Two things are tested rather than eyeballed: no two runs in a layer
 come within one and a half rings of each other whatever their ids, and no band
 crosses the clear line for its layer, which is higher toward the front because
@@ -3574,7 +4377,7 @@ still two files, and that is exactly why the lattice lives there and not in
 
 ### The sweep is a plane again
 
-69 narrowed the sweep from a plane to a cursor on the chain because the record
+78 narrowed the sweep from a plane to a cursor on the chain because the record
 was a scattered field and a plane lit every run at one depth together. A layer
 *is* one depth. A plane lights one layer at a time, oldest first, which is what
 an instrument reading a record in three pages looks like, and "at most one layer
@@ -3607,15 +4410,15 @@ the callout, and the callout already follows the pointer. **Keeping the box
 with the stars inside it**, which is the hallway. **Turning the rings to face
 the camera**, which costs a ring's tilt its meaning.
 
-## 72. A star's tilts are its own, the read walks the stars, and the copy is a caption
+## 81. A star's tilts are its own, the read walks the stars, and the copy is a caption
 
-Decision 71 was looked at running, with a live run on the board. Four things
+Decision 80 was looked at running, with a live run on the board. Four things
 were wrong, and this time they were four things.
 
 ### The tilts are the run's own
 
 Four tori on four fixed tetrahedral tilts around a sphere is the Bohr atom,
-and thirty of them is thirty of the same atom. The one property 71 kept the
+and thirty of them is thirty of the same atom. The one property 80 kept the
 tetrahedral set for — every ring the same ellipse, each on its own diagonal,
 so a tilt *is* its check and two runs compare by silhouette — was not being
 read by anyone: a reader learning which diagonal is `probes` from a galaxy
@@ -3626,10 +4429,10 @@ each jittered again by less than half a quarter, a polar lean drawn between
 two bounds so no ring is ever edge-on or flat, and alternate rings leaning
 away from the reader so a system is not a stack of dishes. Every star is its
 own system and no two share a silhouette. This **reverses** the "tilt is the
-check" claim of 71; what survives is that a ring's colour, radius and arc are
+check" claim of 80; what survives is that a ring's colour, radius and arc are
 measurements, which was always the part that carried anything.
 
-Seeded and never stored, for the same reason a place in a band is (70): one
+Seeded and never stored, for the same reason a place in a band is (79): one
 hash per ring on every build is cheaper than remembering thirty runs' tilts,
 it holds across rebuilds, and the run page's glyph and the key's diagram
 project the same normals the scene orients by, so the star beside a title is
@@ -3638,7 +4441,7 @@ already used moves to `hash.ts` and both draw from it.
 
 ### The read walks the stars
 
-The plane of 71 lit a whole layer at once and crossed the record once per
+The plane of 80 lit a whole layer at once and crossed the record once per
 poll — every five seconds while a run was live, which is exactly when a
 reader is watching — and every star in the layer scaled up by half as it
 passed. That is a strobe, and it got faster when the board got busier. Three
@@ -3649,7 +4452,7 @@ changes, in `wash.ts`:
   ranges of index, so oldest-first *is* back layer first, and one layer is
   finished before the next begins. "At most two runs more than half lit, and
   they are neighbours" and "every run of a layer peaks before any run of the
-  next" are asserted, as the layer claim of 71 was. This is what 69's cursor
+  next" are asserted, as the layer claim of 80 was. This is what 78's cursor
   on the chain did, without drawing the chain.
 - **It takes at least fifteen seconds** whatever the poll interval, and a
   poll that lands while a wash is walking starts nothing. The wash still
@@ -3698,7 +4501,7 @@ Rejected: **coplanar rings**, which are a planetary system and are legible,
 but two checks of near-equal duration draw one ring, and a ring hidden by
 another is a check that did not happen. **A wash decoupled from polling**,
 a fixed loop with no read behind it, which would make the light decoration
-by 69's own test. **Removing the sweep**, which leaves a board that never
+by 78's own test. **Removing the sweep**, which leaves a board that never
 shows it is reading. **Dropping the arc split on the board** for one solid
 ring per check: the share is the one thing on a ring the timeline does not
 also say louder, and the board and the run page have to be the same drawing.

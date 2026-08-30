@@ -1,4 +1,4 @@
-"""The four operator commands, and the two hidden daemon commands.
+"""The five operator commands, and the two hidden daemon commands.
 
 `main` is the only place that builds a `Context`, and the daemon commands are
 handled before it does: `_proxy` and `_watch` take every path they need on
@@ -20,6 +20,7 @@ from cujo_sniff.daemons import pid_alive, port_free, spawn_daemon, stop_daemons,
 from cujo_sniff.detonate import cmd_detonate
 from cujo_sniff.jsonl import file_size
 from cujo_sniff.policy import DEFAULT_PROXY_PORT, SCHEMA_VERSION
+from cujo_sniff.prepare import cmd_prepare
 from cujo_sniff.report import health
 from cujo_sniff.runner import run_sensed, sensor_env
 from cujo_sniff.sensors.decoy import restore_decoy, seed_decoy, watch_decoy, watched_backend
@@ -116,6 +117,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sniff.py", description=summary)
     sub = parser.add_subparsers(dest="command", required=True)
 
+    prep = sub.add_parser("prepare", help="clone head and base, and read the build files")
+    prep.add_argument("--clone-url", required=True)
+    prep.add_argument("--head-sha", required=True)
+    prep.add_argument("--base-sha", required=True)
+    # The head commit is fetched as `refs/pull/<n>/head`, which is the only way
+    # to reach it for a pull request opened from a fork. The number is public
+    # metadata and already crosses into the sandbox in the turn message.
+    prep.add_argument("--pr-number", required=True, type=int)
+    # The clone URL is checked against this, so that a URL the model was talked
+    # into cannot point the sandbox at a different repository on the same host.
+    prep.add_argument("--repo", required=True, metavar="OWNER/NAME")
+    prep.add_argument("--head", default="/work/head")
+    prep.add_argument("--base", default="/work/base")
+    prep.set_defaults(func=cmd_prepare)
+
     setup = sub.add_parser("setup", help="seed the decoy, start the sensors")
     setup.add_argument("--allow-host", action="append", default=[], metavar="HOST")
     setup.add_argument("--proxy-port", type=int, default=DEFAULT_PROXY_PORT)
@@ -129,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     det = sub.add_parser("detonate", help="install one dependency under the sensors")
     det.add_argument("--dependency", required=True)
-    det.add_argument("--source", choices=["pypi", "npm", "auto"], default="auto")
+    det.add_argument("--source", choices=["pypi", "npm", "go", "gem", "auto"], default="auto")
     det.set_defaults(func=cmd_detonate)
 
     down = sub.add_parser("teardown", help="stop the sensor daemons")
@@ -165,12 +181,16 @@ def main(argv: list[str] | None = None) -> None:
         import sys
         import traceback
 
-        from cujo_sniff.scrub import scrub
+        from cujo_sniff.scrub import scrub_head
 
         MAX_ERROR = 2000
         MAX_TRACEBACK = 4000
-        error = scrub(f"{type(exc).__name__}: {exc}")[:MAX_ERROR]
-        tb = scrub(traceback.format_exc())[:MAX_TRACEBACK]
+        # Slicing the escaped text would have cut an escape in half -- `\u20`
+        # is not what anything raised. `scrub_head` spends the budget one whole
+        # character at a time; head and not tail, because that is which end
+        # these two kept before and this is a cap fix, not a change of subject.
+        error = scrub_head(f"{type(exc).__name__}: {exc}", MAX_ERROR)[0]
+        tb = scrub_head(traceback.format_exc(), MAX_TRACEBACK)[0]
         result = {
             "schema_version": SCHEMA_VERSION,
             "ok": False,

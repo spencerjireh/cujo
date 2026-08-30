@@ -6,7 +6,7 @@
  * rules, same colours — a shape that meant one thing in the chamber and another
  * here would make it decoration.
  *
- * It turns. A specimen is a solid now (decision 70) and a still one is a
+ * It turns. A specimen is a solid now (decision 79) and a still one is a
  * silhouette of a solid, which is the picture this page had before: an object
  * with three dimensions, drawn as though it had two. The rotation carries no
  * data and is decoration by the same rule that admits the haze and the glow;
