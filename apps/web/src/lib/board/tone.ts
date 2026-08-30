@@ -12,7 +12,7 @@
  * that Cujo fell over, so a run that errors is info blue.
  */
 
-import type { CheckName, DigestCheck, RunStatus, RunSummary } from "@/lib/api/types";
+import type { CheckName, DigestCheck, RunStatus, RunSummary, Severity } from "@/lib/api/types";
 
 /**
  * Four tones, not eight. Several statuses are the same claim about the pull
@@ -165,4 +165,68 @@ export const OUTCOME_TONE: Record<CheckOutcome, Tone> = {
 /** The digest's checks, or an empty map for a run that never folded one. */
 export function checksOf(run: RunSummary): Partial<Record<CheckName, DigestCheck>> {
   return run.digest?.checks ?? {};
+}
+
+/**
+ * What the run *found*, as opposed to how its checks ended.
+ *
+ * `digest.findings` is a `Record<Severity, number>` and the board draws it in
+ * three places — a specimen's marks, a record row, the rack's fifth panel. This
+ * is the one place a severity becomes a tone, so those three cannot disagree
+ * about which count is the dangerous one.
+ *
+ * `warn` is amber and not its own hue, per brand.md: the product emits three
+ * severities and `warn` renders on the `high` ramp, which is the amber one.
+ * That puts amber on a second thing in the chamber — a `blocked_pending` core,
+ * the sweep, and now a warn mark — and it stays within the restraint the brand
+ * asks for, because a warn mark is a two-pixel quad and a calm run has none.
+ */
+export const SEVERITY_TONE: Record<Severity, Tone> = {
+  critical: "critical",
+  warn: "amber",
+  info: "info",
+};
+
+/** Worst first, which is the order marks are strung and legends are listed. */
+export const SEVERITY_ORDER: readonly Severity[] = ["critical", "warn", "info"];
+
+/** What `digest.findings` is, named so the three readers can say it. */
+export type FindingCounts = Record<Severity, number>;
+
+/** Null when the run found nothing, which is a result and not a missing value. */
+export function worstSeverity(counts: FindingCounts | undefined): Severity | null {
+  if (!counts) return null;
+  return SEVERITY_ORDER.find((severity) => (counts[severity] ?? 0) > 0) ?? null;
+}
+
+/**
+ * Orders two runs by what they found, worst severity first.
+ *
+ * A comparator and not a weight. Folding the three counts into one number —
+ * `critical * 10_000 + warn * 100 + info` — is the obvious way to make the
+ * record column sortable, and it is wrong: a hundred and one warns outrank a
+ * critical, because the counts come off an unbounded findings array and no
+ * fixed multiplier can be large enough. Comparing rank by rank cannot invert at
+ * any count.
+ *
+ * A run that folded no digest sorts below a run that found nothing. Those are
+ * different claims — one is the absence of a measurement, the other is a
+ * result — and the column already draws them differently.
+ */
+export function compareFindings(
+  a: FindingCounts | null | undefined,
+  b: FindingCounts | null | undefined,
+): number {
+  if (!a || !b) return (a ? 1 : 0) - (b ? 1 : 0);
+  for (const severity of SEVERITY_ORDER) {
+    const difference = (a[severity] ?? 0) - (b[severity] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/** How many findings a run produced, across every severity. */
+export function findingTotal(counts: FindingCounts | undefined): number {
+  if (!counts) return 0;
+  return SEVERITY_ORDER.reduce((sum, severity) => sum + (counts[severity] ?? 0), 0);
 }

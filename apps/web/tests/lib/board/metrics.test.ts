@@ -222,3 +222,59 @@ describe("activity", () => {
     expect(activity([row({ id: "a", status: "clean", created_at: "not a date" })])).toEqual([]);
   });
 });
+
+/**
+ * What the record found, which is the question the verdict ribbon cannot
+ * answer: it says how many runs went badly, not what was wrong with them.
+ */
+describe("boardMetrics findings", () => {
+  const found = (over: Partial<RunDigest["findings"]>) =>
+    digest({ findings: { critical: 0, warn: 0, info: 0, ...over } });
+
+  it("sums by severity and counts the runs that produced any", () => {
+    const metrics = boardMetrics([
+      row({ id: "a", status: "blocked_posted", digest: found({ critical: 1, warn: 2 }) }),
+      row({ id: "b", status: "clean", digest: found({ info: 3 }) }),
+      row({ id: "c", status: "clean", digest: found({}) }),
+    ]);
+    expect(metrics.findings.bySeverity).toEqual({ critical: 1, warn: 2, info: 3 });
+    expect(metrics.findings.total).toBe(6);
+    expect(metrics.findings.producing).toBe(2);
+    expect(metrics.findings.observed).toBe(3);
+    expect(metrics.findings.worst).toBe("critical");
+  });
+
+  it("does not count a run that folded nothing as a run that found nothing", () => {
+    // The same rule the sensor rows keep. A board of unfolded runs must not
+    // report "0 of 3 found anything", which is a claim nobody measured.
+    const metrics = boardMetrics([
+      row({ id: "a", status: "superseded" }),
+      row({ id: "b", status: "running" }),
+    ]);
+    expect(metrics.findings.observed).toBe(0);
+    expect(metrics.findings.producing).toBe(0);
+    expect(metrics.findings.total).toBe(0);
+    expect(metrics.findings.worst).toBeNull();
+  });
+
+  it("reports the worst severity present and not the most common one", () => {
+    const metrics = boardMetrics([
+      row({ id: "a", status: "clean", digest: found({ info: 40 }) }),
+      row({ id: "b", status: "blocked_posted", digest: found({ warn: 1 }) }),
+    ]);
+    expect(metrics.findings.worst).toBe("warn");
+  });
+
+  it("has an empty summary on an empty board rather than a missing one", () => {
+    // The rack renders disarmed instead of returning null, so this shape has
+    // to exist for a board with no runs at all.
+    const metrics = boardMetrics([]);
+    expect(metrics.findings).toEqual({
+      bySeverity: { critical: 0, warn: 0, info: 0 },
+      total: 0,
+      producing: 0,
+      observed: 0,
+      worst: null,
+    });
+  });
+});
