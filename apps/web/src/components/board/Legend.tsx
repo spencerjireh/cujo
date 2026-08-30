@@ -116,9 +116,16 @@ export function Legend() {
               </li>
             ))}
           </ul>
+          {/* Which critical is which decides who answers, and the two answers
+              are opposite. A broken test is mechanical, so it blocks at once
+              and nobody is asked; an accusation of bad faith is held until a
+              maintainer confirms it, which is what the gate exists for
+              (agent/SKILL.md, "Which tool"). Saying a maintainer confirms
+              every critical described the wrong product. */}
           <p className="mt-4 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            Cujo blocks a merge on a critical finding, and only after a maintainer confirms it on
-            the pull request.
+            A critical defect — a test that passes on the base and fails on the head — blocks the
+            merge at once. A critical <em>accusation</em>, that code or a dependency acted in bad
+            faith, is held until a maintainer confirms it on the pull request.
           </p>
           <p className="mt-3 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
             The amber plane crossing the chamber is the board re-reading the API: every five seconds
