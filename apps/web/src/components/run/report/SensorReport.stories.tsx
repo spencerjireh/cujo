@@ -50,8 +50,9 @@ export const Exfiltration: Story = {
 
 /**
  * A normal install. Nothing tripped, so the coverage line is the card's whole
- * verdict — without it this block was a dependency name and two short tables,
- * and the reader had to infer that meant clean.
+ * verdict and every table stays shut: four headings and their counts, which is
+ * the summary the reader wanted and used to have to assemble by scrolling. The
+ * two zero-count tables carry no glyph, because there is nothing to open.
  */
 export const Clean: Story = {
   args: {
@@ -64,6 +65,34 @@ export const Clean: Story = {
       secret_probe: { decoy_read: false, decoy_in_egress: false },
       sensors: ALL_WATCHING,
       derived: { egress_to_unknown_host: false, wrote_sensitive: false },
+    }),
+  },
+};
+
+/**
+ * Only the flagged table opens. Nothing was written and nothing was read, so
+ * those two headings stay shut over their counts while egress — the table the
+ * one alarm is about — is open with the row that proves it.
+ */
+export const OpensOnTheFlaggedTable: Story = {
+  args: {
+    block: blockFrom({
+      dependency: "tainted-sample==1.0.0",
+      egress: [
+        { host: "185.220.101.4", port: 443, bytes: 3200, known: false },
+        { host: "pypi.org", port: 443, bytes: 11_000, known: true },
+      ],
+      files_read: [{ path: "~/work/head/setup.py", sensitive: false }],
+      fs_changes: [{ path: "site-packages/tainted_sample", type: "created", in_workspace: true }],
+      subprocesses: [{ argv: ["pip", "install", "tainted-sample==1.0.0"], exit: 0 }],
+      secret_probe: { decoy_read: false, decoy_in_egress: null },
+      sensors: ALL_WATCHING,
+      derived: {
+        egress_to_unknown_host: true,
+        wrote_outside_workspace: false,
+        wrote_sensitive: false,
+        spawned_subprocess: false,
+      },
     }),
   },
 };

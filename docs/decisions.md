@@ -3597,6 +3597,21 @@ seven hundred pixels between a host and its byte count. And one disclosure
 pattern: the raw report is a Collapsible with a chevron, like the card above it
 and the provenance section below it, not a native `<details>`.
 
+**The tables collapse, and a flag decides which ones open.** A detonation report
+is a roll-up plus one block per dependency, so a card that opened everything was
+twelve tables deep and the reader scrolled past eleven of them to reach the one
+the alarms were about. `flaggedTables` maps each derived flag to the table that
+proves it — unknown egress to egress, a decoy or sensitive read to files read,
+a write in the wrong place to filesystem changes, a spawned subprocess to the
+process list — and a card opens on exactly those. Everything else is a heading
+and a count until somebody asks, which is also what makes a clean block worth
+reading: four lines and four numbers instead of four tables of rows nobody
+wanted. `spawned_subprocess` is in that map and deliberately not in `alarms`: an
+install spawns processes, so it accuses nothing, but when the sandbox sets it the
+process list is the list to read. A table with no rows is not a control and
+carries no glyph, and its heading's `0` is the whole statement — the `none` line
+under it was the same fact twice.
+
 Rejected: **plain-language headings** ("Where it called out" for egress), which
 reads better cold and then disagrees with the finding, the review comment and the
 sandbox contract, all of which say `egress`. One vocabulary end to end is worth
@@ -3605,4 +3620,9 @@ sentence**, which is the same fact twice in four centimetres. **Rendering `none`
 for a report with no health block**, which would be this page claiming an
 observation no sandbox made. **A left rule down the open card** to tie the
 evidence to its row, which at hairline weight in a view that is already all
-hairlines is one more line, not a device.
+hairlines is one more line, not a device. **A hover ground on a table heading**,
+which is the pattern the card row and the raw report use and is wrong at four
+headings a block and three blocks a card — the chevron says it is a control
+without putting a band of colour under every second line. **Collapsing the
+blocks too**, a third level of disclosure inside the second, which buys a
+scroll and costs a reader the ability to see what a card holds.
