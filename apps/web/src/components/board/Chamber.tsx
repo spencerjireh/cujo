@@ -4,7 +4,7 @@ import type { RunSummary } from "@/lib/api/types";
 import { CAPACITY } from "@/lib/board/galaxy";
 import { type Specimen, specimensFrom } from "@/lib/board/specimen";
 import { focusStore, setFocusedRun, setSelectedRun, useFocusedRun } from "@/lib/board/store";
-import { SEVERITY_ORDER, STATUS_LABELS, TONE_CHAMBER_VAR } from "@/lib/board/tone";
+import { SEVERITY_ORDER, STATUS_LABELS, TONE_CHAMBER_VAR, checkSentence } from "@/lib/board/tone";
 import { duration } from "@/lib/format";
 import { prefersReducedMotion } from "@/lib/motion";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -354,23 +354,38 @@ function Callout({ spec }: { spec: Specimen }) {
         <p className="mt-1.5 text-[var(--chamber-fg-muted)]">no checks folded</p>
       ) : (
         <>
-          <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[var(--chamber-fg-muted)]">
-            {spec.bars.map((bar) => (
-              <li key={bar.name} className="flex items-baseline gap-1">
-                {/* A check that never appeared is the wireframe colour, the
-                    same gap the specimen draws instead of a ring. */}
-                <span
-                  className="inline-block h-1.5 w-1.5 translate-y-px"
-                  style={{
-                    background:
-                      bar.outcome === "absent"
-                        ? "var(--chamber-line)"
-                        : `var(${TONE_CHAMBER_VAR[bar.tone]})`,
-                  }}
-                />
-                {bar.name}
-              </li>
-            ))}
+          {/* One line per ring, in the ring's own colour: the name is drawn
+              with the token the scene reads for that ring, so a reader can
+              match the word to the ring by hue, and the rest of the line is
+              what the ring's radius and bright arc measure. A check that never
+              appeared is the wireframe colour and says so — it is the gap the
+              specimen draws instead of a ring. */}
+          <ul className="mt-2 flex flex-col gap-0.5 text-[var(--chamber-fg-muted)]">
+            {spec.bars.map((bar) => {
+              const sentence = checkSentence(
+                bar.name,
+                bar.outcome === "absent"
+                  ? undefined
+                  : { status: bar.outcome, ms: bar.ms, sandboxMs: bar.sandboxMs },
+              );
+              const rest = sentence.slice(bar.name.length + 2);
+              return (
+                <li key={bar.name} className="flex items-baseline gap-2">
+                  <span
+                    className="w-[5.5rem] shrink-0"
+                    style={{
+                      color:
+                        bar.outcome === "absent"
+                          ? "var(--chamber-line)"
+                          : `var(${TONE_CHAMBER_VAR[bar.tone]})`,
+                    }}
+                  >
+                    {bar.name}
+                  </span>
+                  <span>{bar.outcome === "absent" ? "no ring" : rest}</span>
+                </li>
+              );
+            })}
           </ul>
           <p className="mt-2 text-[var(--chamber-fg-muted)]">
             {spec.findingTotal === 0

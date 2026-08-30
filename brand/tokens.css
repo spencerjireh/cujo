@@ -20,6 +20,10 @@
   --sev-low-bg: #e6e0d6;
   --sev-info: #1d62a3;
   --sev-info-bg: #d6e4f3;
+  /* Green is "live": a run or a check still executing. Not a severity, and
+     never "passed" — a finished clean run is info blue. */
+  --sev-live: #1f7a4d;
+  --sev-live-bg: #d8efe2;
 
   /* The instrument viewport. Declared once and never redefined below, because
      the chamber is a screen and a screen is dark in a lit room too. The four
@@ -33,6 +37,7 @@
   --chamber-amber: #f2a900;
   --chamber-info: #66b0f0;
   --chamber-inert: #958d82;
+  --chamber-live: #4fd18b;
 
   --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
@@ -80,6 +85,8 @@
     --sev-low-bg: #211e1a;
     --sev-info: #66b0f0;
     --sev-info-bg: #14283a;
+    --sev-live: #4fd18b;
+    --sev-live-bg: #0f2a1c;
   }
 }
 
@@ -104,4 +111,6 @@
   --sev-low-bg: #211e1a;
   --sev-info: #66b0f0;
   --sev-info-bg: #14283a;
+  --sev-live: #4fd18b;
+  --sev-live-bg: #0f2a1c;
 }

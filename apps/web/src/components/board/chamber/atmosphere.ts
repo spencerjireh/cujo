@@ -15,8 +15,8 @@
  * here" — the fog resolves into a flat colour and the record reads as a
  * picture cut out of the page. A graded backdrop gives the fog something to
  * become, the shafts give the sweep something to move through, the star field
- * — far more motes than the record has stars, reaching well past its back
- * layer and off every edge of the frame — is what makes the layers a galaxy
+ * — far more motes than the record has stars, close about it and off every
+ * edge of the frame — is what makes the layers a galaxy
  * rather than rings of objects in the dark, and the lattice behind it all is
  * the grid a drawing has: lines to a vanishing point, which is depth.
  */
@@ -51,8 +51,8 @@ import type { ChamberPalette } from "./palette";
  * motes sit among it so the field has a near and a far of its own.
  */
 const STARS = [
-  { count: 700, size: 0.018, opacity: 0.55, seed: 20260830 },
-  { count: 220, size: 0.036, opacity: 0.4, seed: 20260831 },
+  { count: 700, size: 0.018, opacity: 0.8, seed: 20260830 },
+  { count: 220, size: 0.036, opacity: 0.6, seed: 20260831 },
 ] as const;
 /** How many haze planes stand in the volume. */
 const SHAFT_COUNT = 5;
@@ -80,17 +80,21 @@ const LATTICE_WIDTH_PX = 1.2;
 const LATTICE_OPACITY = 0.5;
 
 /**
- * The volume the stars fill. Far larger than the record on every axis, on
- * purpose: an edge of the field inside the frame reads as the field ending,
- * and a galaxy does not end where the record does.
+ * The volume the stars fill. Wider than the record so no edge of the field
+ * shows inside the frame, but not much deeper than it: the fog is fully opaque
+ * twelve units from a camera that stands near z 4, so a mote further back
+ * than about z -7.5 is drawn and never seen. A box that reached to z -16, as
+ * this one did after decision 82, put four motes in ten behind that plane and
+ * spread the rest so thin the field was gone. This is the field the record
+ * had before, hugging the galaxy, dense enough to read as air.
  */
 const STAR_BOX: FieldBox = {
-  width: 16,
-  height: 9,
-  depth: 22,
+  width: 11,
+  height: 6.5,
+  depth: FRONT_Z + 1.4 - (BACK_Z - 2.2),
   x: RECORD_X,
   y: 0,
-  z: (FRONT_Z + BACK_Z) / 2 - 3,
+  z: (FRONT_Z + 1.4 + (BACK_Z - 2.2)) / 2,
 };
 
 export interface Atmosphere {

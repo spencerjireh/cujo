@@ -71,11 +71,11 @@ export const Clean: Story = {
 };
 
 /**
- * Only the flagged table opens. Nothing was written and nothing was read, so
- * those two headings stay shut over their counts while egress — the table the
- * one alarm is about — is open with the row that proves it.
+ * One alarm, four shut tables. The egress bar at the top says what tripped
+ * and the egress heading says how many rows there are; the row that proves it
+ * is one click down, the same as the tables the alarm is not about.
  */
-export const OpensOnTheFlaggedTable: Story = {
+export const FlaggedTableStaysShut: Story = {
   args: {
     block: blockFrom({
       dependency: "tainted-sample==1.0.0",

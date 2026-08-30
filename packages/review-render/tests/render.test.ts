@@ -130,12 +130,146 @@ describe("sections", () => {
       render({
         coverage: { ran: [{ check: "tests", note: "212 on base and head" }], skipped: [] },
       }),
-    ).toContain("Ran: tests (212 on base and head).\nNot run: nothing.");
+    ).toContain("Ran:\n- tests — 212 on base and head\n\nNot run: nothing.");
     expect(
       render({
         coverage: { ran: [], skipped: [{ check: "detonation", reason: "no manifest changed" }] },
       }),
-    ).toContain("Not run: detonation — no manifest changed.");
+    ).toContain("Ran: nothing.\n\nNot run:\n- detonation — no manifest changed");
+  });
+
+  it("gives each check its own line rather than stacking parentheticals", () => {
+    // The rubric warns that a caveat in a parenthesis is a caveat nobody reads;
+    // one sentence of three parentheticals was the renderer doing it wholesale.
+    const body = render({
+      coverage: {
+        ran: [
+          { check: "tests", note: "8 on base and head; 1 fails on head only" },
+          { check: "probes", note: "3 cases on head" },
+          { check: "smoke" },
+        ],
+        skipped: [],
+      },
+    });
+    expect(body).toContain(
+      "Ran:\n- tests — 8 on base and head; 1 fails on head only\n- probes — 3 cases on head\n- smoke",
+    );
+    expect(body).not.toContain("(3 cases on head)");
+  });
+
+  it("cannot have a check name split into a check nobody ran", () => {
+    // The check name comes from the model like everything else here, and a
+    // newline in one would end its list item and leave the rest reading as
+    // another check this review claims to have run.
+    const body = render({
+      coverage: {
+        ran: [{ check: "tests\n- detonation", note: "8 on base and head" }],
+        skipped: [{ check: "smoke\n- probes", reason: "no boot command\ninferred" }],
+      },
+    });
+    expect(body).toContain("Ran:\n- tests - detonation — 8 on base and head");
+    expect(body).toContain("Not run:\n- smoke - probes — no boot command inferred");
+  });
+});
+
+describe("a finding block", () => {
+  it("puts the evidence below the sentence that explains it", () => {
+    const body = render({
+      findings: [
+        finding({
+          severity: "critical",
+          title: "the total is a cent low on multi-line orders",
+          evidence: "assert order_total(...) == 3.02, got 3.01",
+          detail: "Rounding once instead of per line changes what a multi-line order costs.",
+          next: "round each line before summing",
+        }),
+      ],
+    });
+    expect(body).toContain(
+      "**the total is a cent low on multi-line orders** · `tests`\n\n" +
+        "Rounding once instead of per line changes what a multi-line order costs.\n\n" +
+        "Next: round each line before summing\n\n" +
+        "> assert order_total(...) == 3.02, got 3.01",
+    );
+  });
+
+  it("is one line when it carries no judgment, which is most warns and every info", () => {
+    const body = render({
+      findings: [
+        finding({
+          severity: "warn",
+          title: "the pricing helper is not covered by a test",
+          evidence: "no test id names apply_discount",
+        }),
+      ],
+    });
+    expect(body).toContain(
+      "**the pricing helper is not covered by a test** · `tests` — no test id names apply_discount",
+    );
+  });
+
+  it("keeps the full block for a warn that does have an argument to make", () => {
+    // Keyed on the fields and not on the severity: a `warn` carrying a `next`
+    // is making a case, and a case does not fit on the title line.
+    const body = render({
+      findings: [
+        finding({
+          severity: "warn",
+          title: "an unfamiliar host answered",
+          evidence: "cdn.example:443",
+          next: "confirm the host is expected",
+        }),
+      ],
+    });
+    expect(body).toContain(
+      "**an unfamiliar host answered** · `tests`\n\nNext: confirm the host is expected\n\n> cdn.example:443",
+    );
+  });
+
+  it("keeps the quote when the evidence spans lines", () => {
+    // Running its rows together with a space would lose what the rows meant.
+    const body = render({
+      findings: [
+        finding({ title: "two runs", evidence: "base: 8 passed\nhead: 7 passed, 1 failed" }),
+      ],
+    });
+    expect(body).toContain(
+      "**two runs** · `tests`\n\n> base: 8 passed\n> head: 7 passed, 1 failed",
+    );
+  });
+
+  it("never collapses a critical, even one that arrived with no judgment on it", () => {
+    // The rubric requires a `detail` and a `next` on every critical and the tool
+    // schema leaves both optional, so this shape is reachable — and a one-line
+    // block is how a reader is told something is minor.
+    const body = render(
+      {
+        findings: [
+          finding({
+            severity: "critical",
+            title: "a test passes on base and fails on head",
+            evidence: "pytest -q: 1 failed on head",
+          }),
+        ],
+      },
+      { tool: "post_blocking_review" },
+    );
+    expect(body).toContain(
+      "**a test passes on base and fails on head** · `tests`\n\n> pytest -q: 1 failed on head",
+    );
+  });
+
+  it("keeps a title on one line, so a newline cannot break out of the block", () => {
+    const body = render({
+      findings: [finding({ title: "two lines\nof title", check: "tests\nprobes" })],
+    });
+    expect(body).toContain("**two lines of title** · `tests probes`");
+  });
+
+  it("drops the dash when there is no evidence at all", () => {
+    expect(render({ findings: [finding({ title: "ran clean" })] })).toContain(
+      "**ran clean** · `tests`\n",
+    );
   });
 });
 
@@ -454,16 +588,18 @@ Nothing in this change broke a test, and nothing in the sandbox touched anything
 <details>
 <summary>1 info finding</summary>
 
-**212 tests pass on base and on head** · \`tests\`
-
-> pytest -q: 212 passed on base, 212 passed on head
+**212 tests pass on base and on head** · \`tests\` — pytest -q: 212 passed on base, 212 passed on head
 
 </details>
 
 ### Coverage
 
-Ran: tests (212 on base and head), smoke.
-Not run: detonation — no dependency manifest changed.
+Ran:
+- tests — 212 on base and head
+- smoke
+
+Not run:
+- detonation — no dependency manifest changed
 
 Egress: 1 known host.
 
@@ -515,11 +651,11 @@ A test that passed on base fails on head, on the rounding path this change rewri
 
 **a test passes on base and fails on head** · \`tests\` · \`app/orders.py:42\`
 
-> base_pass_head_fail; AssertionError: 10.05 != 10.04
-
 The change rounds the line total before the discount rather than after.
 
 Next: round after the discount is applied
+
+> base_pass_head_fail; AssertionError: 10.05 != 10.04
 
 <details>
 <summary>Machine-readable summary</summary>

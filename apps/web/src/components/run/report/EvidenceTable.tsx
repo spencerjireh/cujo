@@ -24,9 +24,11 @@ import { VirtualRows } from "./VirtualRows";
  * roll-up plus one block per dependency, so a card that opened everything was
  * twelve tables deep and the reader scrolled past eleven of them to reach the
  * one the alarms were about. Closed, the heading still carries the count, which
- * is the part that was worth the scroll. `defaultOpen` is decided by
- * `flaggedTables`, not guessed here: a card opens on the rows that prove what
- * the bars at the top of it say, and stays shut on the rest.
+ * is the part that was worth the scroll. `defaultOpen` and its rising edge are
+ * kept for a caller that wants a table open on arrival, but nothing passes
+ * true today: `SensorReport` used to open the tables its block's own flags
+ * pointed at, and now leaves all four shut, since the alarms above them already
+ * say what tripped and the heading says how many rows there are.
  *
  * A table with no rows is not a control at all, and carries no glyph: a `0` and
  * a `not measured` are facts with nothing behind them, and a disclosure that
@@ -42,6 +44,9 @@ export function EvidenceTable<T>({
   estimateSize,
   cut,
   note,
+  base,
+  count,
+  footer,
   defaultOpen = false,
   children,
 }: {
@@ -61,6 +66,19 @@ export function EvidenceTable<T>({
   estimateSize?: number;
   cut?: boolean;
   note?: string;
+  /**
+   * The directory every path in the table shares, said once here so the rows
+   * can drop it. Plain, not a warning: it is where the rows are, not a fact
+   * about the run.
+   */
+  base?: string;
+  /**
+   * What the heading counts, when it is not `items.length`. A table that folds
+   * some of its rows behind a control still holds them all.
+   */
+  count?: number;
+  /** A row after the last row: the one control a folded table needs. */
+  footer?: ReactNode;
   /** Whether this table holds the evidence for something the block flagged. */
   defaultOpen?: boolean;
   children: (item: T, index: number) => ReactNode;
@@ -80,11 +98,13 @@ export function EvidenceTable<T>({
   // sensor was watching cannot be made to show a zero, so this stays absent, as
   // it always has. A cut list or a note is still worth a table — "0 of them,
   // and the list was truncated" is a different statement from "0 of them".
-  if (items.length === 0 && state === "unknown" && !cut && !note) return null;
+  const total = count ?? items.length;
+  if (total === 0 && state === "unknown" && !cut && !note) return null;
 
   // A blind table has no rows to show even when the list is not empty: the
-  // sensor was off, so what it holds is not what happened.
-  const rows = state !== "blind" && items.length > 0;
+  // sensor was off, so what it holds is not what happened. A table whose every
+  // row is folded behind the footer still has that footer to open.
+  const rows = state !== "blind" && (items.length > 0 || Boolean(footer));
 
   return (
     // Its own measure, narrower than the page column. A table set to the full
@@ -100,7 +120,7 @@ export function EvidenceTable<T>({
               glyph is what says it is a control. */}
           <h4>
             <Collapsible.Trigger className="flex w-full items-baseline gap-2 border-b border-line pb-1 text-left transition-colors hover:border-fg-muted">
-              <Heading title={title} count={items.length} state={state} />
+              <Heading title={title} count={total} state={state} />
               <Chevron open={open} className="ml-auto self-center text-fg-muted" />
             </Collapsible.Trigger>
           </h4>
@@ -108,6 +128,7 @@ export function EvidenceTable<T>({
           {/* Outside the content, so a cap that cut the evidence is still
               said over a table nobody has opened. */}
           <Cuts cut={cut} note={note} />
+          {base ? <Base base={base} /> : null}
 
           <Collapsible.Content>
             {/* The first column is the subject and runs long; every column
@@ -126,6 +147,7 @@ export function EvidenceTable<T>({
             <VirtualRows items={items} estimateSize={estimateSize}>
               {children}
             </VirtualRows>
+            {footer}
           </Collapsible.Content>
         </Collapsible.Root>
       ) : (
@@ -181,6 +203,15 @@ function Cuts({ cut, note }: { cut?: boolean; note?: string }) {
 
 function Note({ children }: { children: ReactNode }) {
   return <p className="py-1 font-mono text-xs text-sev-high">{children}</p>;
+}
+
+/** Where the rows are. Muted, because it is context and not a warning. */
+function Base({ base }: { base: string }) {
+  return (
+    <p className="py-1 font-mono text-xs text-fg-muted">
+      paths under <code className="wrap-anywhere">{base}</code>
+    </p>
+  );
 }
 
 /** A row of one evidence table. The template is the table's, never its own. */

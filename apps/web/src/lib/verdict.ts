@@ -93,3 +93,19 @@ export function checkVerdict(
   if (info > 0) return { text: `${info} info`, tone: "text-sev-info" };
   return { text: "ok", tone: "text-sev-info" };
 }
+
+/**
+ * Why a lane says "not run", in a word.
+ *
+ * A check that never appeared and a check that appeared and fell over are
+ * both a lane with nothing on it, and "not run" alone leaves a reader to guess
+ * which. The error text is the run's own account when there is one. When there
+ * is none the honest word is "skipped": the reason a check is skipped — the
+ * pull request touched no manifest, so detonation had nothing to install — is
+ * decided in the sandbox and never reaches the client, so the page can say
+ * that it was and not why.
+ */
+export function notRunReason(check: CheckState | undefined): string {
+  if (check?.error) return check.error;
+  return "skipped";
+}

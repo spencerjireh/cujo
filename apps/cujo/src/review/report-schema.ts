@@ -113,7 +113,7 @@ const SensorHealth = z
  *
  * `build_sensor_block` always emits the four, but `merge_reports` does not:
  * it `continue`s past a sensor no report in the batch carried
- * (`sandbox/cujo_sniff/report.py:192-199`), so a merged block — which is what a
+ * (`sandbox/cujo_sniff/report.py:205-212`), so a merged block — which is what a
  * `detonate` entry carries — can be short a key. Requiring them here would
  * reject a report the sandbox considers correct.
  *
@@ -128,6 +128,16 @@ const Sensors = z
   })
   .passthrough();
 
+/**
+ * `sensor_logs` is optional and the other six are not, which is the same
+ * asymmetry as everywhere else here: `TRUNCATION_KEYS`
+ * (`sandbox/cujo_sniff/report.py:34-42`) emits seven keys and this schema named
+ * six, so until now `sensor_logs` survived on `.passthrough()` alone and a
+ * non-boolean there was untyped rather than refused. Optional rather than
+ * required because that can only ever add a rejection: a report the sandbox
+ * writes carries it, and one that does not is a report from a `sniff.py` older
+ * than the key.
+ */
 const Truncated = z
   .object({
     stdout_tail: z.boolean(),
@@ -135,6 +145,7 @@ const Truncated = z
     files_read: z.boolean(),
     snapshot: z.boolean(),
     hashes: z.boolean(),
+    sensor_logs: z.boolean().optional(),
     script_content: z.boolean().optional(),
   })
   .passthrough();
@@ -147,6 +158,32 @@ const Derived = z
     spawned_subprocess: z.boolean(),
   })
   .passthrough();
+
+/**
+ * The same two blocks at the envelope, where a model writes them.
+ *
+ * Inside `runs[]` these come verbatim from `sniff.py` and stay strict: a key
+ * missing there means the producer moved, which is the failure this whole file
+ * exists to catch. The envelope's copy is a roll-up the sub-agent assembles by
+ * hand, and requiring the full shape there warned on **every** production run —
+ * fourteen `report_invalid` warns across three models in five runs, each of them
+ * a different partial reading of the same instruction: an empty object, a block
+ * short one key, a bare boolean.
+ *
+ * `.partial()` is the whole change, and it keeps everything worth keeping. An
+ * absent key passes, a present one must still be a boolean, and a `truncated`
+ * that is not an object at all is still refused. Extras still pass through,
+ * because `.partial()` carries `passthrough` with it.
+ *
+ * Nothing is lost by reading it leniently. `sensorLayers` (`findings.ts:35-43`)
+ * runs every hard rule over the top level *and* every `runs[]` entry, so a
+ * roll-up nobody wrote hides no signal — and a roll-up of booleans that are all
+ * `false` in every run is a value `any()` over the runs would compute anyway.
+ * This is the second time the argument has been made here; `SensorHealth` above
+ * is the first. A warn that fires on every review is one nobody reads.
+ */
+const TruncatedRollUp = Truncated.partial();
+const DerivedRollUp = Derived.partial();
 
 /** The block `build_sensor_block` returns, identical on every kind of run. */
 const sensorBlock = {
@@ -217,6 +254,11 @@ const RunEntry = z.union([CommandRun, DependencyRun]);
  * top level *and* each `runs[]` entry precisely so a roll-up nobody wrote cannot
  * hide a signal.
  *
+ * `derived` and `truncated` are the roll-up shapes and not the strict ones, so
+ * a partial block reads as a partial block rather than as a broken report. That
+ * is `TruncatedRollUp`/`DerivedRollUp` above, and the reasoning is there.
+ * `derived` stays required regardless, because the rubric asks for it by name.
+ *
  * The per-check extras (`base`, `head`, `base_pass_head_fail`, `probes`,
  * `endpoints`, `log_tail`) are not required either. A missing
  * `base_pass_head_fail` means no failing tests were reported, which is a claim
@@ -231,9 +273,9 @@ const Report = z
     schema_version: z.number().optional(),
     check: z.string(),
     runs: z.array(RunEntry),
-    derived: Derived,
+    derived: DerivedRollUp,
     sensors: Sensors.optional(),
-    truncated: Truncated.optional(),
+    truncated: TruncatedRollUp.optional(),
   })
   .passthrough();
 
@@ -243,20 +285,53 @@ export type ReportProblem = { ok: true } | { ok: false; problem: string };
 const PROBLEM_MAX = 200;
 
 /**
+ * The issues behind a union failure, from the branch that got furthest.
+ *
+ * `runs[]` is a union, and zod reports a failed union as one `invalid_union`
+ * whose message is the literal string "Invalid input" and whose path stops at
+ * the entry. That was every diagnostic a `report_invalid` warn carried on the
+ * two worst reports production has produced: `runs.0: Invalid input`, where
+ * what had actually happened was six run entries each missing `files_read` and
+ * `fs_changes` — a sub-agent trimming entries it was told to copy whole.
+ *
+ * The branch with the fewest issues is the one the entry was trying to be, and
+ * that heuristic is not a guess about models: a trimmed `sniff.py run` fails
+ * `CommandRun` on two fields and `DependencyRun` on five, and a `detonate`
+ * entry with one bad field fails its own branch on one and the other on three.
+ * Branch issues already carry the full path, so nothing needs re-rooting.
+ */
+function flatten(issue: z.ZodIssue): z.ZodIssue[] {
+  if (issue.code !== z.ZodIssueCode.invalid_union) return [issue];
+  const branches = issue.unionErrors.map((error) => error.issues.flatMap(flatten));
+  let best: z.ZodIssue[] = [];
+  for (const branch of branches) {
+    if (branch.length > 0 && (best.length === 0 || branch.length < best.length)) best = branch;
+  }
+  // A union that failed with no issue under it should not exist; if it does,
+  // the useless parent still beats saying nothing.
+  return best.length > 0 ? best : [issue];
+}
+
+/**
  * The first thing wrong with this report, in a phrase, or `ok`.
  *
  * One issue and not all of them: this string ends up in a finding's `evidence`
  * on a public page and in a Discord card, and a wall of zod paths tells a reader
  * less than the first concrete thing that did not match. Zod orders issues by
- * path, so the first is also the outermost, which is the one worth naming.
+ * path, so the first is also the outermost, which is the one worth naming. It is
+ * the first issue *from the branch a union failure was reaching for*, though —
+ * a collapsed `invalid_union` names no field at all, which is one issue and no
+ * diagnostic. The count that follows it is what says whether the named field is
+ * the whole story or one of twelve.
  *
  * **The path is quoted; the value never is.** Every string in a report is
  * written by the code under review (Contract 2), and the sandbox escapes those
  * on the way out. A zod message that echoed a received value would be a second
  * route for that text into a review body and a browser, one that did not pass
  * through the escaping — so the message is capped and the value stays out of it.
- * `z.union` also reports both branches at once, which is unreadable; taking one
- * issue is what keeps that legible.
+ * Walking into a union does not widen that: nothing in this file is an enum or a
+ * literal, so every message a branch can produce is `Required` or "Expected x,
+ * received y" over type names. There is a test on the union path, not a promise.
  *
  * A `null` report — the sub-agent's message held no JSON at all — is not this
  * function's business. That is `check_missing`, reported separately.
@@ -264,9 +339,13 @@ const PROBLEM_MAX = 200;
 export function validateReport(report: unknown): ReportProblem {
   const result = Report.safeParse(report);
   if (result.success) return { ok: true };
-  const issue = result.error.issues[0];
+  const issues = result.error.issues.flatMap(flatten);
+  const issue = issues[0];
   if (!issue) return { ok: false, problem: "did not match the report schema" };
   const path = issue.path.join(".");
-  const problem = path ? `${path}: ${issue.message}` : issue.message;
-  return { ok: false, problem: problem.slice(0, PROBLEM_MAX) };
+  const named = path ? `${path}: ${issue.message}` : issue.message;
+  // The suffix is measured before the cap, never after it: a count clipped off
+  // the end is the one part of this string a reader cannot reconstruct.
+  const more = issues.length > 1 ? ` (+${issues.length - 1} more)` : "";
+  return { ok: false, problem: named.slice(0, PROBLEM_MAX - more.length) + more };
 }

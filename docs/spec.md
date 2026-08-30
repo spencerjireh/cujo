@@ -151,6 +151,14 @@ no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
 to a full run, but the turn message carries `docs_only: true` so the agent
 selects advisory mode.
 
+The label filter inspects the `labels` array on the webhook payload as
+delivered. When a PR is created with a label in the same API call (e.g.
+`gh pr create --label`), GitHub may fire the `opened` event before the label
+is applied, so the first delivery may not carry it. The label takes effect on
+subsequent deliveries (`synchronize`, `ready_for_review`). This is by design:
+the label is a filter on future deliveries, not a retroactive cancellation of
+in-flight runs.
+
 For a `pull_request` event the `apps/cujo` webhook module:
 
 1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
@@ -391,7 +399,7 @@ The envelope a check sub-agent returns:
 | `schema_version` | The report shape, an integer. Read what you recognise; never reject a report for carrying a version you do not know. |
 | `check` | One of `tests`, `probes`, `smoke`, `detonation`. It must match the sub-agent's own name, which is how a report is attributed to a check. |
 | `runs[]` | Every `sniff.py run` or `detonate` report, in order, verbatim. |
-| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. |
+| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. Validated leniently at this level, each in its own shape: `derived` and `truncated` hold named booleans and every key is optional; each sensor in `sensors` is an object that still owes `armed`. `derived` is required as a block; `sensors` and `truncated` may be absent. |
 
 plus the per-check fields in the rubric: `base` / `head` / `base_pass_head_fail`
 for `tests`, `probes[]`, `endpoints[]` and `log_tail` for `smoke`.
@@ -415,6 +423,20 @@ verbatim in the runs below. The validator accepts a roll-up without it, and the
 rubric says so, because the first production review after the validator shipped
 warned on four sensors that were correct and complete in every way a rule or a
 reader can use.
+
+`derived` and `truncated` are read the same way at the envelope and for the same
+reason. **Inside `runs[]` every key is required; at the envelope every key is
+optional and each one must be a boolean when it is there.** A `runs[]` block is
+copied verbatim from `sniff.py`, so a key missing there means the producer
+moved, which is what the validator exists to catch. The envelope's copy is
+assembled by the sub-agent, and requiring the full shape there warned on every
+production run: fourteen `report_invalid` warns across three models in five
+runs, each a different partial reading of one rubric sentence — an empty object,
+a block short a key, a bare boolean. A roll-up nobody wrote hides no signal,
+because the rules already read both levels, and a roll-up of booleans that are
+all `false` in every run is a value the `any()` over the runs would compute
+anyway. A roll-up that is not an object at all is still refused, because that is
+a wrong shape rather than an absent one (decision 96).
 
 **Every string in a report is written by the code under review** — what it
 printed, the arguments it ran, the filenames it chose, the hosts it asked for —
@@ -816,6 +838,23 @@ and a collapsed machine-readable block. An empty section is omitted. **The
 verdict word comes from the tool**, so a model cannot write "blocked" onto an
 advisory review — the word is not a thing it supplies.
 
+Inside one finding the order is title, `detail`, `next`, then the quoted
+`evidence` — the proof below the sentence that explains it, so a reader who
+trusts the sentence never pays to parse the instrument output (decision 97). A
+finding carrying neither `detail` nor `next`, with evidence that fits on a line,
+renders as a single line instead: `**title** · meta — evidence`. The condition
+is the fields and not the severity, so a `warn` making an argument keeps the
+full block — with one floor: a `critical` never collapses, because the rubric
+requires both fields there while the schema leaves them optional, and a
+`critical` arriving with neither must not read as the review's smallest thing.
+A check name, a finding title and every coverage note are flattened to one line
+before they are rendered, so a newline in a model-supplied value cannot end a
+list item and leave the rest reading as another entry. The
+inline comment on a diff line keeps its own order, evidence first, because it
+arrives with no headline above it and the evidence is why it is on that line.
+Coverage prints one line per check, name then note, rather than stacking the
+notes into one sentence of parentheticals.
+
 **`comments[]` is deprecated.** A finding carrying a `path`, a `line` and a
 `side` becomes an inline review comment on that diff line, derived from the
 finding rather than sent beside it. The parameter survives only for the
@@ -847,8 +886,9 @@ a request header back, and that is how one reaches a log line.
 Both also take an optional `run_id`, which the agent copies verbatim from the
 turn payload and never writes into the body itself. `github-mcp` validates it
 as a UUID, builds the link from its own `CUJO_PUBLIC_BASE_URL`, and appends the
-footer — a rule, then `Full evidence: <url>` — after the composed body, so the
-link is always last, always the same shape, and always on Cujo's own host
+footer — a rule, then a bold link reading *View the full evidence* whose target
+is that URL — after the composed body, so the link is always last, always the
+same shape, and always on Cujo's own host
 (decision 36). The agent supplies neither the format nor the destination. The
 same URL is built once and appears twice, in the footer and as `run_url` inside
 the machine-readable block, so the visible link and the parseable one cannot
@@ -867,8 +907,8 @@ the sentence naming them is composed here rather than quoted for the agent to
 reproduce. Only `post_advisory_review` and `post_blocking_review` take
 `accusation_follows`; `post_gated_review` has no such parameter, so the prompt
 cannot reach the accusation — where it would ask for the very approval that let
-that call run (decision 60). It sits directly above `Full evidence: <url>`,
-which stays last.
+that call run (decision 60). It sits directly above the evidence link, which
+stays last.
 
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.
@@ -1180,7 +1220,7 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 The colour column is the brand severity ramp, dark values (decision 36); an
 embed carries one colour and is read on a dark client.
 
-**Cujo leads, the opener closes** (decision 88, reversing 86's allocation of
+**Cujo leads, the opener closes** (decision 98, reversing 86's allocation of
 the two lines). Cujo takes the author line — a fixed name and its own mark,
 the first thing a channel reads on every card. The person who opened the pull
 request takes the footer, the embed's last line, where an icon renders to the
@@ -1201,7 +1241,7 @@ only drops fields, neither the author line nor the footer is anything the
 or one whose account has since been deleted, shows the handles alone in the
 footer, with no icon.
 
-**The sections breathe** (decision 88). Between surviving field groups the
+**The sections breathe** (decision 98). Between surviving field groups the
 card carries a blank row: a field whose name and value are a single zero-width
 space, which renders as nothing but the row it occupies. It is Cujo's own
 literal and not a derived string, so rule 4's removal of zero-width
@@ -1286,9 +1326,9 @@ request. So, without exception:
    400 that loses the card for the whole run, since every later edit then has
    no message id to edit. The spacer rows are reserved in this budget before
    the clamp runs and inserted after it, so what survives always fits with
-   its blank rows (decision 88).
+   its blank rows (decision 98).
 7. No derived string reaches an embed URL field unless it passed a strict
-   allowlist first (decision 55). Since decision 88 there is exactly one: the
+   allowlist first (decision 55). Since decision 98 there is exactly one: the
    pull request author's avatar, built from the numeric account id and placed
    in the footer icon. GitHub issues no account id but a number, so the check
    should never fire; it is there so the rule is enforced by code rather than

@@ -404,7 +404,9 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
       return c.json({ ok: true, ignored: "action" }, 200);
     }
     if (event.pull_request.draft === true) {
-      log.debug("webhook.ignored", {
+      // `info`, not `debug`: an explicit human choice (decision 79) that
+      // answers "why was this PR never reviewed?" in the audit trail.
+      log.info("webhook.ignored", {
         event_type: "pull_request",
         action: event.action,
         reason: "draft",
@@ -414,7 +416,8 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
       return c.json({ ok: true, ignored: "draft" }, 200);
     }
     if (event.pull_request.labels?.some((l) => l.name === SKIP_LABEL)) {
-      log.debug("webhook.ignored", {
+      // Same reasoning as `draft` above: rare, deliberate, audit-worthy.
+      log.info("webhook.ignored", {
         event_type: "pull_request",
         action: event.action,
         reason: "label",
