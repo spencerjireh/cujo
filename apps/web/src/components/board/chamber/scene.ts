@@ -6,18 +6,18 @@
  * the loop, and composes four modules that own everything else — the gates,
  * the specimens, the air, and the passes the frame is drawn through.
  *
- * The rules, from decision 68 as amended by 79, 80, 81 and 82:
+ * The rules, from decision 68 as amended by 80, 81, 82 and 83:
  *
  * - **No geometry exists that is not a measurement.** A gate is drawn only for
  *   a layer that holds a run, and the wash is the board re-reading the API.
  *   Anything that could be moved, resized or recoloured without a fact changing
  *   does not belong in `room.ts` or `specimens.ts`.
  * - **The exception is air, and it is one file.** `atmosphere.ts` and `post.ts`
- *   are decorative and carry no data. That is the whole of decision 79, and it
+ *   are decorative and carry no data. That is the whole of decision 80, and it
  *   is stated as a boundary so a reader can check it by looking at two imports.
  * - **Depth is time, in three layers.** The newest runs are nearest; each layer
  *   behind holds older ones. Where a run sits within its layer is a function
- *   of its id and means nothing (decision 80).
+ *   of its id and means nothing (decision 81).
  * - **Every specimen is drawn from its own digest.** Ring radii are check
  *   durations on one shared scale, ring colours are how each check ended, the
  *   core is the verdict at a size set by the worst thing the run found.
@@ -198,7 +198,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
    * Where a run sits, part way between two slots.
    *
    * Depth is the layer, which is time. Within the layer the place comes from
-   * `placeAt`, seeded off the run's id and carrying nothing (decision 80). A
+   * `placeAt`, seeded off the run's id and carrying nothing (decision 81). A
    * run sliding from one slot to the next moves in a straight line between
    * the two places, which may be in two different layers.
    */

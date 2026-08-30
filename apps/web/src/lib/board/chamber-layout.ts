@@ -12,7 +12,7 @@
 
 /**
  * The record is three layers deep, and a layer is a group of runs by recency
- * (decision 81). Depth is time and nothing else; three is what a reader can
+ * (decision 82). Depth is time and nothing else; three is what a reader can
  * count at a glance, and what a full-height frame can hold with the front
  * layer large and the back one still an object rather than a dot.
  */

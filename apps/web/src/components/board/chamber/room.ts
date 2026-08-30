@@ -1,14 +1,14 @@
 /**
  * What is drawn round the record: the gates, one per layer of it.
  *
- * Every object in here is a measurement (decision 68, as narrowed by 81). A
+ * Every object in here is a measurement (decision 68, as narrowed by 82). A
  * gate is drawn at a layer's depth and only while that layer holds a run, so
  * three gates say the record is three layers deep and two say it is two. There
  * is no room any more — no shell, no rails, no floor — because a galaxy is not
  * in a box, and a wireframe corridor round a field of stars was the thing that
  * made it read as a hallway with objects in it. Nothing decorative belongs in
  * this file; that is `atmosphere.ts`, and keeping the two apart is what makes
- * decision 79's claim checkable.
+ * decision 80's claim checkable.
  *
  * Drawn with `Line2` rather than `LineSegments`. `LineBasicMaterial` ignores
  * `linewidth` on every desktop driver, so a hairline gate would thin further at
@@ -28,7 +28,7 @@ import type { ChamberPalette } from "./palette";
 const GATE_SEGMENTS = 96;
 /**
  * Width in CSS pixels, and opacity. A gate no longer lights as the record is
- * read (decision 82): the light is on the star being read, and three gates
+ * read (decision 83): the light is on the star being read, and three gates
  * going amber in turn read as three rings flashing.
  */
 const WIDTH = 1.1;

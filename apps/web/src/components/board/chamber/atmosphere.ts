@@ -1,8 +1,8 @@
 /**
- * The air in the room (decision 79), and the sky behind it (decision 81).
+ * The air in the room (decision 80), and the sky behind it (decision 82).
  *
  * This is the one file in the scene whose contents are not measurements, and it
- * is a whole file for that reason: decision 79 amends decision 68's first rule
+ * is a whole file for that reason: decision 80 amends decision 68's first rule
  * with a named exception, and the exception is checkable only if a reader can
  * see where it begins and ends. It is here and in `post.ts`, and nowhere else.
  *

@@ -84,12 +84,13 @@ that is reversed after it was built or shown is noted here rather than deleted
 76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
 77. [Detonation covers every ecosystem `MANIFESTS` recognises](#77-detonation-covers-every-ecosystem-manifests-recognises)
 78. [The Python suite runs in parallel, and a superseded run is cancelled](#78-the-python-suite-runs-in-parallel-and-a-superseded-run-is-cancelled)
-79. [The chamber may have air in it, and the air is two files](#79-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
-80. [Depth is time; across the volume means nothing, and says so](#80-depth-is-time-across-the-volume-means-nothing-and-says-so)
-81. [The record is a galaxy, and a run is a star with orbits](#81-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
-82. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#82-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
-83. [A lane says how bad, not what happened; the sentence is where the sentence fits](#83-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
-84. [An observed zero is a result; an unobserved one is not](#84-an-observed-zero-is-a-result-an-unobserved-one-is-not)
+79. [Entry selectivity: drafts, labels, and docs-only advisory](#79-entry-selectivity-drafts-labels-and-docs-only-advisory)
+80. [The chamber may have air in it, and the air is two files](#80-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
+81. [Depth is time; across the volume means nothing, and says so](#81-depth-is-time-across-the-volume-means-nothing-and-says-so)
+82. [The record is a galaxy, and a run is a star with orbits](#82-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
+83. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#83-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
+84. [A lane says how bad, not what happened; the sentence is where the sentence fits](#84-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
+85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -798,7 +799,7 @@ was a path that skipped Access: fetching `https://cujo.spencerjireh.com/`
 against the origin IP returned the operator UI with no login. Nothing leaked,
 because `access.ts` re-checks the assertion on every request (Contract 6), so
 `/api/*` answered `401` and only the empty shell rendered, which is the case
-the second gate was written for. A Hetzner Cloud firewall now accepts ports 81
+the second gate was written for. A Hetzner Cloud firewall now accepts ports 82
 and 443, TCP and the UDP used by HTTP/3, only from Cloudflare's published
 ranges. Port 22 stays open: the Coolify control plane deploys over it from
 another host (see 2), its egress address is not fixed, and narrowing it would
@@ -3004,7 +3005,7 @@ Three runs on `orders-api`, read off the public API after decision 59 landed:
 
 | run | total | claim → first check | checks | tail | sensed |
 |---|---|---|---|---|---|
-| PR 17 | 526s | **84s** | 151s | 291s | 28s |
+| PR 17 | 526s | **85s** | 151s | 291s | 28s |
 | PR 16 | 633s | **109s** | 122s | 402s | 17s |
 | PR 15 | 1452s | **156s** | 653s | 643s | 18s |
 
@@ -3018,7 +3019,7 @@ slice. The window before the first check is what is left, and it is the same
 **Nothing measured it, and the two candidate causes have opposite fixes.**
 `timings.ts` splits a check into `sandboxMs` and `modelMs`, but the parent runs
 on thread `main`, which never emits `thread.created`, so it has no stamp in the
-projection at all. If the 84 seconds is Daytona provisioning a box, the rubric
+projection at all. If the 85 seconds is Daytona provisioning a box, the rubric
 is irrelevant and the answer is upstream. If it is the parent taking a dozen
 round trips to clone a repository and read a manifest, the rubric is the whole
 answer. Acting without knowing which would have been a guess dressed as a fix.
@@ -3070,8 +3071,8 @@ time and loses the two spans whose other end is on the run record.
 
 ## 68. Nothing in the chamber exists that is not a measurement
 
-**Amended by 79**, which narrows this rule to geometry and admits one named
-decorative layer, **and by 81**, which deletes the room — the floor ticks, the
+**Amended by 80**, which narrows this rule to geometry and admits one named
+decorative layer, **and by 82**, which deletes the room — the floor ticks, the
 wall ribs, the shell and the chain — and keeps the rule: one gate per layer
 that holds a run is what the occupancy strip becomes. Not reversed: everything
 below still holds of every object that carries a fact.
@@ -4110,13 +4111,53 @@ layers and deduplicating the three builds of the same apps** — real duplicatio
 but every one of those builds is off the critical path, so it is work that
 changes no wall clock until this decision lands, and possibly not after.
 
-## 79. The chamber may have air in it, and the air is two files
+## 79. Entry selectivity: drafts, labels, and docs-only advisory
 
-**Amended by 81**, which makes the sweep a plane again — a layer is one depth,
+**Status:** active — guards added to `github-webhook.ts`, classification
+added to `agent-spec.ts`.
+
+**Context.** Every `pull_request` webhook with action `opened` or
+`synchronize` claimed a run, provisioned a sandbox, and consumed model tokens.
+Draft PRs, PRs a maintainer explicitly wants to skip, and documentation-only
+PRs all received the same full-cost review as a code change.
+
+**Decision.** Three filters, applied in the webhook handler before any session
+or run is created:
+
+1. **Draft skip.** `pull_request.draft === true` → 200, `ignored: "draft"`.
+   No session, no run, no sandbox. Explicit `=== true`, same defensive
+   pattern as `private === false` (decision 34).
+
+2. **Label skip.** A PR carrying the `cujo:skip` label → 200,
+   `ignored: "label"`. The label is an explicit opt-out by a maintainer with
+   write access.
+
+3. **Docs-only advisory.** When every changed file is documentation (`.md`,
+   `.txt`, `.rst`, `.adoc`, `LICENSE`, `CHANGELOG`, etc.), the turn message
+   carries `docs_only: true`. The agent uses this to select
+   `post_advisory_review` over `post_blocking_review`. The sandbox still
+   runs in full — the sensors prove the classification is correct, and the
+   hard rules still fire on anything they observe.
+
+Drafts and labels are full stops because they are explicit human choices.
+Docs-only is an inference, so it degrades to a softer posture (advisory)
+rather than to silence — a false positive in advisory mode means "reviewed
+but didn't block" (harmless), while a false positive in skip mode means
+"not reviewed at all" (invisible).
+
+**Consequences.** Draft PRs and labelled PRs cost nothing. Documentation-only
+PRs still get a full sandbox run but cannot block a merge. An empty changed
+file list is not docs-only (a metadata-only PR should still be judged).
+The `isDocsOnly` predicate is conservative: only well-known prose extensions
+and basenames match, so a code file cannot accidentally qualify.
+
+## 80. The chamber may have air in it, and the air is two files
+
+**Amended by 82**, which makes the sweep a plane again — a layer is one depth,
 so the objection below to a plane no longer applies — and promotes the dust to
 a star field. Still two files.
 
-**Amended by 80**, which narrows the rule once more — a specimen's depth is a
+**Amended by 81**, which narrows the rule once more — a specimen's depth is a
 measurement and its position across the volume is not — and reverses two of the
 choices below: phones no longer keep the flat elevation, because there is no
 longer a flat elevation, and the sweep is no longer a plane. Not reversed:
@@ -4236,9 +4277,9 @@ specimen, which would have drawn a chain and a rail the WebGL version does not:
 two drawings of one run have to be one drawing, so it got its own glyph with the
 same rig.
 
-## 80. Depth is time; across the volume means nothing, and says so
+## 81. Depth is time; across the volume means nothing, and says so
 
-**Amended by 81**, which keeps the rule — depth is time, position across it
+**Amended by 82**, which keeps the rule — depth is time, position across it
 means nothing and the key says so — and replaces what it was applied to: the
 field is three layers, the shape is a star with orbits, the chain is not drawn,
 the camera stands outside because there is no mouth, and the sweep is a plane.
@@ -4246,7 +4287,7 @@ Not reversed: the arm split by strength rather than hue, `sandboxMs` on a list
 row, the serializer guard, the deleted flat elevation, the reordered headline.
 
 Decision 68 said no object in the chamber exists that is not a
-measurement. Decision 79 narrowed that to geometry and admitted one named
+measurement. Decision 80 narrowed that to geometry and admitted one named
 decorative layer, `atmosphere.ts` and `post.ts`, on the grounds that a layer
 describing the medium is not a claim about a run. Both still hold of everything
 that carries a fact. This narrows the rule once more, at the one place left
@@ -4257,7 +4298,7 @@ axis by `SPACING`. That is honest and it reads as a row of pins in a case — a
 corridor with a rail down the middle of it, most of a full-height frame holding
 nothing. **A specimen's depth is still time. Its height and its lateral position
 are a deterministic function of its run id and mean nothing at all.** The seam is
-one file and it is checkable the way 79's is: `scatter.ts` takes an id and a
+one file and it is checkable the way 80's is: `scatter.ts` takes an id and a
 depth, imports `chamber-layout` and `ease`, and knows nothing else about a run.
 
 Deterministic matters as much as decorative. A field reshuffled on each poll
@@ -4300,7 +4341,7 @@ it the only thing left saying a scattered field is a *series*.
 
 **The sweep rides it.** A plane crossing the volume was right while one depth was
 one run; over a field it lights every run at that depth together, which is
-exactly the defect decision 79 narrowed the envelope to remove, arriving back by
+exactly the defect decision 80 narrowed the envelope to remove, arriving back by
 a different route. A cursor on the chain visits them in the order the board holds
 them however they are scattered, and "at most one specimen more than half lit" is
 still asserted — now against the tightest gap on a real scattered path rather
@@ -4387,7 +4428,7 @@ screen while a canvas is still importing — `Chamber` reports three states rath
 than a boolean, because "not yet" and "never" used to lay out identically and no
 longer do.
 
-This reverses 79's "phones keep the flat elevation" and its rejection of a third
+This reverses 80's "phones keep the flat elevation" and its rejection of a third
 `BOXES` preset, which is now moot: `SpecimenGlyph` survives as its own file, and
 it was always a different job.
 
@@ -4415,9 +4456,9 @@ presence floor** so a clean run reads as an object anyway — a calm board is
 calm, which is the reading `brand/brand.md` asks for and the one a maintainer
 wants to be able to take at a glance.
 
-## 81. The record is a galaxy, and a run is a star with orbits
+## 82. The record is a galaxy, and a run is a star with orbits
 
-Decision 80 scattered the record across a box and made a specimen a solid.
+Decision 81 scattered the record across a box and made a specimen a solid.
 Looking at it running, four things were wrong and they were one thing: ten runs
 spaced down a thirteen-unit corridor, inside a wireframe box with rails, is a
 hallway with objects in it. The depth was too great to read as layers and too
@@ -4440,7 +4481,7 @@ as it had no arm.
 
 **The four ring planes are the four tetrahedral directions the arms used to
 leave the core along, now used as normals.** That is the one piece of the old
-shape that survives, and it survives for the reason 80 chose it: every pair is
+shape that survives, and it survives for the reason 81 chose it: every pair is
 109.47° apart, the widest four planes can be, and each projects down the view
 axis to an ellipse with the same minor/major ratio, squashed along one of the
 four 45° diagonals. So `tests` is still upper-left and `detonation` lower-left
@@ -4472,7 +4513,7 @@ thirds the size, is a galaxy with a front, a middle and a back.
 
 Within a layer a run's place is a function of its slot and its id: slots at
 equal angles round a band, wider than tall, jittered by the id by less than
-half the gap to the next slot. It still means nothing (80), and the key still
+half the gap to the next slot. It still means nothing (81), and the key still
 says so. Two things are tested rather than eyeballed: no two runs in a layer
 come within one and a half rings of each other whatever their ids, and no band
 crosses the clear line for its layer, which is higher toward the front because
@@ -4497,7 +4538,7 @@ still two files, and that is exactly why the lattice lives there and not in
 
 ### The sweep is a plane again
 
-79 narrowed the sweep from a plane to a cursor on the chain because the record
+80 narrowed the sweep from a plane to a cursor on the chain because the record
 was a scattered field and a plane lit every run at one depth together. A layer
 *is* one depth. A plane lights one layer at a time, oldest first, which is what
 an instrument reading a record in three pages looks like, and "at most one layer
@@ -4530,15 +4571,15 @@ the callout, and the callout already follows the pointer. **Keeping the box
 with the stars inside it**, which is the hallway. **Turning the rings to face
 the camera**, which costs a ring's tilt its meaning.
 
-## 82. A star's tilts are its own, the read walks the stars, and the copy is a caption
+## 83. A star's tilts are its own, the read walks the stars, and the copy is a caption
 
-Decision 81 was looked at running, with a live run on the board. Four things
+Decision 82 was looked at running, with a live run on the board. Four things
 were wrong, and this time they were four things.
 
 ### The tilts are the run's own
 
 Four tori on four fixed tetrahedral tilts around a sphere is the Bohr atom,
-and thirty of them is thirty of the same atom. The one property 81 kept the
+and thirty of them is thirty of the same atom. The one property 82 kept the
 tetrahedral set for — every ring the same ellipse, each on its own diagonal,
 so a tilt *is* its check and two runs compare by silhouette — was not being
 read by anyone: a reader learning which diagonal is `probes` from a galaxy
@@ -4549,10 +4590,10 @@ each jittered again by less than half a quarter, a polar lean drawn between
 two bounds so no ring is ever edge-on or flat, and alternate rings leaning
 away from the reader so a system is not a stack of dishes. Every star is its
 own system and no two share a silhouette. This **reverses** the "tilt is the
-check" claim of 81; what survives is that a ring's colour, radius and arc are
+check" claim of 82; what survives is that a ring's colour, radius and arc are
 measurements, which was always the part that carried anything.
 
-Seeded and never stored, for the same reason a place in a band is (80): one
+Seeded and never stored, for the same reason a place in a band is (81): one
 hash per ring on every build is cheaper than remembering thirty runs' tilts,
 it holds across rebuilds, and the run page's glyph and the key's diagram
 project the same normals the scene orients by, so the star beside a title is
@@ -4561,7 +4602,7 @@ already used moves to `hash.ts` and both draw from it.
 
 ### The read walks the stars
 
-The plane of 81 lit a whole layer at once and crossed the record once per
+The plane of 82 lit a whole layer at once and crossed the record once per
 poll — every five seconds while a run was live, which is exactly when a
 reader is watching — and every star in the layer scaled up by half as it
 passed. That is a strobe, and it got faster when the board got busier. Three
@@ -4572,7 +4613,7 @@ changes, in `wash.ts`:
   ranges of index, so oldest-first *is* back layer first, and one layer is
   finished before the next begins. "At most two runs more than half lit, and
   they are neighbours" and "every run of a layer peaks before any run of the
-  next" are asserted, as the layer claim of 81 was. This is what 79's cursor
+  next" are asserted, as the layer claim of 82 was. This is what 80's cursor
   on the chain did, without drawing the chain.
 - **It takes at least fifteen seconds** whatever the poll interval, and a
   poll that lands while a wash is walking starts nothing. The wash still
@@ -4621,14 +4662,14 @@ Rejected: **coplanar rings**, which are a planetary system and are legible,
 but two checks of near-equal duration draw one ring, and a ring hidden by
 another is a check that did not happen. **A wash decoupled from polling**,
 a fixed loop with no read behind it, which would make the light decoration
-by 79's own test. **Removing the sweep**, which leaves a board that never
+by 80's own test. **Removing the sweep**, which leaves a board that never
 shows it is reading. **Dropping the arc split on the board** for one solid
 ring per check: the share is the one thing on a ring the timeline does not
 also say louder, and the board and the run page have to be the same drawing.
 **Re-randomising tilts on every rebuild**, which re-tilts every star each
 poll while a run is live. **Text labels on stars**, still the callout. **The diagram in the hero**, beside the stats: tried, and it competed with the galaxy it was a key to.
 
-## 83. A lane says how bad, not what happened; the sentence is where the sentence fits
+## 84. A lane says how bad, not what happened; the sentence is where the sentence fits
 
 The run page had four places where a thing was said in the wrong size for the
 box it was said in, and the same fix in each: put the short form where the eye
@@ -4698,7 +4739,7 @@ which apps/web has none of and which would put a check name in the URL bar as
 though it were a route. **Keeping the pinned bar on finished runs** as a
 consistent page footer, which is a strip of window spent on "nothing to do".
 
-## 84. An observed zero is a result; an unobserved one is not
+## 85. An observed zero is a result; an unobserved one is not
 
 The report card is what an operator reads before blocking a merge, and it was a
 dump. Four tables with no column headers, so `185.220.101.4:443 | 3.1 KB |

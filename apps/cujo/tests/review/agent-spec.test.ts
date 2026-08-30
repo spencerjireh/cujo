@@ -4,6 +4,7 @@ import {
   buildAgentSpec,
   buildConverseSpec,
   buildTurnMessage,
+  isDocsOnly,
   loadRubric,
   manifestChanged,
   specFingerprint,
@@ -47,6 +48,42 @@ describe("manifestChanged", () => {
       expect(manifestChanged([f]), f).toBe(false);
     }
     expect(manifestChanged([])).toBe(false);
+  });
+});
+
+describe("isDocsOnly", () => {
+  it("returns true when every file is documentation", () => {
+    expect(isDocsOnly(["README.md"])).toBe(true);
+    expect(isDocsOnly(["docs/guide.md", "CHANGELOG"])).toBe(true);
+    expect(isDocsOnly(["docs/api.rst", "docs/faq.txt", "LICENSE"])).toBe(true);
+    expect(isDocsOnly(["CONTRIBUTING.md", "AUTHORS", "NOTICE.md"])).toBe(true);
+    expect(isDocsOnly(["deep/nested/README.adoc"])).toBe(true);
+  });
+
+  it("returns false when any file is not documentation", () => {
+    expect(isDocsOnly(["README.md", "src/app.ts"])).toBe(false);
+    expect(isDocsOnly(["app.py"])).toBe(false);
+    expect(isDocsOnly(["docs/guide.md", "package.json"])).toBe(false);
+  });
+
+  it("returns false when a manifest has a docs-like extension", () => {
+    expect(isDocsOnly(["requirements.txt"])).toBe(false);
+    expect(isDocsOnly(["README.md", "requirements-dev.txt"])).toBe(false);
+    expect(isDocsOnly(["docs/guide.md", "Pipfile"])).toBe(false);
+  });
+
+  it("returns false for an empty list", () => {
+    expect(isDocsOnly([])).toBe(false);
+  });
+
+  it("is case-insensitive for extensions", () => {
+    expect(isDocsOnly(["NOTES.MD", "guide.TXT"])).toBe(true);
+  });
+
+  it("recognises LICENSE variants without an extension", () => {
+    expect(isDocsOnly(["LICENSE"])).toBe(true);
+    expect(isDocsOnly(["LICENCE"])).toBe(true);
+    expect(isDocsOnly(["LICENSE.md"])).toBe(true);
   });
 });
 
@@ -116,6 +153,18 @@ describe("buildTurnMessage", () => {
     // same rule, so a private repo needs no special case downstream.
     const payload = payloadOf(buildTurnMessage(pr, ""));
     expect("run_id" in payload).toBe(false);
+  });
+
+  it("carries docs_only when every changed file is documentation", () => {
+    const docsPr = { ...pr, changedFiles: ["README.md", "docs/guide.rst"] };
+    const payload = payloadOf(buildTurnMessage(docsPr));
+    expect(payload.docs_only).toBe(true);
+    expect(payload.manifest_changed).toBe(false);
+  });
+
+  it("omits docs_only when any changed file is code", () => {
+    const payload = payloadOf(buildTurnMessage(pr));
+    expect("docs_only" in payload).toBe(false);
   });
 });
 

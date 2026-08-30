@@ -6,9 +6,12 @@ and an action.
 
 ## Scope
 
-- **Trigger:** every pull request on a repo where the Cujo GitHub App is
-  installed. There is no file filter; a PR that changes only code gets the same
-  run as one that changes a dependency manifest.
+- **Trigger:** every non-draft pull request on a repo where the Cujo GitHub App
+  is installed, unless the PR carries the `cujo:skip` label (decision 79).
+  There is no file filter; a PR that changes only code gets the same run as
+  one that changes a dependency manifest. A PR whose changed files are all
+  documentation receives a full run but the agent uses advisory mode
+  (`docs_only: true` in the turn payload) rather than blocking.
 - **Ecosystem:** any the agent recognises. The agent infers how to install,
   test, and boot the repo from what it finds (`pyproject.toml`, `package.json`,
   `Makefile`, CI workflows). A `.cujo.yml` in the target repo overrides the
@@ -56,7 +59,7 @@ The split between deterministic code and agent reasoning is fixed:
 ## Contract 1 — the trigger
 
 The Cujo GitHub App subscribes to `pull_request` events (`opened`,
-`synchronize`), to `repository` events (`privatized`, `publicized`), to
+`synchronize`, `ready_for_review`), to `repository` events (`privatized`, `publicized`), to
 `issue_comment` events (`created`), and to `pull_request_review_comment` events
 (`created`). The signature is checked before the event type, so all four arrive
 on the same route with the same one gate in front of them.
@@ -140,6 +143,13 @@ those threads, so it is what conversation needs and what a reply to a finding
 arrives on. It carries conversation and never a privileged verb; narrowing the
 surfaces that can decide a review costs nothing, since `/cujo` is about the run
 rather than about one line. Contract 10 has the rest.
+
+Before claiming a run, the webhook applies three entry filters in order
+(decision 79). A draft PR (`pull_request.draft === true`) is ignored. A PR
+carrying the `cujo:skip` label is ignored. Both return 200 with no session and
+no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
+to a full run, but the turn message carries `docs_only: true` so the agent
+selects advisory mode.
 
 For a `pull_request` event the `apps/cujo` webhook module:
 
