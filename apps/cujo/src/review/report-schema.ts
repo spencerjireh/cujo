@@ -135,6 +135,7 @@ const Truncated = z
     files_read: z.boolean(),
     snapshot: z.boolean(),
     hashes: z.boolean(),
+    script_content: z.boolean().optional(),
   })
   .passthrough();
 
@@ -175,6 +176,7 @@ const CommandRun = z
     ...runCommon,
     argv: z.array(z.string()),
     exit: z.number(),
+    script_content: z.string().nullable().optional(),
   })
   .passthrough();
 
