@@ -4,6 +4,7 @@ import {
   appendReviewMarker,
   appendRunFooter,
   reviewMarker,
+  runUrl,
 } from "../src/body";
 
 const BASE = "https://cujo.example.com";
@@ -58,13 +59,38 @@ describe("appendRunFooter", () => {
     );
   });
 
-  it("lands after the anchorless findings block", () => {
-    // postReview composes appendRunFooter(appendMovedComments(...)), so the
-    // footer must be last, not wedged between the body and the findings.
-    const withMoved = "Body.\n\n### Findings without a diff anchor\n\n- `a.ts:1` (RIGHT): x\n";
-    const out = appendRunFooter(withMoved, BASE, RUN);
-    expect(out.indexOf("Full evidence")).toBeGreaterThan(out.indexOf("without a diff anchor"));
+  it("lands after the composed body, not inside it", () => {
+    // postReview composes appendRunFooter(renderReviewBody(...)), so the footer
+    // must be last — below the machine-readable fold rather than wedged into
+    // the middle of the review.
+    const composed =
+      "**Advisory** — no findings above info\n\nFine.\n\n<details>\n<summary>x</summary>\n\ny\n\n</details>";
+    const out = appendRunFooter(composed, BASE, RUN);
+    expect(out.indexOf("Full evidence")).toBeGreaterThan(out.indexOf("</details>"));
     expect(out.endsWith(`Full evidence: ${BASE}/runs/${RUN}\n`)).toBe(true);
+  });
+});
+
+describe("runUrl", () => {
+  // Extracted so the machine-readable block and the footer cannot name
+  // different pages for one run (decision 74).
+  it("builds the page from the configured base and the run id", () => {
+    expect(runUrl(BASE, RUN)).toBe(`${BASE}/runs/${RUN}`);
+  });
+
+  it("is null when this deployment has no board, or the run has no page", () => {
+    expect(runUrl("", RUN)).toBeNull();
+    expect(runUrl(BASE, undefined)).toBeNull();
+  });
+
+  it("is null for anything that is not a UUID, on the same rule as the footer", () => {
+    for (const bad of ["https://evil.example.com/runs/x", `${RUN}\n\n## Merged`, "../../etc"]) {
+      expect(runUrl(BASE, bad)).toBeNull();
+    }
+  });
+
+  it("agrees with the footer, which is the reason it exists", () => {
+    expect(appendRunFooter("Body.", BASE, RUN)).toContain(`Full evidence: ${runUrl(BASE, RUN)}`);
   });
 });
 

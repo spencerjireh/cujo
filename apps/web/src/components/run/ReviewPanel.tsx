@@ -5,9 +5,13 @@ import { renderMarkdown } from "@/lib/markdown";
 import { useEffect, useState } from "react";
 
 /**
- * The review as it will appear on GitHub. The body is markdown written by the
- * agent, so it is untrusted: it is parsed and then sanitized against a small
- * allowlist (lib/markdown.ts).
+ * The review as it will appear on GitHub. `composed_body` is what `github-mcp`
+ * actually posts — the verdict headline, the findings, the coverage and the
+ * egress — reproduced here by the same renderer (decision 74); `body` is the
+ * model's one-sentence lede and is the fallback for a run folded before that
+ * field existed. Either way it is markdown built from text an agent wrote, so
+ * it is untrusted: parsed, then sanitized against a small allowlist
+ * (lib/markdown.ts).
  *
  * Sanitizing runs after mount, never during render. DOMPurify needs a real DOM,
  * and Next server-renders client components for the first paint, so calling it
@@ -17,8 +21,9 @@ import { useEffect, useState } from "react";
  * markup.
  */
 export function ReviewPanel({ review, posted }: { review: DraftedReview; posted: boolean }) {
+  const markdown = review.composed_body || review.body;
   const [html, setHtml] = useState<string | null>(null);
-  useEffect(() => setHtml(renderMarkdown(review.body)), [review.body]);
+  useEffect(() => setHtml(renderMarkdown(markdown)), [markdown]);
   const blocking = review.tool !== "post_advisory_review";
   // Gated is what the tool *is*; held is what it still is. A confirmed
   // accusation is on the pull request like any other review, and calling it
@@ -39,7 +44,7 @@ export function ReviewPanel({ review, posted }: { review: DraftedReview; posted:
       </h2>
 
       {html === null ? (
-        <p className="max-w-[68ch] whitespace-pre-wrap text-sm">{review.body}</p>
+        <p className="max-w-[68ch] whitespace-pre-wrap text-sm">{markdown}</p>
       ) : (
         <div
           className="cujo-prose max-w-[68ch] text-sm"
@@ -51,8 +56,13 @@ export function ReviewPanel({ review, posted }: { review: DraftedReview; posted:
       {review.comments.length > 0 ? (
         <div className="mt-4">
           <h3 className="mb-1 font-mono text-xs uppercase tracking-wider text-fg-muted">
-            Inline comments ({review.comments.length})
+            Anchored findings ({review.comments.length})
           </h3>
+          <p className="mb-2 max-w-[68ch] text-xs text-fg-muted">
+            The comments Cujo asked GitHub to place. Validating an anchor needs the pull request
+            diff, which this side does not have, so one whose line is not in the diff appears in the
+            body above instead.
+          </p>
           <ul>
             {review.comments.map((comment) => (
               <li

@@ -66,6 +66,15 @@ describe("github-mcp", () => {
       expect(byName.get(name)?.inputSchema.required).toEqual(
         expect.arrayContaining(["repo", "pr_number", "head_sha", "body"]),
       );
+      // Anchors ride on the findings now (decision 74). `comments` survives as
+      // a deprecated field, because a session pinned to the old rubric goes on
+      // sending one and dropping it from the schema would have Zod strip it —
+      // posting whatever the findings anchored and losing the rest in silence.
+      const properties = Object.keys((byName.get(name)?.inputSchema.properties ?? {}) as object);
+      expect(properties).toEqual(
+        expect.arrayContaining(["findings", "coverage", "egress", "comments"]),
+      );
+      expect(byName.get(name)?.inputSchema.required).not.toContain("comments");
     }
   });
 
@@ -121,9 +130,15 @@ describe("github-mcp", () => {
         pr_number: 7,
         head_sha: "abcdef1",
         body: "Tests: 1 regression.",
-        comments: [
-          { path: "app.py", line: 2, body: "added line" },
-          { path: "app.py", line: 50, body: "no such line" },
+        findings: [
+          { check: "probes", severity: "critical", title: "added line", path: "app.py", line: 2 },
+          {
+            check: "probes",
+            severity: "critical",
+            title: "no such line",
+            path: "app.py",
+            line: 50,
+          },
         ],
       },
     });
@@ -139,14 +154,18 @@ describe("github-mcp", () => {
     const last = github.posted.at(-1);
     expect(last?.input.event).toBe("REQUEST_CHANGES");
     expect(last?.input.commitId).toBe("abcdef1");
+    // The comment is composed from the finding, severity first: an inline
+    // comment arrives with no headline above it.
     expect(last?.input.comments).toEqual([
-      { path: "app.py", line: 2, side: "RIGHT", body: "added line" },
+      { path: "app.py", line: 2, side: "RIGHT", body: "**critical \u2014 added line**" },
     ]);
-    expect(last?.input.body).toContain("### Findings without a diff anchor");
-    expect(last?.input.body).toContain("`app.py:50` (RIGHT): no such line");
+    // The refused anchor is marked on the finding in place rather than exiled
+    // to a section of its own, because the body already carries every finding.
+    expect(last?.input.body).toContain("`app.py:50` (not in this diff)");
+    expect(last?.input.body).not.toContain("Findings without a diff anchor");
   });
 
-  it("appends the run footer below the anchorless findings", async () => {
+  it("appends the run footer below the composed body", async () => {
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
     await client.callTool({
@@ -156,7 +175,9 @@ describe("github-mcp", () => {
         pr_number: 7,
         head_sha: "abcdef1",
         body: "Tests: 212 passed.",
-        comments: [{ path: "app.py", line: 50, body: "no such line" }],
+        findings: [
+          { check: "probes", severity: "warn", title: "no such line", path: "app.py", line: 50 },
+        ],
         run_id: RUN_ID,
       },
     });
@@ -164,7 +185,7 @@ describe("github-mcp", () => {
 
     const body = github.posted.at(-1)?.input.body ?? "";
     expect(body).toContain(`Full evidence: ${PUBLIC_BASE}/runs/${RUN_ID}\n`);
-    expect(body.indexOf("Full evidence")).toBeGreaterThan(body.indexOf("without a diff anchor"));
+    expect(body.indexOf("Full evidence")).toBeGreaterThan(body.indexOf("Machine-readable summary"));
     // The footer is the last thing a reader sees. The duplicate marker sits
     // below it and is an HTML comment, so it renders as nothing.
     expect(body.trimEnd().endsWith("-->")).toBe(true);
@@ -185,7 +206,15 @@ describe("github-mcp", () => {
     });
     await client.close();
 
-    expect(github.posted.at(-1)?.input.body).toBe("Tests: 212 passed.");
+    // The body is the server's now, so this is no longer a byte-identity
+    // claim about the whole thing. What the private-repo guarantee still says
+    // is that neither the footer nor the marker appears — both need a run id.
+    const body = github.posted.at(-1)?.input.body ?? "";
+    expect(
+      body.startsWith("**Advisory** \u2014 no findings above info\n\nTests: 212 passed."),
+    ).toBe(true);
+    expect(body).not.toContain("Full evidence");
+    expect(body).not.toContain("<!-- cujo:");
   });
 
   it("rejects a run_id that is not a UUID, so no URL can be smuggled in", async () => {

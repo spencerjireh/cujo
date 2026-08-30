@@ -27,8 +27,22 @@ export function appendRunFooter(
   publicBaseUrl: string,
   runId: string | undefined,
 ): string {
-  if (!publicBaseUrl || !runId || !RUN_ID.test(runId)) return body;
-  return `${body.trimEnd()}\n\n---\n\nFull evidence: ${publicBaseUrl}/runs/${runId}\n`;
+  const url = runUrl(publicBaseUrl, runId);
+  if (!url) return body;
+  return `${body.trimEnd()}\n\n---\n\nFull evidence: ${url}\n`;
+}
+
+/**
+ * The run's page, or null when there is none.
+ *
+ * Extracted from `appendRunFooter` so the `run_url` inside the composed body's
+ * machine-readable block (decision 74) is built by the same two lines that
+ * build the footer. Two call sites deriving one URL from one base and one id is
+ * how the visible link and the parseable one come to disagree.
+ */
+export function runUrl(publicBaseUrl: string, runId: string | undefined): string | null {
+  if (!publicBaseUrl || !runId || !RUN_ID.test(runId)) return null;
+  return `${publicBaseUrl}/runs/${runId}`;
 }
 
 /**

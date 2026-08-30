@@ -360,6 +360,7 @@ describe("agentFindings", () => {
     tool: "post_advisory_review",
     toolCallId: "c",
     body: "",
+    composedBody: "",
     comments: [],
     findings,
   });
