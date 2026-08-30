@@ -85,11 +85,25 @@ describe("alarms", () => {
       derived: { egress_to_unknown_host: true, wrote_sensitive: true },
     });
     if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
-    expect(alarms(parsed.blocks[0])).toEqual([
+    expect(alarms(parsed.blocks[0]).map((alarm) => alarm.text)).toEqual([
       "decoy secret left the sandbox",
       "decoy secret was read",
       "egress to an unknown host",
       "wrote to a sensitive path",
+    ]);
+  });
+
+  it("takes each flag's severity from whether a hard rule reads it", () => {
+    // The four hard rules in `apps/cujo/src/review/findings.ts` are all
+    // critical there. `wrote_outside_workspace` is read by no rule at all — a
+    // build that writes to /tmp is ordinary — so it is the one that is not.
+    const parsed = parseReport({
+      derived: { wrote_sensitive: true, wrote_outside_workspace: true },
+    });
+    if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
+    expect(alarms(parsed.blocks[0])).toEqual([
+      { text: "wrote to a sensitive path", severity: "critical" },
+      { text: "wrote outside the workspace", severity: "warn" },
     ]);
   });
 

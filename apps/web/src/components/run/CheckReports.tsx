@@ -7,7 +7,7 @@ import { compactCount, duration, usd } from "@/lib/format";
 import { prefersReducedMotion } from "@/lib/motion";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RawJson } from "./report/RawJson";
+import { RawReport } from "./report/RawReport";
 import { SensorReport } from "./report/SensorReport";
 
 /** What the timeline asks for: a check, and which ask this is. */
@@ -93,30 +93,24 @@ function CheckReport({
       </Collapsible.Trigger>
       <Collapsible.Content className="pb-4">
         {check.error ? (
-          <p className="mb-3 font-mono text-xs text-sev-critical">{check.error}</p>
+          <p className="mt-3 font-mono text-xs text-sev-critical">{check.error}</p>
         ) : null}
         {parsed.kind === "sensor" ? (
           <>
             {parsed.blocks.map((block, index) => (
-              <SensorReport key={block.label ?? `block-${index}`} block={block} />
+              <SensorReport
+                key={block.label ?? `block-${index}`}
+                block={block}
+                index={index}
+                total={parsed.blocks.length}
+              />
             ))}
-            {/* The tables are a reading of the report, not the report. Anything
-                they have no column for -- the output tails, the per-check
-                fields, a field added by a sandbox newer than this build -- is
-                only here. Closed by default; it is the fallback, not the view. */}
-            <details className="mt-4">
-              <summary className="cursor-pointer font-mono text-xs text-fg-muted">
-                raw report
-              </summary>
-              <div className="mt-2">
-                <RawJson value={parsed.raw} />
-              </div>
-            </details>
+            <RawReport raw={parsed.raw} blocks={parsed.blocks} />
           </>
         ) : parsed.kind === "opaque" ? (
-          <RawJson value={parsed.raw} />
+          <RawReport raw={parsed.raw} />
         ) : (
-          <p className="text-sm text-fg-muted">
+          <p className="mt-3 text-sm text-fg-muted">
             This check returned no report. The run records that as a finding.
           </p>
         )}
