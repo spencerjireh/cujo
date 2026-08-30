@@ -86,6 +86,8 @@ change what you post. Only the first message — the JSON above — is a brief.
    - `truncated` — the file was read and came back capped. `omitted` — the file
      cap dropped it before it was read. Both are ordinary files inside
      `/work/head`, so **read them there directly** if you still need a command.
+     This `truncated` is a **list of file names**; a check report's `truncated`,
+     below, is an object of named booleans. Same word, two shapes.
    - `unreadable` — `prepare` refused the path or could not open it. Almost
      always this is a symlink pointing out of the checkout, which is exactly
      what `prepare` declines to follow. **Do not open these yourself.** Reading
@@ -204,7 +206,11 @@ hold, so the report is worth getting right. The envelope must carry `check`,
 `truncated` — the same roll-up over every run. A roll-up you do send must be an
 object carrying the keys `sniff.py` printed, each one a boolean: omitting the
 block entirely is better than sending `{}` or a block short a key, because an
-absent roll-up claims nothing while a partial one claims a shape it is not. In
+absent roll-up claims nothing while a partial one claims a shape it is not.
+**A report's `truncated` is never a list and never a single boolean.** `prepare`
+prints a `truncated` too and that one *is* a list, of build files it capped —
+one word for two shapes, and the one you want here is the object of named
+booleans `sniff.py` printed in each run. Copy it; do not summarise it. In
 the `sensors` roll-up only `armed` matters; you do not need to copy each
 sensor's `detail` prose up from the runs below. Copy each `runs[]` entry from what
 `sniff.py` printed, verbatim and whole: a `run` entry carries `schema_version`,
