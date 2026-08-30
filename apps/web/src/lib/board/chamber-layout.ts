@@ -12,11 +12,14 @@
  */
 
 /**
- * Depth is the axis the record runs along, and it is long: the recession from
- * the near face to the fog is the only thing that makes twenty-four runs read
- * as a series rather than a stack.
+ * Depth is the axis the record runs along; width and height are the field the
+ * record is scattered across (decision 70). It was a 3.9 x 2.3 x 17 corridor
+ * while the record was one line of specimens down the middle of it — long
+ * enough for twenty-four runs and too low to fill a full-height frame. Ten
+ * larger specimens spread through a shorter, wider, taller room read as a
+ * volume with something in it.
  */
-export const CHAMBER_BOX = { width: 3.9, height: 2.3, depth: 17 } as const;
+export const CHAMBER_BOX = { width: 7.2, height: 4.2, depth: 13 } as const;
 
 /**
  * The record sits right of centre, and the camera stands left of it looking
@@ -26,26 +29,44 @@ export const CHAMBER_BOX = { width: 3.9, height: 2.3, depth: 17 } as const;
  * also what leaves the left of the viewport clear for the headline.
  */
 export const RECORD_X = 1.15;
-/** Height of the record inside the volume: the specimens hang, so above centre. */
+/** The record's own height, which the scatter offsets from. */
 export const RECORD_Y = 0.1;
 /** Distance between one run and the next, front to back. */
-export const SPACING = 0.58;
-/** How far the front-most specimen sits from the open face. */
-export const FRONT_Z = 1.0;
+export const SPACING = 0.95;
+/**
+ * Where the newest run sits.
+ *
+ * Behind the camera's own station rather than level with the mouth: standing
+ * inside the volume means the near end is the closest thing on screen, and at
+ * two units it was a single specimen filling a third of the frame with its
+ * neighbours already behind the viewer.
+ */
+export const FRONT_Z = 0.2;
 /**
  * Longest arm a specimen draws, at `length: 1`. Sized against `SPACING`: an arm
  * longer than about half the gap and the near specimens overlap into a thicket
  * instead of reading as a series.
  */
-export const ARM_MAX = 0.3;
+export const ARM_MAX = 0.5;
 export const ARM_THICKNESS = 0.02;
 
 export const FLOOR_Y = -CHAMBER_BOX.height / 2;
 export const CEILING_Y = CHAMBER_BOX.height / 2;
-/** Where the chain runs: below the ceiling, so the specimens hang from it. */
-export const CHAIN_Y = CHAMBER_BOX.height / 2 - 0.22;
+
+/**
+ * Where the volume's near face is.
+ *
+ * Ahead of the camera, which is the whole point: the camera stands inside the
+ * mouth of the chamber, so the near edges of the box run off the top and sides
+ * of the frame toward the vanishing point instead of sitting in it as a
+ * rectangle. Stated directly rather than derived from `FRONT_Z` — it used to
+ * be `FRONT_Z - depth/2 + 0.6`, which put the face behind the newest specimen
+ * and made "how far in front of the camera does the record start" a number
+ * nobody could name.
+ */
+export const MOUTH_Z = 4.5;
 /** The wireframe box's centre, and the far wall behind the fog. */
-export const SHELL_Z = FRONT_Z - CHAMBER_BOX.depth / 2 + 0.6;
+export const SHELL_Z = MOUTH_Z - CHAMBER_BOX.depth / 2;
 export const BACK_Z = SHELL_Z - CHAMBER_BOX.depth / 2;
 
 /** Below this many runs the camera comes in, so one run is not a distant dot. */
@@ -59,19 +80,6 @@ export function slotZ(index: number): number {
 /** Every slot the volume has room for. The ribs are drawn one per slot. */
 export function slotCount(): number {
   return Math.max(1, Math.floor(CHAMBER_BOX.depth / SPACING));
-}
-
-/**
- * Where the chain ends.
- *
- * At the last run on it, so its length is the record's length and a three-run
- * board has a short chain rather than pretending otherwise (decision 68). The
- * exception is an empty board: there is no record to bound it, so it runs the
- * volume — an instrument holding nothing is a different picture from an
- * instrument that is absent.
- */
-export function chainEndZ(count: number): number {
-  return count > 0 ? slotZ(count - 1) - 0.35 : BACK_Z + 0.4;
 }
 
 /**
