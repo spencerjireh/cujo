@@ -154,7 +154,20 @@ export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post
 export interface DraftedReview {
   tool: ReviewTool;
   toolCallId: string;
+  /** What the model sent: one sentence since decision 74, prose before it. */
   body: string;
+  /**
+   * What `github-mcp` posted, reproduced here with the same renderer
+   * (decision 74).
+   *
+   * `body` alone stopped being the review when the server started composing
+   * it: a reader of the board would see the one-sentence lede where GitHub has
+   * the verdict, the findings, the coverage and the egress. Two things differ
+   * from the posted copy and neither is knowable here — the machine block's
+   * `run_url` is null, because the board *is* that page, and no finding is
+   * marked `(not in this diff)`, because the diff is not on this side.
+   */
+  composedBody: string;
   comments: ReviewComment[];
   /** The agent's own findings, as passed on the review tool call. */
   findings: unknown[];

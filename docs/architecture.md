@@ -119,7 +119,7 @@ Every crossing, with what it carries and what protects it:
 | Sandbox → internet | Through the in-sandbox proxy | Whatever the PR or a dependency tries to reach; logged, becomes evidence | None; the decoy secret is the only "secret" it can find |
 | TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
 | TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` and `post_blocking_review` (free) or `post_gated_review` (paused until a human confirms) | Internal |
-| `github-mcp` → GitHub | REST API | The review: summary body plus inline comments, as `cujo-guard[bot]` | Installation token minted from the App private key |
+| `github-mcp` → GitHub | REST API | The review, as `cujo-guard[bot]`: a body **composed by `github-mcp`** from the agent's findings, coverage and egress (verdict headline, findings by severity, coverage, egress, a machine-readable block — decision 74), plus one inline comment per anchored finding, derived from the findings rather than sent beside them; `apps/cujo` rebuilds both with the same `@cujo/review-render` package for the board | Installation token minted from the App private key |
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
 | `apps/cujo` → GitHub | REST API | A reply on the pull request, and a reaction on the comment it answers (decision 43). Text, but only ever in answer to a person who addressed Cujo directly — never an unprompted finding | Installation token minted from the App private key; the same `pull_requests: write` |
 | `apps/cujo` → TrueForge | HTTP on the compose network | A **second** session per pull request, for conversation only (Contract 10): `sessions.create` with a spec carrying `mcpServers: []`, then one turn per question. Never the review's session, which a second turn would cancel, be refused on, or corrupt | Internal |
@@ -218,8 +218,9 @@ the session refuses the new head's turn while one is pending (decision 39).
 5. **Decide.** The parent turns the reports into findings. Hard rules force
    `critical` on a regression, a decoy read, a sensitive write, or unknown
    egress during an install, and `warn` when a sensor was not watching. The agent assigns `info`, `warn`, or `critical`
-   to everything else against the rubric, then drafts one review: a summary of
-   what ran plus an inline comment per anchored finding.
+   to everything else against the rubric, then hands `github-mcp` its findings,
+   its coverage and the egress it saw. The server composes the review — verdict
+   first, provenance after — and anchors what can be anchored (decision 74).
 6. **Post, pausing only to accuse.** With no `critical` finding the review
    posts automatically as `cujo-guard[bot]`. A `critical` that says the pull
    request is broken posts too, as REQUEST_CHANGES, with no human asked. Only a

@@ -73,6 +73,9 @@ describe("validateAnchors", () => {
 });
 
 describe("appendMovedComments", () => {
+  // Kept for the deprecated `comments[]` path only (decision 74): a legacy
+  // comment's text lives nowhere but the comment, so a refused anchor would
+  // drop it from the review entirely.
   it("leaves the body alone when nothing moved", () => {
     expect(appendMovedComments("Summary\n", [])).toBe("Summary\n");
   });

@@ -32,6 +32,9 @@ importers:
       '@cujo/log':
         specifier: workspace:*
         version: link:../../packages/log
+      '@cujo/review-render':
+        specifier: workspace:*
+        version: link:../../packages/review-render
       '@hono/node-server':
         specifier: 2.1.1
         version: 2.1.1(hono@4.13.5)
@@ -56,6 +59,9 @@ importers:
       '@cujo/log':
         specifier: workspace:*
         version: link:../../packages/log
+      '@cujo/review-render':
+        specifier: workspace:*
+        version: link:../../packages/review-render
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)
@@ -158,6 +164,8 @@ importers:
         version: 8.3.0
 
   packages/log: {}
+
+  packages/review-render: {}
 
 packages:
 
