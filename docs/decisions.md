@@ -70,6 +70,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 62. [The report validator may only add](#62-the-report-validator-may-only-add)
 63. [`/cujo review` re-reviews the current head, on the same principal](#63-cujo-review-re-reviews-the-current-head-on-the-same-principal)
 64. [Nothing says when a compaction happened, so Cujo does not](#64-nothing-says-when-a-compaction-happened-so-cujo-does-not)
+65. [A public list row carries what the checks measured, not only the verdict](#65-a-public-list-row-carries-what-the-checks-measured-not-only-the-verdict)
+66. [The sandbox must never crash silently; sensor logs count what they lost](#66-the-sandbox-must-never-crash-silently-sensor-logs-count-what-they-lost)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2934,7 +2936,45 @@ of a fact already there in full. **An aggregate endpoint** returning counts
 across all runs, which answers one page's question and not the next one's, and
 which the board does not need while the whole list fits in one response.
 
-## 66. Nothing in the chamber exists that is not a measurement
+## 66. The sandbox must never crash silently; sensor logs count what they lost
+
+**Status:** active — introduced with the exception guard, the proxy failure
+logging, and the `sensor_logs` truncation flag.
+
+**Context.** Three pieces of evidence can disappear without anyone noticing:
+
+1. An unhandled exception in `cli.py:main()` prints a Python traceback to stderr,
+   which TrueForge captures as the subagent's output. The trusted side receives
+   no JSON, concludes the report is missing, and fires the `check_missing` hard
+   rule — but the *reason* is invisible because nothing structured says what
+   went wrong.
+2. When the proxy cannot connect upstream it returns a `502 Bad Gateway` to the
+   client but logs nothing, so a host that rejects connections appears in no
+   sensor data at all.
+3. When a daemon is killed mid-write it leaves a torn JSONL line. `read_jsonl`
+   silently skips it, which is correct for the reader, but nothing tells the
+   report consumer that evidence was lost.
+
+**Decision.**
+
+- `cli.py:main()` wraps every operator command in a `try/except Exception` and
+  prints `{"ok": false, "error": "…", "traceback": "…"}` as valid JSON.
+  `KeyboardInterrupt` is not caught.
+- The proxy's `except OSError` branch now appends a row with
+  `"error": "connect_failed"` and `"bytes": 0` so the failure appears in the
+  report's `egress[]` list.
+- `read_jsonl` returns a `JsonlResult` carrying `rows` and a `dropped` count.
+  The runner sums the three sensor logs' dropped counts into
+  `truncated.sensor_logs`, a boolean that is true whenever any line could not
+  be parsed.
+
+**Consequences.** A silent crash becomes a parseable failure. A blocked
+connection becomes visible egress. A torn log line becomes a truncation flag
+the hard rules can read. None of the three changes alters a report's shape in
+a way that breaks an older consumer, because `truncated` uses `.passthrough()`
+(decision 62).
+
+## 67. Nothing in the chamber exists that is not a measurement
 
 The board drew every run as a specimen and drew the room around it out of
 nothing: the floor grid repeated at a fixed pitch, the chain ran the length of

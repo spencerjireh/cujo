@@ -201,6 +201,7 @@ def run_sensed(
         proxy_rows = read_jsonl(paths["proxy_log"], offsets["proxy_log"])
         audit_rows = read_jsonl(audit_log)
         decoy_rows = read_jsonl(paths["decoy_log"], offsets["decoy_log"])
+        torn_lines = proxy_rows.dropped + audit_rows.dropped + decoy_rows.dropped
         # Inside the window: a daemon that dies while the command runs is the
         # thing being looked for, so it is checked before the lock is released.
         sensors = {**daemon_health(ctx, config), "fs_diff": snapshot_health(before, after)}
@@ -220,6 +221,7 @@ def run_sensed(
             # what a restored mtime defeats. Saying so is the difference between
             # a comparison that was not made and one that came back clean.
             "hashes": bool(before.uncompared or after.uncompared),
+            "sensor_logs": torn_lines > 0,
         },
         home_dir=ctx.home,
         cwd=cwd,
