@@ -136,7 +136,7 @@ export function Step({ n, title, children }: { n: number; title: string; childre
  */
 export function Table({ head, children }: { head: readonly string[]; children: ReactNode }) {
   return (
-    <div className="max-w-full overflow-x-auto">
+    <section className="max-w-full overflow-x-auto" aria-label="Data table">
       <table className="w-full border-collapse text-left font-mono text-xs">
         <thead>
           <tr>
@@ -152,7 +152,7 @@ export function Table({ head, children }: { head: readonly string[]; children: R
         </thead>
         <tbody>{children}</tbody>
       </table>
-    </div>
+    </section>
   );
 }
 
@@ -161,15 +161,17 @@ export function Row({ children }: { children: ReactNode }) {
 }
 
 export function Cell({ children, head = false }: { children: ReactNode; head?: boolean }) {
-  return (
-    <td
-      className={`border-line border-b py-2.5 pr-6 leading-relaxed last:pr-0 ${
-        head ? "text-fg" : "text-fg-muted"
-      }`}
-    >
-      {children}
-    </td>
-  );
+  const cls = `border-line border-b py-2.5 pr-6 leading-relaxed last:pr-0 ${
+    head ? "text-fg" : "text-fg-muted"
+  }`;
+  if (head) {
+    return (
+      <th scope="row" className={`${cls} font-normal`}>
+        {children}
+      </th>
+    );
+  }
+  return <td className={cls}>{children}</td>;
 }
 
 /**

@@ -66,11 +66,11 @@ export function SelfHost() {
           </Row>
         </Table>
         <Note>
-          There is no authenticated route anywhere in this deployment, because there is no
-          credential to present. The webhook host carries two signature-gated routes and nothing
-          else; the board&rsquo;s read API answers only on the internal Compose name, where anything
-          outside <C>/public</C> is 404 rather than 401. A 401 would be a route somebody could still
-          reach with the right header.
+          Cujo itself has no application-level login. The webhook host carries two signature-gated
+          routes; the board&rsquo;s read API answers only on the internal Compose name, where
+          anything outside <C>/public</C> is 404 rather than 401. <C>/healthz</C> and <C>/readyz</C>{" "}
+          are ungated operational endpoints. If you expose the harness console, put your own
+          authentication in front of it — it has none of its own.
         </Note>
       </Section>
 
