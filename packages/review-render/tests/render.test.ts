@@ -156,6 +156,20 @@ describe("sections", () => {
     );
     expect(body).not.toContain("(3 cases on head)");
   });
+
+  it("cannot have a check name split into a check nobody ran", () => {
+    // The check name comes from the model like everything else here, and a
+    // newline in one would end its list item and leave the rest reading as
+    // another check this review claims to have run.
+    const body = render({
+      coverage: {
+        ran: [{ check: "tests\n- detonation", note: "8 on base and head" }],
+        skipped: [{ check: "smoke\n- probes", reason: "no boot command\ninferred" }],
+      },
+    });
+    expect(body).toContain("Ran:\n- tests - detonation — 8 on base and head");
+    expect(body).toContain("Not run:\n- smoke - probes — no boot command inferred");
+  });
 });
 
 describe("a finding block", () => {
@@ -222,6 +236,34 @@ describe("a finding block", () => {
     expect(body).toContain(
       "**two runs** · `tests`\n\n> base: 8 passed\n> head: 7 passed, 1 failed",
     );
+  });
+
+  it("never collapses a critical, even one that arrived with no judgment on it", () => {
+    // The rubric requires a `detail` and a `next` on every critical and the tool
+    // schema leaves both optional, so this shape is reachable — and a one-line
+    // block is how a reader is told something is minor.
+    const body = render(
+      {
+        findings: [
+          finding({
+            severity: "critical",
+            title: "a test passes on base and fails on head",
+            evidence: "pytest -q: 1 failed on head",
+          }),
+        ],
+      },
+      { tool: "post_blocking_review" },
+    );
+    expect(body).toContain(
+      "**a test passes on base and fails on head** · `tests`\n\n> pytest -q: 1 failed on head",
+    );
+  });
+
+  it("keeps a title on one line, so a newline cannot break out of the block", () => {
+    const body = render({
+      findings: [finding({ title: "two lines\nof title", check: "tests\nprobes" })],
+    });
+    expect(body).toContain("**two lines of title** · `tests probes`");
   });
 
   it("drops the dash when there is no evidence at all", () => {
