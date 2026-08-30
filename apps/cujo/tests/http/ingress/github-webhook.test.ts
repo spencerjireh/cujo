@@ -64,6 +64,71 @@ describe("webhook", () => {
       }),
     );
 
+  it("ignores draft pull requests without claiming a run", async () => {
+    const draft = JSON.stringify({
+      action: "opened",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: { head: { sha: "h" }, draft: true },
+    });
+    const { app, runner } = build();
+    const res = await deliver(app, draft);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ignored: "draft" });
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it("ignores pull requests carrying the cujo:skip label", async () => {
+    const labelled = JSON.stringify({
+      action: "opened",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: {
+        head: { sha: "h" },
+        labels: [{ name: "bug" }, { name: "cujo:skip" }],
+      },
+    });
+    const { app, runner } = build();
+    const res = await deliver(app, labelled);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ignored: "label" });
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it("reviews a draft PR that becomes ready_for_review", async () => {
+    const ready = JSON.stringify({
+      action: "ready_for_review",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: { head: { sha: "h" }, draft: false },
+    });
+    const { app, runner, nextSettled } = build();
+    const done = nextSettled();
+    const res = await deliver(app, ready);
+    expect(res.status).toBe(202);
+    await done;
+    expect(runner.start).toHaveBeenCalledOnce();
+  });
+
+  it("reviews a non-draft PR without the skip label normally", async () => {
+    const normal = JSON.stringify({
+      action: "opened",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: {
+        head: { sha: "h" },
+        draft: false,
+        labels: [{ name: "enhancement" }],
+      },
+    });
+    const { app, runner, nextSettled } = build();
+    const done = nextSettled();
+    const res = await deliver(app, normal);
+    expect(res.status).toBe(202);
+    await done;
+    expect(runner.start).toHaveBeenCalledOnce();
+  });
+
   it("claims one run per head, so a duplicate delivery starts nothing", async () => {
     const { app, runner, nextSettled } = build();
     const done = nextSettled();

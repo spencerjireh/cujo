@@ -4098,3 +4098,43 @@ into several. **`-n auto` in the workflow only**, above. **Caching the Docker
 layers and deduplicating the three builds of the same apps** — real duplication,
 but every one of those builds is off the critical path, so it is work that
 changes no wall clock until this decision lands, and possibly not after.
+
+## 79. Entry selectivity: drafts, labels, and docs-only advisory
+
+**Status:** active — guards added to `github-webhook.ts`, classification
+added to `agent-spec.ts`.
+
+**Context.** Every `pull_request` webhook with action `opened` or
+`synchronize` claimed a run, provisioned a sandbox, and consumed model tokens.
+Draft PRs, PRs a maintainer explicitly wants to skip, and documentation-only
+PRs all received the same full-cost review as a code change.
+
+**Decision.** Three filters, applied in the webhook handler before any session
+or run is created:
+
+1. **Draft skip.** `pull_request.draft === true` → 200, `ignored: "draft"`.
+   No session, no run, no sandbox. Explicit `=== true`, same defensive
+   pattern as `private === false` (decision 34).
+
+2. **Label skip.** A PR carrying the `cujo:skip` label → 200,
+   `ignored: "label"`. The label is an explicit opt-out by a maintainer with
+   write access.
+
+3. **Docs-only advisory.** When every changed file is documentation (`.md`,
+   `.txt`, `.rst`, `.adoc`, `LICENSE`, `CHANGELOG`, etc.), the turn message
+   carries `docs_only: true`. The agent uses this to select
+   `post_advisory_review` over `post_blocking_review`. The sandbox still
+   runs in full — the sensors prove the classification is correct, and the
+   hard rules still fire on anything they observe.
+
+Drafts and labels are full stops because they are explicit human choices.
+Docs-only is an inference, so it degrades to a softer posture (advisory)
+rather than to silence — a false positive in advisory mode means "reviewed
+but didn't block" (harmless), while a false positive in skip mode means
+"not reviewed at all" (invisible).
+
+**Consequences.** Draft PRs and labelled PRs cost nothing. Documentation-only
+PRs still get a full sandbox run but cannot block a merge. An empty changed
+file list is not docs-only (a metadata-only PR should still be judged).
+The `isDocsOnly` predicate is conservative: only well-known prose extensions
+and basenames match, so a code file cannot accidentally qualify.
