@@ -200,6 +200,7 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
       CUJO_API_URL: http://cujo:8080
+      CUJO_WEB_ORIGIN: ${CUJO_WEB_ORIGIN:-https://cujo.spencerjireh.com}
     read_only: true
     tmpfs:
       - /tmp

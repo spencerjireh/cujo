@@ -111,6 +111,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 103. [The verdict card stops linking out](#103-the-verdict-card-stops-linking-out)
 104. [Supersede, do not delete, on re-review](#104-supersede-do-not-delete-on-re-review)
 105. [SessionEvents are validated at the boundary](#105-sessionevents-are-validated-at-the-boundary)
+106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5734,3 +5735,45 @@ covered. **Full SDK surface validation**, which would reject events carrying
 new fields from a newer SDK — exactly what `.passthrough()` exists to prevent.
 **Dropping invalid events**, which fails toward `clean` the same way the
 original problem does.
+
+## 106. Every expanded link carries the one branded still
+
+A link pasted into Discord, Slack, or iMessage now expands into a card with a
+picture: the dark lockup — mark, `cujo` wordmark, the one-line tagline — on the
+board's own ground. Before this entry the board's pages carried `og:title` and
+`og:description` only, so every expansion was two lines of text beside no
+image, and the runs' own titles (decision 86) expanded the same way.
+
+The image is one still for every route, not a card drawn per run. Next's file
+convention (`opengraph-image.png` at the app root) attaches it to the board,
+the manual, and every run page alike, and the layout's `metadataBase` makes
+the URL absolute — a platform fetching `og:image` will not resolve a relative
+one. The run's identity already travels in its title and description, which
+the embedder prints beside the picture, so the picture itself carries the one
+thing that is the same everywhere: the brand.
+
+The still is generated, not hand-drawn: `pnpm --filter @cujo/brand og
+<jetbrains-mono.ttf>` composes it from `avatar.svg`'s mark (dark-ground fills)
+and `wordmark.svg`'s outlines and renders it with resvg, the way `render.mjs`
+renders every other PNG in brand/. The tagline is live text, so the font is
+passed in and not committed — the rule `wordmark.mjs` already set — with
+system fonts refused at render time, so the card cannot render differently on
+the machine that regenerates it. The committed PNG is copied byte for byte
+into `apps/web` and held there by a test (decision 22's arrangement for the
+favicons), which also fails if the asset comes back any size but 1200x630.
+
+The ground is dark and opaque, `avatar.svg`'s argument (decision 55) applied
+to a second place: an embed is read on whatever theme the reader's client is
+in, so the image carries its own ground rather than trusting theirs. The
+noindex rule is untouched — Open Graph is previews, not discoverability
+(decision 86's distinction, now with a picture), and the manual's exception
+(decision 98) neither gains nor loses anything from a card.
+
+Rejected: **a per-run card drawn at request time** (`next/og`), which would
+need font data committed — satori has no system fonts, and the repo's own
+wordmark tool refuses to commit one — or fetched at runtime, a build-time
+dependency on Google Fonts inside a read-only container, all to put into the
+image what the title and description already say. **A separate
+`twitter-image`**, when Next falls back to `opengraph-image` and one asset
+with one test is enough. **A transparent ground**, which vanishes on a
+light-theme client and takes the wordmark with it.
