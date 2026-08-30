@@ -1,7 +1,7 @@
 import type { CheckState, DraftedReview, Finding, Run, RunDigest, RunSummary } from "./api/types";
 
 /**
- * The three demo runs from docs/demo.md, plus the states that are awkward to
+ * The three demo runs, plus the states that are awkward to
  * reproduce against a live stack. Stories build on these so a reviewer sees the
  * same evidence the video does.
  */
