@@ -55,6 +55,22 @@
     color: var(--fg);
     font-family: var(--font-mono);
     -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+
+  /* The page does not rubber-band past its top or bottom (decision 101). The
+     board is an instrument in a frame, and a bounce reads as the sheet
+     slipping on the galaxy; on Android the same root gesture is
+     pull-to-refresh, a full reload of a page that re-reads the API every few
+     seconds without being asked. On body as well as html because browsers
+     disagree about which of the two is the root scroller. Vertical only —
+     horizontal overscroll is the browser's back and forward gesture, and
+     this page has no claim on it — and the root only, so the record, the
+     reports and the prose still hand their scroll to the page at their
+     edges instead of stopping dead mid-page. Safari 16 is the floor; older
+     iOS keeps its bounce. */
+  body {
+    overscroll-behavior-y: none;
   }
 
   /* The UI is a log of what ran, so evidence type is the default and the

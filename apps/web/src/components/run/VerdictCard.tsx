@@ -1,7 +1,6 @@
 import { StatusBadge } from "@/components/StatusBadge";
-import { type Run, gatedReviewPosted, reviewPosted } from "@/lib/api/types";
+import type { Run } from "@/lib/api/types";
 import { SEVERITY_ORDER, SEVERITY_TONE, TONE_BG, TONE_TEXT } from "@/lib/board/tone";
-import { prUrl } from "@/lib/format";
 
 /**
  * The verdict, before anything else on the page.
@@ -11,8 +10,10 @@ import { prUrl } from "@/lib/format";
  * answer that in a badge the size of a footnote beside the title, and the
  * count of what was found lived a screen further down in the findings list.
  * This is the same two facts, first and at a size that says they are the
- * point: the status, the findings by severity, and the way back to the review
- * on GitHub when one was posted.
+ * point: the status and the findings by severity. The way back to the review
+ * was a third fact here once and is gone (decision 103): the reader arrived
+ * from GitHub holding it, the review panel below renders the review itself,
+ * and the run header still links the pull request.
  *
  * Critical is always stated, even at zero. A card that lists two warnings and
  * says nothing about critical leaves a reader to wonder whether none was found
@@ -32,7 +33,6 @@ export function VerdictCard({ run }: { run: Run }) {
     severity,
     count: run.findings.filter((finding) => finding.severity === severity).length,
   }));
-  const posted = reviewPosted(run) || gatedReviewPosted(run);
 
   return (
     <div
@@ -68,16 +68,6 @@ export function VerdictCard({ run }: { run: Run }) {
           })}
         </ul>
       )}
-      {posted ? (
-        <a
-          href={prUrl(run.repo, run.pr_number)}
-          target="_blank"
-          rel="noreferrer"
-          className="ml-auto font-mono text-xs text-fg underline decoration-line underline-offset-4 hover:decoration-accent"
-        >
-          Read the review on GitHub
-        </a>
-      ) : null}
     </div>
   );
 }
