@@ -429,7 +429,11 @@ export class Runner {
               ...errorFields(error),
             });
           }
-        })();
+          // Terminal catch on a detached promise, even though the body already
+          // handles its own failure: if the logging above is what threw, there
+          // is nothing left to report it with, and an unhandled rejection out
+          // of a timer callback would end the process.
+        })().catch(() => {});
       }
     }, this.options.turnTimeoutMs);
 
