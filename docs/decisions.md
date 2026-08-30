@@ -4053,6 +4053,18 @@ so this is a latent bug rather than an observed one; it is in the key because
 the cost of carrying it is one expression and the cost of hitting it is a
 contributor who cannot see why their CI never finished.
 
+**Both of those keys looked right when they were written, so the requirement is
+executable.** `repo_checks/test_ci_concurrency.py` reads the group out of the
+workflow, evaluates the `${{ a || b }}` subset against the event shapes GitHub
+would really supply, and asserts the two properties: a dispatch run lands in its
+PR's group, and two forks offering one branch name do not. The number-based key
+fails the first and the branch-only key fails the second, each on the test that
+names it. The temptation was to assert the expression string instead, which
+would have restated the workflow in a second place and passed on both — a
+literal written beside a change is written from the same understanding that
+produced it. `repo_checks/` is deliberately not called `tests`, which would
+shadow the `tests` package `sandbox/tests/conftest.py` imports from.
+
 Rejected: **marking the slow tests and skipping them in CI**, which buys the
 time back by not running the detonation test — the one that proves the product's
 central claim, and the last one that should be optional. **Sharding the suite

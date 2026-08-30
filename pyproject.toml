@@ -30,7 +30,10 @@ src = ["sandbox"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
-testpaths = ["sandbox/tests"]
+# `repo_checks/` holds tests about this repository's own configuration rather
+# than about `cujo_sniff`. It is deliberately not called `tests`, which would
+# shadow the `tests` package that `sandbox/tests/conftest.py` imports from.
+testpaths = ["sandbox/tests", "repo_checks"]
 # Nothing is installed, so the directory is the path -- which is also the
 # arrangement inside the sandbox, where `sniff.py` and `cujo_sniff/` are
 # siblings and `sys.path[0]` is what finds the package.
