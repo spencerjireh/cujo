@@ -226,6 +226,34 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     return node;
   }
 
+  /**
+   * A node that is staying, given its new spec. Only a node whose *drawing*
+   * changed is rebuilt — a poll returns an equal record almost every time, and
+   * rebuilding thirty nodes to redraw the same picture is what the signature
+   * comparison exists to avoid. A rebuilt node keeps where it was and where it
+   * was going: a run whose detonation just went red has not moved, and must not
+   * re-enter.
+   */
+  function retain(node: SpecimenNode, spec: Specimen): SpecimenNode {
+    if (specimenSignature(spec) === specimenSignature(node.spec)) {
+      node.spec = spec;
+      return node;
+    }
+    const rebuilt = add(spec);
+    rebuilt.slotFrom = node.slotFrom;
+    rebuilt.slotTo = node.slotTo;
+    rebuilt.slideFrom = node.slideFrom;
+    rebuilt.slideOrigin = node.slideOrigin;
+    rebuilt.arriveFrom = node.arriveFrom;
+    rebuilt.focusAmount = node.focusAmount;
+    rebuilt.dimAmount = node.dimAmount;
+    // Before the old node goes, so a rebuild mid-slide starts from the same
+    // point the old one had reached.
+    rebuilt.group.position.copy(node.group.position);
+    kit.release(node);
+    return rebuilt;
+  }
+
   function setSpecimens(next: Specimen[]): void {
     const drawn = next.slice(0, options.capacity);
     const diff = diffRecord(
@@ -243,29 +271,11 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
         return node;
       });
     } else if (diff.kind === "same") {
-      // Same ids in the same order. Only a node whose *drawing* changed is
-      // rebuilt — a poll returns an equal record almost every time, and
-      // rebuilding thirty nodes to redraw the same picture is what this
-      // comparison exists to avoid.
+      // Same ids in the same order: every node stays, redrawn only if its
+      // drawing changed.
       nodes = nodes.map((node) => {
         const spec = byId.get(node.spec.id);
-        if (!spec) return node;
-        if (specimenSignature(spec) === specimenSignature(node.spec)) {
-          node.spec = spec;
-          return node;
-        }
-        const rebuilt = add(spec);
-        // Keep where it was and where it was going: a run whose detonation just
-        // went red has not moved, and must not re-enter.
-        rebuilt.slotFrom = node.slotFrom;
-        rebuilt.slotTo = node.slotTo;
-        rebuilt.slideFrom = node.slideFrom;
-        rebuilt.slideOrigin = node.slideOrigin;
-        rebuilt.arriveFrom = node.arriveFrom;
-        rebuilt.focusAmount = node.focusAmount;
-        rebuilt.dimAmount = node.dimAmount;
-        kit.release(node);
-        return rebuilt;
+        return spec ? retain(node, spec) : node;
       });
     } else {
       // An advance: runs landed at the head and the record slides back.
@@ -278,9 +288,13 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
         kept.delete(id);
       }
       nodes = drawn.map((spec) => {
-        const existing = kept.get(spec.id);
-        if (existing) {
-          existing.spec = spec;
+        const retained = kept.get(spec.id);
+        if (retained) {
+          // Through `retain`, not a bare assignment: a status that changed on
+          // the same poll that advanced the record would otherwise be stored
+          // on a node still drawn the old way, and the next poll, comparing
+          // against the stored spec, would see nothing to redraw.
+          const existing = retain(retained, spec);
           // From wherever it is right now, so a poll that lands mid-slide
           // does not jump.
           existing.slideOrigin =
