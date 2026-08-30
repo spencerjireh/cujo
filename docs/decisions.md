@@ -84,6 +84,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
 75. [The record is one field of a fixed length, and an empty one is armed](#75-the-record-is-one-field-of-a-fixed-length-and-an-empty-one-is-armed)
 76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
+77. [Detonation covers every ecosystem `MANIFESTS` recognises](#77-detonation-covers-every-ecosystem-manifests-recognises)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3956,3 +3957,27 @@ scripts. Ruby installs via Bundler no longer produce false
 `egress_to_unknown_host` warnings for connections to `rubygems.org`. Go
 vendored dependency reads and Ruby gem cache reads no longer clutter
 `files_read`. No existing behaviour changes for Python or Node repos.
+
+## 77. Detonation covers every ecosystem `MANIFESTS` recognises
+
+**Status:** active — added Go and gem install paths to `detonate.py`.
+
+**Context.** `apps/cujo` already recognises `go.mod`, `go.sum`, `Gemfile`,
+and `Gemfile.lock` in its `MANIFESTS` list (`agent-spec.ts`), so a PR that
+changes those files sets `manifest_changed: true` and the agent is told a
+detonation check is warranted. But the sandbox only knew how to install npm
+and PyPI packages: `detect_source` returned `"pypi"` for anything that was
+not npm, and `cmd_detonate` had no `go install` or `gem install` path.
+
+**Decision.** `detect_source` gains two new return values: `"go"` for module
+paths containing a slash (but not `git+` URLs, which remain `"pypi"`), and
+`"gem"` for the `gem:` prefix. `cmd_detonate` dispatches to
+`_go_install_cmds` (one `go install` into an isolated `GOPATH`) and
+`_gem_install_cmds` (one `gem install --install-dir`). The CLI's `--source`
+choices are expanded to match.
+
+**Consequences.** PRs that change `go.mod` or `Gemfile` can now be detonated
+in the sandbox. The same OS-level sensors (fsdiff, decoy, proxy) observe
+the install, so filesystem writes, egress, and credential reads are reported
+the same way they are for npm and PyPI. No existing behaviour changes for
+Python or Node repos.
