@@ -390,6 +390,7 @@ export class Runner {
     }
     const persisted = new Map<string, SessionEvent>();
     for (const item of items) if (own.has(item.turnId)) persisted.set(item.event.id, item.event);
+    this.checkEvents(s.log, [...persisted.values()]);
     s.events = s.events.map((e) => persisted.get(e.id) ?? e);
   }
 

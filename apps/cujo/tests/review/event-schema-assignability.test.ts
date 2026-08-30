@@ -72,6 +72,36 @@ describe("SDK event types carry the fields the schema requires", () => {
     expect(true).toBe(true);
   });
 
+  it("ThreadDoneEvent has threadId, state with status, id, createdAt", () => {
+    const _check = (e: TrueForgeApi.ThreadDoneEvent) => {
+      const _thread: string = e.threadId;
+      const _status: string = e.state.status;
+      const _id: string = e.id;
+      const _at: string = e.createdAt;
+      void [_thread, _status, _id, _at];
+    };
+    expect(true).toBe(true);
+  });
+
+  it("ToolResponseEvent has toolCallId, id, createdAt", () => {
+    const _check = (e: TrueForgeApi.ToolResponseEvent) => {
+      const _callId: string = e.toolCallId;
+      const _id: string = e.id;
+      const _at: string = e.createdAt;
+      void [_callId, _id, _at];
+    };
+    expect(true).toBe(true);
+  });
+
+  it("SandboxCreatedEvent has id, createdAt", () => {
+    const _check = (e: TrueForgeApi.SandboxCreatedEvent) => {
+      const _id: string = e.id;
+      const _at: string = e.createdAt;
+      void [_id, _at];
+    };
+    expect(true).toBe(true);
+  });
+
   it("all SessionEvent variants have id and createdAt", () => {
     const _check = (e: SessionEvent) => {
       const _id: string = e.id;
