@@ -2,10 +2,12 @@
  * A stub OpenAI-compatible model endpoint for the harness contract tests. It
  * answers /v1/chat/completions (streaming and not) with a canned reply built
  * from the last user message, so a TrueForge turn completes without a real
- * model. A message containing SLOW is answered after a delay, which is how
- * the tests hold a turn open long enough to cancel it. A message `SAY <text>`
- * is answered with that text verbatim, which is how a sub-agent spawned by
- * the stub ends with a check report.
+ * model. A message containing SLOW, and planning no tool call, is answered
+ * after a delay, which is how the tests hold a turn open long enough to cancel
+ * it -- a `CALL` is exempt so that spawning a SLOW sub-agent stalls the child
+ * rather than the parent. A message `SAY <text>` is answered with that text
+ * verbatim, which is how a sub-agent spawned by the stub ends with a check
+ * report.
  */
 
 import { type Server, createServer } from "node:http";
@@ -76,7 +78,17 @@ export async function startStubModel(): Promise<StubModel> {
     requests.push(body);
     const last = [...(body.messages ?? [])].reverse().find((m) => m.role === "user");
     const prompt = textOf(last?.content);
-    if (prompt.includes("SLOW")) {
+    // Only a tool result that answers this turn's call counts; earlier turns
+    // in the history have their own.
+    const messages = body.messages ?? [];
+    const lastUser = messages.map((m) => m.role).lastIndexOf("user");
+    const toolResultSeen = messages.slice(lastUser + 1).some((m) => m.role === "tool");
+    const call = toolResultSeen ? null : plannedCall(prompt, body.tools);
+    // A message that plans a call is an instruction to call, not a slow answer
+    // -- and the arguments of `CALL create_sub_agent` carry the child's whole
+    // prompt, so spawning a SLOW child would otherwise stall the parent here
+    // and never spawn anything.
+    if (prompt.includes("SLOW") && !call) {
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, SLOW_MS);
         req.on("close", () => {
@@ -86,12 +98,6 @@ export async function startStubModel(): Promise<StubModel> {
       });
       if (req.destroyed) return;
     }
-    // Only a tool result that answers this turn's call counts; earlier turns
-    // in the history have their own.
-    const messages = body.messages ?? [];
-    const lastUser = messages.map((m) => m.role).lastIndexOf("user");
-    const toolResultSeen = messages.slice(lastUser + 1).some((m) => m.role === "tool");
-    const call = toolResultSeen ? null : plannedCall(prompt, body.tools);
     const say = /SAY ([\s\S]*)$/.exec(prompt);
     const reply = toolResultSeen ? "posted" : say?.[1] ? say[1] : `echo: ${prompt}`;
     const id = `chatcmpl-${Date.now()}`;
