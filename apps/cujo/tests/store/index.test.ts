@@ -30,16 +30,12 @@ describe("store", () => {
   });
 
   /**
-   * The one place the two stores genuinely meet. Reclaiming a stale run has to
-   * delete its Discord message row, and not because the row is untidy: the
-   * unique index on (repo, pr_number, head_sha) refuses the replacement while
-   * the old run row is still there, so the whole cascade has to run first.
-   *
-   * Nothing else can catch this. The notifier refuses to post a card for a run
-   * that is `error` with no turns, which is exactly the stale predicate, so the
-   * state is unreachable end to end and only a store-level test reaches it.
+   * An error run with no turns is excluded from the partial unique index
+   * (decision 104), so a new createRun for the same head inserts without
+   * needing to delete the old row. The old row and its Discord message
+   * survive — the evidence page stays reachable.
    */
-  it("drops the Discord message row when a stale run is reclaimed", () => {
+  it("allows a new run beside a stale error run without deleting it", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun(head);
     store.notifications.putRunDiscordMessage({
@@ -50,13 +46,14 @@ describe("store", () => {
       pingResolved: false,
       lastNotifiedStatus: "error",
     });
-    // A run that errored before it ever had a turn.
     store.runs.updateRun(run.id, { status: "error" });
 
     const again = store.runs.createRun(head);
     expect(again.created).toBe(true);
     expect(again.run.id).not.toBe(run.id);
-    expect(store.notifications.getRunDiscordMessage(run.id)).toBeNull();
+    // Old row and its Discord message survive.
+    expect(store.runs.getRun(run.id)).not.toBeNull();
+    expect(store.notifications.getRunDiscordMessage(run.id)).not.toBeNull();
     store.close();
   });
 
@@ -98,19 +95,21 @@ describe("store", () => {
     expect(store.runs.claimDecision(run.id, "b@x", "t")).toBe(true);
   });
 
-  it("re-claims a head whose run errored before it had a turn, and only then", () => {
+  it("re-claims a head whose run errored, since error is excluded from the partial index", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun(head);
     store.runs.updateRun(run.id, { status: "error" });
     const again = store.runs.createRun(head);
     expect(again.created).toBe(true);
     expect(again.run.id).not.toBe(run.id);
-    expect(store.runs.getRun(run.id)).toBeNull();
+    // Old run survives — the partial index excludes error rows.
+    expect(store.runs.getRun(run.id)).not.toBeNull();
 
+    // An error with turns is also excluded from the index.
     store.runs.updateRun(again.run.id, { status: "error", turnIds: ["t1"] });
-    const kept = store.runs.createRun(head);
-    expect(kept.created).toBe(false);
-    expect(kept.run.id).toBe(again.run.id);
+    const third = store.runs.createRun(head);
+    expect(third.created).toBe(true);
+    expect(third.run.id).not.toBe(again.run.id);
   });
 
   it("scopes unfinished runs to a PR and lists runs by session", () => {
@@ -408,7 +407,7 @@ describe("store", () => {
   });
 });
 
-describe("deleting a run to claim its head again", () => {
+describe("superseding a run to re-review its head (decision 104)", () => {
   const claim = {
     repo: "o/r",
     prNumber: 1,
@@ -420,44 +419,62 @@ describe("deleting a run to claim its head again", () => {
     rubricSha256: null,
   };
 
-  it("frees a finished head so it can be claimed again", () => {
-    // `runs_head` is UNIQUE on (repo, pr_number, head_sha) and createRun's own
-    // stale reclaim only takes error rows with no turn, so a finished run
-    // cannot be displaced by accident. `/cujo review` displaces it on purpose,
-    // by id.
+  it("superseding a finished run frees its head for a new insert", () => {
     const store = new Store(":memory:");
     const { run: first } = store.runs.createRun(claim);
     store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
-    expect(store.runs.createRun(claim).created).toBe(false);
 
-    store.runs.deleteRun(first.id);
+    // A clean run is excluded from the partial index, so a new run inserts.
     const { run: second, created } = store.runs.createRun(claim);
     expect(created).toBe(true);
     expect(second.id).not.toBe(first.id);
-    // The old run goes completely, which is what makes its board page stop
-    // resolving rather than showing a verdict nothing produced.
-    expect(store.runs.getRun(first.id)).toBeNull();
-    expect(store.runs.getProjection(first.id)).toBeNull();
+    // The old run survives — its evidence page stays reachable.
+    expect(store.runs.getRun(first.id)).not.toBeNull();
   });
 
-  it("lets the unique index arbitrate two commands racing for one head", () => {
-    // The shape `/cujo review` relies on. Both callers snapshot the same run
-    // and both delete it by id; the second insert loses and its caller refuses
-    // rather than starting a second turn on the same commit.
+  it("marks an existing run superseded instead of deleting it", () => {
+    const store = new Store(":memory:");
+    const { run: first } = store.runs.createRun(claim);
+    store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
+    store.runs.updateRun(first.id, { status: "superseded" });
+
+    const { run: second, created } = store.runs.createRun(claim);
+    expect(created).toBe(true);
+    expect(second.id).not.toBe(first.id);
+    // The superseded run and its data survive.
+    const old = store.runs.getRun(first.id);
+    expect(old).not.toBeNull();
+    expect(old?.status).toBe("superseded");
+  });
+
+  it("lets the partial unique index arbitrate two commands racing for one head", () => {
     const store = new Store(":memory:");
     const { run: first } = store.runs.createRun(claim);
     store.runs.updateRun(first.id, { status: "clean", turnIds: ["t1"] });
 
-    store.runs.deleteRun(first.id);
-    store.runs.deleteRun(first.id); // idempotent: the slower command's delete
+    // Both commands supersede the same run.
+    store.runs.updateRun(first.id, { status: "superseded" });
+    // First insert wins.
     const a = store.runs.createRun(claim);
+    expect(a.created).toBe(true);
+    // Second insert bounces — there is already a running row.
     const b = store.runs.createRun(claim);
-    expect([a.created, b.created].sort()).toEqual([false, true]);
-    expect(a.run.id).toBe(b.run.id);
+    expect(b.created).toBe(false);
+    expect(b.run.id).toBe(a.run.id);
   });
 
   it("deleting a run that is gone is a no-op, not a throw", () => {
     const store = new Store(":memory:");
     expect(() => store.runs.deleteRun("nope")).not.toThrow();
+  });
+
+  it("runForPrHead returns the latest run for a head with multiple rows", () => {
+    const store = new Store(":memory:");
+    const { run: first } = store.runs.createRun(claim);
+    store.runs.updateRun(first.id, { status: "superseded" });
+    const { run: second } = store.runs.createRun(claim);
+    expect(store.runs.runForPrHead("o/r", 1, "h")?.id).toBe(second.id);
+    // The old run is still reachable by id.
+    expect(store.runs.getRun(first.id)?.status).toBe("superseded");
   });
 });

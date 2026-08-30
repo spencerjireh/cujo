@@ -824,8 +824,10 @@ export class Runner {
    * that — the harness refused the cancel, a decision is landing on the run, or
    * somebody else superseded it first. The webhook path ignores the answer,
    * because a stale run left running is merely wasteful there; `/cujo review`
-   * reads it, because it is about to delete the run's row and a live turn with
-   * no row can still post a review.
+   * reads it, because it is about to supersede the run's row (decision 104)
+   * and a live turn on the session could still post a review for the old head.
+   * The `superseded` status is persisted only after cancellation is confirmed,
+   * so the partial unique index continues protecting the head until then.
    *
    * blocked_pending), and a turn still running on the harness is cancelled
    * so it cannot post a review for a stale head. Resolves once the cancel
@@ -844,27 +846,35 @@ export class Runner {
     s.log.info("run.superseded", { reason: "newer_head" });
     this.stopPolling(runId);
     const run = this.store.getRun(runId);
-    // Read before the refold, which rewrites the status to `superseded`.
     const wasPending = run?.status === "blocked_pending";
     const live = run && run.turnIds.length > 0 && !this.isTerminal(run.status);
-    // `fold` never clears `approval`, so it survives the refold; only the
-    // status is overridden.
-    const projection = this.refold(runId);
-    if (!run) return true;
+    // Compute the projection without persisting: the partial unique index
+    // (decision 104) excludes `superseded`, so writing that status before
+    // cancellation is confirmed would release the head and let a concurrent
+    // request insert a replacement alongside the still-live turn.  `fold` is
+    // pure and gives us the approval we need; `refold` is called only on the
+    // confirmed-success paths below.
+    const projection = fold(s.events, { cujoResumeTurnIds: s.cujoResumeTurnIds });
+    if (!run) {
+      this.refold(runId);
+      return true;
+    }
     if (wasPending && projection.approval) {
       // Already in memory, so no round trip to find it. A deny that lands has
       // cancelled the turn it started and there is nothing else to stop.
       if (
         await this.denyStaleApproval(s.log, run.sessionId, projection.approval, "newer_head", runId)
-      )
+      ) {
+        this.refold(runId);
         return true;
+      }
       // It did not land, and the likeliest reason is that a human's decision
       // answered the approval first: `claimDecision` sets `approver` but leaves
       // the run `blocked_pending`, so a decision can be in flight and invisible
       // to the status check above.
       //
       // Re-read rather than trusting `run`. That snapshot predates both the
-      // refold and the await just above, and the whole point of this branch is
+      // fold and the await just above, and the whole point of this branch is
       // a decision that lands during exactly that window — the stale copy would
       // still say `approver` is null and cancel the turn anyway.
       if (this.store.getRun(runId)?.approver) {
@@ -875,16 +885,23 @@ export class Runner {
         // been pushed past: the finding was real on the commit they read, the
         // observation half is public either way, and the new head gets its own
         // run that re-derives it.
+        s.superseded = false;
         s.log.info("run.supersede.deferred", { reason: "decision_in_flight" });
         return false;
       }
     }
-    if (!live) return true;
+    if (!live) {
+      this.refold(runId);
+      return true;
+    }
     try {
       await this.harness.cancelTurn(run.sessionId);
+      this.refold(runId);
       return true;
     } catch (error) {
-      // Already finished, or the harness is unreachable: nothing to cancel.
+      // Cancel failed: revert the in-memory flag so the partial index still
+      // protects this head, and the consume/poll loops stay aware.
+      s.superseded = false;
       s.log.warn("run.cancel.failed", {
         session_id: run.sessionId,
         reason: "supersede",

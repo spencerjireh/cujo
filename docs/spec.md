@@ -978,6 +978,12 @@ posts and shows as changes-requested, but does not gate the merge.
   reviewed the current head SHA. So a retried webhook or a re-run never
   produces a duplicate review, and `github-mcp` stays write-only (it posts; it
   does not read PR state).
+- **`/cujo review` supersedes instead of deleting (decision 104).** When a
+  maintainer asks for a re-review of the same head, the old run is marked
+  `superseded` instead of deleted, so the review it already posted keeps its
+  evidence footer reachable. The `runs_head` unique index is partial — it only
+  covers non-terminal statuses — so the superseded row does not block the
+  replacement's insert.
 - **One turn may post two reviews, and that is not double-posting.** A run whose
   finding is an accusation posts the observation as an advisory review and holds
   the conclusion for a human, so the pull request carries a COMMENT review and,
