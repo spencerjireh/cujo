@@ -2,7 +2,7 @@
 
 import { Chamber } from "@/components/board/Chamber";
 import { ChamberFallback } from "@/components/board/ChamberFallback";
-import { HeroReadout } from "@/components/board/HeroReadout";
+import { HeroLead, HeroStats } from "@/components/board/HeroReadout";
 import { Legend } from "@/components/board/Legend";
 import { ReadoutRack } from "@/components/board/ReadoutRack";
 import { Record } from "@/components/board/Record";
@@ -78,10 +78,15 @@ export function RunsView() {
         <div className="absolute inset-y-0 right-0 w-20 sm:w-28 md:hidden" aria-hidden="true">
           <ChamberFallback specimens={specimens} orientation="vertical" />
         </div>
-        {/* A ground for the type, and now a band under it rather than a wash
-            across three fifths of the frame. The readout sits at the bottom
-            left, over the chamber's floor — which is its darkest region — so
-            the whole upper frame is the volume. */}
+        {/* A ground for the type, at both ends of the frame now that the
+            readout is at both ends of it. The bottom band is the deeper of the
+            two, because the stats sit over the chamber's floor where the rails
+            and the ticks are; the top one only has to carry a headline over the
+            ceiling structure, which is fainter. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-[var(--chamber)]/90 via-[var(--chamber)]/45 to-transparent"
+        />
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[var(--chamber)] from-25% via-[var(--chamber)]/80 to-transparent"
@@ -93,8 +98,9 @@ export function RunsView() {
             here is interactive — the readout is text, the wash is decoration —
             so nothing needs the events back, and the scene reads the pointer
             for parallax off the frame underneath. */}
-        <div className="pointer-events-none relative flex h-full items-end pr-24 pb-12 pl-4 sm:pr-32 md:pb-14 md:pl-8 lg:pr-12 lg:pl-12">
-          <HeroReadout metrics={metrics} interactive={sceneLive} />
+        <div className="pointer-events-none relative flex h-full flex-col justify-between pr-24 pt-16 pb-12 pl-4 sm:pr-32 md:pt-20 md:pb-14 md:pl-8 lg:pr-12 lg:pl-12">
+          <HeroLead metrics={metrics} />
+          <HeroStats metrics={metrics} interactive={sceneLive} />
         </div>
       </section>
 
