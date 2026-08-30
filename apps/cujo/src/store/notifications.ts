@@ -148,10 +148,9 @@ export class NotificationStore {
   }
 
   /**
-   * Forget the card posted for a run. Called by RunStore when a run row goes
-   * away, since the message row is keyed by a run id that is about to stop
-   * existing — and, on the stale-reclaim path, must go before the unique index
-   * on (repo, pr_number, head_sha) will let the replacement row be inserted.
+   * Forget the card posted for a run. Called by RunStore when a run row is
+   * deleted, since the message row is keyed by a run id that is about to stop
+   * existing.
    */
   deleteRunMessages(runId: string): void {
     this.db.prepare("DELETE FROM run_discord_messages WHERE run_id = ?").run(runId);

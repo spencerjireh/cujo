@@ -207,13 +207,6 @@ export class RunStore {
   }): { run: RunRecord; created: boolean } {
     const now = new Date().toISOString();
     const id = randomUUID();
-    const stale = this.db
-      .prepare(
-        "SELECT id FROM runs WHERE repo = ? AND pr_number = ? AND head_sha = ? " +
-          "AND status = 'error' AND turn_ids = '[]'",
-      )
-      .get(input.repo, input.prNumber, input.headSha) as { id: string } | undefined;
-    if (stale) this.deleteRun(stale.id);
     const result = this.db
       .prepare(
         "INSERT OR IGNORE INTO runs (id, repo, pr_number, head_sha, session_id, turn_ids, status, is_public, delivery_id, model, rubric_sha256, created_at, updated_at) " +
@@ -232,11 +225,18 @@ export class RunStore {
         now,
         now,
       );
-    const row = this.db
-      .prepare(`${RUN_SELECT} WHERE runs.repo = ? AND runs.pr_number = ? AND runs.head_sha = ?`)
-      .get(input.repo, input.prNumber, input.headSha) as RunRow | undefined;
+    if (Number(result.changes) === 0) {
+      const existing = this.db
+        .prepare(
+          `${RUN_SELECT} WHERE runs.repo = ? AND runs.pr_number = ? AND runs.head_sha = ? AND runs.status NOT IN ('superseded', 'error', 'clean', 'blocked_unattended', 'blocked_posted', 'denied')`,
+        )
+        .get(input.repo, input.prNumber, input.headSha) as RunRow | undefined;
+      if (!existing) throw new Error("insert ignored but no active run found");
+      return { run: toRecord(existing), created: false };
+    }
+    const row = this.db.prepare(`${RUN_SELECT} WHERE runs.id = ?`).get(id) as RunRow | undefined;
     if (!row) throw new Error("run vanished after insert");
-    return { run: toRecord(row), created: Number(result.changes) === 1 };
+    return { run: toRecord(row), created: true };
   }
 
   deleteRun(id: string): void {
@@ -373,9 +373,9 @@ export class RunStore {
    * and answering it would refuse a command aimed at the run a person is
    * actually reading. The head comes from GitHub, so the commit decides.
    *
-   * `runs_head` is unique on `(repo, pr_number, head_sha)`, so there is at most
-   * one row per casing; the ordering is only for a repo that arrived spelled
-   * two ways.
+   * `runs_head` is a partial unique index on non-terminal statuses
+   * (decision 104), so a head may have superseded rows behind the active one.
+   * The `ORDER BY ... DESC LIMIT 1` returns the latest regardless.
    */
   runForPrHead(repo: string, prNumber: number, headSha: string): RunRecord | null {
     const row = this.db

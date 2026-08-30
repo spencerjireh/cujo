@@ -106,8 +106,10 @@ that is reversed after it was built or shown is noted here rather than deleted
 98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed)
 99. [The watchdog bounds the run, not the current process](#99-the-watchdog-bounds-the-run-not-the-current-process)
 100. [Cujo leads the card, the opener closes it, and the sections breathe](#100-cujo-leads-the-card-the-opener-closes-it-and-the-sections-breathe)
-98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed)
-99. [The watchdog bounds the run, not the current process](#99-the-watchdog-bounds-the-run-not-the-current-process)
+101. [The page does not bounce](#101-the-page-does-not-bounce)
+102. [The key waits for a stay](#102-the-key-waits-for-a-stay)
+103. [The verdict card stops linking out](#103-the-verdict-card-stops-linking-out)
+104. [Supersede, do not delete, on re-review](#104-supersede-do-not-delete-on-re-review)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5390,6 +5392,7 @@ it is short, and the evidence is the reason it is on that line. **Telling the
 model to write shorter blocks** instead of rendering them shorter, which is
 decision 74 reversed — a rule a model applies is a rule that fails silently.
 
+<<<<<<< HEAD
 ## 98. The board carries the manual, and it is the one thing indexed
 
 **Status:** active — `/docs` in `apps/web`, `robots.ts` amended.
@@ -5648,4 +5651,45 @@ panel, the approve bar; only the card no longer spends the fact.
 Rejected: **keeping it behind a disclosure**, a control that reveals one
 link nobody asked for. **Moving it into the review panel**, which already
 is the review and would carry a link to itself.
-||||||| 8a2fc41
+
+## 104. Supersede, do not delete, on re-review
+
+**Status: active.** Closes #103.
+
+`/cujo review` re-triggers a review for the current head. Before this decision
+the old run was hard-deleted so the `runs_head` UNIQUE constraint would allow
+the replacement's INSERT. The deletion silently broke every evidence link the
+old review's footer pointed at, because the `Full evidence:` URL resolves to a
+run row that no longer exists.
+
+The fix has two parts.
+
+**The run is marked `superseded` instead of deleted.** `superseded` already
+exists as a `RunStatus` and already means "a newer head replaced this run."
+Using the same vocabulary for the same concept keeps the data model consistent
+and lets the public page stay reachable.
+
+**The unique index becomes partial.** `runs_head` now covers only non-terminal
+statuses (`status NOT IN ('superseded', 'error', 'clean', 'blocked_unattended',
+'blocked_posted', 'denied')`). A head may have many completed or superseded
+runs, but at most one that is still active. The duplicate-delivery guard (Contract 5, `INSERT OR
+IGNORE`) still works, because only a `running` or `blocked_pending` row
+occupies the index, and a second webhook for the same head still bounces.
+
+`createRun` no longer pre-deletes stale error runs with empty turn lists. Those
+runs were created by a webhook delivery that started a row and immediately hit
+the `already_reviewed` guard or an error before any turn ran. Under the old
+unique index they had to be swept first; under the partial index they are
+already excluded, so the pre-delete is dead code.
+
+**The status is persisted after cancellation, not before.** `Runner.supersede`
+sets the in-memory `superseded` flag immediately (to gate re-entry and stop
+polling), but defers the database write — and therefore the index release —
+until the turn is confirmed stopped. A failed cancellation reverts the flag and
+returns `false`, leaving the partial index protecting the head.
+
+Rejected: **serving a tombstone** (option 2 in the issue). Cheaper, but it
+answers only the reader's 404 and does not preserve the run's data for board
+history or model comparison. **Dismissing the old review** (option 3): related
+to decision 52 and solves a different problem — stale blocking reviews on newer
+heads — rather than the evidence reachability one.
