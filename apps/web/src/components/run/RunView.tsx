@@ -11,6 +11,7 @@ import { FindingsList } from "./FindingsList";
 import { ReviewPanel } from "./ReviewPanel";
 import { RunHeader } from "./RunHeader";
 import { RunLedger } from "./RunLedger";
+import { RunProvenance } from "./RunProvenance";
 
 /**
  * Timeline first: the lanes are the page's thesis, then the findings they
@@ -37,7 +38,7 @@ export function RunView({ id }: { id: string }) {
           Live updates are unavailable right now. Reload to see the latest.
         </p>
       ) : null}
-      <ChecksTimeline checks={run.checks} findings={run.findings} />
+      <ChecksTimeline checks={run.checks} findings={run.findings} setup={run.setup} />
       <FindingsList findings={run.findings} status={run.status} />
       {run.review ? <ReviewPanel review={run.review} posted={reviewPosted(run)} /> : null}
       {/*
@@ -53,6 +54,9 @@ export function RunView({ id }: { id: string }) {
           context for the verdict and never an argument for it. Renders
           nothing at all on a run that carries no record of it. */}
       <RunLedger usage={run.usage} />
+      {/* Last before the decision, with the cost: both are context for the
+          verdict and neither is an argument for it. */}
+      <RunProvenance run={run} />
       <ApproveBar run={run} />
     </article>
   );
