@@ -102,6 +102,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 94. [Running is green](#94-running-is-green)
 95. [The gates go, depth wanders, and the light beats the star it reads](#95-the-gates-go-depth-wanders-and-the-light-beats-the-star-it-reads)
 96. [The envelope roll-up is the model's work, so the schema reads it leniently](#96-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
+97. [The template tires the reader, not the model](#97-the-template-tires-the-reader-not-the-model)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5302,3 +5303,74 @@ silence that entry exists to break. **Accepting a non-object roll-up**, which
 treats a claim about the shape as no claim. **Dropping the envelope roll-up from
 the schema entirely**, which loses the type check on the values that are there
 for nothing, since the keys were never what carried the risk.
+
+## 97. The template tires the reader, not the model
+
+**Refines 74.**
+
+Decision 74 took the review body away from the model because the model was
+writing it badly: the verdict nowhere near the top, a sensor field name used as
+a claim, an `info` finding and a credential read in the same weight. That
+complaint is answered. The one left is different and worth naming as different —
+a post-74 review is correct, grounded, and tiring to read.
+
+The load-bearing observation is that the prose is good. On run
+`8aa92099-006f-4b32-8335-e9c078b6a96a` the lede reads "Rounding the total once
+instead of per line changes what multi-line orders cost", one sentence naming
+the mechanism and the consequence, which is exactly what the rubric asks for.
+What tires the reader is everything around that sentence, and everything around
+it is this repository's own template. So the fix is placement and density in
+`packages/review-render`, and a bound in `agent/SKILL.md`; none of it is a
+better model, and asking a model for shorter prose it was already writing well
+would have fixed nothing.
+
+Three things changed in the renderer, and they apply to every session on the
+next deploy — `github-mcp` is stateless, so a session pinned to the old rubric
+(decision 16) still gets the new rendering.
+
+**The evidence moves below the sentence that explains it.** It used to be the
+first block after the title, so the reader met a `pytest` tail before learning
+why it mattered, and paid for parsing it either way. Below the `detail` and the
+`next`, the proof does not stop being the proof, and a reader who trusts the
+sentence never has to read it.
+
+**A finding with no judgment on it is one line.** Four findings rendered as four
+identical four-part blocks at four identical lengths read as a form rather than
+as writing, and give the eye nowhere to skip to. A finding carrying neither
+`detail` nor `next`, with evidence that fits on a line, is now
+`**title** · meta — evidence`. The condition is the fields and not the severity:
+a `warn` that carries a `next` is making a case and keeps the full block, and a
+`critical` carries both by rubric and so never collapses.
+
+**Coverage prints one line per check.** It used to stack every note into one
+sentence of parentheticals — the exact shape the rubric warns about two
+paragraphs earlier, "a caveat in a parenthesis is a caveat nobody reads",
+reproduced by the renderer over every check at once.
+
+Four rubric changes go with them, and by decision 16 they reach only sessions
+created after the deploy, so only a new pull request tests them: a length and
+subject bound on `title`, which banned sensor field names and then asked for
+nothing in their place and got clauses nobody would say out loud; a two-sentence
+cap on `detail`, because "one paragraph" is read generously; a rule that
+findings sharing a cause and an anchor are one finding with combined evidence,
+because a failing test and the probe confirming it were being posted as two
+`critical`s on the same line and the reader had to work out they were not two
+problems; and a line saying that `next` on a `critical` names the action the
+evidence supports rather than enumerating the options — the ban on praise and
+the first person was being read as a ban on reaching a conclusion, which it is
+not.
+
+Not warmth, not jokes, not a friendlier voice: a review that blocks a merge and
+reads chatty undermines its own verdict, and the ban on praise and exclamation
+marks stays exactly as written. The goal is faster to read, which is what
+"easier to read" means for someone reading a review of their own code.
+
+Rejected: **folding the evidence into `<details>`**, which is shorter still and
+charges a click for every proof — the evidence is the thing this reviewer has
+that a diff-reading one does not, and it should not need opening. **Collapsing
+by severity** rather than by fields, which would flatten a `warn` that carries a
+`next` into a line and lose the argument it was making. **Reordering the inline
+comment too**: on the Files changed tab it arrives with no headline above it,
+it is short, and the evidence is the reason it is on that line. **Telling the
+model to write shorter blocks** instead of rendering them shorter, which is
+decision 74 reversed — a rule a model applies is a rule that fails silently.
