@@ -313,10 +313,12 @@ describe("the paths that were silent", () => {
       isPublic: true,
       deliveryId: null,
     });
+    const cancelTurn = vi.fn(async () => {});
     const runner = new Runner(
       store.runs,
       {
         startTurn: async () => "t1",
+        cancelTurn,
         // A stream that never ends and never yields a terminal event.
         subscribe: async () =>
           (async function* () {
@@ -332,6 +334,47 @@ describe("the paths that were silent", () => {
       run_id: run.id,
       timeout_ms: 1,
     });
+    // The watchdog is the one place Cujo ends a turn on its own authority, so
+    // it is the one place that has to stop it. A turn left running holds the
+    // session and every later head fails to start on it.
+    expect(cancelTurn).toHaveBeenCalledWith("s");
+  });
+
+  it("says when a cancel it chose to make could not be delivered", async () => {
+    const store = new Store(":memory:");
+    const lines: Record<string, unknown>[] = [];
+    const log = createLogger({ service: "cujo", sink: (line) => lines.push(JSON.parse(line)) });
+    const { run } = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "h",
+      sessionId: "s",
+      isPublic: true,
+      deliveryId: null,
+    });
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        cancelTurn: async () => {
+          throw new Error("harness down");
+        },
+        subscribe: async () =>
+          (async function* () {
+            yield turnCreated("t1") as StreamEvent;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          })(),
+      } as unknown as Harness,
+      { turnTimeoutMs: 1 },
+      log,
+    );
+    await runner.start(run, "review it");
+    await vi.waitFor(() =>
+      expect(lines.filter((l) => l.event === "run.cancel.failed")[0]).toMatchObject({
+        session_id: "s",
+        reason: "turn_timeout",
+      }),
+    );
   });
 });
 
