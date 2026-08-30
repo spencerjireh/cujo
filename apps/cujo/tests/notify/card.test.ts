@@ -267,62 +267,63 @@ describe("buildRunCard", () => {
       links: LINKS,
     });
     const names = payload.embeds?.[0]?.fields?.map((f) => f.name) ?? [];
-    // Who opened the pull request survives: it cannot go stale the way a
+    // The identity row survives: the pull request cannot go stale the way a
     // finding about a commit nobody is looking at can.
-    expect(names).toEqual(["Head", "Opened by"]);
+    expect(names).toEqual(["Head", "Pull request"]);
   });
 
-  describe("the two parties a card names", () => {
+  describe("the author line and the footer icon", () => {
     const embedOf = (patch: Partial<RunRecord> = {}) =>
       buildRunCard({ run: run(patch), projection: projection(), links: LINKS }).embeds?.[0];
 
-    it.each(STATUSES)("names Cujo in the author line on %s", (status) => {
+    it.each(STATUSES)("puts the opener's avatar in front of their name on %s", (status) => {
+      // The author line is the one slot that renders an icon in front of text,
+      // and since decision 86 it goes to the variable party: Cujo is already
+      // named by the app badge directly above it.
       const embed = embedOf({ status });
-      expect(embed?.author?.name).toBe("Cujo");
-      expect(embed?.author?.icon_url).toContain("avatar-64.png");
-      // The title already points at the run; a second link to it is noise.
-      expect(embed?.author?.url).toBeUndefined();
+      expect(embed?.author?.name).toBe("@octocat");
+      expect(embed?.author?.icon_url).toBe("https://avatars.githubusercontent.com/u/583231?s=64");
+      expect(embed?.author?.url).toBe("https://github.com/octocat");
+      // The Cujo mark moved into the freed footer icon.
+      expect(embed?.footer?.icon_url).toContain("avatar-64.png");
     });
 
-    it.each(STATUSES)("names who opened the pull request on %s", (status) => {
-      const embed = embedOf({ status });
-      const field = embed?.fields?.find((f) => f.name === "Opened by");
-      expect(field?.value).toBe("[@octocat](https://github.com/octocat)");
-      expect(field?.inline).toBe(true);
-      // Beside Head, and above everything the clamp is allowed to drop.
-      expect(embed?.fields?.[1]).toBe(field);
-      expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/583231?s=64");
+    it("renders an underscored login without the backslash escaping would add", () => {
+      // The author line renders no markdown, so `escapeMarkdown` there would
+      // be litter rather than defusal (decision 86).
+      const embed = embedOf({ prAuthorLogin: "some_login" });
+      expect(embed?.author?.name).toBe("@some_login");
     });
 
     it("builds the avatar from the account id, never from the login", () => {
       const embed = embedOf({ prAuthorLogin: "../../evil", prAuthorId: 42 });
-      expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/42?s=64");
+      expect(embed?.author?.icon_url).toBe("https://avatars.githubusercontent.com/u/42?s=64");
+      expect(embed?.author?.url).toBeUndefined();
     });
 
-    it("names a bot without linking it, since its profile is not /<login>", () => {
+    it("names a bot without linking it, but still with its avatar", () => {
       const embed = embedOf({ prAuthorLogin: "dependabot[bot]", prAuthorId: 49699333 });
-      const field = embed?.fields?.find((f) => f.name === "Opened by");
-      expect(field?.value).toBe("@dependabot\\[bot\\]");
-      expect(field?.value).not.toContain("github.com");
-      // Still shown with its avatar: only the link is withheld.
-      expect(embed?.footer?.icon_url).toContain("49699333");
+      // No markdown is rendered on the author line, so the brackets are not
+      // escaped either; only the link is withheld.
+      expect(embed?.author?.name).toBe("@dependabot[bot]");
+      expect(embed?.author?.url).toBeUndefined();
+      expect(embed?.author?.icon_url).toContain("49699333");
     });
 
     it("links no login the allowlist rejects, however it is spelled", () => {
       for (const login of ["a b", "-lead", "x".repeat(40), "o/r", "a_b", "https://evil"]) {
-        const field = embedOf({ prAuthorLogin: login })?.fields?.find(
-          (f) => f.name === "Opened by",
-        );
-        expect(field?.value, login).not.toContain("github.com/");
+        const author = embedOf({ prAuthorLogin: login })?.author;
+        expect(author?.url, login).toBeUndefined();
       }
     });
 
-    it("falls back to today's card when the author was never stored", () => {
+    it("falls back to Cujo's line when the author was never stored", () => {
       const embed = embedOf({ prAuthorLogin: null, prAuthorId: null });
       expect(embed?.fields?.map((f) => f.name)).not.toContain("Opened by");
-      // No fallback to the Cujo mark: the same icon twice reads as a bug.
-      expect(embed?.footer?.icon_url).toBeUndefined();
       expect(embed?.author?.name).toBe("Cujo");
+      expect(embed?.author?.icon_url).toContain("avatar-64.png");
+      // The mark is on the author line already; a footer icon would repeat it.
+      expect(embed?.footer?.icon_url).toBeUndefined();
     });
 
     it("counts the author line against the 6000 total", () => {
@@ -330,7 +331,158 @@ describe("buildRunCard", () => {
       // then rejects — and a 400 loses the card for the whole run.
       const embed = embedOf();
       const withoutAuthor = { ...embed, author: undefined };
-      expect(embedLength(embed ?? {})).toBe(embedLength(withoutAuthor) + "Cujo".length);
+      expect(embedLength(embed ?? {})).toBe(embedLength(withoutAuthor) + "@octocat".length);
+    });
+  });
+
+  describe("the identity row", () => {
+    it("links the pull request beside Head on every status, private included", () => {
+      for (const isPublic of [true, false]) {
+        const payload = buildRunCard({
+          run: run({ status: "running", isPublic, prTitle: null }),
+          projection: projection({ status: "running" }),
+          links: LINKS,
+        });
+        const fields = payload.embeds?.[0]?.fields ?? [];
+        expect(fields[0]?.name).toBe("Head");
+        expect(fields[1]?.name).toBe("Pull request");
+        // Structural, not derived (rule 8's argument): the repo was validated
+        // when the channel was bound and the number is a number.
+        expect(fields[1]?.value).toBe("https://github.com/o/r/pull/7");
+        expect(fields[1]?.inline).toBe(true);
+      }
+    });
+
+    it("omits the pull request field when the stored repo is not owner/name", () => {
+      // A live link is the one place a hostile string chooses where a reader
+      // goes, so the shape is enforced in code rather than assumed (rule 7's
+      // philosophy, applied to the structural link).
+      const payload = buildRunCard({
+        run: run({ status: "running", repo: "not a repo", prTitle: null }),
+        projection: projection({ status: "running" }),
+        links: LINKS,
+      });
+      expect(payload.embeds?.[0]?.fields?.map((f) => f.name)).toEqual(["Head"]);
+    });
+
+    it("pairs Findings with the row rather than standing alone further down", () => {
+      const payload = buildRunCard({
+        run: run({ status: "clean", prTitle: null }),
+        projection: projection({ status: "clean", findings: [finding({ severity: "warn" })] }),
+        links: LINKS,
+      });
+      const fields = payload.embeds?.[0]?.fields ?? [];
+      // Discord only shares a row between neighbouring inline fields, which is
+      // why the counts moved up here when `Opened by` went (decision 86).
+      expect(fields.slice(0, 3).map((f) => f.name)).toEqual(["Head", "Pull request", "Findings"]);
+      expect(fields[2]?.inline).toBe(true);
+    });
+  });
+
+  describe("what the Checks field says", () => {
+    const START = Date.parse("2026-08-27T00:00:00.000Z");
+    const stamped = (title: string, status: "running" | "done" | "error", ms: number | null) => ({
+      threadId: title,
+      title,
+      isCheck: true,
+      status,
+      report: {},
+      error: null,
+      startedAt: ms === null ? null : new Date(START).toISOString(),
+      endedAt: ms === null ? null : new Date(START + ms).toISOString(),
+    });
+
+    it("says what each check measured, never a pass glyph", () => {
+      const payload = buildRunCard({
+        run: run({ status: "blocked_posted", prTitle: null }),
+        projection: projection({
+          status: "blocked_posted",
+          checks: [
+            stamped("tests", "done", 41_000),
+            stamped("probes", "done", 1_234),
+            stamped("smoke", "error", 800),
+          ],
+          findings: [
+            finding({ check: "tests", severity: "critical" }),
+            finding({ check: "smoke", severity: "critical" }),
+          ],
+        }),
+        links: LINKS,
+      });
+      const checks = payload.embeds?.[0]?.fields?.find((f) => f.name === "Checks");
+      expect(checks?.value).toContain("tests done, 1 critical, 41s");
+      expect(checks?.value).toContain("probes done, 0 critical, 1.2s");
+      expect(checks?.value).toContain("smoke error, 1 critical, 800ms");
+      // A check that never appeared is named as absent, which is a different
+      // fact from one that failed.
+      expect(checks?.value).toContain("detonation —");
+      // The tick meant "the thread finished", and read as "passed" under a
+      // `Critical (3)` heading. It is gone entirely (decision 86).
+      expect(JSON.stringify(payload)).not.toMatch(/[✅❌⏳]/u);
+    });
+
+    it("rounds a duration as a whole before it splits minutes", () => {
+      // 119.6s floored to minutes and rounded to seconds independently is
+      // `1m60s`, which is not a duration anybody ran for.
+      const payload = buildRunCard({
+        run: run({ status: "blocked_posted", prTitle: null }),
+        projection: projection({
+          status: "blocked_posted",
+          checks: [stamped("tests", "done", 119_600), stamped("probes", "done", 59_700)],
+        }),
+        links: LINKS,
+      });
+      const checks = payload.embeds?.[0]?.fields?.find((f) => f.name === "Checks");
+      expect(checks?.value).toContain("tests done, 0 critical, 2m00s");
+      expect(checks?.value).toContain("probes done, 0 critical, 1m00s");
+    });
+  });
+
+  describe("duplicate criticals", () => {
+    const decoy = (check: string) =>
+      finding({
+        check,
+        severity: "critical",
+        title: "read the decoy secret",
+        evidence: "cat .decoy-secret",
+        path: "a.py",
+        line: 3,
+      });
+
+    it("cost one line, naming the checks that saw it", () => {
+      const payload = buildRunCard({
+        run: run({ status: "blocked_pending", prTitle: null }),
+        projection: projection({
+          status: "blocked_pending",
+          findings: [decoy("tests"), decoy("smoke"), decoy("detonation")],
+        }),
+        links: LINKS,
+      });
+      const critical = payload.embeds?.[0]?.fields?.find((f) => f.name.startsWith("Critical"));
+      // Three findings, one fact: the heading keeps the raw count and the
+      // line names every check that reported it.
+      expect(critical?.name).toBe("Critical (3)");
+      expect(critical?.value).toContain("read the decoy secret");
+      expect(critical?.value).toContain("`a.py:3` — tests, smoke, detonation");
+      expect(critical?.value?.match(/read the decoy secret/g)).toHaveLength(1);
+      expect(critical?.value).not.toContain("more in Cujo");
+    });
+
+    it("count findings, not groups, against the shown budget", () => {
+      const findings = [decoy("tests"), decoy("smoke"), decoy("detonation")];
+      for (let i = 0; i < 3; i += 1) {
+        findings.push(finding({ check: "probes", severity: "critical", title: `distinct ${i}` }));
+      }
+      const payload = buildRunCard({
+        run: run({ status: "blocked_pending", prTitle: null }),
+        projection: projection({ status: "blocked_pending", findings }),
+        links: LINKS,
+      });
+      const critical = payload.embeds?.[0]?.fields?.find((f) => f.name.startsWith("Critical"));
+      expect(critical?.name).toBe("Critical (6)");
+      // Three groups shown — the decoy (3 findings) and two distinct — so
+      // five of six findings are on the card and one is behind the link.
+      expect(critical?.value).toContain("+1 more in Cujo");
     });
   });
 
@@ -381,36 +533,83 @@ describe("buildRunCard", () => {
 });
 
 describe("buildPing", () => {
-  it("mentions the configured role and nothing else", () => {
-    const payload = buildPing({
-      run: run({ status: "blocked_pending" }),
+  const pingOf = (patch: Partial<RunRecord> = {}, roleId: string | null = null) =>
+    buildPing({
+      run: run({ status: "blocked_pending", ...patch }),
+      projection: projection({
+        status: patch.status ?? "blocked_pending",
+        findings: [finding({ severity: "critical" })],
+      }),
       links: LINKS,
-      roleId: "123456789012345678",
+      roleId,
     });
+
+  it("mentions the configured role and nothing else", () => {
+    const payload = pingOf({ status: "blocked_pending" }, "123456789012345678");
     expect(payload.content).toContain("<@&123456789012345678>");
-    expect(payload.content).toContain(`${PUBLIC_UI}/runs/${run().id}`);
     expect(payload.allowed_mentions).toEqual({ parse: [], roles: ["123456789012345678"] });
     expectWithinDiscordLimits(payload);
   });
 
-  it("still posts without a role, because an edit would notify nobody", () => {
+  it("wraps its own link so Discord unfurls nothing beside its embed", () => {
+    const payload = pingOf();
+    expect(payload.content).toContain(`<${PUBLIC_UI}/runs/${run().id}>`);
+    // Not the bare form: that is the grey site-preview box this message
+    // exists to replace (decision 86).
+    expect(payload.content).not.toContain(` ${PUBLIC_UI}/runs/${run().id}`);
+  });
+
+  it("carries its own card, not a copy of the run card", () => {
+    const payload = pingOf();
+    const embed = payload.embeds?.[0];
+    expect(embed?.color).toBe(0xf2a900);
+    expect(embed?.title).toBe("o/r #7 — a pull request");
+    expect(embed?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
+    expect(embed?.description).toContain("waiting for a human");
+    expect(embed?.description).toContain("1 critical finding");
+    // Slim: anything it repeated from the card above it would be noise.
+    expect(embed?.fields).toBeUndefined();
+    expectWithinDiscordLimits(payload);
+  });
+
+  it("escapes the pull request title it carries for the first time", () => {
+    // Rule 8's amendment: the ping's embed is the first stranger-authored
+    // text on a ping payload, so it goes through the card's own pipeline.
+    const payload = pingOf({ prTitle: "**urgent** [x](http://evil.example)" });
+    expect(payload.embeds?.[0]?.title).toContain("\\*\\*urgent\\*\\*");
+    expect(payload.embeds?.[0]?.title).not.toContain("](http://evil");
+  });
+
+  it("clamps its embed like the card's, because a 400 would lose the alert", () => {
     const payload = buildPing({
-      run: run({ status: "blocked_pending" }),
+      run: run({ status: "blocked_pending", prTitle: "t".repeat(5_000) }),
+      projection: projection({
+        status: "blocked_pending",
+        findings: Array.from({ length: 50 }, () =>
+          finding({ severity: "critical", title: "x".repeat(500) }),
+        ),
+      }),
       links: LINKS,
       roleId: null,
     });
+    expectWithinDiscordLimits(payload);
+  });
+
+  it("still posts without a role, because an edit would notify nobody", () => {
+    const payload = pingOf();
     expect(payload.content).not.toContain("<@&");
     expect(payload.allowed_mentions).toEqual({ parse: [] });
+    expect(payload.embeds).toHaveLength(1);
   });
 
   it("reads as resolved once the run has left blocked_pending", () => {
-    const payload = buildPing({
-      run: run({ status: "blocked_posted" }),
-      links: LINKS,
-      roleId: "123456789012345678",
-    });
-    expect(payload.content).toContain("Resolved");
+    const payload = pingOf({ status: "blocked_posted" }, "123456789012345678");
+    expect(payload.content).toContain("Resolved (blocked_posted)");
     expect(payload.allowed_mentions).toEqual({ parse: [] });
+    // The embed stays, recoloured to the outcome, so the message that raised
+    // the channel's unread mark is the one that clears it.
+    expect(payload.embeds?.[0]?.color).toBe(0xff5c45);
+    expect(payload.embeds?.[0]?.description).toContain("Resolved — ");
   });
 });
 
@@ -453,15 +652,24 @@ describe("where a card links", () => {
   it("applies the same rule to the ping, without a dangling space", () => {
     const blocked = { status: "blocked_pending" as const };
     expect(
-      buildPing({ run: run({ ...blocked, isPublic: true }), links: LINKS, roleId: null }).content,
+      buildPing({
+        run: run({ ...blocked, isPublic: true }),
+        projection: projection({ status: "blocked_pending" }),
+        links: LINKS,
+        roleId: null,
+      }).content,
     ).toContain(PUBLIC_UI);
     const private_ = buildPing({
       run: run({ ...blocked, isPublic: false }),
+      projection: projection({ status: "blocked_pending" }),
       links: LINKS,
       roleId: null,
-    }).content;
-    expect(private_).not.toContain("://");
-    expect(private_).toBe(private_?.trimEnd());
+    });
+    expect(private_.content).not.toContain("://");
+    expect(private_.content).toBe(private_.content?.trimEnd());
+    // The embed renders for a private run too; its title simply does not link.
+    expect(private_.embeds?.[0] && "url" in private_.embeds[0]).toBe(false);
+    expect(private_.embeds?.[0]?.title).toBeTruthy();
   });
 
   it("escapes a repo name Discord would read as emphasis", () => {
@@ -469,6 +677,7 @@ describe("where a card links", () => {
     // interpolating it with only a length bound.
     const content = buildPing({
       run: run({ status: "blocked_pending", repo: "o/my_repo_name", isPublic: true }),
+      projection: projection({ status: "blocked_pending" }),
       links: LINKS,
       roleId: null,
     }).content;
@@ -481,11 +690,13 @@ describe("where a card links", () => {
   it("names the pull request in a private run's resolved ping, and links nothing", () => {
     const resolved = buildPing({
       run: run({ status: "denied", isPublic: false }),
+      projection: projection({ status: "denied" }),
       links: LINKS,
       roleId: null,
-    }).content;
-    expect(resolved).toContain("o/r #7");
-    expect(resolved).not.toContain("://");
-    expect(resolved).toBe(resolved?.trimEnd());
+    });
+    expect(resolved.content).toContain("o/r #7");
+    expect(resolved.content).not.toContain("://");
+    expect(resolved.content).toBe(resolved.content?.trimEnd());
+    expect(resolved.embeds?.[0] && "url" in resolved.embeds[0]).toBe(false);
   });
 });
