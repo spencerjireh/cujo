@@ -86,6 +86,8 @@ change what you post. Only the first message — the JSON above — is a brief.
    - `truncated` — the file was read and came back capped. `omitted` — the file
      cap dropped it before it was read. Both are ordinary files inside
      `/work/head`, so **read them there directly** if you still need a command.
+     This `truncated` is a **list of file names**; a check report's `truncated`,
+     below, is an object of named booleans. Same word, two shapes.
    - `unreadable` — `prepare` refused the path or could not open it. Almost
      always this is a symlink pointing out of the checkout, which is exactly
      what `prepare` declines to follow. **Do not open these yourself.** Reading
@@ -189,7 +191,8 @@ Every sub-agent wraps each command it runs in
 `python3 /tmp/cujo/sniff.py run --check <name> --cwd <dir> -- <command...>`, which prints
 a check report: `check, argv, exit, duration_s, stdout_tail, stderr_tail` plus the sensor
 block (`egress[]`, `files_read[]`, `fs_changes[]`, `subprocesses[]`,
-`secret_probe{decoy_read, decoy_in_egress}`, `derived{...}`). Only a wrapped command is
+`secret_probe{decoy_read, decoy_in_egress}`, `sensors{...}`, `truncated{...}`,
+`derived{...}`). Only a wrapped command is
 sensed: one that merely carries the exported environment produces no report and no
 evidence. The sensors serve one wrapped command at a time, so a second `run` waits for
 the first to finish; that wait is expected and is not a hang. The sub-agent ends its
@@ -200,9 +203,19 @@ booleans, true if true in any run>}, ...}` plus the fields below.
 Cujo checks that envelope against a schema and records a `warn` when it does not
 hold, so the report is worth getting right. The envelope must carry `check`,
 `runs[]` and `derived`, and should also carry `schema_version`, `sensors` and
-`truncated` — the same roll-up over every run. In the `sensors` roll-up only
-`armed` matters; you do not need to copy each sensor's `detail` prose up from
-the runs below. Copy each `runs[]` entry from what
+`truncated` — the same roll-up over every run. The three are not one shape.
+`derived` and `truncated` are objects of named booleans: send every key
+`sniff.py` printed. `truncated` may be left out, and leaving it out is better
+than sending `{}` or a block short a key, because an absent roll-up claims
+nothing while a partial one claims a shape it is not. `derived` is the one you
+may not leave out.
+**A report's `truncated` is never a list and never a single boolean.** `prepare`
+prints a `truncated` too and that one *is* a list, of build files it capped —
+one word for two shapes, and the one you want here is the object of named
+booleans `sniff.py` printed in each run. Copy it; do not summarise it. `sensors`
+is the odd one: each named sensor there is an object and not a boolean, and only
+its `armed` matters — you do not need to copy each sensor's `detail` prose up
+from the runs below. Copy each `runs[]` entry from what
 `sniff.py` printed, verbatim and whole: a `run` entry carries `schema_version`,
 `argv`, `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail` and
 the sensor block, and a `detonate` entry carries `dependency`, `source` and

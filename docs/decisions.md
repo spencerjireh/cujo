@@ -92,6 +92,16 @@ that is reversed after it was built or shown is noted here rather than deleted
 84. [A lane says how bad, not what happened; the sentence is where the sentence fits](#84-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
 85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 86. [The alert gets its own card, and the opener takes the author line](#86-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line)
+87. [Detonation runs even when no test suite can be inferred](#87-detonation-runs-even-when-no-test-suite-can-be-inferred)
+88. [One results cell, and the whole row is the link](#88-one-results-cell-and-the-whole-row-is-the-link)
+89. [The key comes to the pointer](#89-the-key-comes-to-the-pointer)
+90. [Every star tumbles, and a live one tumbles fast](#90-every-star-tumbles-and-a-live-one-tumbles-fast)
+91. [The verdict is a card; the operator's numbers fold away](#91-the-verdict-is-a-card-the-operators-numbers-fold-away)
+92. [Latest and superseded, derived on the board](#92-latest-and-superseded-derived-on-the-board)
+93. [Nothing on the run page opens itself](#93-nothing-on-the-run-page-opens-itself)
+94. [Running is green](#94-running-is-green)
+95. [The gates go, depth wanders, and the light beats the star it reads](#95-the-gates-go-depth-wanders-and-the-light-beats-the-star-it-reads)
+96. [The envelope roll-up is the model's work, so the schema reads it leniently](#96-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5203,3 +5213,92 @@ carry depth and loses the vanishing point 82 kept it for. **Continuous depth
 by age**, which reverses 82's layers and makes the key's "three layers"
 false. **An expanding ring alone as the read**, which is the live pulse's
 shape and would make every read star look live for a moment.
+## 96. The envelope roll-up is the model's work, so the schema reads it leniently
+
+**Refines 62.**
+
+Decision 62 drew one line — the validator may only add — and one boundary: what
+the schema requires is what the rubric asks for, and no more. It did not
+distinguish the two kinds of block a report carries, and that is where it went
+wrong. Every `runs[]` entry is copied verbatim from what `sniff.py` printed. The
+envelope's `derived`, `sensors` and `truncated` are a roll-up the sub-agent
+assembles by hand. `report-schema.ts` typed both with one schema, so the strict
+shape that is correct for a copied block was also demanded of a written one.
+
+It failed on every run. Five runs across three models produced fourteen
+`report_invalid` warns and not one of them was about a report anybody would call
+wrong: `derived` short one key, `truncated: {}`, `truncated.stdout_tail`
+missing, `truncated: true`. Three models, three different malformations of the
+same two blocks, which points at the instruction rather than at any model.
+`agent/SKILL.md` asked for "the same roll-up over every run" and never said the
+roll-up must carry every key, and `{}` is a defensible reading of "there was
+nothing to roll up" — so the one shape the rubric invited was the one shape the
+schema rejected.
+
+**The change.** `TruncatedRollUp` and `DerivedRollUp` are `.partial()` of the
+strict pair and are used only at the envelope. Every key optional, each one
+still a boolean when present, extras still passing through, and a block that is
+not an object at all still refused — `truncated: true` is a wrong shape, not an
+absent one. `derived` stays required at the envelope because the rubric names
+it. Inside `runs[]` nothing moves: a key missing there means the producer moved,
+which is the failure the validator was built for, and the tests now assert that
+the leniency stops at the boundary. The rubric says the rest: a roll-up must
+carry every key as a boolean, omitting the block is better than sending a
+partial one, and the per-run sensor block list — which had never mentioned
+`sensors` or `truncated`, though the schema required both on every entry — now
+names them. `Truncated` also gains `sensor_logs`, the seventh of
+`TRUNCATION_KEYS`, which the schema had never named and which therefore rode on
+`.passthrough()` untyped.
+
+**Consequences.** Nothing is lost. `sensorLayers` runs every hard rule over the
+top level *and* every `runs[]` entry, precisely so a roll-up nobody wrote cannot
+hide a signal, and a roll-up of booleans that are all `false` in every run is a
+value `any()` over the runs computes anyway. What is regained is the meaning of
+the board's warn count: at a 100% firing rate `report_invalid` was noise, and it
+was noise the posted review never showed, so the two surfaces contradicted each
+other on the same run — the board counting four warns where the review counted
+one. This is the second time this argument has been made about this file;
+`sensors.detail` was the first, and the rule is now stated generally: **a block
+a model writes is read leniently, a block the sandbox writes is not.**
+
+Not fixed here, and outliving this: a hard-rule warn is Cujo's own measurement
+(21, 42) and cannot reach the posted review at all, because the body is composed
+from the agent's `findings[]`. Every route to changing that is already a named
+rejection — `github-mcp` reading the check reports is rejected in 74 as widening
+a write-only server (5), `apps/cujo` posting is rejected in 21 as a second
+author of reviews, and tightening the rubric is rejected in 74 twice with
+evidence. So it needs a decision of its own rather than a fix. Cujo's `Finding`
+type has no `next` field either, so a hard-rule finding cannot yet name an
+action even internally.
+
+**And the warns that are left have to be readable.** Leniency and legibility are
+one subject here: dropping the roll-up warns promotes what remains from noise
+nobody triaged to the only thing this rule says, and two of those were
+`runs.0: Invalid input`. `runs[]` is a union, zod reports a failed union as one
+issue whose message is that literal string and whose path stops at the entry,
+and `validateReport` took issue zero. What it was hiding, on
+spencerjireh/orders-api #19, was six run entries each missing `files_read` and
+`fs_changes` — a sub-agent trimming entries the rubric tells it to copy whole,
+which is the run-level strictness working exactly as intended and saying so in a
+way no operator could act on. `validateReport` now walks into the branch with
+the fewest issues, which is the branch the entry was reaching for, and appends
+the count of what it did not name. The safety rule is unchanged and now tested
+on that path: nothing in the schema is an enum or a literal, so every message a
+branch can produce is `Required` or a pair of type names, never a received
+value.
+
+The standing hazard behind the wrong shapes is a name. `truncated` means two
+different things in one rubric — `prepare` prints a list of build files it
+capped, a check report prints an object of named booleans — and sub-agents
+inherit the same instructions, so both are in front of them. Renaming the
+`prepare` field is what decision 54 forbids, so the rubric contrasts the two
+instead, in both places. Every remaining warn on the runs behind this entry is a
+`truncated` that came back as a bare boolean, which is what a model does with a
+word it has seen mean two things.
+
+Rejected: **making the run-level blocks lenient too**, which is decision 62
+reversed — a renamed field in `sniff.py` would then fail nothing, which is the
+silence that entry exists to break. **Accepting a non-object roll-up**, which
+treats a claim about the shape as no claim. **Dropping the envelope roll-up from
+the schema entirely**, which loses the type check on the values that are there
+for nothing, since the keys were never what carried the risk.

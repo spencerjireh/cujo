@@ -126,6 +126,141 @@ describe("what the sandbox is allowed to leave out", () => {
     const { sensors: _s, truncated: _t, ...lean } = report();
     expect(validateReport(lean)).toEqual({ ok: true });
   });
+
+  it("accepts a sensor_logs flag, which the schema used not to name", () => {
+    // TRUNCATION_KEYS emits seven keys (report.py:34-42) and this schema named
+    // six, so the flag rode on `.passthrough()` and was never typed.
+    const run = runEntry();
+    run.truncated = { ...run.truncated, sensor_logs: true };
+    expect(validateReport(report({ runs: [run] }))).toEqual({ ok: true });
+  });
+
+  it("still wants sensor_logs to be a boolean when it is there", () => {
+    const run = runEntry();
+    run.truncated = { ...run.truncated, sensor_logs: "yes" };
+    expect(validateReport(report({ runs: [run] })).ok).toBe(false);
+  });
+});
+
+/**
+ * The envelope's roll-up, which is the only block in a report a model writes
+ * rather than copies. Every case here is a shape a production run actually
+ * sent: three models produced three different partial readings of one rubric
+ * sentence, and requiring the full shape warned on all of them (issue #101).
+ */
+describe("the envelope roll-up", () => {
+  it("accepts an empty roll-up", () => {
+    // Run bc0362c7 (orders-api#22): `truncated: {}` beside runs[] entries that
+    // each carried all seven keys.
+    expect(validateReport(report({ truncated: {}, derived: {} }))).toEqual({ ok: true });
+  });
+
+  it("accepts a roll-up short a key", () => {
+    // `derived.spawned_subprocess: Required` and `truncated.stdout_tail:
+    // Required`, the two most common of the fourteen.
+    const { spawned_subprocess: _s, ...partialDerived } = EXAMPLE.derived;
+    const { stdout_tail: _t, ...partialTruncated } = EXAMPLE.truncated;
+    expect(
+      validateReport(report({ derived: partialDerived, truncated: partialTruncated })),
+    ).toEqual({ ok: true });
+  });
+
+  it("still refuses a roll-up value that is not a boolean", () => {
+    // Lenient about which keys are there, never about what they say. A model
+    // that reports `wrote_sensitive` as a string is not reporting it.
+    const result = validateReport(report({ derived: { wrote_sensitive: "1" } }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("derived.wrote_sensitive");
+  });
+
+  it("still refuses a roll-up that is not an object", () => {
+    // Run bc0362c7 again, on `smoke`: `truncated: Expected object, received
+    // boolean`. A bare boolean is not a partial roll-up, it is a wrong one.
+    expect(validateReport(report({ truncated: true })).ok).toBe(false);
+  });
+
+  it("still requires the envelope to carry derived at all", () => {
+    const { derived: _derived, ...noDerived } = report();
+    expect(validateReport(noDerived).ok).toBe(false);
+  });
+
+  it("does not extend the leniency to a runs[] entry", () => {
+    // The point of the split. A runs[] block is copied verbatim from
+    // `sniff.py`, so a key missing there means the producer moved — which is
+    // the failure this file exists to catch.
+    const withoutDerived = runEntry();
+    const { spawned_subprocess: _s, ...shortDerived } = withoutDerived.derived;
+    withoutDerived.derived = shortDerived;
+    const derivedResult = validateReport(report({ runs: [withoutDerived] }));
+    expect(derivedResult.ok).toBe(false);
+    expect(derivedResult.ok === false && derivedResult.problem).toContain(
+      "runs.0.derived.spawned_subprocess",
+    );
+
+    const withoutTruncated = runEntry();
+    const { stdout_tail: _t, ...shortTruncated } = withoutTruncated.truncated;
+    withoutTruncated.truncated = shortTruncated;
+    expect(validateReport(report({ runs: [withoutTruncated] })).ok).toBe(false);
+  });
+});
+
+/**
+ * What the warn actually says, which is the whole value of raising one. A union
+ * failure names no field on its own: `runs[]` is a union, and zod reports one
+ * `invalid_union` whose message is "Invalid input" and whose path stops at the
+ * entry. Every case here is a report production sent.
+ */
+describe("naming the field a runs[] entry got wrong", () => {
+  /** Run 1fe11b28 (orders-api#19), `tests`: entries trimmed to the fields the
+   * sub-agent thought mattered, which is the one thing the rubric forbids. */
+  const trimmed = () => {
+    const { files_read: _f, fs_changes: _c, ...rest } = runEntry();
+    return rest;
+  };
+
+  it("names the missing field rather than the entry", () => {
+    const result = validateReport(report({ runs: [trimmed()] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("runs.0.files_read");
+    expect(result.ok === false && result.problem).not.toContain("Invalid input");
+  });
+
+  it("counts what it did not name", () => {
+    // Six entries, two fields each: the reader has to be able to tell a
+    // systemic trim from one slip, and the named field alone cannot.
+    const result = validateReport(report({ runs: [trimmed(), trimmed(), trimmed()] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toBe("runs.0.files_read: Required (+5 more)");
+  });
+
+  it("says nothing about a count when there is one problem", () => {
+    const result = validateReport(report({ schema_version: "1" }));
+    expect(result.ok === false && result.problem).not.toContain("more)");
+  });
+
+  it("reads a detonate entry against the detonate branch", () => {
+    // Run 1fe11b28 again, `detonation`: `fs_changes` was not an array. Read
+    // against `CommandRun` the answer would be "no argv, no exit", which is
+    // true of every detonate entry and tells a reader nothing.
+    const entry = detonateEntry();
+    entry.fs_changes = {};
+    const result = validateReport(report({ check: "detonation", runs: [entry] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("runs.0.fs_changes");
+    expect(result.ok === false && result.problem).not.toContain("argv");
+  });
+
+  it("names the path and never the value, through a union too", () => {
+    // The same rule as the envelope case below, on the branch this walks into:
+    // nothing in the schema is an enum or a literal, so a branch message is
+    // `Required` or a pair of type names. Asserted, not assumed.
+    const entry = runEntry();
+    entry.stdout_tail = { evil: "</script><!-- pwned -->" };
+    const result = validateReport(report({ runs: [entry] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("runs.0.stdout_tail");
+    expect(result.ok === false && result.problem).not.toContain("pwned");
+  });
 });
 
 describe("what it will not accept", () => {
