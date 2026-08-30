@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -27,6 +28,10 @@ def detect_source(spec: str) -> str:
         return "npm"
     if re.match(r"^(@[\w.-]+/)?[\w.-]+@[^=]", spec):
         return "npm"
+    if spec.startswith("gem:"):
+        return "gem"
+    if spec.startswith("go:"):
+        return "go"
     return "pypi"
 
 
@@ -48,21 +53,48 @@ def _pypi_install_cmds(ctx: Context, env_dir: Path, spec: str) -> list[list[str]
     ]
 
 
+def _go_download_cmds(env_dir: Path, spec: str) -> list[list[str]]:
+    """Download a Go module into an isolated cache via a throwaway module."""
+    mod_dir = env_dir / "mod"
+    mod_dir.mkdir(parents=True, exist_ok=True)
+    at_version = spec if "@" in spec else f"{spec}@latest"
+    (mod_dir / "go.mod").write_text("module cujo_detonate\n\ngo 1.21\n")
+    return [
+        ["go", "get", at_version],
+        ["go", "mod", "download"],
+    ]
+
+
+def _gem_install_cmds(env_dir: Path, spec: str) -> list[list[str]]:
+    """Install a gem into an isolated directory."""
+    return [["gem", "install", spec, "--install-dir", str(env_dir), "--no-document"]]
+
+
 def cmd_detonate(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     spec = args.dependency
     source = args.source if args.source != "auto" else detect_source(spec)
-    spec_clean = spec.removeprefix("npm:")
+    spec_clean = spec.removeprefix("npm:").removeprefix("gem:").removeprefix("go:")
     env_dir = state_paths(ctx)["envs"] / hashlib.sha1(spec.encode()).hexdigest()[:12]
     shutil.rmtree(env_dir, ignore_errors=True)
     env_dir.mkdir(parents=True)
     if source == "npm":
         cmds = [["npm", "install", "--prefix", str(env_dir), "--no-audit", "--no-fund", spec_clean]]
+        det_cwd = env_dir
+    elif source == "go":
+        cmds = _go_download_cmds(env_dir, spec_clean)
+        os.environ["GOPATH"] = str(env_dir / "go")
+        os.environ["GOMODCACHE"] = str(env_dir / "go" / "pkg" / "mod")
+        det_cwd = env_dir / "mod"
+    elif source == "gem":
+        cmds = _gem_install_cmds(env_dir, spec_clean)
+        det_cwd = env_dir
     else:
         cmds = _pypi_install_cmds(ctx, env_dir, spec_clean)
+        det_cwd = env_dir
     started = time.monotonic()
     reports: list[dict[str, Any]] = []
     for cmd in cmds:
-        r = run_sensed(ctx, cmd, check="detonation", workspace_roots=[env_dir], cwd=env_dir)
+        r = run_sensed(ctx, cmd, check="detonation", workspace_roots=[env_dir], cwd=det_cwd)
         reports.append(r)
         if r["exit"] != 0:
             break
