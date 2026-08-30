@@ -3996,9 +3996,17 @@ blocks on it, several start and stop the sensor daemons, and one builds a
 virtualenv and installs a package — so the suite spends its time on process
 startup and IO, on a runner with four cores and one of them working. The same
 261 tests take 34.1s serially on a developer machine and 10.9s to 14.6s under
-`pytest-xdist` over five consecutive runs; the CI runner has fewer cores than
-that machine, so the 344s is expected to land nearer 110s than to divide by the
-local ratio.
+`pytest-xdist` over five consecutive runs.
+
+**Measured in CI, the step went from 344.3s to 177.6s on four workers, and the
+whole run from six minutes to 193s.** That is 1.9x, not the 3x the local ratio
+predicts, and the gap is the point: the runner's four vCPUs are two physical
+cores with hyperthreading, so four workers that each spawn and wait on a child
+process contend for two cores' worth of real execution. A developer machine with
+four physical cores is not a model of this runner. The remaining ceiling is
+cores, not test code — `python` is still the critical path at 189s against
+`contract`'s 117s, and the next real gain would come from a larger runner or
+from tests that stop shelling out, neither of which is worth doing yet.
 
 **The isolation this depends on was already there, which is why the change is a
 flag and not a refactor.** The `cli` fixture roots `HOME`, `CUJO_DIR` and
