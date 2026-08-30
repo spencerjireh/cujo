@@ -9,7 +9,7 @@ import { HomeMark } from "@/components/brand/HomeMark";
 import { POLL_LIVE_MS, POLL_QUIET_MS, runsListOptions } from "@/lib/api/queries";
 import { boardMetrics } from "@/lib/board/metrics";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The board: the chamber, the rack, the record, the key.
@@ -20,7 +20,7 @@ import { useMemo, useState } from "react";
  * whole list arrives in a single response.
  *
  * That poll is also what drives the chamber's sweep: the plane crossing the
- * volume is the board re-reading the record, so it is handed the same interval
+ * galaxy is the board re-reading the record, so it is handed the same interval
  * `runsListOptions` is using rather than a duration of its own.
  */
 export function RunsView() {
@@ -37,6 +37,29 @@ export function RunsView() {
    * again would be worse than one that waited.
    */
   const [scene, setScene] = useState<ChamberStatus>("pending");
+  /**
+   * Whether the record has slid up over the whole hero. The hero is sticky
+   * and the sheet below scrolls over it, so the chamber's own frame never
+   * leaves the viewport — it is only ever covered — and its intersection
+   * observer would keep the loop running under a sheet nobody can see
+   * through. A sentinel at the top of the sheet is what actually scrolls.
+   */
+  const [covered, setCovered] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      // Covered once the sentinel has passed the top of the viewport. Not
+      // "not intersecting": it is also not intersecting while below the
+      // fold, before the reader has scrolled at all.
+      const rect = entry?.boundingClientRect;
+      setCovered(entry?.isIntersecting === false && rect !== undefined && rect.top <= 0);
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   if (error) {
     return (
@@ -48,19 +71,21 @@ export function RunsView() {
     );
   }
 
+  const pinned = scene !== "unavailable";
+
   return (
     <div>
-      {/* The chamber is always dark, always full width, and now the whole first
+      {/* The chamber is always dark, always full width, and the whole first
           screen: it is the instrument's viewport, and the page is the panel
-          around it. It used to be a 40rem band under a bordered header, with a
-          wash over three fifths of it — so most of the hero was not the scene,
-          and the product's central claim was a strip. The record starts below
-          the fold, which is the trade: the board says what it is first and
-          lists what it has second. */}
+          around it. From `md` up it is also pinned — the record does not
+          scroll the chamber away, it rises over it as a sheet, so the galaxy
+          is the ground the rest of the board sits on rather than a banner
+          the reader leaves behind. Below `md` there is no chamber and the
+          hero is a readout, which has no business being pinned. */}
       <section
         aria-label="The chamber"
         className={`relative isolate overflow-hidden bg-[var(--chamber)] ${
-          scene === "unavailable" ? "" : "md:h-[100svh]"
+          pinned ? "z-0 md:sticky md:top-0 md:h-[100svh]" : ""
         }`}
       >
         {/* On the chamber, so it takes the pinned viewport tokens rather than
@@ -74,13 +99,19 @@ export function RunsView() {
             be asked for a composed frame with a bloom pass in it either way. A
             phone reader came for the runs, so a phone gets the runs. */}
         <div className="absolute inset-0 hidden md:block">
-          <Chamber runs={runs} updatedAt={dataUpdatedAt} pollMs={pollMs} onStatus={setScene} />
+          <Chamber
+            runs={runs}
+            updatedAt={dataUpdatedAt}
+            pollMs={pollMs}
+            onStatus={setScene}
+            active={!covered}
+          />
         </div>
         {/* A ground for the type, at both ends of the frame now that the
             readout is at both ends of it. The bottom band is the deeper of the
-            two, because the stats sit over the chamber's floor where the rails
-            and the ticks are; the top one only has to carry a headline over the
-            ceiling structure, which is fainter. */}
+            two, because the stats sit over the front of the galaxy; the top
+            one only has to carry a headline over the star field, which is
+            fainter. */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-[var(--chamber)]/90 via-[var(--chamber)]/45 to-transparent"
@@ -105,22 +136,29 @@ export function RunsView() {
         </div>
       </section>
 
-      {isPending ? (
-        <p className="border-line border-t px-4 py-6 font-mono text-xs text-fg-muted md:px-6">
-          Loading the record…
-        </p>
-      ) : (
-        <>
-          {/* The rack renders on an empty board too, disarmed. A board with no
-              runs is an instrument that has not read anything yet, not a page
-              missing its middle. */}
-          <ReadoutRack metrics={metrics} />
-          <div className="border-line border-t">
-            <Record runs={runs} />
-          </div>
-          <Legend />
-        </>
-      )}
+      {/* In flow, unlike the sticky hero above it, so it scrolls: when it
+          reaches the top of the viewport the sheet has covered the chamber. */}
+      <div ref={sentinelRef} aria-hidden="true" className="h-px" />
+
+      {/* The sheet. Above the hero in the stacking order and opaque, so it
+          rises over the galaxy rather than through it, with a hairline and a
+          shadow at its top edge so the edge reads as an edge. */}
+      <div className="relative z-10 border-line border-t bg-bg md:shadow-[0_-32px_64px_-24px_rgba(0,0,0,0.55)]">
+        {isPending ? (
+          <p className="px-4 py-6 font-mono text-xs text-fg-muted md:px-6">Loading the record…</p>
+        ) : (
+          <>
+            {/* The rack renders on an empty board too, disarmed. A board with
+                no runs is an instrument that has not read anything yet, not a
+                page missing its middle. */}
+            <ReadoutRack metrics={metrics} />
+            <div className="border-line border-t">
+              <Record runs={runs} />
+            </div>
+            <Legend />
+          </>
+        )}
+      </div>
     </div>
   );
 }

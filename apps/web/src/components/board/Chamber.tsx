@@ -1,6 +1,7 @@
 "use client";
 
 import type { RunSummary } from "@/lib/api/types";
+import { CAPACITY } from "@/lib/board/galaxy";
 import { type Specimen, specimensFrom } from "@/lib/board/specimen";
 import { focusStore, setFocusedRun, setSelectedRun, useFocusedRun } from "@/lib/board/store";
 import { SEVERITY_ORDER, STATUS_LABELS, TONE_CHAMBER_VAR } from "@/lib/board/tone";
@@ -33,17 +34,6 @@ import type { ChamberHandle } from "./chamber/scene";
  * had it ever been shown. The gate is `md`, and `md` is 768.
  */
 const MIN_WIDTH = 768;
-/**
- * How many runs the chamber draws. The record below still lists them all.
- *
- * Ten, down from twenty-four. A specimen is a solid now and the arms are two
- * thirds longer, so the same volume holds fewer of them before they overlap
- * into a thicket — and ten large objects a reader can tell apart is a better
- * drawing of a record than twenty-four dots that recede into one. What is lost
- * is the impression that a great many runs have happened, and the stats line
- * above and the record below both carry that number anyway.
- */
-const CAPACITY = 10;
 
 /**
  * What the renderer is doing. `pending` covers both "not started" and "still
@@ -58,6 +48,7 @@ export function Chamber({
   updatedAt,
   pollMs,
   onStatus,
+  active = true,
 }: {
   runs: RunSummary[];
   /**
@@ -82,6 +73,13 @@ export function Chamber({
    * It also gates the invitation to click: only a live scene answers one.
    */
   onStatus?: (status: ChamberStatus) => void;
+  /**
+   * Whether anyone can see the hero. The hero is sticky and the record slides
+   * up over it, so the frame's own intersection observer stays true under a
+   * sheet that covers it completely — intersection knows nothing about
+   * overlap. The page watches the sheet and says so here.
+   */
+  active?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -93,6 +91,9 @@ export function Chamber({
   // tear down and rebuild the scene because a parent passed a new closure.
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
+  const activeRef = useRef(active);
+  /** The mount effect's gate, so a later prop change can re-run it. */
+  const gateRef = useRef<(() => void) | null>(null);
 
   const specimens = useMemo(() => specimensFrom(runs, CAPACITY), [runs]);
   // Read once per mount rather than per render: the scene is built around the
@@ -115,9 +116,10 @@ export function Chamber({
     // a background tab: a canvas nobody is looking at should not hold a core.
     const runIfWanted = () => {
       if (reducedMotion || !handle) return;
-      if (onScreen && document.visibilityState === "visible") handle.start();
+      if (onScreen && activeRef.current && document.visibilityState === "visible") handle.start();
       else handle.stop();
     };
+    gateRef.current = runIfWanted;
 
     /**
      * Move the callout to the specimen it names, clamped inside the frame.
@@ -248,6 +250,7 @@ export function Chamber({
       resize.disconnect();
       visible.disconnect();
       document.removeEventListener("visibilitychange", runIfWanted);
+      gateRef.current = null;
       frame.removeEventListener("pointermove", onMove);
       frame.removeEventListener("pointerleave", onLeave);
       handleRef.current = null;
@@ -263,6 +266,11 @@ export function Chamber({
   useEffect(() => {
     handleRef.current?.setSpecimens(specimens);
   }, [specimens]);
+
+  useEffect(() => {
+    activeRef.current = active;
+    gateRef.current?.();
+  }, [active]);
 
   useEffect(() => {
     handleRef.current?.setFocus(focused);
@@ -326,8 +334,8 @@ export function Chamber({
 
 /**
  * What the specimen is, in the order the shape reads: the pull request it is,
- * the verdict its core is drawing, how long the arms took, and what the marks
- * on its drop line are.
+ * the verdict its core is drawing, how the orbits ended, and what the
+ * satellites are.
  */
 function Callout({ spec }: { spec: Specimen }) {
   return (
@@ -350,7 +358,7 @@ function Callout({ spec }: { spec: Specimen }) {
             {spec.bars.map((bar) => (
               <li key={bar.name} className="flex items-baseline gap-1">
                 {/* A check that never appeared is the wireframe colour, the
-                    same gap the specimen draws instead of an arm. */}
+                    same gap the specimen draws instead of a ring. */}
                 <span
                   className="inline-block h-1.5 w-1.5 translate-y-px"
                   style={{
