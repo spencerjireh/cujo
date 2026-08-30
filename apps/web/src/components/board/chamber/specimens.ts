@@ -1,22 +1,24 @@
 /**
  * A run, as geometry. The one part of the scene two scenes share.
  *
- * The chamber draws twenty-four of these hanging on a chain; the run page draws
- * exactly one, beside the pull request's title, with no room around it. They
+ * The chamber draws the record hanging on a chain; the run page draws exactly
+ * one specimen, beside the pull request's title, with no room around it. They
  * have to be the same drawing — a specimen that means one thing on the board
  * and another on the run page would make the shape decorative — so the builder
  * is here and both callers use it.
  *
  * What separates the two is a rig, not a flag named after the caller. The board
  * passes a chain to hang from and a floor to land on; the run page passes
- * neither, and the two lines that reference a room are simply not drawn. That
- * is the whole seam: `build()` returns a detached `Group`, and whoever asked
- * for it decides what to add it to.
+ * neither, and the lines that reference a room are simply not drawn. That is
+ * the whole seam: `build()` returns a detached `Group`, and whoever asked for
+ * it decides what to add it to.
  *
- * Every rule about what a specimen *means* lives in `@/lib/board/specimen`,
- * which is pure and tested. This module only turns that into meshes.
+ * Every rule about what a specimen *means* lives in `@/lib/board/specimen` and
+ * `@/lib/board/caltrop`, which are pure and tested. This module only turns that
+ * into meshes.
  */
 
+import { ARM_DIRECTIONS, markRing } from "@/lib/board/caltrop";
 import { ARM_MAX, ARM_THICKNESS } from "@/lib/board/chamber-layout";
 import type { Specimen } from "@/lib/board/specimen";
 import {
@@ -37,11 +39,32 @@ import {
   Sprite,
   SpriteMaterial,
   type Texture,
+  Vector3,
 } from "three";
 import type { ChamberPalette } from "./palette";
 
 /** How much of its colour a specimen keeps while another one is lit. */
 export const DIMMED = 0.45;
+
+/**
+ * The core, sized against the arms rather than in absolute units.
+ *
+ * It used to be 0.042 against an `ARM_MAX` of 0.3 — the verdict drawn as the
+ * smallest thing in a picture that exists to show the verdict. Stated as a
+ * ratio so the relationship survives the arms being resized, which is the sort
+ * of change that otherwise silently undoes this one.
+ */
+const CORE_RADIUS = ARM_MAX * 0.16;
+
+/** The hollow half of an arm: thinner and fainter, never a second hue. */
+const HOLLOW_THICKNESS = ARM_THICKNESS * 0.5;
+const HOLLOW_OPACITY = 0.34;
+
+/** One finding, as a cube on the ring around the core. */
+const MARK_SIZE = ARM_MAX * 0.075;
+
+/** `setFromUnitVectors` needs the axis a box's length runs along. */
+const X_AXIS = new Vector3(1, 0, 0);
 
 /**
  * What the specimen is hung on, which is the only thing the two scenes differ
@@ -53,8 +76,6 @@ export interface SpecimenRig {
   dropAbove: number;
   /** Local y of the floor under the core. Null draws no tether and no shadow. */
   tetherY: number | null;
-  /** Findings strung up the drop line. Ignored when there is no drop line. */
-  marks: boolean;
   /** The expanding ring a live run carries. */
   ring: boolean;
   /** The additive glow behind the core. */
@@ -62,11 +83,15 @@ export interface SpecimenRig {
 }
 
 interface SpecimenArm {
-  mesh: Mesh;
+  /** The sandbox's share, always drawn. */
+  solid: Mesh;
+  /** What was left, drawn only when the check measured a share to leave. */
+  hollow: Mesh | null;
   /** Its measured length, which the running pulse oscillates around. */
   baseLength: number;
-  dx: number;
-  dy: number;
+  /** 0 to 1, or null for an arm drawn undivided. */
+  share: number | null;
+  direction: Vector3;
   running: boolean;
 }
 
@@ -74,8 +99,9 @@ interface SpecimenArm {
  * A material and the opacity it returns to when nothing is dimmed.
  *
  * Carried rather than inferred, because the specimens are not all opaque: the
- * floor shadow is a smudge at 0.28 and resetting it to 1 would turn it into a
- * plate. The dim state has to be reversible without guessing.
+ * floor shadow is a smudge at 0.28 and the hollow half of an arm sits at 0.34,
+ * and resetting either to 1 would turn it into something it is not. The dim
+ * state has to be reversible without guessing.
  */
 interface ToneMaterial {
   material: MeshBasicMaterial | SpriteMaterial;
@@ -90,7 +116,7 @@ export interface SpecimenNode {
   core: Mesh;
   glow: Sprite | null;
   arms: SpecimenArm[];
-  /** One per finding, strung on the drop line. */
+  /** One per finding, on the ring around the core. */
   marks: Mesh[];
   /** Only on a live run. Its opacity is written every frame. */
   ring: Mesh | null;
@@ -160,33 +186,37 @@ function lineGeometry(points: number[]): BufferGeometry {
   return geometry;
 }
 
-/** An arm is a box scaled along x and swung to its diagonal from the core. */
-export function placeArm(arm: Mesh, length: number, dx: number, dy: number): void {
-  const axis = Math.SQRT1_2;
-  arm.scale.x = length;
-  arm.rotation.z = Math.atan2(dy, dx);
-  arm.position.set((dx * axis * length) / 2, (dy * axis * length) / 2, 0);
+/**
+ * Put one segment of an arm between two distances along its direction.
+ *
+ * A box scaled along x and turned onto the direction, rather than swung in a
+ * plane: the arms leave the core on the four diagonals of a cube now, so no two
+ * of them share a plane and there is no angle to rotate by.
+ */
+export function placeSegment(mesh: Mesh, direction: Vector3, from: number, to: number): void {
+  const length = Math.max(to - from, 0);
+  // Never exactly zero: a zero scale collapses the matrix and three warns.
+  mesh.scale.x = Math.max(length, 1e-5);
+  mesh.visible = length > 1e-4;
+  mesh.quaternion.setFromUnitVectors(X_AXIS, direction);
+  mesh.position.copy(direction).multiplyScalar(from + length / 2);
 }
 
-/**
- * Four diagonals in the plane facing the camera, in CHECK_NAMES order, so the
- * same check is always the same arm and a lopsided specimen is readable across
- * the whole chamber.
- */
-const DIRECTIONS = [
-  [-1, 1],
-  [1, 1],
-  [1, -1],
-  [-1, -1],
-] as const;
+/** Lay both halves of an arm out for a total reach. */
+function layArm(arm: SpecimenArm, reach: number): void {
+  const split = arm.share === null ? reach : reach * arm.share;
+  placeSegment(arm.solid, arm.direction, 0, split);
+  if (arm.hollow) placeSegment(arm.hollow, arm.direction, split, reach);
+}
 
 export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): SpecimenKit {
   const armGeometry = new BoxGeometry(1, ARM_THICKNESS, ARM_THICKNESS);
-  const coreGeometry = new OctahedronGeometry(0.042, 0);
-  const markGeometry = new BoxGeometry(0.03, 0.03, 0.03);
-  const ringGeometry = new RingGeometry(0.085, 0.1, 28);
-  const shadowGeometry = new PlaneGeometry(0.09, 0.09);
-  const dropMaterial = new LineBasicMaterial({ color: palette.line, fog: true });
+  const hollowGeometry = new BoxGeometry(1, HOLLOW_THICKNESS, HOLLOW_THICKNESS);
+  const coreGeometry = new OctahedronGeometry(CORE_RADIUS, 0);
+  const markGeometry = new BoxGeometry(MARK_SIZE, MARK_SIZE, MARK_SIZE);
+  const ringGeometry = new RingGeometry(CORE_RADIUS * 1.5, CORE_RADIUS * 1.75, 28);
+  const shadowGeometry = new PlaneGeometry(CORE_RADIUS * 2.2, CORE_RADIUS * 2.2);
+  const tetherMaterial = new LineBasicMaterial({ color: palette.line, fog: true });
   // Built lazily and only where it is wanted: the texture needs a canvas, and a
   // rig that draws no glow should not touch the DOM to make one.
   let glow: Texture | null = null;
@@ -200,14 +230,14 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
     // decorative. On the group and not the body: focus scales the body, and a
     // drop line that grew with it would overshoot the chain it hangs from.
     if (rig.dropAbove > 0) {
-      group.add(new LineSegments(lineGeometry([0, rig.dropAbove, 0, 0, 0, 0]), dropMaterial));
+      group.add(new LineSegments(lineGeometry([0, rig.dropAbove, 0, 0, 0, 0]), tetherMaterial));
     }
 
     // The tether to the floor, and the shadow it lands on. Together they are
     // the strongest depth cue available without a light in the room, and both
-    // are readings: the foot of the tether is the run's slot on the time axis.
+    // are readings: the foot of the tether is where the run sits in the volume.
     if (rig.tetherY !== null) {
-      group.add(new LineSegments(lineGeometry([0, 0, 0, 0, rig.tetherY, 0]), dropMaterial));
+      group.add(new LineSegments(lineGeometry([0, 0, 0, 0, rig.tetherY, 0]), tetherMaterial));
       const shadowMaterial = new MeshBasicMaterial({
         color: toneColor,
         fog: true,
@@ -219,25 +249,6 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
       shadow.position.y = rig.tetherY;
       group.add(shadow);
       materials.push({ material: shadowMaterial, base: 0.28 });
-    }
-
-    // One mark per finding, worst nearest the core, strung up the drop line.
-    // What the run produced, hanging off what produced it.
-    const marks: Mesh[] = [];
-    if (rig.marks && rig.dropAbove > 0) {
-      spec.marks.forEach((mark, i) => {
-        const material = new MeshBasicMaterial({
-          color: palette.tone(mark.tone),
-          fog: true,
-          transparent: true,
-          opacity: 1,
-        });
-        const mesh = new Mesh(markGeometry, material);
-        mesh.position.y = 0.085 + i * 0.055;
-        group.add(mesh);
-        marks.push(mesh);
-        materials.push({ material, base: 1 });
-      });
     }
 
     const body = new Group();
@@ -259,7 +270,7 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
         fog: true,
       });
       glowSprite = new Sprite(material);
-      glowSprite.scale.setScalar(0.24 * spec.coreScale);
+      glowSprite.scale.setScalar(CORE_RADIUS * 5 * spec.coreScale);
       body.add(glowSprite);
       materials.push({ material, base: 0.4 });
     }
@@ -283,20 +294,69 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
       // Length zero is a check that never appeared. Drawing a stub would claim
       // it ran briefly, so nothing is drawn at all and the gap is the fact.
       if (bar.length <= 0) return;
-      const direction = DIRECTIONS[i];
+      const direction = ARM_DIRECTIONS[i];
       if (!direction) return;
-      const material = new MeshBasicMaterial({
-        color: palette.tone(bar.tone),
+      const color = palette.tone(bar.tone);
+      const solidMaterial = new MeshBasicMaterial({
+        color,
         fog: true,
         transparent: true,
         opacity: 1,
       });
-      const arm = new Mesh(armGeometry, material);
-      const [dx, dy] = direction;
-      const baseLength = bar.length * ARM_MAX;
-      placeArm(arm, baseLength, dx, dy);
-      body.add(arm);
-      arms.push({ mesh: arm, baseLength, dx, dy, running: bar.outcome === "running" });
+      const solid = new Mesh(armGeometry, solidMaterial);
+      body.add(solid);
+      materials.push({ material: solidMaterial, base: 1 });
+
+      // Only where there is a share to leave. An arm the check measured no
+      // split for is one whole piece — a hollow tail at zero length would be
+      // invisible anyway, but it would also put a second material on a node for
+      // every unmeasured check on the board.
+      let hollow: Mesh | null = null;
+      if (bar.solid !== null && bar.solid < 1) {
+        // Same hue, less of it. Decision 68 rejected a second colour for the
+        // sandbox share by name; strength is what it asked for instead.
+        const hollowMaterial = new MeshBasicMaterial({
+          color,
+          fog: true,
+          transparent: true,
+          opacity: HOLLOW_OPACITY,
+        });
+        hollow = new Mesh(hollowGeometry, hollowMaterial);
+        body.add(hollow);
+        materials.push({ material: hollowMaterial, base: HOLLOW_OPACITY });
+      }
+
+      const arm: SpecimenArm = {
+        solid,
+        hollow,
+        baseLength: bar.length * ARM_MAX,
+        share: bar.solid,
+        direction: new Vector3(direction.x, direction.y, direction.z),
+        running: bar.outcome === "running",
+      };
+      layArm(arm, arm.baseLength);
+      arms.push(arm);
+    });
+
+    // One mark per finding, on a ring around the core: what the run produced,
+    // orbiting the verdict it produced. They used to be strung up a drop line,
+    // which read as a barcode at any distance and hung off rigging this
+    // specimen no longer has.
+    const marks: Mesh[] = [];
+    const ringRadius = CORE_RADIUS * spec.coreScale + MARK_SIZE * 1.4;
+    markRing(spec.marks.length).forEach((angle, i) => {
+      const mark = spec.marks[i];
+      if (!mark) return;
+      const material = new MeshBasicMaterial({
+        color: palette.tone(mark.tone),
+        fog: true,
+        transparent: true,
+        opacity: 1,
+      });
+      const mesh = new Mesh(markGeometry, material);
+      mesh.position.set(Math.cos(angle) * ringRadius, Math.sin(angle) * ringRadius, 0);
+      body.add(mesh);
+      marks.push(mesh);
       materials.push({ material, base: 1 });
     });
 
@@ -345,11 +405,12 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
 
   function dispose(): void {
     armGeometry.dispose();
+    hollowGeometry.dispose();
     coreGeometry.dispose();
     markGeometry.dispose();
     ringGeometry.dispose();
     shadowGeometry.dispose();
-    dropMaterial.dispose();
+    tetherMaterial.dispose();
     glow?.dispose();
     glow = null;
   }
@@ -389,12 +450,11 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
   const alive = !reducedMotion && node.spec.live ? 0.14 * (0.5 + 0.5 * Math.sin(elapsed * 2.4)) : 0;
   const lift = 1 + frame.read * 0.45 + alive;
   node.body.scale.setScalar((1 + frame.focus * 0.55) * lift * frame.arrivalScale);
-  for (const mark of node.marks)
-    mark.scale.setScalar((1 + frame.focus * 0.55) * frame.arrivalScale);
 
   // Opacity is the dim state and the arrival fade at once. Both are multipliers
   // on the material's own resting value, which is not always 1 — the floor
-  // shadow is a smudge at 0.28 and must stay one.
+  // shadow is a smudge at 0.28 and the hollow half of an arm sits at 0.34, and
+  // both must stay what they are.
   const strength = (1 - frame.dim * (1 - DIMMED)) * frame.arrivalOpacity;
   for (const { material, base } of node.materials) {
     material.opacity = base * strength;
@@ -403,11 +463,11 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
   if (!reducedMotion) {
     // A check still in the sandbox has no measured length, so its arm reaches
     // and retracts around the unmeasured one rather than sitting at a length it
-    // never reported.
+    // never reported. Both halves move with it: the share is a proportion, so
+    // it holds at every reach.
     for (const arm of node.arms) {
       if (!arm.running) continue;
-      const reach = arm.baseLength * (0.82 + 0.22 * (0.5 + 0.5 * Math.sin(elapsed * 3.1)));
-      placeArm(arm.mesh, reach, arm.dx, arm.dy);
+      layArm(arm, arm.baseLength * (0.82 + 0.22 * (0.5 + 0.5 * Math.sin(elapsed * 3.1))));
     }
 
     // One second of expansion and fade, restarting: a pulse leaving a run that
