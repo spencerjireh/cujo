@@ -172,17 +172,97 @@ cross back out of the sandbox.
 
 ### Setup
 
-1. Clone the repo at the head SHA; add a worktree at the base SHA. Both live
-   in the same sandbox so the comparison is like-for-like.
-2. Seed the decoy secret: a fake credential file (`~/.aws/credentials` with a
-   bogus key) placed before anything runs.
-3. Start the in-sandbox logging proxy and export `HTTP(S)_PROXY` for every
-   process the checks spawn. Start the inotify watcher on the decoy file.
-4. Read `.cujo.yml` from the **base** SHA, if present. Policy comes from the
-   branch the PR targets, never from the PR itself, so a PR cannot allowlist
-   its own exfiltration host. If the PR changes `.cujo.yml`, the parent emits
-   a `warn` finding ("`.cujo.yml` changed in this PR; the base version was
-   used") and ignores the head copy for that run. Schema:
+Two commands, not six. Everything before the sensors are armed has no decision
+in it, so `sniff.py prepare` does all of it at once and hands back the two
+things the next decision needs (decision 71).
+
+1. `sniff.py prepare` clones the repo at the head SHA and adds a worktree at the
+   base SHA — both in the same sandbox, so the comparison is like-for-like — and
+   returns, in the same result:
+   - `cujo_yml`: the text of `.cujo.yml` from the **base** SHA, or null. Policy
+     comes from the branch the PR targets, never from the PR itself, so a PR
+     cannot allowlist its own exfiltration host. If the PR changes `.cujo.yml`,
+     the parent emits a `warn` finding ("`.cujo.yml` changed in this PR; the
+     base version was used") and ignores the head copy for that run.
+   - `files`: the head's human-authored build files, keyed by path relative to
+     the clone — `pyproject.toml`, `package.json`, `go.mod`, `composer.json`,
+     `CMakeLists.txt`, `Makefile`, CI workflows and the like — from which the
+     parent infers whatever `install`, `test` and `boot` the policy did not
+     give. Found up to two directories deep, so a repository of services under
+     `services/<name>/` is covered; `node_modules` and its kin are never
+     descended. Lock files are never read: hundreds of kilobytes that say
+     nothing about how to run anything.
+   - `truncated`, `unreadable` and `omitted`: which files came back capped,
+     which matched but could not be read at all, and how many the file cap
+     dropped entirely. They are answered differently: a capped or omitted file
+     is an ordinary file the parent may open in `/work/head`, while an
+     `unreadable` one was *refused* — usually a symlink out of the checkout —
+     and opening it directly would walk around the containment check that put it
+     there. All three are the parent's cue that `files` is a
+     starting point rather than the whole repository — "no test suite found"
+     skips every check and becomes the entire review, so it must mean the
+     repository has none, never that one result did not name one.
+
+   It parses no YAML. Nothing under `sandbox/` may import a third-party module
+   (decision 46), so the raw text goes back and the parent reads it.
+
+   The two texts have different sources and different caps. `files` is head
+   content: written by the pull request, under `PREPARE_FILE_CHARS` each.
+   `cujo_yml` is the target branch's policy, which the pull request cannot
+   write — that is the whole reason it is read from base — and it has its own
+   much larger `PREPARE_POLICY_CHARS`. Both are still escaped on the way out,
+   because "the PR did not write it" is a statement about this commit and not a
+   property of the bytes, and escaping costs nothing on text that needs none.
+
+   Every cap bounds the read itself and not only the output, and each is spent
+   on the *escaped* text: escaping expands one character into four or six, so a
+   cap applied before it bounds the wrong quantity. Only real files resolving
+   inside the clone are read — a build file's name is the PR's to choose, and so
+   is whether it is a symlink.
+
+   `.cujo.yml` is **not** one of those capped strings and never appears in
+   `truncated`. It comes from base, it decides `allow_hosts`, and `truncated` is
+   the list the rubric re-reads from `/work/head` — so a policy file long enough
+   to cap would have handed the pull request its own allowlist. It has a much
+   larger budget of its own, and past that it is reported unreadable through
+   `cujo_yml_error` rather than returned in part: half a policy is worse than
+   none, because the missing half may be the hosts.
+
+   The head commit is fetched as `refs/pull/<n>/head` and not assumed to be in
+   the clone. `apps/cujo` sends the base repository's clone URL and no
+   credential, so a pull request opened from a fork has its head in a repository
+   the sandbox never sees; GitHub publishes that commit on the base repository,
+   publicly. The fetch is on the always path, not a fallback, so one code path
+   serves fork and same-repository alike. If the ref has moved off `--head-sha`
+   — somebody pushed between the webhook and the clone — `prepare` refuses and
+   names both, because a review attached to a SHA the run does not claim is
+   worse than a late one, and `supersede` already handles the new push.
+
+   `prepare` never deletes a directory it did not create. `--head` and `--base`
+   arrive on argv, argv is composed by the model, and the model has just read a
+   pull request: a path is replaced only when it is absent or when a marker this
+   command wrote sits beside it. The clone URL is checked against `--repo` for
+   the same reason — it starts at the GitHub API and arrives through a prompt,
+   so it must name the host *and the repository* the run is for.
+
+   `cujo_yml_status` is `read`, `absent`, `too_large` or `unreadable`, and the
+   rubric acts differently on each. `too_large` is a real file the parent may
+   open in `/work/base`; `unreadable` was refused and must not be opened, and
+   the run stops rather than proceeding without a policy it knows exists.
+
+   The clone URL must be `http`/`https` and must carry no credential, in
+   userinfo or in a query string; `prepare` refuses one that does, which is
+   where the trust boundary's "no clone credential may ever reach the sandbox"
+   is now enforced rather than assumed. Each git call has a timeout, so a
+   stalled remote is a diagnosable failed step rather than a hung run.
+2. `sniff.py setup` seeds the decoy secret — a fake credential file
+   (`~/.aws/credentials` with a bogus key) placed before anything runs — starts
+   the in-sandbox logging proxy and the inotify watcher on the decoy, and prints
+   the env every later command exports, `HTTP(S)_PROXY` included. Its
+   `--allow-host` list is the `allow_hosts` the parent just read.
+3. The parent runs the install in `/work/head` and `/work/base`, and delegates.
+
+`.cujo.yml`'s schema:
 
    ```yaml
    install: uv sync            # how to install the repo
@@ -318,6 +398,13 @@ zero-width characters are therefore escaped where they appear, as visible
 `\xNN` and `\uNNNN`. Escaped, not stripped: the record still says what the
 command did, and the escape is its own account of itself, so there is no
 "sanitized" flag to carry.
+
+Because escaping expands — four characters for a control byte, six for a
+bidirectional override — a length cap has to be measured on the escaped text.
+`prepare` does this, spending its budget one whole character at a time so no
+escape is cut in half. `runner.py`'s output tails still cap before escaping,
+which lets a check's own output return up to six times `TAIL_CHARS`; that is a
+known gap with its own fix pending, not a property of the format.
 
 The sensors, layered from language-agnostic to language-specific:
 
