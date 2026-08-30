@@ -111,8 +111,11 @@ describe("missingCheckFindings says why, not only that", () => {
   });
 
   it("keeps the old wording when no thread was ever created", () => {
-    const [f] = missingCheckFindings([]);
-    expect(f?.evidence).toContain("no sub-agent thread named for it");
+    // Pass a tests thread so suite checks are applicable (decision 87),
+    // then ask about probes which has no thread.
+    const found = missingCheckFindings([noReport({})]);
+    const probesF = found.find((f) => f.check === "probes");
+    expect(probesF?.evidence).toContain("no sub-agent thread named for it");
   });
 });
 
@@ -219,7 +222,8 @@ describe("isMaliceClaim", () => {
   it("says no for a missing check and for anything the agent claimed", () => {
     // A check that never reported is Cujo's own bookkeeping, and an agent
     // finding is not evidence the trusted side derived (decision 21).
-    expect(missingCheckFindings([]).every(isMaliceClaim)).toBe(false);
+    // Pass a tests thread so suite checks are applicable (decision 87).
+    expect(missingCheckFindings([check("tests", null)]).every(isMaliceClaim)).toBe(false);
     const agent: Finding = {
       source: "agent",
       check: "detonation",
@@ -244,7 +248,8 @@ describe("isMaliceClaim", () => {
 
 describe("isOperationalRule", () => {
   it("is true for check_missing and sensor_unarmed", () => {
-    expect(missingCheckFindings([]).every(isOperationalRule)).toBe(true);
+    // Pass a tests thread so suite checks are applicable (decision 87).
+    expect(missingCheckFindings([check("tests", null)]).every(isOperationalRule)).toBe(true);
     const unarmed = hardRuleFindings([
       check("tests", {
         sensors: { proxy: { armed: false, detail: "not started" }, decoy: { armed: true } },
@@ -352,6 +357,24 @@ describe("missingCheckFindings", () => {
     expect(
       missingCheckFindings([check("tests", {}), check("probes", {}), check("smoke", {})]),
     ).toEqual([]);
+  });
+
+  it("emits nothing when detonation ran but suite checks did not (decision 87)", () => {
+    // Detonation ran but suite checks did not — agent found no suite.
+    expect(missingCheckFindings([check("detonation", {})])).toEqual([]);
+  });
+
+  it("still warns when nothing ran at all (ambiguous, not inapplicable)", () => {
+    // No threads at all could mean the agent failed to spawn anything.
+    const found = missingCheckFindings([]);
+    expect(found).toHaveLength(3);
+    expect(found.map((f) => f.check)).toEqual(["tests", "probes", "smoke"]);
+  });
+
+  it("still warns when some suite checks ran but others did not", () => {
+    // tests ran → probes and smoke are expected too.
+    const found = missingCheckFindings([check("tests", {})]);
+    expect(found.map((f) => f.check)).toEqual(["probes", "smoke"]);
   });
 });
 
