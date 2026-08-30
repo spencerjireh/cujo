@@ -99,6 +99,12 @@ than a quiet arm. Nothing relies on hue to say a check is in flight anyway — i
 is drawn at the shorter unmeasured length, and its specimen breathes while the
 run is live.
 
+The chamber has a decorative layer — haze, a graded backdrop, dust, a glow
+behind each core (decision 69) — and it takes no token of its own. Everything
+in it is one of the four above brightened from its own value, and the glow is
+greyscale tinted by the verdict it sits behind, so light in that room can never
+introduce a hue this palette does not already spend.
+
 The four signal colours are the dark severity ramp, pinned rather than
 inherited: what is drawn inside the chamber must not change hue when the page
 around it goes light, and a specimen must agree with the badge for the same run.
@@ -142,7 +148,7 @@ the ramp.
 | Surface | Assets |
 | --- | --- |
 | GitHub App avatar | `logo/avatar.svg`, rendered to `logo/png/avatar-512.png` |
-| UI | `tokens.css`; `favicon.svg` and `favicon-32.png`; `lockup-h.svg` in the header |
+| UI | `tokens.css`; `favicon.svg` and `favicon-32.png`; the mark alone in the page's top corner, and `lockup-h.svg` in the footer |
 | README | `readme/banner-dark.svg` and `banner-light.svg` via `<picture>` |
 | Video | `video/title-card.svg`, `video/lower-third.svg`, `video/severity-badges.svg` |
 
