@@ -5379,3 +5379,31 @@ comment too**: on the Files changed tab it arrives with no headline above it,
 it is short, and the evidence is the reason it is on that line. **Telling the
 model to write shorter blocks** instead of rendering them shorter, which is
 decision 74 reversed — a rule a model applies is a rule that fails silently.
+
+## 98. The page does not bounce
+
+The board is an instrument in a frame: the chamber is pinned and the record
+rises over it as a sheet, and neither half moves of its own accord. The
+browser's rubber-band contradicted that. Scrolling past the top or bottom of
+the document stretched the page and snapped it back, which read as the sheet
+slipping on the galaxy, and on Android the same root gesture is
+pull-to-refresh — a full reload of a page that re-reads the API every five to
+thirty seconds without being asked.
+
+**The root scroller's vertical overscroll is off.** One declaration,
+`overscroll-behavior-y: none`, on `html` and `body` both, because browsers
+disagree about which of the two is the effective root scroller and the
+belt-and-braces form costs nothing. Vertical only: horizontal overscroll is
+the browser's back and forward gesture, and the page has no claim on it.
+The inner scrollers — the record's table, the windowed reports, the prose's
+code blocks and tables — keep their default, so they still hand their scroll
+to the page at their edges rather than stopping dead mid-page.
+
+Safari 16 is the floor; below it the property is ignored and older iOS keeps
+its bounce.
+
+Rejected: **applying it to every scroller**, which would strand the scroll
+at the edge of the record halfway down the page. **`position: fixed` on
+body**, the old iOS workaround, which is a layout change disguised as a
+scroll tweak and breaks the sticky hero and the sticky approve bar to remove
+a bounce.
