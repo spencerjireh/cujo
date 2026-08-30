@@ -9,7 +9,8 @@ import {
 } from "@/lib/api/types";
 import { type SetupWindow, setupWindow } from "@/lib/board/setup";
 import { duration, elapsedMs } from "@/lib/format";
-import type { ReactNode } from "react";
+import { type VerdictTone, checkVerdict, reportAlarm } from "@/lib/verdict";
+import { type ReactNode, useMemo } from "react";
 
 /**
  * A run's whole envelope on one shared time axis: the setup window, then the
@@ -46,7 +47,7 @@ interface Lane {
   offsetMs: number | null;
   lengthMs: number | null;
   outcome: string;
-  tone: string;
+  tone: VerdictTone;
   /**
    * How much of the lane the sandbox accounted for, 0–1. Null when the check
    * reported no `timings`, which every run predating them does.
@@ -68,18 +69,6 @@ function sandboxShare(check: CheckState | undefined, lengthMs: number | null): n
   const whole = check?.timings?.wallMs ?? lengthMs;
   if (typeof whole !== "number" || whole <= 0) return null;
   return Math.min(1, sandboxMs / whole);
-}
-
-function outcomeOf(check: CheckState | undefined, findings: Finding[]): [string, string] {
-  if (!check) return ["not run", "text-fg-muted"];
-  if (check.status === "running") return ["running", "text-fg-muted"];
-  if (check.status === "error") return ["error", "text-sev-critical"];
-  const worst = findings
-    .filter((finding) => finding.check === check.title)
-    .sort((a, b) => (a.severity === "critical" ? -1 : b.severity === "critical" ? 1 : 0))[0];
-  if (worst?.severity === "critical") return [worst.title, "text-sev-critical"];
-  if (worst?.severity === "warn") return [worst.title, "text-sev-high"];
-  return ["ok", "text-sev-info"];
 }
 
 /** A span in milliseconds, worded the way every other duration on the page is. */
@@ -140,21 +129,50 @@ function Bar({
   );
 }
 
-/** A row: the label, the bar, and what the row amounts to. */
+/**
+ * A row: the label, the bar, and what the row amounts to.
+ *
+ * The whole row is the control when there is somewhere to go — not the verdict
+ * at the end of it, which is the smallest and least likely thing on the row for
+ * a pointer to find. `onSelect` is absent on the setup lane and on a check that
+ * never ran, and then the row is a row: there is no report under either of
+ * them, and a control that leads nowhere is worse than no control.
+ */
 function Row({
   label,
   children,
   note,
+  onSelect,
 }: {
   label: string;
   children: ReactNode;
   note: ReactNode;
+  onSelect?: () => void;
 }) {
-  return (
-    <li className="grid grid-cols-[7rem_1fr] items-center gap-3 sm:grid-cols-[7rem_1fr_12rem]">
+  const cells = (
+    <>
       <span className="font-mono text-sm text-fg-muted">{label}</span>
       {children}
       {note}
+    </>
+  );
+  const grid = "grid grid-cols-[7rem_1fr] items-center gap-3 sm:grid-cols-[7rem_1fr_12rem]";
+
+  if (!onSelect) {
+    return <li className={`${grid} py-1`}>{cells}</li>;
+  }
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        // Negative margin so the hover ground reaches past the type without the
+        // lanes indenting: the bars have to stay on one axis with the setup
+        // lane above them, which is not a button.
+        className={`${grid} -mx-2 w-[calc(100%+1rem)] rounded-sm px-2 py-1 text-left hover:bg-bg-raised`}
+      >
+        {cells}
+      </button>
     </li>
   );
 }
@@ -163,13 +181,28 @@ export function ChecksTimeline({
   checks,
   findings,
   setup,
+  onSelect,
 }: {
   checks: CheckState[];
   findings: Finding[];
   setup?: SetupTimings | null;
+  /** Called with a check's title when its lane is picked. */
+  onSelect?: (title: string) => void;
 }) {
   const byName = new Map(checks.filter((check) => check.isCheck).map((c) => [c.title, c]));
   const window = setupWindow(setup);
+
+  // Once per set of reports rather than once per render: a live run re-renders
+  // on every stream frame, and `parseReport` walks the whole detonation report.
+  const alarms = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const check of checks) {
+      if (!check.isCheck) continue;
+      const tripped = reportAlarm(check.report);
+      if (tripped) out.set(check.title, tripped);
+    }
+    return out;
+  }, [checks]);
 
   const starts = checks
     .map((check) => (check.startedAt ? Date.parse(check.startedAt) : Number.NaN))
@@ -183,7 +216,7 @@ export function ChecksTimeline({
 
   const lanes: Lane[] = CHECK_NAMES.map((name) => {
     const check = byName.get(name);
-    const [outcome, tone] = outcomeOf(check, findings);
+    const { text: outcome, tone } = checkVerdict(check, findings, alarms.get(name) ?? null);
     const started = check?.startedAt ? Date.parse(check.startedAt) : Number.NaN;
     const length = elapsedMs(check?.startedAt, check?.endedAt);
     return {
@@ -208,7 +241,10 @@ export function ChecksTimeline({
 
   return (
     <section aria-label="Checks">
-      <h2 className="mb-3 text-lg">Checks</h2>
+      <h2 className="mb-1 text-lg">Checks</h2>
+      <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+        Four sub-agents in one sandbox, on one time axis. Pick a lane to read what it saw.
+      </p>
       <ul className="flex flex-col gap-1.5">
         {window === null || origin === null ? null : (
           <SetupRow window={window} origin={origin} total={total} />
@@ -227,8 +263,13 @@ export function ChecksTimeline({
             <Row
               key={lane.name}
               label={lane.name}
+              onSelect={lane.check && onSelect ? () => onSelect(lane.name) : undefined}
               note={
-                <span className={`font-mono text-xs sm:text-sm ${lane.tone} truncate`}>
+                // No `truncate`. It used to end an ellipsis over the one part of
+                // the row that says what happened; the verdict is short enough
+                // now that there is nothing to cut, and if it ever is not, it
+                // wraps rather than lies.
+                <span className={`font-mono text-xs sm:text-sm ${lane.tone}`}>
                   {lane.outcome}
                   {lane.check ? (
                     <span className="ml-2 text-fg-muted">

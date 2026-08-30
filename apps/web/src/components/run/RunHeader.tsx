@@ -6,6 +6,7 @@ import { avatarUrl, duration, prUrl, profileUrl, shortSha } from "@/lib/format";
 import Image from "next/image";
 import Link from "next/link";
 import { RunSpecimen } from "./RunSpecimen";
+import { RunSummary } from "./RunSummary";
 
 const AVATAR = 20;
 
@@ -81,7 +82,14 @@ export function RunHeader({ run }: { run: Run }) {
           A reader who followed a specimen from the chamber arrives holding an
           object, and until now the run page took it away — the same run,
           described in words, with nothing to recognise. */}
-      <div className="mt-2 flex flex-wrap-reverse items-start justify-between gap-x-6 gap-y-4">
+      {/* Wraps forwards, and it used to wrap in reverse. `flex-wrap-reverse`
+          turns the cross axis upside down, which does two things: it stacks the
+          wrapped line above the first one, so on a phone the specimen sat on
+          top of the title rather than under it, and it makes `items-start` mean
+          the bottom, so the title block hung off the floor of the specimen
+          instead of starting level with it. Both were invisible at 128 pixels
+          and neither is at 224. */}
+      <div className="mt-2 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
         <div className="min-w-0 flex-1 basis-80">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {/* The pull request's own title when there is one, and `repo #N`
@@ -135,13 +143,17 @@ export function RunHeader({ run }: { run: Run }) {
               {window.thinkingMs === null ? null : <> · {span(window.thinkingMs)} planning</>}
             </p>
           ) : null}
+          {/* In the column and not under the row. The specimen is taller than
+              the handles beside it, so a sentence set below the whole row left
+              a hole the height of a specimen next to it; here it fills the
+              column the object stands against, which is what it is for. */}
+          {run.summary ? <RunSummary summary={run.summary} /> : null}
         </div>
-        {/* `flex-wrap-reverse` above puts this first in the source and last on
-            screen at full width: wrapped, on a narrow column, the specimen
-            lands under the words rather than pushing the title down the page. */}
+        {/* Last in the source, so at full width it stands to the right of the
+            title block and on a narrow column it lands under the words rather
+            than pushing the title down the page. */}
         <RunSpecimen run={run} />
       </div>
-      {run.summary ? <p className="mt-4 max-w-[68ch] text-sm">{run.summary}</p> : null}
       {run.error ? (
         <p className="mt-3 rounded-md bg-sev-critical-bg px-3 py-2 font-mono text-xs text-sev-critical">
           {run.error}
