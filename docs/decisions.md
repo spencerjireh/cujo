@@ -5407,3 +5407,36 @@ at the edge of the record halfway down the page. **`position: fixed` on
 body**, the old iOS workaround, which is a layout change disguised as a
 scroll tweak and breaks the sticky hero and the sticky approve bar to remove
 a bounce.
+
+## 99. The key waits for a stay
+
+**Refines 89.**
+
+Decision 89 brought the key to the pointer: hover a star, or a row, and the
+readings became the key. What that also meant was that a pointer *crossing*
+the field swapped the block under it. A sweep of the galaxy — the natural
+way to see where the criticals cluster — crossed star, gap, star, and the
+readings blinked out and back for every one of them, taking with them the
+very numbers the sweep was being taken over.
+
+**The swap now waits for a stay.** The focused run must hold for three
+seconds before the key replaces the readings, and the wait restarts on
+every change of focused run, so a sweep never finishes one. Once committed,
+the key stays while the pointer moves star to star: the restart gates the
+appearance, which is where the flicker lived, and does not take back what
+is already explaining the thing under the pointer. One leave hands the
+readings back at once. The focus store itself is unchanged — the chamber
+still lights the star on contact and the record still lights the row — only
+the swap learned to wait.
+
+Three seconds, and not the few hundred milliseconds a menu uses as hover
+intent, because the question this delay parses is not "did the pointer mean
+to be here" but "is the reader reading the star or walking the field", and
+a walk is slow.
+
+Rejected: **hiding again on a move between stars**, which puts the flicker
+back the moment there are two stars to compare. **A fade long enough to
+smooth a sweep away**, which makes a real dwell slow and a fast sweep into
+a strobe. **Delaying the focus store instead of the swap**, which would lag
+the star lighting under the pointer — the one effect that must stay
+immediate.

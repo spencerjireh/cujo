@@ -25,6 +25,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * galaxy is the board re-reading the record, so it is handed the same interval
  * `runsListOptions` is using rather than a duration of its own.
  */
+
+/**
+ * How long the pointer must rest on one specimen before the key replaces the
+ * readings (decision 99). Long enough that a sweep across the galaxy is over
+ * before it elapses; short enough that a reader who parks on a star to ask
+ * what its parts are gets the answer while still looking at it.
+ */
+const KEY_DWELL_MS = 3000;
+
 export function RunsView() {
   const { data, error, isPending, dataUpdatedAt } = useQuery(runsListOptions());
   const runs = useMemo(() => data?.runs ?? [], [data]);
@@ -40,12 +49,27 @@ export function RunsView() {
    */
   const [scene, setScene] = useState<ChamberStatus>("pending");
   /**
-   * Whether a specimen is under the pointer, which is when the hero shows the
-   * key instead of the readings. Read from the same store the chamber and the
-   * record write, so hovering a row shows the key too — the row lights the
-   * star, and the key explains the star.
+   * Whether the pointer has been resting on one specimen long enough for the
+   * hero to show the key instead of the readings. Which specimen is meant
+   * still comes from the same store the chamber and the record write — the
+   * row lights the star, and the key explains the star — but a sweep across
+   * the galaxy is a scan, and a scan that swapped the block under it
+   * flickered the readings away for every star it crossed (decision 99). So
+   * the swap waits: the timer restarts on every change of focused run, it
+   * commits once when one run has held the pointer for the whole dwell, and
+   * a leave hands the readings back at once.
    */
-  const keyed = useFocusedRun() !== null && scene === "live";
+  const [dwelled, setDwelled] = useState(false);
+  const focusedRun = useFocusedRun();
+  useEffect(() => {
+    if (focusedRun === null || scene !== "live") {
+      setDwelled(false);
+      return;
+    }
+    const timer = setTimeout(() => setDwelled(true), KEY_DWELL_MS);
+    return () => clearTimeout(timer);
+  }, [focusedRun, scene]);
+  const keyed = dwelled && focusedRun !== null && scene === "live";
   /**
    * Whether the record has slid up over the whole hero. The hero is sticky
    * and the sheet below scrolls over it, so the chamber's own frame never
@@ -143,13 +167,14 @@ export function RunsView() {
         <div className="pointer-events-none relative flex h-full flex-col justify-between gap-10 px-4 pt-16 pb-12 md:pt-20 md:pr-12 md:pb-14 md:pl-8 lg:pl-12">
           <HeroLead metrics={metrics} />
           {/* The bottom block is two things in one place: the readings, and
-              the key. While a specimen is under the pointer the readings fade
-              and the key fades in, so what the reader is looking at is
-              explained where they were already reading. Both stay mounted and
-              stacked on one grid cell, so the swap moves nothing else. The key
-              only takes over on a device with a pointer that can hover: on a
-              phone there is no chamber and nothing to hover, and a key that
-              appeared on a tap would replace the readings for no reason. */}
+              the key. Once the pointer has rested on one specimen for the
+              dwell (decision 99) the readings fade and the key fades in, so
+              what the reader is looking at is explained where they were
+              already reading. Both stay mounted and stacked on one grid cell,
+              so the swap moves nothing else. The key only takes over on a
+              device with a pointer that can hover: on a phone there is no
+              chamber and nothing to hover, and a key that appeared on a tap
+              would replace the readings for no reason. */}
           <div className="grid">
             <div
               className={`col-start-1 row-start-1 transition-opacity duration-200 motion-reduce:transition-none ${
