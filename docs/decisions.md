@@ -5565,3 +5565,87 @@ drawn literally — the first spends the field budget on a link the pull
 request field already provides, the second is text pretending to be a link.
 **Real blank lines inside field values as spacers**, which widen sections
 instead of separating them.
+
+## 101. The page does not bounce
+
+The board is an instrument in a frame: the chamber is pinned and the record
+rises over it as a sheet, and neither half moves of its own accord. The
+browser's rubber-band contradicted that. Scrolling past the top or bottom of
+the document stretched the page and snapped it back, which read as the sheet
+slipping on the galaxy, and on Android the same root gesture is
+pull-to-refresh — a full reload of a page that re-reads the API every five to
+thirty seconds without being asked.
+
+**The root scroller's vertical overscroll is off.** One declaration,
+`overscroll-behavior-y: none`, on `html` and `body` both, because browsers
+disagree about which of the two is the effective root scroller and the
+belt-and-braces form costs nothing. Vertical only: horizontal overscroll is
+the browser's back and forward gesture, and the page has no claim on it.
+The inner scrollers — the record's table, the windowed reports, the prose's
+code blocks and tables — keep their default, so they still hand their scroll
+to the page at their edges rather than stopping dead mid-page.
+
+Safari 16 is the floor; below it the property is ignored and older iOS keeps
+its bounce.
+
+Rejected: **applying it to every scroller**, which would strand the scroll
+at the edge of the record halfway down the page. **`position: fixed` on
+body**, the old iOS workaround, which is a layout change disguised as a
+scroll tweak and breaks the sticky hero and the sticky approve bar to remove
+a bounce.
+
+## 102. The key waits for a stay
+
+**Refines 89.**
+
+Decision 89 brought the key to the pointer: hover a star, or a row, and the
+readings became the key. What that also meant was that a pointer *crossing*
+the field swapped the block under it. A sweep of the galaxy — the natural
+way to see where the criticals cluster — crossed star, gap, star, and the
+readings blinked out and back for every one of them, taking with them the
+very numbers the sweep was being taken over.
+
+**The swap now waits for a stay.** The focused run must hold for three
+seconds before the key replaces the readings, and the wait restarts on
+every change of focused run, so a sweep never finishes one. Once committed,
+the key stays while the pointer moves star to star: the restart gates the
+appearance, which is where the flicker lived, and does not take back what
+is already explaining the thing under the pointer. One leave hands the
+readings back at once. The focus store itself is unchanged — the chamber
+still lights the star on contact and the record still lights the row — only
+the swap learned to wait.
+
+Three seconds, and not the few hundred milliseconds a menu uses as hover
+intent, because the question this delay parses is not "did the pointer mean
+to be here" but "is the reader reading the star or walking the field", and
+a walk is slow.
+
+Rejected: **hiding again on a move between stars**, which puts the flicker
+back the moment there are two stars to compare. **A fade long enough to
+smooth a sweep away**, which makes a real dwell slow and a fast sweep into
+a strobe. **Delaying the focus store instead of the swap**, which would lag
+the star lighting under the pointer — the one effect that must stay
+immediate.
+
+## 103. The verdict card stops linking out
+
+**Reverses part of 91.**
+
+Decision 91 put "Read the review on GitHub" on the verdict card, as the
+third of the three things a PR author wants — what was decided, how bad,
+where the review is. Two of the three turned out to be enough, because the
+third was already answered twice on the same page: the reader arrived by
+that link and holds the back button, and the review panel below renders the
+review itself, while the run header still links the pull request. What the
+link added was a fourth thing — an invitation to leave the page before
+reading what the page is for.
+
+**The link is gone; the card is the verdict alone.** The status badge and
+the severity counts, and nothing else. `reviewPosted` and
+`gatedReviewPosted` keep deciding everything else they decide — the review
+panel, the approve bar; only the card no longer spends the fact.
+
+Rejected: **keeping it behind a disclosure**, a control that reveals one
+link nobody asked for. **Moving it into the review panel**, which already
+is the review and would carry a link to itself.
+||||||| 8a2fc41
