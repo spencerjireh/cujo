@@ -184,12 +184,14 @@ describe("github-mcp", () => {
     await client.close();
 
     const body = github.posted.at(-1)?.input.body ?? "";
-    expect(body).toContain(`Full evidence: ${PUBLIC_BASE}/runs/${RUN_ID}\n`);
-    expect(body.indexOf("Full evidence")).toBeGreaterThan(body.indexOf("Machine-readable summary"));
+    expect(body).toContain(`**[View the full evidence →](${PUBLIC_BASE}/runs/${RUN_ID})**\n`);
+    expect(body.indexOf("View the full evidence")).toBeGreaterThan(
+      body.indexOf("Machine-readable summary"),
+    );
     // The footer is the last thing a reader sees. The duplicate marker sits
     // below it and is an HTML comment, so it renders as nothing.
     expect(body.trimEnd().endsWith("-->")).toBe(true);
-    expect(body.indexOf("<!-- cujo:")).toBeGreaterThan(body.indexOf("Full evidence"));
+    expect(body.indexOf("<!-- cujo:")).toBeGreaterThan(body.indexOf("View the full evidence"));
   });
 
   it("posts no footer when the run has no public page", async () => {
@@ -213,7 +215,7 @@ describe("github-mcp", () => {
     expect(
       body.startsWith("**Advisory** \u2014 no findings above info\n\nTests: 212 passed."),
     ).toBe(true);
-    expect(body).not.toContain("Full evidence");
+    expect(body).not.toContain("View the full evidence");
     expect(body).not.toContain("<!-- cujo:");
   });
 

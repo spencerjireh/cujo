@@ -20,7 +20,7 @@ import { duration } from "@/lib/format";
  * pull request — `blocked_unattended` and `blocked_posted` differ in who
  * decided, which the *label* says and the colour does not have to. `live` is
  * green and is the one tone that is not a verdict: it says the thing is still
- * executing, and it was inert grey until decision 92, when a running run on a
+ * executing, and it was inert grey until decision 94, when a running run on a
  * board full of verdicts was the one star nobody could find.
  */
 export type Tone = "critical" | "amber" | "info" | "inert" | "bone" | "live";
@@ -104,7 +104,7 @@ export const TONE_CHAMBER_VAR: Record<Tone, string> = {
 /**
  * The same tones on the page's own ground, for the one specimen drawn outside
  * the chamber: the run page's, which sits on `--bg` and follows the reader's
- * theme (decision 93). Bone is the page's foreground, not the chamber's muted
+ * theme (decision 95). Bone is the page's foreground, not the chamber's muted
  * one, because on a light page muted bone is a ring nobody can see.
  */
 export const TONE_PAGE_VAR: Record<Tone, string> = {
@@ -168,7 +168,7 @@ export function checkOutcome(check: DigestCheck | undefined): CheckOutcome {
  * was inert: blue is a verdict in the chamber and could not be spent on an
  * arm, and grey was what "no measurement yet" already meant. Grey was also
  * invisible — the one star on the board that was doing something was the one
- * a reader could not find — so decision 92 gave running its own hue, one that
+ * a reader could not find — so decision 94 gave running its own hue, one that
  * is not on the severity ramp and so cannot be read as a verdict. The record's
  * sensor strip and the rack's segment use the same token, so the four
  * drawings of a running check agree.

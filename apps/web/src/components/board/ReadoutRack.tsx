@@ -136,7 +136,7 @@ function Waiting({ children }: { children: React.ReactNode }) {
  * A run that reached no conclusion is drawn at reduced strength in its own hue.
  * `clean` and `error` are both info blue by brand rule, which made two legend
  * rows identical; this keeps the rule and tells them apart. `running` is the
- * exception: it has its own hue (decision 92) and nothing to be told apart
+ * exception: it has its own hue (decision 94) and nothing to be told apart
  * from, and a live run drawn faint was the thing the hue exists to stop.
  */
 function swatchStrength(status: RunStatus): string {

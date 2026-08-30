@@ -152,7 +152,7 @@ export const ComposedBody: Story = {
         "",
         "---",
         "",
-        "Full evidence: https://cujo.example.com/runs/8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e",
+        "**[View the full evidence →](https://cujo.example.com/runs/8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e)**",
       ].join("\n"),
       comments: [
         {

@@ -91,6 +91,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 83. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#83-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
 84. [A lane says how bad, not what happened; the sentence is where the sentence fits](#84-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
 85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not)
+86. [The alert gets its own card, and the opener takes the author line](#86-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -250,6 +251,9 @@ feature the Double-O track names. The parent owns setup, the hard rules,
 synthesis, and the post.
 
 ## 15. No tests means one `warn` and stop
+
+**Refined by 87.** `detonation` now runs even when no suite is found; the
+stop applies only to `tests`, `probes`, and `smoke`.
 
 If the repo has no test suite and `.cujo.yml` names none, the parent posts a
 single `warn` finding ("no test suite found") and runs nothing else. Without a
@@ -2321,6 +2325,11 @@ sequencing exists because a `main`-relative URL is read by a container that has
 not deployed yet, and it buys nothing once every field is additive.
 
 ## 55. A card names both parties, and a login reaches a URL only through an allowlist
+
+**Reversed by 86.** The allocation below gave the author line to Cujo and the
+person a field plus the footer icon; 86 gives the author line to the person
+and the footer icon to the Cujo mark, on this decision's own premise. The two
+URL allowlists in the second half stand unchanged.
 
 A Discord card said `spencerjireh/orders-api #7 — Add refund endpoint` and
 nothing else identified either side of it. Cujo appeared only as the bot avatar
@@ -4458,8 +4467,8 @@ wants to be able to take at a glance.
 
 ## 82. The record is a galaxy, and a run is a star with orbits
 
-**Amended by 93**, which removes the gates and lets a star's depth wander
-within its layer, and by 92, which gives a running run its own hue.
+**Amended by 95**, which removes the gates and lets a star's depth wander
+within its layer, and by 94, which gives a running run its own hue.
 
 Decision 81 scattered the record across a box and made a specimen a solid.
 Looking at it running, four things were wrong and they were one thing: ten runs
@@ -4498,7 +4507,8 @@ across and a hover that had to find it would find nothing, so every node
 carries an invisible sphere the raycaster is given instead; the raycaster does
 not consult `visible`, and the sphere writes no colour and no depth.
 
-**Amended by 88**, which has every star's rings tumble slowly and a live one's
+The satellites go round, and a live run's rings precess. Neither carries
+**Amended by 90**, which has every star's rings tumble slowly and a live one's
 fast: the precession about y and the spin about a ring's normal were invisible.
 
 The satellites go round, and a live run's rings precess. Neither carries
@@ -4579,7 +4589,7 @@ the camera**, which costs a ring's tilt its meaning.
 
 ## 83. A star's tilts are its own, the read walks the stars, and the copy is a caption
 
-**Amended by 93**: the read beats the star once at its peak. The strobe this
+**Amended by 95**: the read beats the star once at its peak. The strobe this
 decision removed stays removed.
 
 Decision 82 was looked at running, with a live run on the board. Four things
@@ -4750,7 +4760,7 @@ consistent page footer, which is a strip of window spent on "nothing to do".
 
 ## 85. An observed zero is a result; an unobserved one is not
 
-**Amended by 91**: the flag no longer opens a table. Everything below about
+**Amended by 93**: the flag no longer opens a table. Everything below about
 `none` versus `not measured` and the alarms map stands.
 
 The report card is what an operator reads before blocking a merge, and it was a
@@ -4828,7 +4838,122 @@ without putting a band of colour under every second line. **Collapsing the
 blocks too**, a third level of disclosure inside the second, which buys a
 scroll and costs a reader the ability to see what a card holds.
 
-## 86. One results cell, and the whole row is the link
+## 86. The alert gets its own card, and the opener takes the author line
+
+The message that exists to fetch a human was the least informative thing in
+the channel. A blocked run posted a sentence and a bare run URL, which Discord
+unfurled into a grey box rendering the site's front page — the same two lines
+for every run that has ever been posted. The card above it had the same
+disease from the other side: the person who opened the pull request had their
+avatar at the bottom of the embed and their name in the middle of it, four
+ticks under a `Critical (3)` heading read as "everything passed" when they
+meant "the threads finished", and the three criticals were one decoy-secret
+read reported once per phase. And nothing on the card reached GitHub.
+
+**Decision 55's allocation is reversed, on its own premise.** 55 gave the
+author line to Cujo because the alternative "spends the only avatar
+affordance on an identity already visible in the message header" — and that
+redundancy is exactly what the screenshot showed: `APP cujo` with its avatar
+directly above an author line saying `Cujo` with the same mark. The variable
+party is the one that needs the affordance; the fixed one is already named
+twice. So the opener takes the author line — name stripped but never escaped
+(the line renders no markdown, so a backslash is litter), avatar still built
+from the numeric account id, profile link still only for a login the rule 7
+allowlist accepts, so a bot opener keeps its icon and loses the link. The Cujo
+mark moves into the freed footer icon, and the `Opened by` field is deleted
+rather than kept beside the line: one embed does not name the same person
+twice. `clamp` only pops fields, which now has a stated consequence rather
+than a discovered one — the author line is the one identity the 6000-character
+budget can never drop.
+
+**The ping gets its own card, and rule 8 is amended rather than quietly
+broken.** A slim embed in the run's amber, titled `repo #n — <pr title>`,
+saying the critical count and that a human is blocked, with no fields: it sits
+directly under the run card, and anything it repeated from the card above it
+would be noise. The role mention stays in `content`, because a mention only
+pings from there, and the run URL is wrapped in angle brackets so Discord
+unfurls nothing beside the embed Cujo just built. The embed's title is
+stranger-authored text on a ping payload for the first time, so it passes
+through the same escaping, truncation and clamping as any card string — that
+is the amendment: rule 8's "structural only" now bounds `content` and the two
+URLs, not the whole message. A private run's ping renders with the title
+unlinked, which is the same rule its card applies (decision 57). Once the run
+leaves `blocked_pending` the same message is edited: the embed is recoloured
+to the outcome and the content says resolved, so the message that raised the
+channel's unread mark is the one that clears it.
+
+**A check says what it measured, not a tick.** Decision 65 settled this for
+the public list row; the card was the last surface showing a bare glyph, and
+it showed it under a `Critical` heading. Each check now carries its terminal
+state in words, the criticals attributed to it through `Finding.check`, and
+how long it watched — `tests done, 1 critical, 41s` — and `0 critical` is
+written out rather than implied by an absence, because an absent count next
+to a `done` would read as a pass again. Critical findings group by title and
+evidence for display, so one fact across three checks costs one line naming
+all three; the fold still records each finding, because what the review
+*recorded* is the evidence trail and what the card *shows* is a summary of
+it. Whether the fold should emit one finding carrying three checks remains
+open and is not decided here.
+
+**The card links the pull request**, beside `Head` on the identity row that
+the deleted field freed up (`Head`, `Pull request`, `Findings`). Structural,
+not derived: the repo was validated when the channel was bound and the number
+is a number — rule 8's own argument — and the repo is shape-checked
+`owner/name` in code before the link is built, the field omitted when the
+check fails, for the same reason rule 7's login check exists. On a private
+run it is the card's only live link.
+
+**A run link previews as the run.** `generateMetadata` on the run page, built
+only from fields the public serializer already serves the same anonymous
+caller: decision 65's argument, applied to the preview, disclosing nothing
+new. A private run 404s and inherits the site default, which is the correct
+answer for it, and `robots: noindex` is restated on the page because Open
+Graph is about previews, not discoverability.
+
+Rejected: **`flags: 4` to suppress the unfurl**, which suppresses every embed
+on the message including the ping's own new one, for a wire change angle
+brackets do not need. **Reusing `buildRunCard` for the ping**, which shows the
+same embed twice for every blocked run. **Fixing the metadata and leaving the
+ping as text**, which leaves a private run's alert a bare sentence dependent
+on Discord's proxy reaching `apps/web`. **A thumbnail for the opener**, rejected
+by 55 and still: a large image on every card, squeezing the fields on a narrow
+client. **Keeping both the author line and the field**, which names one person
+twice. **Deduping criticals in the fold**, which changes what the review
+records rather than what the card shows.
+
+## 87. Detonation runs even when no test suite can be inferred
+
+**Refines 15.**
+
+Decision 15 stopped the whole run when no test suite was found: "without a
+suite the regression tripwire cannot fire, so execution evidence would be
+thin". That argument holds for `tests`, `probes`, and `smoke`, all of which
+need the suite as a baseline. It does not hold for `detonation`, which
+existed in neither name nor concept when decision 15 was written.
+
+Detonation is never comparative. It reads neither `/work/base`'s test output
+nor the suite. Its gate, `manifest_changed`, is settled at setup
+independently of the test inference. Three of the four malice rules
+(`decoy_read`, `decoy_in_egress`, `wrote_sensitive`) fire on any check;
+the fourth, `egress_to_unknown_host`, needs `detonation` specifically. A
+repo with no discoverable tests is exactly the one where dependency
+detonation earns the most, and under decision 15 it was the one that got
+nothing.
+
+**The change.** The rubric now spawns `detonation` in setup step 4 whenever
+`manifest_changed` is true, regardless of whether a test command was inferred.
+`tests`, `probes`, and `smoke` are still skipped — decision 15's argument for
+those three stands. `missingCheckFindings` no longer emits `check_missing`
+for the three suite-dependent checks when none of them had a sub-agent
+thread, because those checks were inapplicable, not failed.
+
+**Consequences.** A no-suite run that touches a manifest now gets a detonation
+report and the hard rules that read it. The three `check_missing` warns that
+previously read as failures disappear when the suite was never applicable.
+`REQUIRED_CHECKS` itself is unchanged — when a suite is inferred, all three
+are still required.
+
+## 88. One results cell, and the whole row is the link
 
 Issue 96 read the board as a first-time reader would: a developer arriving
 from a review link who has never seen the sensor model. The record had a
@@ -4862,7 +4987,7 @@ which is not a link: no new tab, no status bar, and every control inside the
 row has to stop propagation. **Tooltips on `title=`**, which a keyboard never
 sees and a touch screen never shows.
 
-## 87. The key comes to the pointer
+## 89. The key comes to the pointer
 
 The chamber had no legend in it. The one sentence under the readings said
 colour is the verdict, rings are checks, dots are findings, and the full key
@@ -4891,7 +5016,7 @@ second machine gets it again and a reader who dismissed it by accident never
 does. **Swapping only the caption sentence** and leaving the readings, which
 was the cheaper design and left the diagram nowhere to go.
 
-## 88. Every star tumbles, and a live one tumbles fast
+## 90. Every star tumbles, and a live one tumbles fast
 
 Decision 82 made a live run "the one star that turns its rings", and it was
 looked at running and did not. Two reasons, and both were geometry. A ring
@@ -4926,7 +5051,7 @@ Rejected: **the group tumbling as one**, calmer and cheaper, which keeps the
 four rings' relative tilt fixed and so keeps most of the silhouette still.
 **Speed alone with the old axes**, which is what did not work.
 
-## 89. The verdict is a card; the operator's numbers fold away
+## 91. The verdict is a card; the operator's numbers fold away
 
 The run page opened on a dense paragraph mixing check summaries, finding
 counts and the review link, with the model name and rubric hash on the line
@@ -4953,7 +5078,7 @@ Rejected: **removing the cost from the public page**, which is part of what a
 run is and was only unlabelled. **The card replacing the prose**, which moves
 the reasoning into the review panel where a reader would not look for it.
 
-## 90. Latest and superseded, derived on the board
+## 92. Latest and superseded, derived on the board
 
 A pull request pushed to twice is two rows, and the record drew them alike.
 The older run's review was dismissed by the push, and a reader could act on a
@@ -4973,7 +5098,7 @@ serve one badge; the public plane adds nothing to itself for the board
 (57). It remains the right answer if the board ever needs to know about
 runs it cannot see.
 
-## 91. Nothing on the run page opens itself
+## 93. Nothing on the run page opens itself
 
 Decision 85 had a flag decide which evidence tables open, and the same rule
 grew outward: a check card opened when a block needed attention, a findings
@@ -5001,7 +5126,7 @@ at — which is the compromise that keeps the reader guessing why that one and
 not the others. **Remembering open state per reader**, which is local storage
 for a page most readers see once.
 
-## 92. Running is green
+## 94. Running is green
 
 A running run was inert grey: the core, the ring, the badge, the record's
 verdict text. The reasoning was sound — blue is a verdict in the chamber and
@@ -5029,7 +5154,7 @@ and leaves `blocked_pending` and `running` distinguished by animation alone.
 **White with bloom**, which is bright in the chamber and grey everywhere the
 page has no bloom.
 
-## 93. The gates go, depth wanders, and the light beats the star it reads
+## 95. The gates go, depth wanders, and the light beats the star it reads
 
 Three things about the chamber, looked at again after 88.
 
