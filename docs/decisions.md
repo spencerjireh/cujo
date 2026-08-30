@@ -77,6 +77,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 69. [The chamber may have air in it, and the air is two files](#69-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
 70. [Depth is time; across the volume means nothing, and says so](#70-depth-is-time-across-the-volume-means-nothing-and-says-so)
 71. [A lane says how bad, not what happened; the sentence is where the sentence fits](#71-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
+72. [An observed zero is a result; an unobserved one is not](#72-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3548,3 +3549,60 @@ one advisory note and eleven. **Anchors and `href="#"`** for lane-to-report,
 which apps/web has none of and which would put a check name in the URL bar as
 though it were a route. **Keeping the pinned bar on finished runs** as a
 consistent page footer, which is a strip of window spent on "nothing to do".
+
+## 72. An observed zero is a result; an unobserved one is not
+
+The report card is what an operator reads before blocking a merge, and it was a
+dump. Four tables with no column headers, so `185.220.101.4:443 | 3.1 KB |
+unknown` asked the reader which figure was bytes and what `unknown` was unknown
+about. Cells that rendered blank for three different reasons. And a group that
+returned nothing at all when it had no rows, so the cleanest possible check —
+the one where nothing happened — expanded into empty space, and the reader had
+to know that meant clean.
+
+**A table with a live sensor behind it says `none`; a table with no sensor
+behind it says nothing.** That is the whole rule, and it comes from the block
+`sandbox/cujo_sniff/report.py` writes for exactly this purpose: `sensors` exists
+so that "not observed" and "not observable" stop looking alike. The web side had
+been parsing it and rendering it as four grey dots. Now `groupState` reads it per
+table — the proxy behind egress, the audit hook behind files read and
+subprocesses, the filesystem diff behind the change list — and a table is either
+`measured` (rows, or the word `none`), `blind` (`not measured`, and what the
+sandbox said about the sensor), or `unknown`, which behaves exactly as the page
+always has, because a report that never said cannot be made to claim either.
+
+**Coverage is a sentence, once per block.** "All four sensors were watching." /
+"Nothing tripped, but the proxy was not running, so nothing outbound was
+measured." It replaces the dotted strip rather than joining it: the strip said
+the same thing in a form that read as decoration, and the four `detail` strings
+it carried are reference, so they moved under the raw-report disclosure. This is
+a qualification of one block's own tables, not a second alarm, so decision 20's
+rule — one blind interval must not be *counted* twice — is intact. Nothing here
+is counted.
+
+**An alarm's colour comes from whether a hard rule reads it.** The four flags
+`apps/cujo/src/review/findings.ts` turns into findings are all `critical` there;
+`wrote_outside_workspace` is read by no rule, because a build that writes to
+`/tmp` is ordinary. It was rendered in the same red as the other four, which is
+the page accusing the code of something Cujo's own rules do not.
+
+The rest is discipline. Named columns, shared between the header and the rows so
+they cannot drift. `—` where a cell was blank, and `in workspace` where the
+absence of "outside workspace" was doing the work. `refused ×3` where a row the
+proxy blocked was indistinguishable from a connection that moved no data — the
+count was on the wire from `merge_egress` and this side dropped it. A command
+that wraps rather than truncates, because the tail is the answer. Evidence set
+to its own measure, narrower than the page column, since a full-width table put
+seven hundred pixels between a host and its byte count. And one disclosure
+pattern: the raw report is a Collapsible with a chevron, like the card above it
+and the provenance section below it, not a native `<details>`.
+
+Rejected: **plain-language headings** ("Where it called out" for egress), which
+reads better cold and then disagrees with the finding, the review comment and the
+sandbox contract, all of which say `egress`. One vocabulary end to end is worth
+more than one easier heading. **Keeping the dotted strip beside the new
+sentence**, which is the same fact twice in four centimetres. **Rendering `none`
+for a report with no health block**, which would be this page claiming an
+observation no sandbox made. **A left rule down the open card** to tie the
+evidence to its row, which at hairline weight in a view that is already all
+hairlines is one more line, not a device.
