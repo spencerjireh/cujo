@@ -101,3 +101,45 @@ export const Truncated: Story = {
     }),
   },
 };
+
+/** A per-run block with a captured probe script. */
+export const WithScript: Story = {
+  args: {
+    block: blockFrom({
+      argv: ["python3", "probe_secrets.py"],
+      exit: 0,
+      duration_s: 0.42,
+      stdout_tail: "PASS",
+      stderr_tail: "",
+      script_content: [
+        "import os, pathlib",
+        "",
+        'cred = pathlib.Path.home() / ".aws" / "credentials"',
+        "if cred.exists():",
+        '    print("FAIL: credential file present")',
+        "else:",
+        '    print("PASS")',
+      ].join("\n"),
+      egress: [],
+      files_read: [{ path: "~/.aws/credentials", sensitive: true }],
+      fs_changes: [],
+      subprocesses: [],
+      secret_probe: { decoy_read: false, decoy_in_egress: null },
+      sensors: {
+        proxy: { armed: true, detail: "port 8899" },
+        decoy: { armed: true, detail: "inotify" },
+        audit: { armed: true, detail: "42 rows" },
+        fs_diff: { armed: true, detail: "3184 paths" },
+      },
+      truncated: {
+        stdout_tail: false,
+        stderr_tail: false,
+        files_read: false,
+        snapshot: false,
+        sensor_logs: false,
+        script_content: false,
+      },
+      derived: { egress_to_unknown_host: false },
+    }),
+  },
+};

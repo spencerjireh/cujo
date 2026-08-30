@@ -73,6 +73,47 @@ describe("parseReport", () => {
     expect(parsed.blocks[0]?.subprocesses).toHaveLength(1);
   });
 
+  it("extracts script_content from a run block", () => {
+    const parsed = parseReport({
+      runs: [
+        {
+          argv: ["python3", "probe.py"],
+          exit: 0,
+          duration_s: 1.2,
+          stdout_tail: "ok",
+          stderr_tail: "",
+          script_content: "print('hello')",
+          egress: [],
+          truncated: { script_content: false, sensor_logs: false },
+        },
+      ],
+    });
+    expect(parsed.kind).toBe("sensor");
+    if (parsed.kind !== "sensor") return;
+    const run = parsed.blocks[0];
+    expect(run?.command?.script_content).toBe("print('hello')");
+    expect(run?.command?.argv).toEqual(["python3", "probe.py"]);
+    expect(run?.truncated?.script_content).toBe(false);
+    expect(run?.truncated?.sensor_logs).toBe(false);
+  });
+
+  it("sets command to null when argv is absent", () => {
+    const parsed = parseReport({ egress: [{ host: "a.example" }] });
+    expect(parsed.kind).toBe("sensor");
+    if (parsed.kind !== "sensor") return;
+    expect(parsed.blocks[0]?.command).toBeNull();
+  });
+
+  it("parses truncated sensor_logs and script_content flags", () => {
+    const parsed = parseReport({
+      egress: [],
+      truncated: { stdout_tail: false, sensor_logs: true, script_content: true },
+    });
+    if (parsed.kind !== "sensor") throw new Error("expected sensor");
+    expect(parsed.blocks[0]?.truncated?.sensor_logs).toBe(true);
+    expect(parsed.blocks[0]?.truncated?.script_content).toBe(true);
+  });
+
   it("survives a deeply nested and circular-free garbage shape", () => {
     expect(() => parseReport({ runs: [null, 3, "x", { egress: "no" }] })).not.toThrow();
   });
