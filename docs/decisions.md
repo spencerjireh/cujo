@@ -4495,6 +4495,9 @@ across and a hover that had to find it would find nothing, so every node
 carries an invisible sphere the raycaster is given instead; the raycaster does
 not consult `visible`, and the sphere writes no colour and no depth.
 
+**Amended by 88**, which has every star's rings tumble slowly and a live one's
+fast: the precession about y and the spin about a ring's normal were invisible.
+
 The satellites go round, and a live run's rings precess. Neither carries
 anything; both are decoration by the rule that admits the haze and the glow,
 and what they show is the shape, which is entirely measurement. Under reduced
@@ -4815,3 +4818,148 @@ headings a block and three blocks a card — the chevron says it is a control
 without putting a band of colour under every second line. **Collapsing the
 blocks too**, a third level of disclosure inside the second, which buys a
 scroll and costs a reader the ability to see what a card holds.
+
+## 86. One results cell, and the whole row is the link
+
+Issue 96 read the board as a first-time reader would: a developer arriving
+from a review link who has never seen the sensor model. The record had a
+"Checks" column of four squares and a "Found" column of a three-tone bar, and
+nothing on the page said what either meant or that the second was produced by
+the first. And the row was a link only in its first cell, so a click on the
+verdict to see why it was that verdict did nothing.
+
+**The two columns are one cell.** The four squares, the severity bar, and the
+counts spelled out beside it in their tones — `2c 3w 1i` — read as one
+sentence: these sensors ran, this is what they found. Each square is a tooltip
+naming its check, how it ended and how long it took, and the cell carries a
+disclosure that opens a second row with all four lines at once. The tooltip is
+Radix, already in the tree and unused until now, and its trigger is a button so
+a keyboard can reach it. The column sorts by what was found, rank by rank, as
+"Found" did (`compareFindings`).
+
+**The row is the link.** Still one anchor — the first cell's — stretched over
+the row with a pseudo-element, so a keyboard walk down the record stays one
+stop per run and a middle click still opens a tab. The controls in the results
+cell sit above it. A row that is a link needs a plain sentence saying so, and
+the record gains one under its title: "Every pull request Cujo has reviewed,
+newest first. Click a row for the run." The title itself stays "The record":
+the instrument vocabulary is the product's voice, and one panel renamed to
+"Review history" would be the one panel not speaking it.
+
+Rejected: **a prose summary per row** ("4 checks — 8 findings: 2 crit, 3
+warn"), which the issue proposed and which trades a scannable column for a
+sentence a reader has to parse thirty times. **`router.push` on the row**,
+which is not a link: no new tab, no status bar, and every control inside the
+row has to stop propagation. **Tooltips on `title=`**, which a keyboard never
+sees and a touch screen never shows.
+
+## 87. The key comes to the pointer
+
+The chamber had no legend in it. The one sentence under the readings said
+colour is the verdict, rings are checks, dots are findings, and the full key
+was a screen away under the record (83). A reader with a star under the
+pointer had to scroll to learn what its parts were and scroll back to look.
+
+**While a specimen is hovered, the readings become the key.** The hero's
+bottom block holds both, stacked on one grid cell, and the focus store the
+chamber and the record already write decides which is visible: hover a star,
+or a row, and the five readings fade out and the diagram with its four lines
+fades in, two hundred milliseconds, in the same place. The same `PARTS` and the
+same diagram as the key under the record, so the two cannot drift. Only on a
+device whose pointer can hover — on a phone there is no chamber and a key that
+appeared on a tap would replace the readings for nothing — and only while the
+scene is live. Reduced motion swaps without the fade.
+
+**The readings are reordered** while they are being replaced: findings with
+the critical count first, live now second, then the record's size. A page with
+four criticals on it opened with "1 repository".
+
+Rejected: **a permanent legend in the chamber corner**, a fourth block of
+type on a frame that already has three, saying what the hover now says at the
+moment it is wanted. **A dismissable first-visit overlay**, which is the
+template answer and is remembered in local storage, which means a reader on a
+second machine gets it again and a reader who dismissed it by accident never
+does. **Swapping only the caption sentence** and leaving the readings, which
+was the cheaper design and left the diagram nowhere to go.
+
+## 88. Every star tumbles, and a live one tumbles fast
+
+Decision 82 made a live run "the one star that turns its rings", and it was
+looked at running and did not. Two reasons, and both were geometry. A ring
+spun about its own normal is a circle turning into itself: on a full ring
+there is nothing to see, and on a split one only the gap crawls. And the
+group precession was about y, which on the run page is the axis the holder
+already turns about, so the live star merely turned faster.
+
+**The rings tumble about an axis in their own plane**, alternating direction
+ring by ring, so the plane swings and the whole system visibly moves. Every
+star does this, slowly — a turn in forty-eight seconds — and a live run does
+it in six, with its satellites going round four times faster than at rest.
+Speed is the live signal now, rather than motion against stillness. This
+**amends 82**: the resting star is no longer still. What survives is the rule
+that none of it carries anything; the shape is the measurement and the
+motion is what admits the haze and the glow (80).
+
+**The star field comes back to the record.** The field 82 spread through a
+volume twenty-two units deep sat mostly behind the fog's far plane — a camera
+near z 4 and a fog ending at twelve puts everything past z -7.5 in the dark,
+and four motes in ten were there — and the rest so thin it read as nothing.
+The box now hugs the galaxy, the points are brighter, and the drift is a
+tenth of a unit rather than a sixteenth, which against a field this size is
+the difference between air and a still picture.
+
+**The name comes back beside the mark.** The bar went (the commit that
+removed it says why) and took the wordmark with it. A mark alone reads as an
+icon, and a reader arriving from a review has not met the icon; `cujo` sits
+beside it again, in the corner, on both pages.
+
+Rejected: **the group tumbling as one**, calmer and cheaper, which keeps the
+four rings' relative tilt fixed and so keeps most of the silhouette still.
+**Speed alone with the old axes**, which is what did not work.
+
+## 89. The verdict is a card; the operator's numbers fold away
+
+The run page opened on a dense paragraph mixing check summaries, finding
+counts and the review link, with the model name and rubric hash on the line
+above it. A PR author wants three things — what was decided, how bad, where
+the review is — and had to read to find them.
+
+**A verdict card above the prose.** The status badge at display size, the
+severity counts as chips in their tones with `0 critical` said outright, and
+the link to the review on GitHub. The generated summary stays beneath it as
+what it always was: the reasoning, for the reader who wants it. While a run is
+live the card says "still running" rather than counting nothing.
+
+**Operator detail is one fold.** Model, rubric hash, session and turn ids were
+already in a collapsed block; it is now titled "Operator details" and the
+header no longer repeats the first two. Token counts and cost leave the check
+card's trigger row for a plainly labelled line inside it — "Model input 270.2k
+tokens" — because a number with no unit on a public page is a number nobody
+can read. Findings group by the check that produced them, groups with a
+critical or a warn open and info-only groups closed, with severity chips to
+filter; the timeline gains the two-line legend the solid/light split always
+needed; the review panel opens on a four-row table of what ran.
+
+Rejected: **removing the cost from the public page**, which is part of what a
+run is and was only unlabelled. **The card replacing the prose**, which moves
+the reasoning into the review panel where a reader would not look for it.
+
+## 90. Latest and superseded, derived on the board
+
+A pull request pushed to twice is two rows, and the record drew them alike.
+The older run's review was dismissed by the push, and a reader could act on a
+verdict GitHub no longer shows.
+
+**The newest run per pull request is marked `latest`; the others are marked
+`superseded` and dimmed.** Derived on the client from `repo`, `pr_number` and
+`created_at` (`lib/board/supersede.ts`), over every run on the board and not
+the filtered ones, and said only where it distinguishes: a pull request with
+one run is neither. This is a claim about the runs on this board — a run
+older than the list's window is invisible to it — which is the right
+blindness for a record.
+
+Rejected: **a field on the public API**, which is accurate about dismissed
+reviews and is a change to `serialize.ts` and its classification test to
+serve one badge; the public plane adds nothing to itself for the board
+(57). It remains the right answer if the board ever needs to know about
+runs it cannot see.

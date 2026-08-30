@@ -31,8 +31,12 @@ import { SpecimenDiagram } from "./SpecimenDiagram";
  * a reader meets those words — on a badge and in a row.
  */
 
-/** Named as the hero's caption names them, so the two read as one sentence. */
-const PARTS = [
+/**
+ * Named as the hero's caption names them, so the two read as one sentence.
+ * Shared with `SpecimenKey`, the compact key the hero shows while a specimen is
+ * hovered, so the two keys cannot drift apart.
+ */
+export const PARTS = [
   {
     label: "verdict",
     text: "The core. Bigger the worse the finding.",

@@ -194,15 +194,24 @@ function Sensors({ rows, empty }: { rows: SensorRow[]; empty: boolean }) {
                     note above cannot carry it: that counts runs with no digest
                     at all, and a check can also be present with no duration. A
                     median over one run and one over twenty-six are different
-                    claims, and only this says which. */}
+                    claims, and only this says which. Said as "over N runs"
+                    and not "n=N": the reader is a developer, not a
+                    statistician. A check nobody has seen run says "not run";
+                    one seen but never timed says so. */}
                 <span className="text-fg-muted">
                   {row.medianMs === null ? (
-                    "not timed"
+                    row.observed === 0 ? (
+                      "not run"
+                    ) : (
+                      "not timed"
+                    )
                   ) : (
                     <>
                       {duration(new Date(0).toISOString(), new Date(row.medianMs).toISOString()) ??
                         "not timed"}
-                      <span className="ml-2 opacity-70">n={row.measured}</span>
+                      <span className="ml-2 opacity-70">
+                        over {row.measured} {row.measured === 1 ? "run" : "runs"}
+                      </span>
                     </>
                   )}
                 </span>

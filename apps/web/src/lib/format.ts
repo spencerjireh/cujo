@@ -120,3 +120,22 @@ export function avatarUrl(authorId?: number | null, size = 40): string | null {
     ? `https://avatars.githubusercontent.com/u/${authorId}?s=${size * 2}`
     : null;
 }
+
+// Signal numbers as `subprocess` reports them: a negative exit is the signal
+// that ended the process. Only SIGTERM is marked expected, because the smoke
+// check stops the server it booted with SIGTERM, so `-15` on that command is
+// the check ending the run and not the run dying. A SIGKILL or SIGINT is
+// nothing the check did on purpose.
+const SIGNALS: Record<number, string> = {
+  15: "SIGTERM, expected",
+  9: "SIGKILL",
+  2: "SIGINT",
+};
+
+/** An exit code in words a PR author can read without knowing signal numbers. */
+export function describeExit(code: number | null | undefined): string {
+  if (code === null || code === undefined) return "no exit";
+  if (code >= 0) return `exit ${code}`;
+  const signal = SIGNALS[-code] ?? `signal ${-code}`;
+  return `exit ${code} (${signal})`;
+}

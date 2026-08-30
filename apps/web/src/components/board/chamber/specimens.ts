@@ -16,11 +16,13 @@
  * its colour is how the check ended. Findings are satellites on an orbit
  * outside the rings, worst first.
  *
- * A live run is the one thing here that moves on its own: its rings turn in
- * their planes so the bright arcs circulate, its satellites go round faster,
- * the whole system precesses, and it emits a slow pulse. A finished run only
- * turns its satellites. Nothing here breathes: a scale that pulsed on its own
- * was jitter, and the sweep already lifts a star when it reads it.
+ * Every star moves a little: its satellites go round and its rings tumble on
+ * axes in their own planes, slowly. A live run is the one that moves fast —
+ * satellites four times and rings eight times the resting rate — and the one
+ * that emits a slow pulse. Speed is the live signal, and it is visible because
+ * a tumble swings the plane where a spin about the normal swung nothing.
+ * Nothing here breathes: a scale that pulsed on its own was jitter, and the
+ * sweep already lifts a star when it reads it.
  *
  * What separates the two callers is a rig, not a flag named after the caller:
  * the board asks for the live pulse and the glow, the run page for the pulse
@@ -87,10 +89,14 @@ const SATELLITE_RADIUS = RING_MAX * 0.045;
  */
 const SATELLITE_TURN_SECONDS = 40;
 const SATELLITE_TURN_LIVE_SECONDS = 10;
-/** How long a live run's rings take to precess once. Decoration; carries nothing. */
-const PRECESS_SECONDS = 8;
-/** How long a live run's ring takes to turn once in its own plane. */
-const RING_SPIN_SECONDS = 6;
+/**
+ * How long a ring takes to tumble once about an axis lying in its own plane,
+ * at rest and on a live run. A ring spun about its own normal is a circle
+ * turning into itself, which no eye can see; a tumble swings the plane, which
+ * every eye can. Decoration; carries nothing.
+ */
+const RING_TUMBLE_SECONDS = 48;
+const RING_TUMBLE_LIVE_SECONDS = 6;
 /** How often a live run emits a pulse. */
 const PULSE_SECONDS = 4;
 
@@ -115,8 +121,9 @@ interface SpecimenOrbit {
   /** Oriented onto the ring's plane. */
   holder: Group;
   /**
-   * Inside the holder, and what a live run turns. A rotation written to the
-   * holder itself would replace the orientation it was given.
+   * Inside the holder, and what tumbles. A rotation written to the holder
+   * itself would replace the orientation it was given; written here, on x,
+   * it is a swing about an axis lying in the ring's plane.
    */
   spin: Group;
   /** The sandbox's share, always drawn. */
@@ -146,7 +153,7 @@ export interface SpecimenNode {
   /** Invisible, and what the raycaster is given. */
   pick: Mesh;
   glow: Sprite | null;
-  /** The four ring planes, together, so a live run can precess them as one. */
+  /** The four ring planes, together. Never rotated itself: each ring tumbles in its holder. */
   rings: Group;
   orbits: SpecimenOrbit[];
   /** One per finding, on the outer orbit. Turned as a group. */
@@ -460,18 +467,22 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
 
   if (!reducedMotion) {
     const live = node.spec.live;
-    // The satellites go round, and a live run's rings turn in their planes and
-    // precess as a group. None of it carries anything: all of it is decoration
-    // by the rule that admits the haze and the glow, and what it shows is the
-    // shape, which is entirely measurement. A live run is the only star that
-    // turns its rings, which is what makes it the one star a reader can find.
+    // The satellites go round, and the rings tumble — slowly at rest, eight
+    // times faster on a live run. None of it carries anything: all of it is
+    // decoration by the rule that admits the haze and the glow, and what it
+    // shows is the shape, which is entirely measurement. Speed is the live
+    // signal, and it is a signal a reader can see: the tumble is about an axis
+    // in the ring's plane, so the plane itself swings. It used to be a turn
+    // about the ring's normal, which on a full ring is no motion at all, plus
+    // a precession on y that on the run page merely sped up the holder's own
+    // y turn.
     const turn = live ? SATELLITE_TURN_LIVE_SECONDS : SATELLITE_TURN_SECONDS;
     node.satellites.rotation.z = (elapsed / turn) * 2 * Math.PI;
-    node.rings.rotation.y = live ? (elapsed / PRECESS_SECONDS) * 2 * Math.PI : 0;
+    const tumble = live ? RING_TUMBLE_LIVE_SECONDS : RING_TUMBLE_SECONDS;
     node.orbits.forEach((orbit, i) => {
       // Alternate directions, so the system is rings and not a wheel.
       const direction = i % 2 === 0 ? 1 : -1;
-      orbit.spin.rotation.z = live ? direction * (elapsed / RING_SPIN_SECONDS) * 2 * Math.PI : 0;
+      orbit.spin.rotation.x = direction * (elapsed / tumble) * 2 * Math.PI;
     });
 
     // Expansion and fade, restarting: a pulse leaving a run that is still
@@ -487,8 +498,7 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
     // Defined resting values rather than whatever the last frame left: this is
     // the frame reduced motion actually sees.
     node.satellites.rotation.z = 0;
-    node.rings.rotation.y = 0;
-    for (const orbit of node.orbits) orbit.spin.rotation.z = 0;
+    for (const orbit of node.orbits) orbit.spin.rotation.x = 0;
     if (node.ring) {
       node.ring.scale.setScalar(1);
       (node.ring.material as MeshBasicMaterial).opacity = 0.18 * strength;
