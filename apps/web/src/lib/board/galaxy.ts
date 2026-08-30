@@ -25,11 +25,11 @@ import { LAYER_COUNT, RECORD_X, layerZ } from "./chamber-layout";
 import type { Vec3 } from "./orbit";
 
 /**
- * How many runs each layer holds, newest first: three large stars in front
- * and the rest denser behind, which is the near-to-far gradient a galaxy has
- * and a corridor of equal slots does not.
+ * How many runs each layer holds, newest first: six large stars in front and
+ * the rest denser behind, which is the near-to-far gradient a galaxy has and
+ * a corridor of equal slots does not.
  */
-export const LAYER_CAPACITY: readonly number[] = [3, 5, 6, 8, 8];
+export const LAYER_CAPACITY: readonly number[] = [6, 10, 14];
 
 /** How many runs the chamber draws. The record below still lists them all. */
 export const CAPACITY = LAYER_CAPACITY.reduce((sum, n) => sum + n, 0);
@@ -42,14 +42,14 @@ export const CAPACITY = LAYER_CAPACITY.reduce((sum, n) => sum + n, 0);
  * lands exactly on `minX` for that layer. Stated as two lists rather than a
  * formula so a reader can see the five numbers the frame was composed with.
  */
-const BAND_CENTRE_X: readonly number[] = [2.4, 2.6, 2.65, 2.7, 2.75];
-const BAND_RADIUS: readonly number[] = [0.75, 1.2, 1.5, 1.9, 2.2];
+const BAND_CENTRE_X: readonly number[] = [2.4, 2.65, 2.75];
+const BAND_RADIUS: readonly number[] = [0.9, 1.7, 2.4];
 /** Bands are discs seen from above the plane: wider than tall. */
 export const BAND_FLATTEN = 0.66;
 
 /** How far a run may jitter off its slot: in angle, and as a radius factor. */
-const JITTER_ANGLE = (6 * Math.PI) / 180;
-const JITTER_RADIUS = 0.12;
+const JITTER_ANGLE = (3 * Math.PI) / 180;
+const JITTER_RADIUS = 0.1;
 /** The widest a jittered radius can be, as a factor. What the band's edge uses. */
 export const BAND_REACH = 1 + JITTER_RADIUS;
 
@@ -58,7 +58,7 @@ export const BAND_REACH = 1 + JITTER_RADIUS;
  * next in perspective and read as spokes.
  */
 function layerTurn(layer: number): number {
-  return layer * 0.65 + 0.3;
+  return layer * 0.9 + 0.3;
 }
 
 export interface Band {

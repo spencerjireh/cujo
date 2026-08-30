@@ -26,7 +26,7 @@ const HOME = { x: -0.9, y: 0.35, z: 4.2 } as const;
  * enough down that the recession stays in the right half of the frame rather
  * than climbing into the headline.
  */
-const AIM = { x: RECORD_X + 0.5, y: 0.0, z: -3.4 } as const;
+const AIM = { x: RECORD_X + 0.5, y: 0.0, z: -2.6 } as const;
 
 /** How far the camera may be swung by a drag. A peek, not an orbit. */
 export const YAW_LIMIT = 0.26;

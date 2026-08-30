@@ -14,10 +14,11 @@
  * unlit materials on a near-black ground, has no way to say "there is space
  * here" — the fog resolves into a flat colour and the record reads as a
  * picture cut out of the page. A graded backdrop gives the fog something to
- * become, the shafts give the sweep something to move through, and the star
- * field — far more motes than the record has stars, reaching well past its
- * back layer and off every edge of the frame — is what makes the five layers
- * a galaxy rather than five rings of objects in the dark.
+ * become, the shafts give the sweep something to move through, the star field
+ * — far more motes than the record has stars, reaching well past its back
+ * layer and off every edge of the frame — is what makes the layers a galaxy
+ * rather than rings of objects in the dark, and the lattice behind it all is
+ * the grid a drawing has: lines to a vanishing point, which is depth.
  */
 
 import {
@@ -40,6 +41,9 @@ import {
   Points,
   PointsMaterial,
 } from "three";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { ChamberPalette } from "./palette";
 
 /**
@@ -58,6 +62,24 @@ const SHAFT_REACH = 3.4;
 const BACKDROP_DISTANCE = 40;
 
 /**
+ * The lattice: a wireframe volume round the galaxy, with rails down its
+ * length and ribs across its walls at a fixed pitch.
+ *
+ * It was the room, and it said something — one rib per slot, one tick per
+ * occupied slot. It says nothing now and is here for the reason a drawing has
+ * a grid behind it: lines running to a vanishing point are the cheapest depth
+ * there is, and a field of stars in the dark with nothing behind it reads as
+ * flat. The pitch is a fixed number that carries no fact, which is exactly why
+ * this is in the decorative file and not in `room.ts`.
+ */
+const LATTICE = { width: 7.4, height: 4.4, front: 5.5, back: -9.5 } as const;
+/** Rails across the floor and ceiling, and ribs down the walls, in scene units. */
+const LATTICE_RAIL_PITCH = 1.85;
+const LATTICE_RIB_PITCH = 1.2;
+const LATTICE_WIDTH_PX = 1.2;
+const LATTICE_OPACITY = 0.5;
+
+/**
  * The volume the stars fill. Far larger than the record on every axis, on
  * purpose: an edge of the field inside the frame reads as the field ending,
  * and a galaxy does not end where the record does.
@@ -72,12 +94,14 @@ const STAR_BOX: FieldBox = {
 };
 
 export interface Atmosphere {
-  /** The haze and the stars. Added to the scene. */
+  /** The haze, the stars and the lattice. Added to the scene. */
   group: Group;
   /** The backdrop. Parented to the camera, so the composer adds it there. */
   backdrop: Mesh;
   /** Fit the backdrop to the frame it has to fill. */
   setFrame(fovDeg: number, aspect: number): void;
+  /** CSS pixels, which is what the lattice's line width is measured in. */
+  setResolution(width: number, height: number): void;
   /** Where the sweep is, so the haze it passes through brightens. */
   setSweep(z: number | null): void;
   update(elapsed: number, reducedMotion: boolean): void;
@@ -149,6 +173,54 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
     group.add(mesh);
   }
 
+  // --- the lattice ----------------------------------------------------------
+
+  const latticePoints: number[] = [];
+  {
+    const halfW = LATTICE.width / 2;
+    const halfH = LATTICE.height / 2;
+    const cx = RECORD_X + 0.9;
+    const { front, back } = LATTICE;
+    // The twelve edges of the volume.
+    for (const [y, z0, z1] of [
+      [-halfH, back, front],
+      [halfH, back, front],
+    ] as const) {
+      latticePoints.push(cx - halfW, y, z0, cx - halfW, y, z1);
+      latticePoints.push(cx + halfW, y, z0, cx + halfW, y, z1);
+    }
+    for (const z of [front, back]) {
+      latticePoints.push(cx - halfW, -halfH, z, cx + halfW, -halfH, z);
+      latticePoints.push(cx - halfW, halfH, z, cx + halfW, halfH, z);
+      latticePoints.push(cx - halfW, -halfH, z, cx - halfW, halfH, z);
+      latticePoints.push(cx + halfW, -halfH, z, cx + halfW, halfH, z);
+    }
+    // Rails down the floor and the ceiling.
+    for (let x = cx - halfW + LATTICE_RAIL_PITCH; x < cx + halfW; x += LATTICE_RAIL_PITCH) {
+      latticePoints.push(x, -halfH, back, x, -halfH, front);
+      latticePoints.push(x, halfH, back, x, halfH, front);
+    }
+    // Ribs across the walls.
+    for (let z = front - LATTICE_RIB_PITCH; z > back; z -= LATTICE_RIB_PITCH) {
+      latticePoints.push(cx - halfW, -halfH, z, cx - halfW, halfH, z);
+      latticePoints.push(cx + halfW, -halfH, z, cx + halfW, halfH, z);
+    }
+  }
+  const latticeMaterial = new LineMaterial({
+    color: palette.line.clone().multiplyScalar(3.6).getHex(),
+    linewidth: LATTICE_WIDTH_PX,
+    transparent: true,
+    opacity: LATTICE_OPACITY,
+    // Unfogged, unlike everything that carries a fact: the lattice is almost
+    // entirely behind the fog's near plane, and fogged it is not there at all.
+    // It is a grid, and a grid is the same grey at the back of the page.
+    fog: false,
+    dashed: false,
+  });
+  const latticeGeometry = new LineSegmentsGeometry();
+  latticeGeometry.setPositions(latticePoints);
+  group.add(new LineSegments2(latticeGeometry, latticeMaterial));
+
   // --- the stars ------------------------------------------------------------
 
   const fields = STARS.map((layer) => {
@@ -179,6 +251,10 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
     backdrop.scale.set(width, height, 1);
   }
 
+  function setResolution(width: number, height: number): void {
+    latticeMaterial.resolution.set(width, height);
+  }
+
   function setSweep(z: number | null): void {
     sweepZ = z;
   }
@@ -205,6 +281,8 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
     shaftGeometry.dispose();
     for (const shaft of shafts) shaft.material.dispose();
     shafts.length = 0;
+    latticeGeometry.dispose();
+    latticeMaterial.dispose();
     for (const field of fields) {
       field.geometry.dispose();
       field.material.dispose();
@@ -213,5 +291,5 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
     group.removeFromParent();
   }
 
-  return { group, backdrop, setFrame, setSweep, update, dispose };
+  return { group, backdrop, setFrame, setResolution, setSweep, update, dispose };
 }
