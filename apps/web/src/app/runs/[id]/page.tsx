@@ -2,6 +2,7 @@ import { HomeMark } from "@/components/brand/HomeMark";
 import { RunView } from "@/components/run/RunView";
 import { ApiError } from "@/lib/api/client";
 import { runOptions } from "@/lib/api/queries";
+import { STATUS_LINE } from "@/lib/api/status-line";
 import type { Run } from "@/lib/api/types";
 import { getQueryClient } from "@/lib/query-client";
 import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
@@ -9,23 +10,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-
-/**
- * One line per status, for the room a link preview has. The card builder in
- * `apps/cujo` has its own; this copy exists for the same reason every wire
- * type here is hand-written — `@cujo/cujo` is not an importable dependency of
- * this app.
- */
-const STATUS_LINE: Record<Run["status"], string> = {
-  running: "Review running: tests, probes, a smoke boot, and dependency detonation.",
-  clean: "No critical finding. The advisory review posted.",
-  blocked_pending: "Blocked — waiting for a human.",
-  blocked_unattended: "Blocking review posted; no human was asked.",
-  blocked_posted: "Blocking review posted as REQUEST_CHANGES.",
-  denied: "The block was rejected. Nothing was posted.",
-  error: "The run ended in error.",
-  superseded: "Replaced by a newer commit on this PR.",
-};
 
 /**
  * What a run link says about itself, wherever it is pasted (decision 86).
