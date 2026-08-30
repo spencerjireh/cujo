@@ -37,6 +37,18 @@ export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): 
 }
 
 /**
+ * The pull request a run is about, as a URL. Structural, not derived: the repo
+ * reached the store through a GitHub event and was validated again when the
+ * channel was bound, and the number is a number — the same argument rule 8
+ * makes for Cujo's own link. On a private run's card it is the only live link
+ * there is, because the title does not point at a page that run has none of
+ * (decision 57).
+ */
+export function pullRequestUrl(run: { repo: string; prNumber: number }): string {
+  return `https://github.com/${run.repo}/pull/${run.prNumber}`;
+}
+
+/**
  * The run id to put in a pull request review, or `""` when the review should
  * carry no link at all (decision 36).
  *

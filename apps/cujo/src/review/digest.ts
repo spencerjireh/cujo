@@ -24,7 +24,13 @@ function stamp(value: string | null): number {
   return value ? Date.parse(value) : Number.NaN;
 }
 
-function checkMs(check: CheckState): number | null {
+/**
+ * One check's own wall time, or null while it runs and on a check whose stamps
+ * are missing or backwards. Exported because the Discord card's Checks field
+ * says the same thing the digest does (decision 76): what the check measured,
+ * not a verdict glyph.
+ */
+export function checkMs(check: CheckState): number | null {
   const started = stamp(check.startedAt);
   const ended = stamp(check.endedAt);
   if (!Number.isFinite(started) || !Number.isFinite(ended)) return null;
