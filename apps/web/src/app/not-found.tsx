@@ -2,9 +2,11 @@ import Link from "next/link";
 
 /**
  * The answer for a path the board does not serve, which since decision 57 is
- * every path but two. Next renders this inside the root layout, so a link left
- * over from the deleted operator plane keeps the header and a way back rather
- * than dropping the reader on the framework's own bare 404.
+ * every path but two. The link below is the whole point of the page: a reader
+ * who followed a stale link gets a way back rather than the framework's own
+ * bare 404 — and it carries its own, because the header that used to hold one
+ * is gone and the mark that replaced it is placed by pages that have a ground
+ * for it.
  */
 export default function NotFound() {
   return (

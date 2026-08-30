@@ -1,3 +1,4 @@
+import { HomeMark } from "@/components/brand/HomeMark";
 import { RunView } from "@/components/run/RunView";
 import { ApiError } from "@/lib/api/client";
 import { runOptions } from "@/lib/api/queries";
@@ -26,9 +27,15 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
       {/* The column the layout used to impose on every page. It stayed with the
-          pages that want it when the board took the full window. */}
-      <div className="mx-auto max-w-5xl px-4 py-8">
-        <RunView id={id} />
+          pages that want it when the board took the full window. `relative`
+          because the mark is positioned against it: on this page the mark sits
+          on `--bg` and follows the reader's theme, which is the other half of
+          the reason it is placed per page rather than by the layout. */}
+      <div className="relative mx-auto max-w-5xl px-4 py-8">
+        <HomeMark />
+        <div className="pt-10">
+          <RunView id={id} />
+        </div>
       </div>
     </HydrationBoundary>
   );

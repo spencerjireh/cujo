@@ -4,6 +4,7 @@ import type { Run } from "@/lib/api/types";
 import { setupWindow } from "@/lib/board/setup";
 import { avatarUrl, duration, prUrl, profileUrl, shortSha } from "@/lib/format";
 import Image from "next/image";
+import Link from "next/link";
 
 const AVATAR = 20;
 
@@ -63,7 +64,15 @@ export function RunHeader({ run }: { run: Run }) {
   const window = setupWindow(run.setup);
   return (
     <header className="mb-8">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      {/* The mark in the corner scrolls away with the page, and most readers
+          arrive here from a link in a GitHub review rather than from the board
+          — so without this a reader who has scrolled has no route to the rest
+          of the runs at all. A breadcrumb rather than chrome: it sits where the
+          eye already is, and costs the board nothing. */}
+      <Link href="/" className="font-mono text-xs text-fg-muted no-underline hover:text-accent">
+        ← all runs
+      </Link>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         {/* The pull request's own title when there is one, and `repo #N` when
             there is not — the shape every run had before titles were stored. */}
         <h1 className="wrap-anywhere text-2xl">
