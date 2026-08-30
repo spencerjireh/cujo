@@ -27,7 +27,7 @@ const STATUS_LINE: Record<Run["status"], string> = {
 };
 
 /**
- * What a run link says about itself, wherever it is pasted (decision 76).
+ * What a run link says about itself, wherever it is pasted (decision 78).
  *
  * Built only from fields the anonymous caller can already read from this very
  * URL — the title, the status and the findings the detail route serves in full

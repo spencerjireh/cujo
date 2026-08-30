@@ -31,7 +31,7 @@ export const LIMITS = {
 } as const;
 
 /**
- * Who a card names, and where (decision 76, reversing 55's allocation).
+ * Who a card names, and where (decision 78, reversing 55's allocation).
  *
  * The person who opened the pull request takes the author line — the one slot
  * on an embed that renders an icon in front of text, which is exactly the
@@ -195,15 +195,18 @@ function formatMs(ms: number | null): string {
   if (ms < 1000) return `${ms}ms`;
   const seconds = ms / 1000;
   if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, "")}s`;
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m${String(Math.round(seconds % 60)).padStart(2, "0")}s`;
+  // Rounded once, as a whole, and only then split: flooring the minutes and
+  // rounding the remainder independently renders 119.6s as `1m60s`, a
+  // duration nobody ran for.
+  const whole = Math.round(seconds);
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}m${String(whole % 60).padStart(2, "0")}s`;
 }
 
 /**
  * What each check measured, not a verdict. A tick here always meant "the
  * thread finished", and under a `Critical (3)` heading everybody read it as
- * "passed" — the last surface still showing a bare glyph (decision 76, on
+ * "passed" — the last surface still showing a bare glyph (decision 78, on
  * decision 65's precedent for the list row). So each check carries its
  * terminal state in words, the criticals attributed to it through
  * `Finding.check`, and how long it watched. `0 critical` rather than nothing:
@@ -232,7 +235,7 @@ function checksField(projection: Projection): DiscordEmbedField | null {
 /**
  * Counts by severity. Inline, so it completes the identity row beside `Head`
  * and `Pull request` rather than standing alone further down: with `Opened by`
- * gone (decision 76), this is what keeps that row from holding one orphaned
+ * gone (decision 78), this is what keeps that row from holding one orphaned
  * field.
  */
 function countsField(findings: Finding[]): DiscordEmbedField | null {
@@ -255,7 +258,7 @@ const MAX_EVIDENCE = 160;
  * differ in any of those are different facts however similar. The check names
  * that produced a group are the checks that saw it.
  *
- * Display-level only (decision 76): the fold still records one finding per
+ * Display-level only (decision 78): the fold still records one finding per
  * check, because what the review *recorded* is the evidence trail and what the
  * card *shows* is a summary of it. The heading keeps the raw count, so three
  * lines are still three findings and a reader can see the repetition for the
@@ -307,7 +310,7 @@ function textField(name: string, text: string | null): DiscordEmbedField | null 
 
 /**
  * The author line: the pull request's opener when the run records one, Cujo
- * when it does not (decision 76). Null for a run recorded before the author
+ * when it does not (decision 78). Null for a run recorded before the author
  * was stored, or one whose PR read never completed, in which case the line is
  * exactly what it was before the opener took it.
  *
@@ -402,12 +405,15 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
         : ` Decided by ${clean(run.approver, 120)}.`;
   }
 
+  const prUrl = pullRequestUrl(run);
   const fields: DiscordEmbedField[] = [
     { name: "Head", value: `\`${run.headSha.slice(0, 7)}\``, inline: true },
     // Structural, not derived: the repo was validated when the channel was
-    // bound and the number is a number. On a private run, whose title points
-    // nowhere (decision 57), this is the card's only live link.
-    { name: "Pull request", value: pullRequestUrl(run), inline: true },
+    // bound and shape-checked in `pullRequestUrl`, so the field is omitted
+    // rather than risked when the stored repo is not `owner/name`. On a
+    // private run, whose title points nowhere (decision 57), this is the
+    // card's only live link.
+    ...(prUrl ? [{ name: "Pull request", value: prUrl, inline: true }] : []),
   ];
   // A superseded run describes a commit nobody is looking at any more, so it
   // shows no findings: acting on them would mean acting on a stale review.
@@ -443,7 +449,7 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
     fields,
     footer: {
       text: truncate(footer, LIMITS.footer),
-      // The Cujo mark while the opener holds the author line (decision 76),
+      // The Cujo mark while the opener holds the author line (decision 78),
       // so Cujo stays inside the embed without being named twice above it.
       // Absent on the fallback, where the author line already carries it: the
       // same icon twice on one card reads as a bug.
@@ -466,7 +472,7 @@ export interface PingInput {
 
 /**
  * A Discord edit notifies nobody, so the one moment that needs a human — a run
- * waiting on approval — gets its own message, and its own card (decision 76):
+ * waiting on approval — gets its own message, and its own card (decision 78):
  * a slim embed in the run's colour, sitting directly under the run card in the
  * channel and carrying only the pull request, the critical count and the fact
  * that a person is blocked. Anything it repeated from the card above it would

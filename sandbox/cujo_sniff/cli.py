@@ -145,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     det = sub.add_parser("detonate", help="install one dependency under the sensors")
     det.add_argument("--dependency", required=True)
-    det.add_argument("--source", choices=["pypi", "npm", "auto"], default="auto")
+    det.add_argument("--source", choices=["pypi", "npm", "go", "gem", "auto"], default="auto")
     det.set_defaults(func=cmd_detonate)
 
     down = sub.add_parser("teardown", help="stop the sensor daemons")

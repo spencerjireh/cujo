@@ -278,7 +278,7 @@ describe("buildRunCard", () => {
 
     it.each(STATUSES)("puts the opener's avatar in front of their name on %s", (status) => {
       // The author line is the one slot that renders an icon in front of text,
-      // and since decision 76 it goes to the variable party: Cujo is already
+      // and since decision 78 it goes to the variable party: Cujo is already
       // named by the app badge directly above it.
       const embed = embedOf({ status });
       expect(embed?.author?.name).toBe("@octocat");
@@ -290,7 +290,7 @@ describe("buildRunCard", () => {
 
     it("renders an underscored login without the backslash escaping would add", () => {
       // The author line renders no markdown, so `escapeMarkdown` there would
-      // be litter rather than defusal (decision 76).
+      // be litter rather than defusal (decision 78).
       const embed = embedOf({ prAuthorLogin: "some_login" });
       expect(embed?.author?.name).toBe("@some_login");
     });
@@ -353,6 +353,18 @@ describe("buildRunCard", () => {
       }
     });
 
+    it("omits the pull request field when the stored repo is not owner/name", () => {
+      // A live link is the one place a hostile string chooses where a reader
+      // goes, so the shape is enforced in code rather than assumed (rule 7's
+      // philosophy, applied to the structural link).
+      const payload = buildRunCard({
+        run: run({ status: "running", repo: "not a repo", prTitle: null }),
+        projection: projection({ status: "running" }),
+        links: LINKS,
+      });
+      expect(payload.embeds?.[0]?.fields?.map((f) => f.name)).toEqual(["Head"]);
+    });
+
     it("pairs Findings with the row rather than standing alone further down", () => {
       const payload = buildRunCard({
         run: run({ status: "clean", prTitle: null }),
@@ -361,7 +373,7 @@ describe("buildRunCard", () => {
       });
       const fields = payload.embeds?.[0]?.fields ?? [];
       // Discord only shares a row between neighbouring inline fields, which is
-      // why the counts moved up here when `Opened by` went (decision 76).
+      // why the counts moved up here when `Opened by` went (decision 78).
       expect(fields.slice(0, 3).map((f) => f.name)).toEqual(["Head", "Pull request", "Findings"]);
       expect(fields[2]?.inline).toBe(true);
     });
@@ -405,8 +417,24 @@ describe("buildRunCard", () => {
       // fact from one that failed.
       expect(checks?.value).toContain("detonation —");
       // The tick meant "the thread finished", and read as "passed" under a
-      // `Critical (3)` heading. It is gone entirely (decision 76).
+      // `Critical (3)` heading. It is gone entirely (decision 78).
       expect(JSON.stringify(payload)).not.toMatch(/[✅❌⏳]/u);
+    });
+
+    it("rounds a duration as a whole before it splits minutes", () => {
+      // 119.6s floored to minutes and rounded to seconds independently is
+      // `1m60s`, which is not a duration anybody ran for.
+      const payload = buildRunCard({
+        run: run({ status: "blocked_posted", prTitle: null }),
+        projection: projection({
+          status: "blocked_posted",
+          checks: [stamped("tests", "done", 119_600), stamped("probes", "done", 59_700)],
+        }),
+        links: LINKS,
+      });
+      const checks = payload.embeds?.[0]?.fields?.find((f) => f.name === "Checks");
+      expect(checks?.value).toContain("tests done, 0 critical, 2m00s");
+      expect(checks?.value).toContain("probes done, 0 critical, 1m00s");
     });
   });
 
@@ -527,7 +555,7 @@ describe("buildPing", () => {
     const payload = pingOf();
     expect(payload.content).toContain(`<${PUBLIC_UI}/runs/${run().id}>`);
     // Not the bare form: that is the grey site-preview box this message
-    // exists to replace (decision 76).
+    // exists to replace (decision 78).
     expect(payload.content).not.toContain(` ${PUBLIC_UI}/runs/${run().id}`);
   });
 

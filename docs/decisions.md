@@ -82,6 +82,10 @@ that is reversed after it was built or shown is noted here rather than deleted
 69. [A length cap is spent on the escaped text, not on the text](#69-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
 74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
+75. [The record is one field of a fixed length, and an empty one is armed](#75-the-record-is-one-field-of-a-fixed-length-and-an-empty-one-is-armed)
+76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
+77. [Detonation covers every ecosystem `MANIFESTS` recognises](#77-detonation-covers-every-ecosystem-manifests-recognises)
+78. [The alert gets its own card, and the opener takes the author line](#78-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2313,7 +2317,7 @@ not deployed yet, and it buys nothing once every field is additive.
 
 ## 55. A card names both parties, and a login reaches a URL only through an allowlist
 
-**Reversed by 76.** The allocation below gave the author line to Cujo and the
+**Reversed by 78.** The allocation below gave the author line to Cujo and the
 person a field plus the footer icon; 76 gives the author line to the person
 and the footer icon to the Cujo mark, on this decision's own premise. The two
 URL allowlists in the second half stand unchanged.
@@ -3927,7 +3931,64 @@ cleaner as a standalone screen and is a different shape from the thing it
 replaces. **Drawing the ruled lines through the copy**, which is the rhythm at
 the cost of the sentence.
 
-## 76. The alert gets its own card, and the opener takes the author line
+## 76. Interpreter and index coverage is additive, not exhaustive
+
+**Status:** active — expanded `INTERPRETER_NAMES`, `KNOWN_INDEX_HOSTS`, and
+noise filters in `policy.py`.
+
+**Context.** The sandbox sensors (fsdiff, decoy, proxy) are fully
+language-agnostic at the OS level: a filesystem write or a network connection
+is detected regardless of which runtime made it. Two narrower mechanisms are
+language-aware: `INTERPRETER_NAMES` controls whether `capture_script` reads
+the script file before execution (`script_content`), and `KNOWN_INDEX_HOSTS`
+controls whether an egress connection to a package registry is classified as
+`egress_to_unknown_host`. Both are frozensets checked by membership only.
+
+**Decision.** These lists are expanded to cover every interpreter runtime
+Daytona natively supports (Ruby, Perl, Deno, Bun, tsx, ts-node) and the
+RubyGems registry. The noise filters gain entries for Go vendored deps
+(`/vendor/`), Ruby gem cache (`/.gem/`), and `.gem` suffixes. No interpreter
+for `go` or `java` is added because those compile rather than interpret — there
+is no script file to capture.
+
+Adding a name to any of these lists cannot change sensing behaviour. It can
+only improve report quality: `script_content` is populated instead of `null`,
+an egress connection is correctly classified, or a noise read is filtered
+from `files_read`. Missing a name means the safe default applies
+(`script_content: null`, `egress_to_unknown_host: true`, read left in the
+list), not a failure.
+
+**Consequences.** Script capture works for Ruby, Perl, Deno, Bun, and tsx
+scripts. Ruby installs via Bundler no longer produce false
+`egress_to_unknown_host` warnings for connections to `rubygems.org`. Go
+vendored dependency reads and Ruby gem cache reads no longer clutter
+`files_read`. No existing behaviour changes for Python or Node repos.
+
+## 77. Detonation covers every ecosystem `MANIFESTS` recognises
+
+**Status:** active — added Go and gem install paths to `detonate.py`.
+
+**Context.** `apps/cujo` already recognises `go.mod`, `go.sum`, `Gemfile`,
+and `Gemfile.lock` in its `MANIFESTS` list (`agent-spec.ts`), so a PR that
+changes those files sets `manifest_changed: true` and the agent is told a
+detonation check is warranted. But the sandbox only knew how to install npm
+and PyPI packages: `detect_source` returned `"pypi"` for anything that was
+not npm, and `cmd_detonate` had no `go install` or `gem install` path.
+
+**Decision.** `detect_source` gains two new return values: `"go"` for module
+paths containing a slash (but not `git+` URLs, which remain `"pypi"`), and
+`"gem"` for the `gem:` prefix. `cmd_detonate` dispatches to
+`_go_install_cmds` (one `go install` into an isolated `GOPATH`) and
+`_gem_install_cmds` (one `gem install --install-dir`). The CLI's `--source`
+choices are expanded to match.
+
+**Consequences.** PRs that change `go.mod` or `Gemfile` can now be detonated
+in the sandbox. The same OS-level sensors (fsdiff, decoy, proxy) observe
+the install, so filesystem writes, egress, and credential reads are reported
+the same way they are for npm and PyPI. No existing behaviour changes for
+Python or Node repos.
+
+## 78. The alert gets its own card, and the opener takes the author line
 
 The message that exists to fetch a human was the least informative thing in
 the channel. A blocked run posted a sentence and a bare run URL, which Discord
@@ -3987,8 +4048,10 @@ open and is not decided here.
 **The card links the pull request**, beside `Head` on the identity row that
 the deleted field freed up (`Head`, `Pull request`, `Findings`). Structural,
 not derived: the repo was validated when the channel was bound and the number
-is a number — rule 8's own argument — and on a private run it is the card's
-only live link.
+is a number — rule 8's own argument — and the repo is shape-checked
+`owner/name` in code before the link is built, the field omitted when the
+check fails, for the same reason rule 7's login check exists. On a private
+run it is the card's only live link.
 
 **A run link previews as the run.** `generateMetadata` on the run page, built
 only from fields the public serializer already serves the same anonymous
@@ -4007,3 +4070,5 @@ by 55 and still: a large image on every card, squeezing the fields on a narrow
 client. **Keeping both the author line and the field**, which names one person
 twice. **Deduping criticals in the fold**, which changes what the review
 records rather than what the card shows.
+||||||| 4cf60f0
+||||||| d09fff6

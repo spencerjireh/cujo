@@ -37,15 +37,27 @@ export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): 
 }
 
 /**
- * The pull request a run is about, as a URL. Structural, not derived: the repo
- * reached the store through a GitHub event and was validated again when the
- * channel was bound, and the number is a number — the same argument rule 8
- * makes for Cujo's own link. On a private run's card it is the only live link
- * there is, because the title does not point at a page that run has none of
- * (decision 57).
+ * The pull request a run is about, as a URL — or null when the stored repo is
+ * not a shape GitHub can issue, in which case the card omits the field rather
+ * than link somewhere GitHub never sent anybody.
+ *
+ * Structural, not derived: the repo reached the store through a GitHub event
+ * and was validated again when the channel was bound, and the number is a
+ * number — the same argument rule 8 makes for Cujo's own link. The shape
+ * check exists for the same reason rule 7's login check does: enforced by
+ * code rather than assumed, because a live link is the one place a hostile
+ * string chooses where a reader goes. On a private run's card it is the only
+ * live link there is, because the title does not point at a page that run
+ * has none of (decision 57).
+ *
+ * An owner is exactly a GitHub login (the same shape the card's rule 7
+ * allowlist accepts); a repository name is the wider set GitHub allows in
+ * repo names — letters, digits, hyphens, underscores and dots.
  */
-export function pullRequestUrl(run: { repo: string; prNumber: number }): string {
-  return `https://github.com/${run.repo}/pull/${run.prNumber}`;
+const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+
+export function pullRequestUrl(run: { repo: string; prNumber: number }): string | null {
+  return REPO.test(run.repo) ? `https://github.com/${run.repo}/pull/${run.prNumber}` : null;
 }
 
 /**
