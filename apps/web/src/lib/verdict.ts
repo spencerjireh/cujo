@@ -1,4 +1,4 @@
-import { type SensorBlock, parseReport } from "@/lib/api/report";
+import { type Alarm, alarms, parseReport } from "@/lib/api/report";
 import type { CheckState, Finding } from "@/lib/api/types";
 
 /**
@@ -25,37 +25,49 @@ export interface Verdict {
 }
 
 /**
- * The sandbox's own alarms, worded for a lane and ordered worst first.
+ * The sandbox's own alarms, worded for a lane.
  *
  * The same five facts `alarms()` reports over the report card, said in two
- * words instead of five. Two wordings rather than one shared source because
- * they are for two different places: the card has a column to explain itself in
- * and this has none, and a phrase short enough here would be curt there.
+ * words instead of five. Two wordings rather than one because they are for two
+ * different places: the card has a column to explain itself in and this has
+ * none, and a phrase short enough here would be curt there. The *facts* and
+ * their severity are one source: the card's, keyed by its text.
  */
-function alarm(block: SensorBlock): string | null {
-  if (block.secret_probe?.decoy_in_egress) return "decoy leaked";
-  if (block.secret_probe?.decoy_read) return "decoy read";
-  if (block.derived?.egress_to_unknown_host) return "unknown egress";
-  if (block.derived?.wrote_sensitive) return "sensitive write";
-  if (block.derived?.wrote_outside_workspace) return "wrote outside";
-  return null;
-}
+const SHORT: Record<string, string> = {
+  "decoy secret left the sandbox": "decoy leaked",
+  "decoy secret was read": "decoy read",
+  "egress to an unknown host": "unknown egress",
+  "wrote to a sensitive path": "sensitive write",
+  "wrote outside the workspace": "wrote outside",
+};
 
-/** The worst alarm across every block of a report, or null when none tripped. */
-export function reportAlarm(report: unknown): string | null {
+const RANK: Record<Alarm["severity"], number> = { critical: 0, warn: 1, info: 2 };
+
+/**
+ * The worst alarm across every block of a report, or null when none tripped.
+ *
+ * Across every block, not the first block that tripped: a detonation report's
+ * roll-up is parsed ahead of its runs, and an accepted report may carry a
+ * warning there — a write to /tmp — over a critical inside one run. Within a
+ * severity the earlier block wins, which is the roll-up, which is the run's
+ * own summary of itself.
+ */
+export function reportAlarm(report: unknown, check: string): string | null {
   const parsed = parseReport(report);
   if (parsed.kind !== "sensor") return null;
+  let worst: Alarm | null = null;
   for (const block of parsed.blocks) {
-    const tripped = alarm(block);
-    if (tripped) return tripped;
+    for (const tripped of alarms(block, check)) {
+      if (!worst || RANK[tripped.severity] < RANK[worst.severity]) worst = tripped;
+    }
   }
-  return null;
+  return worst ? (SHORT[worst.text] ?? worst.text) : null;
 }
 
 export function checkVerdict(
   check: CheckState | undefined,
   findings: Finding[],
-  /** `reportAlarm(check.report)`, hoisted so a re-render does not re-parse. */
+  /** `reportAlarm(check.report, check.title)`, hoisted so a re-render does not re-parse. */
   tripped: string | null,
 ): Verdict {
   if (!check) return { text: "not run", tone: "text-fg-muted" };

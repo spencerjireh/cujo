@@ -26,33 +26,63 @@ function finding(over: Partial<Finding> = {}): Finding {
 
 describe("reportAlarm", () => {
   it("is null when the report is not a sensor report", () => {
-    expect(reportAlarm(null)).toBeNull();
-    expect(reportAlarm({ notes: "hello" })).toBeNull();
+    expect(reportAlarm(null, "tests")).toBeNull();
+    expect(reportAlarm({ notes: "hello" }, "tests")).toBeNull();
   });
 
   it("is null when a sensor report tripped nothing", () => {
-    expect(reportAlarm({ egress: [], derived: { egress_to_unknown_host: false } })).toBeNull();
+    expect(
+      reportAlarm({ egress: [], derived: { egress_to_unknown_host: false } }, "detonation"),
+    ).toBeNull();
   });
 
   it("names the worst alarm on the block", () => {
     expect(
-      reportAlarm({
-        secret_probe: { decoy_read: true },
-        derived: { egress_to_unknown_host: true },
-      }),
+      reportAlarm(
+        {
+          secret_probe: { decoy_read: true },
+          derived: { egress_to_unknown_host: true },
+        },
+        "detonation",
+      ),
     ).toBe("decoy read");
-    expect(reportAlarm({ derived: { egress_to_unknown_host: true } })).toBe("unknown egress");
-    expect(reportAlarm({ secret_probe: { decoy_read: true, decoy_in_egress: true } })).toBe(
-      "decoy leaked",
+    expect(reportAlarm({ derived: { egress_to_unknown_host: true } }, "detonation")).toBe(
+      "unknown egress",
     );
+    expect(
+      reportAlarm({ secret_probe: { decoy_read: true, decoy_in_egress: true } }, "detonation"),
+    ).toBe("decoy leaked");
+  });
+
+  it("names the worst alarm across the blocks, not the first block that tripped", () => {
+    // The roll-up is parsed first and carries a warning; a run inside it
+    // carries a critical. The lane says the critical.
+    expect(
+      reportAlarm(
+        {
+          derived: { wrote_outside_workspace: true },
+          runs: [{ dependency: "tainted-sample", derived: { wrote_sensitive: true } }],
+        },
+        "detonation",
+      ),
+    ).toBe("sensitive write");
+  });
+
+  it("ranks unknown egress by the check it tripped on", () => {
+    const report = { derived: { egress_to_unknown_host: true, wrote_sensitive: true } };
+    expect(reportAlarm(report, "detonation")).toBe("unknown egress");
+    expect(reportAlarm(report, "tests")).toBe("sensitive write");
   });
 
   it("reads the runs of a detonation report, not only the roll-up", () => {
     expect(
-      reportAlarm({
-        egress: [],
-        runs: [{ dependency: "evil-package", secret_probe: { decoy_read: true } }],
-      }),
+      reportAlarm(
+        {
+          egress: [],
+          runs: [{ dependency: "tainted-sample", secret_probe: { decoy_read: true } }],
+        },
+        "detonation",
+      ),
     ).toBe("decoy read");
   });
 });

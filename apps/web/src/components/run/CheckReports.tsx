@@ -101,6 +101,7 @@ function CheckReport({
               <SensorReport
                 key={block.label ?? `block-${index}`}
                 block={block}
+                check={check.title}
                 index={index}
                 total={parsed.blocks.length}
               />

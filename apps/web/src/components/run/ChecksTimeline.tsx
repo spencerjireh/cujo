@@ -198,7 +198,7 @@ export function ChecksTimeline({
     const out = new Map<string, string>();
     for (const check of checks) {
       if (!check.isCheck) continue;
-      const tripped = reportAlarm(check.report);
+      const tripped = reportAlarm(check.report, check.title);
       if (tripped) out.set(check.title, tripped);
     }
     return out;
