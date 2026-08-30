@@ -5440,3 +5440,25 @@ smooth a sweep away**, which makes a real dwell slow and a fast sweep into
 a strobe. **Delaying the focus store instead of the swap**, which would lag
 the star lighting under the pointer — the one effect that must stay
 immediate.
+
+## 100. The verdict card stops linking out
+
+**Reverses part of 91.**
+
+Decision 91 put "Read the review on GitHub" on the verdict card, as the
+third of the three things a PR author wants — what was decided, how bad,
+where the review is. Two of the three turned out to be enough, because the
+third was already answered twice on the same page: the reader arrived by
+that link and holds the back button, and the review panel below renders the
+review itself, while the run header still links the pull request. What the
+link added was a fourth thing — an invitation to leave the page before
+reading what the page is for.
+
+**The link is gone; the card is the verdict alone.** The status badge and
+the severity counts, and nothing else. `reviewPosted` and
+`gatedReviewPosted` keep deciding everything else they decide — the review
+panel, the approve bar; only the card no longer spends the fact.
+
+Rejected: **keeping it behind a disclosure**, a control that reveals one
+link nobody asked for. **Moving it into the review panel**, which already
+is the review and would carry a link to itself.
