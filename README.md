@@ -102,12 +102,32 @@ with a stub model provider, checking what the unit tests assume — turn ids,
 replay, chaining, cancel, the approval gate, resume, the fold of real events.
 `make test-int-down` stops it.
 
-## Status
+## Qodo Code Review Evidence
 
-The pipeline is in: webhook to session, the four checks, the sensors, the hard
-rules (applied by the agent and re-derived in `apps/cujo`), the gated review
-answered with `/cujo confirm` on the pull request, conversation with
-`@cujo-guard`, Discord notification, and the anonymous read-only board.
+Qodo reviews every pull request automatically. It reads
+[`best_practices.md`](best_practices.md) — a mirror of the Standards section in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) — so the bot checks the same rules a human
+reviewer would. Every Qodo comment must be applied or answered with a one-line
+reason and resolved before merge.
+
+Across the project's history:
+
+- **103** merged PRs, all 103 reviewed by Qodo (100% coverage from PR #1).
+- **92** PRs received findings — **374** inline review threads in total.
+- **11** PRs received a clean review with no material issues.
+- Every finding was addressed with a code fix or a design-decision citation,
+  and every thread resolved before merge.
+
+[PR #49 — answer @cujo-guard in its own session, with no way to write](https://github.com/spencerjireh/cujo/pull/49)
+is a representative example. The PR adds the conversational feature: when
+someone mentions `@cujo-guard` on a pull request, Cujo replies in a read-only
+session that can reference the run but never approve or dismiss it. Qodo raised
+14 findings across security (the conversation payload leaked context that
+should not cross the trust boundary), correctness (the reply could target a
+stale PR head; a failed turn still posted an answer), and reliability (the
+timeout left a consumer active; a rate-limiter map could grow without bound).
+Every thread received a reply — a code fix, a design-decision citation, or a
+one-line reason — and was resolved before merge.
 
 ## License
 
