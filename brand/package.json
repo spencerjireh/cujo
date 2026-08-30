@@ -10,7 +10,8 @@
   },
   "scripts": {
     "render": "node tools/render.mjs",
-    "wordmark": "node tools/wordmark.mjs"
+    "wordmark": "node tools/wordmark.mjs",
+    "og": "node tools/og.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
