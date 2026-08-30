@@ -30,6 +30,27 @@ export const metadata: Metadata = {
   // Belt to robots.ts's braces: a crawler that ignores robots.txt still reads
   // this, and the board is meant to be shared by link, not found by search.
   robots: { index: false, follow: false },
+  // Open Graph is about the card a paste expands into, not about search, so it
+  // stands beside the noindex rule rather than under it (decision 86 for the
+  // run page, decision 100 for the image). `metadataBase` turns the file
+  // convention's image path absolute: Discord and Slack fetch `og:image` by
+  // URL, and a relative one is a card with no picture. The hostname is the
+  // deploy's own (docker-compose.yml routes it here); the env is the one
+  // escape hatch, for a stack that answers somewhere else.
+  metadataBase: new URL(process.env.CUJO_WEB_ORIGIN ?? "https://cujo.spencerjireh.com"),
+  // The image itself is not named here: `opengraph-image.png` in this segment
+  // supplies it on every route — this one, `/docs`, and each `/runs/[id]`,
+  // whose own `generateMetadata` keeps the per-run title and description and
+  // inherits the picture.
+  openGraph: {
+    title: "cujo",
+    description: "Execution-backed pull request review.",
+    siteName: "cujo",
+    type: "website",
+  },
+  // The large card, or the image never shows: without this a platform that
+  // reads Twitter's cards renders a one-line summary and drops the picture.
+  twitter: { card: "summary_large_image" },
 };
 
 // Applies a stored theme before first paint. Without it a stored override

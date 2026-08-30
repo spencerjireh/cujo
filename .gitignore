@@ -11,6 +11,8 @@
 !brand/**/*.png
 # The board's favicon PNG fallback, tracked like the SVG beside it
 !apps/web/src/app/icon.png
+# The board's Open Graph card, tracked like the brand PNG it copies
+!apps/web/src/app/opengraph-image.png
 
 # Node / TypeScript
 node_modules/
