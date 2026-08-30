@@ -39,14 +39,32 @@ import { useEffect, useMemo, useRef, useState } from "react";
  */
 
 /**
- * Rows the table keeps space for, real or not.
+ * The record has a floor and a ceiling, and both are measured in its own rows.
  *
  * A board with two runs used to put the log hard against whatever followed it,
- * which read as a page that had run out rather than a record that is young.
- * The extra rows are drawn empty and hidden from assistive technology — they
- * are spacing with the table's own rhythm, and they claim nothing.
+ * and a board with sixty pushed the key off the bottom of the page. Neither is
+ * a different component: it is one field of a fixed length, like a strip of
+ * chart paper, and the number of readings on it does not change how much panel
+ * it takes up. Empty, sparse and full all occupy the same band.
+ *
+ * `ROW_REM` is the height of one row — `py-3` on a line of `text-sm`, which is
+ * what the ruled lines below a short record have always matched.
  */
+const ROW_REM = 2.6;
 const MIN_ROWS = 5;
+const MAX_ROWS = 12;
+/** The header scrolls with nothing, so it is inside the cap and counted in it. */
+const HEAD_REM = 1.9;
+
+/**
+ * The ceiling, cut at half a row.
+ *
+ * A whole number of rows would sit flush against the bottom edge and read as
+ * the end of the record; a row sliced through the middle is the scroll
+ * affordance, and it costs nothing to draw. `70vh` keeps the cap from
+ * overrunning a short viewport, where the mid-row cut lands wherever it lands.
+ */
+const MAX_HEIGHT = `min(${HEAD_REM + (MAX_ROWS + 0.5) * ROW_REM}rem, 70vh)`;
 
 /**
  * Stable keys for the ruled lines below a short record. Named rather than
@@ -54,6 +72,14 @@ const MIN_ROWS = 5;
  * list React might reconcile is the habit worth not having.
  */
 const GHOST_ROWS = ["ghost-a", "ghost-b", "ghost-c", "ghost-d", "ghost-e"] as const;
+
+/**
+ * The App's public page, which carries the Install button and renders for a
+ * reader who is not signed in. `/installations/new` is the more direct target
+ * and bounces an anonymous reader through a login first, which is the wrong
+ * first thing to show someone who has not decided yet.
+ */
+const INSTALL_URL = "https://github.com/apps/cujo-guard";
 
 const features = tableFeatures({ rowSortingFeature, sortedRowModel: createSortedRowModel() });
 const helper = createColumnHelper<typeof features, RunSummary>();
@@ -170,10 +196,16 @@ const columns = helper.columns([
 
 type Filter = "all" | "live" | "blocked_pending";
 
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "live", label: "Live" },
-  { id: "blocked_pending", label: "Awaiting approval" },
+/**
+ * `empty` is what the record says when this filter selects nothing, and it
+ * names the filter rather than restating it. "No run matches this filter" makes
+ * a reader look back up at the chips to work out which one; the sentence they
+ * want is the one that answers the question they asked.
+ */
+const FILTERS: { id: Filter; label: string; empty: string }[] = [
+  { id: "all", label: "All", empty: "No runs yet." },
+  { id: "live", label: "Live", empty: "Nothing is running." },
+  { id: "blocked_pending", label: "Awaiting approval", empty: "No run is waiting on a person." },
 ];
 
 function matches(filter: Filter, status: RunStatus): boolean {
@@ -249,7 +281,45 @@ export function Record({ runs }: { runs: RunSummary[] }) {
   });
 
   const rows = table.getRowModel().rows;
-  const ghosts = Math.max(0, MIN_ROWS - rows.length);
+  // No ruled lines under an empty record: the empty block draws its own, at
+  // the same rhythm and for the whole of the five rows it stands in.
+  const ghosts = rows.length === 0 ? 0 : Math.max(0, MIN_ROWS - rows.length);
+
+  /**
+   * Whether the scrollport clips anything, on either axis.
+   *
+   * A tab stop that scrolls nothing is a tab stop nobody wanted, so the region
+   * takes its role and its stop only when there is something out of view to
+   * reach. But the row count does not decide that. The ceiling is
+   * `min(…, 70vh)`, so a short viewport clips well under twelve rows; and this
+   * is the same scrollport the seven columns overflow sideways in, which a
+   * phone does at any row count at all. Counting rows would have left both of
+   * those clipped and unreachable from a keyboard.
+   *
+   * So it is measured. The observer watches the port for a viewport resize and
+   * its children for content that reflows inside it, and the effect re-runs
+   * when the rows or the filter change the content outright. A sub-pixel
+   * difference is rounding rather than clipped content, hence the 1px floor.
+   */
+  const scrollport = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rows.length` and `filter` are triggers, not inputs — the effect reads neither, and they are in the list precisely so content the observer cannot see change gets re-measured.
+  useEffect(() => {
+    const node = scrollport.current;
+    if (!node) return;
+    const measure = () =>
+      setClipped(
+        node.scrollHeight - node.clientHeight > 1 || node.scrollWidth - node.clientWidth > 1,
+      );
+    measure();
+    // jsdom has no ResizeObserver. The measurement above still runs, so a test
+    // that stubs the layout gets the state it set up; nothing else is missed.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    for (const child of node.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [rows.length, filter]);
 
   return (
     <section aria-label="Every run" className="px-4 py-10 md:px-6">
@@ -278,141 +348,208 @@ export function Record({ runs }: { runs: RunSummary[] }) {
         </div>
       </div>
 
-      {data.length === 0 ? (
-        <EmptyRecord filtered={runs.length > 0} onClear={() => setFilter("all")} />
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              {table.getHeaderGroups().map((group) => (
-                <tr key={group.id}>
-                  {group.headers.map((header) => {
-                    // `checks` is a display column with no value to order by,
-                    // so it gets no button. A focusable control that promises
-                    // sorting and does nothing is worse than a plain label —
-                    // and `aria-sort` belongs only on a column that can sort.
-                    const sortable = header.column.getCanSort();
-                    return (
-                      <th
-                        key={header.id}
-                        scope="col"
-                        // The arrow glyph is decoration; this is the state a
-                        // screen reader reads.
-                        aria-sort={
-                          !sortable
-                            ? undefined
-                            : header.column.getIsSorted() === "asc"
-                              ? "ascending"
-                              : header.column.getIsSorted() === "desc"
-                                ? "descending"
-                                : "none"
-                        }
-                        className="border-line border-b py-2 pr-4 text-left font-mono text-xs font-medium uppercase tracking-wider text-fg-muted"
-                      >
-                        {header.isPlaceholder ? null : sortable ? (
-                          <button
-                            type="button"
-                            onClick={() => header.column.toggleSorting()}
-                            // `uppercase` restated on the button: the header
-                            // cell already sets it, and a button does not take
-                            // it from the cell, so the one column with no sort
-                            // control was the only header in caps.
-                            className="uppercase transition-colors hover:text-fg"
-                          >
-                            <table.FlexRender header={header} />
-                            {header.column.getIsSorted() === "asc"
-                              ? " ↑"
-                              : header.column.getIsSorted() === "desc"
-                                ? " ↓"
-                                : ""}
-                          </button>
-                        ) : (
+      {/* One scrollport for both axes and for every state. The record is the
+          same object whether it holds nothing or sixty runs, so the floor, the
+          ceiling and the column header belong to the field and not to a branch
+          inside it. */}
+      <div
+        ref={scrollport}
+        className="overflow-auto"
+        style={{ maxHeight: MAX_HEIGHT }}
+        // Only a scrollport a keyboard can actually move gets the role and the
+        // stop; while nothing is clipped this is a plain wrapper.
+        {...(clipped
+          ? { tabIndex: 0, role: "region" as const, "aria-label": "The record, scrollable" }
+          : {})}
+      >
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            {table.getHeaderGroups().map((group) => (
+              <tr key={group.id}>
+                {group.headers.map((header) => {
+                  // `checks` is a display column with no value to order by,
+                  // so it gets no button. A focusable control that promises
+                  // sorting and does nothing is worse than a plain label —
+                  // and `aria-sort` belongs only on a column that can sort.
+                  const sortable = header.column.getCanSort();
+                  return (
+                    <th
+                      key={header.id}
+                      scope="col"
+                      // The arrow glyph is decoration; this is the state a
+                      // screen reader reads.
+                      aria-sort={
+                        !sortable
+                          ? undefined
+                          : header.column.getIsSorted() === "asc"
+                            ? "ascending"
+                            : header.column.getIsSorted() === "desc"
+                              ? "descending"
+                              : "none"
+                      }
+                      // Pinned to the top of the scrollport, so a long
+                      // record keeps its column names while it moves. The
+                      // rule below the header is an inset shadow and not a
+                      // border: `border-collapse` hands a collapsed border
+                      // to the row, which is not the element that sticks, so
+                      // the line would scroll away and leave the header
+                      // sitting on the rows.
+                      className="sticky top-0 z-10 bg-bg py-2 pr-4 text-left font-mono text-xs font-medium uppercase tracking-wider text-fg-muted shadow-[inset_0_-1px_0_var(--line)]"
+                    >
+                      {header.isPlaceholder ? null : sortable ? (
+                        <button
+                          type="button"
+                          onClick={() => header.column.toggleSorting()}
+                          // `uppercase` restated on the button: the header
+                          // cell already sets it, and a button does not take
+                          // it from the cell, so the one column with no sort
+                          // control was the only header in caps.
+                          className="uppercase transition-colors hover:text-fg"
+                        >
                           <table.FlexRender header={header} />
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const isSelected = selected === row.original.id;
-                return (
-                  <tr
-                    key={row.id}
-                    onPointerEnter={() => setFocusedRun(row.original.id)}
-                    onPointerLeave={() => setFocusedRun(null)}
-                    className={`group border-line border-b transition-colors last:border-0 ${
-                      isSelected || focused === row.original.id ? "bg-bg-raised" : ""
-                    }`}
-                  >
-                    {row.getAllCells().map((cell, index) => (
-                      <td
-                        key={cell.id}
-                        // The accent rule is the picked run, and it is on a
-                        // border that is always there so nothing shifts by two
-                        // pixels when one is picked.
-                        className={`py-3 pr-4 ${
-                          index === 0
-                            ? `border-l-2 pl-2 ${isSelected ? "border-accent" : "border-transparent"}`
-                            : ""
-                        }`}
-                      >
-                        {index === 0 ? (
-                          <Link
-                            href={`/runs/${row.original.id}`}
-                            ref={(node) => {
-                              if (node) rowRefs.current.set(row.original.id, node);
-                              else rowRefs.current.delete(row.original.id);
-                            }}
-                            // Focus reaches the chamber too, so a keyboard walk
-                            // down the record moves the highlight with it.
-                            onFocus={() => setFocusedRun(row.original.id)}
-                            onBlur={() => setFocusedRun(null)}
-                            className="text-fg no-underline group-hover:text-accent"
-                          >
-                            <table.FlexRender cell={cell} />
-                          </Link>
-                        ) : (
+                          {header.column.getIsSorted() === "asc"
+                            ? " ↑"
+                            : header.column.getIsSorted() === "desc"
+                              ? " ↓"
+                              : ""}
+                        </button>
+                      ) : (
+                        <table.FlexRender header={header} />
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const isSelected = selected === row.original.id;
+              return (
+                <tr
+                  key={row.id}
+                  onPointerEnter={() => setFocusedRun(row.original.id)}
+                  onPointerLeave={() => setFocusedRun(null)}
+                  className={`group border-line border-b transition-colors last:border-0 ${
+                    isSelected || focused === row.original.id ? "bg-bg-raised" : ""
+                  }`}
+                >
+                  {row.getAllCells().map((cell, index) => (
+                    <td
+                      key={cell.id}
+                      // The accent rule is the picked run, and it is on a
+                      // border that is always there so nothing shifts by two
+                      // pixels when one is picked.
+                      className={`py-3 pr-4 ${
+                        index === 0
+                          ? `border-l-2 pl-2 ${isSelected ? "border-accent" : "border-transparent"}`
+                          : ""
+                      }`}
+                    >
+                      {index === 0 ? (
+                        <Link
+                          href={`/runs/${row.original.id}`}
+                          ref={(node) => {
+                            if (node) rowRefs.current.set(row.original.id, node);
+                            else rowRefs.current.delete(row.original.id);
+                          }}
+                          // Focus reaches the chamber too, so a keyboard walk
+                          // down the record moves the highlight with it.
+                          onFocus={() => setFocusedRun(row.original.id)}
+                          onBlur={() => setFocusedRun(null)}
+                          className="text-fg no-underline group-hover:text-accent"
+                        >
                           <table.FlexRender cell={cell} />
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {/* Ruled lines continuing past the last row, outside the table.
-              Spacing with the table's own rhythm, so a young record looks
-              young rather than cramped — and not empty `<tr>` elements, which
-              would put rows in the table that hold nothing and would be
-              announced to anyone walking it. */}
-          {ghosts > 0 ? (
-            <div aria-hidden="true">
-              {GHOST_ROWS.slice(0, ghosts).map((id) => (
-                <div key={id} className="h-[2.6rem] border-line border-b" />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      )}
+                        </Link>
+                      ) : (
+                        <table.FlexRender cell={cell} />
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {/* Outside the table and not in a cell spanning it. A table cell is as
+            wide as the table, and the table is wider than a phone: the copy
+            would then need a sideways scroll to be read. A block here takes the
+            scrollport's own width instead and wraps inside it, while the header
+            above keeps scrolling as the table it belongs to. */}
+        {rows.length === 0 ? (
+          <EmptyRecord filter={filter} onClear={() => setFilter("all")} />
+        ) : null}
+        {/* Ruled lines continuing past the last row, outside the table.
+            Spacing with the table's own rhythm, so a young record looks young
+            rather than cramped — and not empty `<tr>` elements, which would put
+            rows in the table that hold nothing and would be announced to
+            anyone walking it. */}
+        {ghosts > 0 ? (
+          <div aria-hidden="true">
+            {GHOST_ROWS.slice(0, ghosts).map((id) => (
+              <div key={id} className="border-line border-b" style={{ height: `${ROW_REM}rem` }} />
+            ))}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
 
 /**
- * The two empty records are different states and say different things. One is
- * a board waiting for its first pull request; the other is a filter the reader
- * applied and can undo, so it offers the undo.
+ * An empty record, drawn inside the record rather than instead of it.
+ *
+ * The column header stays above this and the field keeps the height five rows
+ * would take, so a board reading nothing is an armed instrument and not a page
+ * missing its middle — and nothing on the page moves when the first run lands.
+ *
+ * The two empty states are different and say different things. One is a board
+ * waiting for its first pull request, and the only useful thing to hand a
+ * reader there is the way to cause one. The other is a filter the reader
+ * applied and can undo, so it offers the undo and nothing else: telling
+ * somebody to install the App because they clicked "Live" would be answering a
+ * question they did not ask.
  */
-function EmptyRecord({ filtered, onClear }: { filtered: boolean; onClear: () => void }) {
+function EmptyRecord({ filter, onClear }: { filter: Filter; onClear: () => void }) {
+  const headline = FILTERS.find((option) => option.id === filter)?.empty ?? "No runs yet.";
   return (
-    <div className="flex min-h-[14rem] flex-col items-start justify-center gap-3 border border-line px-6 py-10">
-      {filtered ? (
-        <>
-          <p className="font-mono text-sm text-fg-muted">No run matches this filter.</p>
+    <div className="relative flex items-center" style={{ minHeight: `${MIN_ROWS * ROW_REM}rem` }}>
+      {/* The same ruled lines a short record gets, at the same rhythm, running
+          the width of the field. They are what makes this an armed instrument
+          and not a blank panel: the reader can see where a reading will land
+          before there is one, and nothing moves when the first run arrives. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent calc(${ROW_REM}rem - 1px), var(--line) calc(${ROW_REM}rem - 1px), var(--line) ${ROW_REM}rem)`,
+        }}
+      />
+      {/* The copy sits on its own ground, the way a label plate covers the part
+          of a chart it annotates — so the rules run past it rather than
+          through it, and the type stays on a flat background. `w-fit` is what
+          leaves them anything to run across. */}
+      <div className="relative flex w-fit flex-col items-start gap-3 bg-bg py-3 pr-10 pl-2">
+        <p className="font-mono text-sm text-fg">{headline}</p>
+        {filter === "all" ? (
+          <>
+            <p className="max-w-[56ch] font-mono text-sm leading-relaxed text-fg-muted">
+              Install Cujo on a repository and open a pull request. The head is cloned into a
+              disposable sandbox, executed, and the run lands here.
+            </p>
+            {/* The one action on an empty board, so it takes the accent the
+                filter chips use for their active state. Amber and not filled
+                amber: the brand spends the fill on approving a merge. */}
+            <a
+              href={INSTALL_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md border border-accent px-3 py-1 font-mono text-xs text-accent no-underline transition-colors hover:border-accent-fill hover:bg-accent-fill hover:text-accent-fg"
+            >
+              Install Cujo
+            </a>
+          </>
+        ) : (
           <button
             type="button"
             onClick={onClear}
@@ -420,16 +557,8 @@ function EmptyRecord({ filtered, onClear }: { filtered: boolean; onClear: () => 
           >
             Show every run
           </button>
-        </>
-      ) : (
-        <>
-          <p className="font-mono text-sm text-fg">The record is empty.</p>
-          <p className="max-w-[52ch] font-mono text-sm leading-relaxed text-fg-muted">
-            Install Cujo on a repository and open a pull request. The next push clones it into a
-            disposable sandbox, runs it, and the run lands here.
-          </p>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }
