@@ -31,7 +31,7 @@ export const LIMITS = {
 } as const;
 
 /**
- * Who a card names, and where (decision 98, reversing 86's allocation).
+ * Who a card names, and where (decision 100, reversing 86's allocation).
  *
  * Cujo takes the author line at the top of the embed, as in 55: a fixed name
  * and its own mark, the first thing a channel reads on every card. The person
@@ -56,7 +56,7 @@ const CUJO_ICON_URL =
 /**
  * Built from the numeric account id, never from the login: an avatar is a URL
  * and a login is a string somebody else chose. `s=64` because the footer icon
- * renders around 20px and the extra pixels cost nothing. Since decision 98 it
+ * renders around 20px and the extra pixels cost nothing. Since decision 100 it
  * is also the only URL a card builds out of the opener — the login-based
  * profile link retired with the footer placement, because footer text renders
  * no markdown and a link there would show as literal syntax.
@@ -315,7 +315,7 @@ function textField(name: string, text: string | null): DiscordEmbedField | null 
 }
 
 /**
- * The author line, back to the fixed party (decision 98): Cujo's name and its
+ * The author line, back to the fixed party (decision 100): Cujo's name and its
  * mark, the first line of every card. Deliberately unlinked — the title right
  * beneath it already points at the run, and a second link to the same place is
  * noise.
@@ -368,7 +368,7 @@ export function embedLength(embed: DiscordEmbed): number {
 }
 
 /**
- * A blank row, so the card's sections can breathe (decision 98). A field whose
+ * A blank row, so the card's sections can breathe (decision 100). A field whose
  * name and value are a single zero-width space renders as nothing but the row
  * it occupies. This is our own literal and not a derived string, so rule 4's
  * "zero-width characters are removed" — a rule about untrusted text — is not

@@ -379,63 +379,70 @@ export class Runner {
   }
 
   /**
+   * Fire the watchdog: synthesize a terminal event and best-effort cancel the
+   * turn on the harness. Extracted so both the timer callback and the
+   * immediate-expiry path in `rehydrate` share one implementation
+   * (decision 99).
+   */
+  private fireWatchdog(runId: string): void {
+    this.state(runId).log.error("run.turn.timeout", { timeout_ms: this.options.turnTimeoutMs });
+    this.state(runId).syntheticTerminal = true;
+    this.push(
+      runId,
+      errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
+    );
+    this.refold(runId);
+    const run = this.store.getRun(runId);
+    const timedOutTurn = this.currentTurnId(runId);
+    if (run && timedOutTurn && !this.state(runId).superseded) {
+      void (async () => {
+        try {
+          const turns = await this.harness.listTurns(run.sessionId);
+          const mine = turns.find((t) => t.id === timedOutTurn);
+          if (mine?.state.status !== "running") return;
+          await this.harness.cancelTurn(run.sessionId);
+        } catch (error) {
+          this.state(runId).log.warn("run.cancel.failed", {
+            session_id: run.sessionId,
+            reason: "turn_timeout",
+            ...errorFields(error),
+          });
+        }
+      })().catch((e) => {
+        this.state(runId).log.warn("run.cancel.failed", {
+          session_id: run.sessionId,
+          reason: "watchdog_cleanup",
+          ...errorFields(e),
+        });
+      });
+    }
+  }
+
+  /**
    * Consume a turn stream to its end, folding as events arrive. A stream that
    * drops before its terminal event is resubscribed with bounded backoff; if
    * every attempt fails the turn is *watched* rather than declared dead, since
    * losing the stream says nothing about the work. One watchdog covers the
    * whole sequence, and it is the only place a verdict is invented.
+   *
+   * `budgetMs` overrides the default timeout when the caller knows the run
+   * has already consumed part of its budget (decision 99: rehydrate computes
+   * the remainder from `run.createdAt`).
    */
-  async consume(runId: string, stream: AsyncIterable<StreamEvent>): Promise<void> {
+  async consume(
+    runId: string,
+    stream: AsyncIterable<StreamEvent>,
+    budgetMs?: number,
+  ): Promise<void> {
     const s = this.state(runId);
     let projection: Projection | null = null;
     let sawTerminal = false;
     let timedOut = false;
+    const timeoutMs = budgetMs ?? this.options.turnTimeoutMs;
     const deadline = setTimeout(() => {
       timedOut = true;
-      this.state(runId).log.error("run.turn.timeout", { timeout_ms: this.options.turnTimeoutMs });
-      this.state(runId).syntheticTerminal = true;
-      this.push(
-        runId,
-        errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
-      );
-      this.refold(runId);
-      // The one place Cujo ends a turn on its own authority, so the one place
-      // that must clean up after itself. Left running, the turn holds the
-      // session and every later head fails to start on it -- TrueForge refuses
-      // a message while sub-agents run, and neither the status nor a later
-      // cancel can find it by then.
-      const run = this.store.getRun(runId);
-      const timedOutTurn = this.currentTurnId(runId);
-      // Awaited inside its own task, not chained with `.catch`: this runs in a
-      // timer callback, where a synchronous throw has no caller to land on and
-      // would take the process down rather than the turn.
-      if (run && timedOutTurn && !this.state(runId).superseded) {
-        void (async () => {
-          try {
-            // `cancelTurn` takes a session and stops whatever is running on it
-            // *now*, which is not necessarily what timed out. Runs share a
-            // pull request's session, and this timer stays armed until its own
-            // `consume` returns, so a supersede that lands first can have a
-            // newer head's turn running by the time this fires. Cancel only
-            // while the turn that timed out is still the one in progress.
-            const turns = await this.harness.listTurns(run.sessionId);
-            const mine = turns.find((t) => t.id === timedOutTurn);
-            if (mine?.state.status !== "running") return;
-            await this.harness.cancelTurn(run.sessionId);
-          } catch (error) {
-            this.state(runId).log.warn("run.cancel.failed", {
-              session_id: run.sessionId,
-              reason: "turn_timeout",
-              ...errorFields(error),
-            });
-          }
-          // Terminal catch on a detached promise, even though the body already
-          // handles its own failure: if the logging above is what threw, there
-          // is nothing left to report it with, and an unhandled rejection out
-          // of a timer callback would end the process.
-        })().catch(() => {});
-      }
-    }, this.options.turnTimeoutMs);
+      this.fireWatchdog(runId);
+    }, timeoutMs);
 
     const drain = async (source: AsyncIterable<StreamEvent>): Promise<void> => {
       for await (const event of source) {
@@ -697,12 +704,17 @@ export class Runner {
    * Subscribe to a recorded turn and consume it. The subscribe happens inside
    * the stream so a failure takes the same resubscribe path as a drop.
    */
-  private follow(runId: string, sessionId: string, turnId: string): Promise<void> {
+  private follow(
+    runId: string,
+    sessionId: string,
+    turnId: string,
+    budgetMs?: number,
+  ): Promise<void> {
     const harness = this.harness;
     async function* lazy(): AsyncIterable<StreamEvent> {
       yield* await harness.subscribe(sessionId, turnId);
     }
-    return this.consume(runId, lazy());
+    return this.consume(runId, lazy(), budgetMs);
   }
 
   /** End a run that never got a turn: the webhook could not prepare it. */
@@ -1110,7 +1122,30 @@ export class Runner {
     const last = s.events.at(-1);
     if (projection.status === "running" && (!last || last.type !== TERMINAL_EVENT)) {
       const turnId = projection.turnIds.at(-1);
-      if (turnId) void this.follow(run.id, run.sessionId, turnId);
+      if (!turnId) return;
+      // The watchdog bounds the *turn*, not the current process's attention
+      // span (decision 99). Compute how much budget remains from the
+      // active turn's own start time; if the budget is already spent,
+      // fire immediately rather than granting a fresh window that every
+      // redeploy renews. The anchor is the latest turn.created event,
+      // not run.createdAt, because a run that went through preparation
+      // and an approval wait should not charge that time against the
+      // resumed turn's budget.
+      const turnStart = [...s.events].reverse().find((e) => e.type === "turn.created")?.createdAt;
+      const anchor = turnStart ? new Date(turnStart).getTime() : new Date(run.createdAt).getTime();
+      const elapsed = Date.now() - anchor;
+      const remaining = this.options.turnTimeoutMs - elapsed;
+      if (remaining <= 0) {
+        s.log.info("run.rehydrate.expired", {
+          elapsed_ms: elapsed,
+          timeout_ms: this.options.turnTimeoutMs,
+        });
+        this.fireWatchdog(run.id);
+        return;
+      }
+      void this.follow(run.id, run.sessionId, turnId, remaining).catch((e) => {
+        s.log.warn("run.rehydrate.failed", { ...errorFields(e) });
+      });
     } else if (projection.status === "blocked_pending") {
       this.startPolling(run.id);
     }

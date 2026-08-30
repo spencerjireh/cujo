@@ -1040,7 +1040,7 @@ Status moves on events from the session's turn streams, with one exception
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
-| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. |
+| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
 | `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. A run that was waiting on a human also has its approval denied, so the session can take the newer head's turn (decision 39). |
 
 One run, one turn chain. Every run on a PR shares the PR's session, so a run
@@ -1220,7 +1220,7 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 The colour column is the brand severity ramp, dark values (decision 36); an
 embed carries one colour and is read on a dark client.
 
-**Cujo leads, the opener closes** (decision 98, reversing 86's allocation of
+**Cujo leads, the opener closes** (decision 100, reversing 86's allocation of
 the two lines). Cujo takes the author line — a fixed name and its own mark,
 the first thing a channel reads on every card. The person who opened the pull
 request takes the footer, the embed's last line, where an icon renders to the
@@ -1241,7 +1241,7 @@ only drops fields, neither the author line nor the footer is anything the
 or one whose account has since been deleted, shows the handles alone in the
 footer, with no icon.
 
-**The sections breathe** (decision 98). Between surviving field groups the
+**The sections breathe** (decision 100). Between surviving field groups the
 card carries a blank row: a field whose name and value are a single zero-width
 space, which renders as nothing but the row it occupies. It is Cujo's own
 literal and not a derived string, so rule 4's removal of zero-width
@@ -1326,9 +1326,9 @@ request. So, without exception:
    400 that loses the card for the whole run, since every later edit then has
    no message id to edit. The spacer rows are reserved in this budget before
    the clamp runs and inserted after it, so what survives always fits with
-   its blank rows (decision 98).
+   its blank rows (decision 100).
 7. No derived string reaches an embed URL field unless it passed a strict
-   allowlist first (decision 55). Since decision 98 there is exactly one: the
+   allowlist first (decision 55). Since decision 100 there is exactly one: the
    pull request author's avatar, built from the numeric account id and placed
    in the footer icon. GitHub issues no account id but a number, so the check
    should never fire; it is there so the rule is enforced by code rather than

@@ -1,5 +1,6 @@
 import { RelativeTime } from "@/components/RelativeTime";
 import type { BoardMetrics } from "@/lib/board/metrics";
+import Link from "next/link";
 
 /**
  * What the chamber is showing, in words — in two pieces, top and bottom of the
@@ -30,9 +31,17 @@ import type { BoardMetrics } from "@/lib/board/metrics";
  * the numbers carry information rather than decorating three paragraphs.
  */
 const ONBOARDING = [
-  "Install Cujo on a repository.",
-  "Open a pull request, or push to one that is open.",
-  "Cujo clones the head into a disposable sandbox and runs it. The verdict lands here.",
+  // The first step is the only one a reader can act on without knowing
+  // anything else, so it is the one that carries the link to the manual. The
+  // other two describe what then happens on its own.
+  {
+    text: "Install Cujo on a repository.",
+    href: "/docs/install",
+  },
+  { text: "Open a pull request, or push to one that is open." },
+  {
+    text: "Cujo clones the head into a disposable sandbox and runs it. The verdict lands here.",
+  },
 ];
 
 function plural(n: number, one: string, many: string): string {
@@ -92,11 +101,25 @@ export function HeroStats({
     return (
       <ol className="pointer-events-none flex max-w-md flex-col gap-3 font-mono text-xs leading-relaxed text-[var(--chamber-fg-muted)]">
         {ONBOARDING.map((step, index) => (
-          <li key={step} className="flex gap-3">
+          <li key={step.text} className="flex gap-3">
             <span className="shrink-0 tabular-nums text-[var(--chamber-amber)]">
               {String(index + 1).padStart(2, "0")}
             </span>
-            <span>{step}</span>
+            {/* The list is inert because it lies over the canvas; the one
+                anchor in it has to opt back in, or the step that tells a
+                reader what to do is the one thing they cannot click. */}
+            {step.href ? (
+              <span>
+                <Link
+                  href={step.href}
+                  className="pointer-events-auto text-[var(--chamber-fg)] underline decoration-[var(--chamber-line)] underline-offset-4 transition-colors hover:text-[var(--chamber-amber)]"
+                >
+                  {step.text}
+                </Link>
+              </span>
+            ) : (
+              <span>{step.text}</span>
+            )}
           </li>
         ))}
       </ol>
