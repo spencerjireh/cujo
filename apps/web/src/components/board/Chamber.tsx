@@ -5,6 +5,7 @@ import { type Specimen, specimensFrom } from "@/lib/board/specimen";
 import { focusStore, setFocusedRun, setSelectedRun, useFocusedRun } from "@/lib/board/store";
 import { SEVERITY_ORDER, STATUS_LABELS, TONE_CHAMBER_VAR } from "@/lib/board/tone";
 import { duration } from "@/lib/format";
+import { prefersReducedMotion } from "@/lib/motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChamberHandle } from "./chamber/scene";
 
@@ -51,12 +52,6 @@ const CAPACITY = 10;
 export type ChamberStatus = "pending" | "live" | "unavailable";
 /** Kept clear of the frame edge, so the callout never hangs off the volume. */
 const CALLOUT_MARGIN = 16;
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
 
 export function Chamber({
   runs,
