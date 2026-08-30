@@ -135,10 +135,12 @@ function Waiting({ children }: { children: React.ReactNode }) {
 /**
  * A run that reached no conclusion is drawn at reduced strength in its own hue.
  * `clean` and `error` are both info blue by brand rule, which made two legend
- * rows identical; this keeps the rule and tells them apart.
+ * rows identical; this keeps the rule and tells them apart. `running` is the
+ * exception: it has its own hue (decision 92) and nothing to be told apart
+ * from, and a live run drawn faint was the thing the hue exists to stop.
  */
 function swatchStrength(status: RunStatus): string {
-  return isVerdict(status) ? "" : "opacity-45";
+  return isVerdict(status) || status === "running" ? "" : "opacity-45";
 }
 
 function VerdictRibbon({ metrics }: { metrics: BoardMetrics }) {
@@ -223,7 +225,7 @@ function Sensors({ rows, empty }: { rows: SensorRow[]; empty: boolean }) {
                   <>
                     <Segment share={row.done / total} className="bg-fg" />
                     <Segment share={row.error / total} className="bg-sev-critical" />
-                    <Segment share={row.running / total} className="bg-sev-info" />
+                    <Segment share={row.running / total} className="bg-sev-live" />
                     {/* A check that never appeared reads as a gap, the way it
                         does on a specimen: `check_missing` is not the same
                         fact as a failure. */}

@@ -83,14 +83,14 @@ describe("the record's floor", () => {
     const { container } = render(<Record runs={runs.slice(0, 2)} />);
 
     expect(screen.getAllByRole("row")).toHaveLength(3); // two runs and the header
-    // Five rows' worth of field, three of them ruled lines rather than rows:
+    // Eight rows' worth of field, six of them ruled lines rather than rows:
     // decoration, hidden from anyone walking the table.
     const ruled = container.querySelectorAll("[aria-hidden='true'] > div");
-    expect(ruled).toHaveLength(3);
+    expect(ruled).toHaveLength(6);
   });
 
   it("draws no ruled lines once the record reaches the floor", () => {
-    const { container } = render(<Record runs={many(5)} />);
+    const { container } = render(<Record runs={many(8)} />);
 
     expect(container.querySelectorAll("[aria-hidden='true'] > div")).toHaveLength(0);
   });

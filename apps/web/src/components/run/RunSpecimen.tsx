@@ -30,21 +30,43 @@ import { SpecimenGlyph } from "./SpecimenGlyph";
  */
 
 /**
- * The frame, and the plinth around it.
+ * The frame.
  *
  * It used to be a bare 128-pixel square, which is a thumbnail: the object this
- * page is largely about was the smallest thing in its own header, and with
- * nothing behind it, it read as a glyph beside the type rather than as a view
- * into the chamber. It is now the height of the title block it stands beside,
- * on the chamber's own ground — the same bordered panel the legend puts a
- * specimen on, and the chamber tokens are pinned dark in both themes, so this
- * is a window onto the instrument and not a light square that inverts.
+ * page is largely about was the smallest thing in its own header. It is now the
+ * height of the title block it stands beside, and it stands on the page
+ * itself. For a while it sat on a bordered panel in the chamber's pinned-dark
+ * ground, as a window onto the instrument; on a light page that was a black
+ * square in the header, the one thing on the page that did not follow the
+ * reader's theme, and a specimen on its own is not the chamber. So the drawing
+ * takes the page's tokens instead (decision 93): the same severity colours as
+ * the badge beside it, inverting with it.
  *
  * Two sizes, because the header wraps: at full width it stands beside the
  * title, and on a narrow screen it lands under it, where 224 pixels of it would
  * be most of a phone's first screen.
  */
 const FRAME = "w-40 md:w-56";
+
+/**
+ * Runs `onChange` whenever the theme the page resolves to changes: an explicit
+ * toggle writes `data-theme` on the root, and with no attribute the page follows
+ * `prefers-color-scheme`, so both have to be watched. The theme store holds the
+ * choice, not the resolution, and the blocking script in `layout.tsx` writes
+ * the attribute without going through it, so the document is the one source
+ * that always agrees with what the tokens resolved to.
+ */
+function watchResolvedTheme(onChange: () => void): () => void {
+  const root = document.documentElement;
+  const attribute = new MutationObserver(onChange);
+  attribute.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+  scheme.addEventListener("change", onChange);
+  return () => {
+    attribute.disconnect();
+    scheme.removeEventListener("change", onChange);
+  };
+}
 
 export function RunSpecimen({ run }: { run: Run }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -96,6 +118,10 @@ export function RunSpecimen({ run }: { run: Run }) {
     });
     resize.observe(frame);
     document.addEventListener("visibilitychange", runIfWanted);
+    // The canvas bakes the page's colours into its materials when it is built,
+    // and the flat drawing under it uses custom properties and follows the
+    // theme on its own. Without this a toggle would leave the two disagreeing.
+    const unwatchTheme = watchResolvedTheme(() => handle?.repaint());
 
     // The whole startup is inside the promise chain, import included: a
     // rejected `import()` is the same outcome as a refused WebGL context — no
@@ -141,6 +167,7 @@ export function RunSpecimen({ run }: { run: Run }) {
       visible.disconnect();
       resize.disconnect();
       document.removeEventListener("visibilitychange", runIfWanted);
+      unwatchTheme();
       handleRef.current = null;
       handle?.dispose();
       setLive(false);
@@ -160,10 +187,10 @@ export function RunSpecimen({ run }: { run: Run }) {
     // Hidden from assistive technology: everything it draws is stated in words
     // on this page — the timeline, the findings list and the status badge — so
     // a screen reader meets the facts rather than a description of a picture.
-    <div aria-hidden="true" className="shrink-0 border border-line bg-[var(--chamber)] p-3">
+    <div aria-hidden="true" className="shrink-0 p-3">
       <div ref={frameRef} className={`relative aspect-square ${FRAME}`}>
         <div className={live ? "invisible absolute inset-0" : "absolute inset-0"}>
-          <SpecimenGlyph specimen={specimen} />
+          <SpecimenGlyph specimen={specimen} ground="page" />
         </div>
         <canvas
           ref={canvasRef}

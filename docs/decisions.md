@@ -4458,6 +4458,9 @@ wants to be able to take at a glance.
 
 ## 82. The record is a galaxy, and a run is a star with orbits
 
+**Amended by 93**, which removes the gates and lets a star's depth wander
+within its layer, and by 92, which gives a running run its own hue.
+
 Decision 81 scattered the record across a box and made a specimen a solid.
 Looking at it running, four things were wrong and they were one thing: ten runs
 spaced down a thirteen-unit corridor, inside a wireframe box with rails, is a
@@ -4575,6 +4578,9 @@ with the stars inside it**, which is the hallway. **Turning the rings to face
 the camera**, which costs a ring's tilt its meaning.
 
 ## 83. A star's tilts are its own, the read walks the stars, and the copy is a caption
+
+**Amended by 93**: the read beats the star once at its peak. The strobe this
+decision removed stays removed.
 
 Decision 82 was looked at running, with a live run on the board. Four things
 were wrong, and this time they were four things.
@@ -4743,6 +4749,9 @@ though it were a route. **Keeping the pinned bar on finished runs** as a
 consistent page footer, which is a strip of window spent on "nothing to do".
 
 ## 85. An observed zero is a result; an unobserved one is not
+
+**Amended by 91**: the flag no longer opens a table. Everything below about
+`none` versus `not measured` and the alarms map stands.
 
 The report card is what an operator reads before blocking a merge, and it was a
 dump. Four tables with no column headers, so `185.220.101.4:443 | 3.1 KB |
@@ -4963,3 +4972,109 @@ reviews and is a change to `serialize.ts` and its classification test to
 serve one badge; the public plane adds nothing to itself for the board
 (57). It remains the right answer if the board ever needs to know about
 runs it cannot see.
+
+## 91. Nothing on the run page opens itself
+
+Decision 85 had a flag decide which evidence tables open, and the same rule
+grew outward: a check card opened when a block needed attention, a findings
+group opened when it held a critical or a warn, the probe group opened when a
+probe tripped. Read cold, a blocked run's page was three cards and four
+tables and two groups already open, and the reader's first act was closing
+things to find out where they were.
+
+**Everything is closed until asked, and the timeline pick still summons.**
+Findings groups, check cards, evidence tables and the probe group all start
+shut. What says where the trouble is has moved up the page since 85: the
+verdict card counts it, the timeline colours the lane, each trigger row
+carries its count and its worst alarm. A reader who picks a lane on the
+timeline still gets that check's card opened and scrolled to, because a pick
+is a request and not a default. `EvidenceTable` keeps its `defaultOpen` prop
+and the rising edge behind it; nothing passes true today, and the prop is the
+right shape if something should.
+
+**Reverses** the opener half of 85. What survives of 85 is everything else:
+`none` versus `not measured`, the column headers, and the alarms map that
+still decides what a trigger row says.
+
+Rejected: **opening the one worst thing** — the single card the alarms point
+at — which is the compromise that keeps the reader guessing why that one and
+not the others. **Remembering open state per reader**, which is local storage
+for a page most readers see once.
+
+## 92. Running is green
+
+A running run was inert grey: the core, the ring, the badge, the record's
+verdict text. The reasoning was sound — blue is a verdict in the chamber and
+could not be spent on an arm, and grey is what "no measurement yet" means —
+and the result was that the one star on the board doing something was the
+one star nobody could find. The pulse was meant to carry it and did not
+against thirty stars in a dark room.
+
+**`live` is a sixth tone, green, on exactly one thing: what is still
+executing.** A running run's core and badge and verdict text, a running
+check's ring and strip segment and rack segment, and the legend row. It is
+off the severity ramp on purpose: it cannot be read as a verdict, and it
+never means "passed" — a finished clean run is blue, as it was. The tokens
+are `--sev-live` and `--sev-live-bg` on both themes and `--chamber-live` on
+the pinned chamber set, in `brand/tokens.css`, and brand.md says the rule.
+The legend and the rack no longer dim the running swatch as "not a verdict":
+it has its own hue now and nothing to be told apart from.
+
+**Amends** the "a check still running is inert, not blue" rule stated at
+`OUTCOME_TONE` in `tone.ts` under 68 and 82. Blue is still a verdict; running
+is no longer asked to share grey with superseded and denied.
+
+Rejected: **amber, pulsing**, which puts the brand accent on a second status
+and leaves `blocked_pending` and `running` distinguished by animation alone.
+**White with bloom**, which is bright in the chamber and grey everywhere the
+page has no bloom.
+
+## 93. The gates go, depth wanders, and the light beats the star it reads
+
+Three things about the chamber, looked at again after 88.
+
+**The gates go.** One ellipse per occupied layer said the record was three
+layers deep. It also drew three hoops round the galaxy, and a galaxy inside
+hoops is a diagram of a galaxy. The lattice behind everything still gives the
+drawing its vanishing point (82's reason for keeping any wireframe at all),
+and the layers are read from the stars — three sizes, three depths — without
+a loop to trace them. `room.ts` is deleted, and with it the last
+measurement-drawing outside `specimens.ts`. This **amends 82**: the gates
+were its one piece of room.
+
+**Depth wanders within a layer.** A layer was one z, so a layer was a wall of
+stars at one distance, and three walls read as three slides. A star's z is
+now its layer's z plus up to a third of the layer spacing either way, seeded
+off its id like its place in the band, and the front layer wanders only
+backward so nothing crosses the camera's near plane. Which layer is still a
+measurement — the layers do not overlap, and a star is never nearer than the
+layer in front of it — and where within it is decoration, exactly as a place
+in the band is (81). `galaxy.test.ts` pins both halves.
+
+**The light beats the star it reads.** 83 removed a strobe: every star grew
+as the sweep passed and shrank as it left, for as long as it passed, which
+was thirty stars pulsing in turn. What it left was the glow swelling, which
+read as nothing. Now a star beats once, at the moment the read peaks: an
+eight-percent rise over the first two hundred milliseconds, a slower settle
+over the next four hundred, the glow leading the body by a few frames, and
+a hairline ring leaving the core as it goes. One beat per read, timed to the
+peak rather than smeared across the pass, is what makes the light legible as
+a read and not a weather front. Reduced motion keeps the glow swell and
+nothing else. This **amends 83**: the strobe stays gone; a beat is not a
+strobe.
+
+Alongside these, **rings brighten under focus**: a star under the pointer or
+the keyboard lifts its faint arcs toward the bright ones, so the ring the
+callout names in colour is the ring the eye finds.
+
+**The run page's specimen sits on the page.** It was on a black panel, the
+chamber's ground carried onto a page that is not the chamber. It now draws
+on `--bg` with the page's own tones (`TONE_PAGE_VAR`), follows the theme, and
+repaints when the theme changes, so the star beside a title is the same
+star in the page's own ink.
+
+Rejected: **removing the lattice too**, which leaves size and fog alone to
+carry depth and loses the vanishing point 82 kept it for. **Continuous depth
+by age**, which reverses 82's layers and makes the key's "three layers"
+false. **An expanding ring alone as the read**, which is the live pulse's
+shape and would make every read star look live for a moment.

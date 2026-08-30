@@ -61,6 +61,7 @@ Fixed everywhere: UI badges, README tables, video lower thirds.
 | medium | `#6f5a00` / `#efe8bf` | `#e6cf4a` / `#35300f` |
 | low | `#6a6259` / `#e6e0d6` | `#958d82` / `#211e1a` |
 | info | `#1d62a3` / `#d6e4f3` | `#66b0f0` / `#14283a` |
+| live | `#1f7a4d` / `#d8efe2` | `#4fd18b` / `#0f2a1c` |
 
 Critical is red so it is never confused with the brand amber; high is amber.
 
@@ -73,7 +74,9 @@ renames one is a code change, not a copy change.
 Run statuses take their colour from the same ramp, and two rules decide which.
 Amber lands on exactly one status, `blocked_pending`, because that is the one
 waiting on a person. Red means the pull request is dangerous and never that Cujo
-fell over, so a run that errors is `info` blue.
+fell over, so a run that errors is `info` blue. Green is `live` and lands on
+exactly one thing: a run, or a check, that is still executing. It is not a
+severity and never means "passed"; a finished clean run is `info` blue.
 
 ### The instrument viewport
 
@@ -85,13 +88,14 @@ redefined for dark. The page around it stays on the palette above.
 | Token | Value | For |
 | --- | --- | --- |
 | `--chamber` | `#0a0908` | The volume itself, one step below dark `--bg` |
-| `--chamber-line` | `#24211c` | The gates, the star field, the faint arc of a ring |
+| `--chamber-line` | `#24211c` | The lattice, the star field, the faint arc of a ring |
 | `--chamber-fg` | `#ede6da` | Type inside it — the dark `--fg`, unchanged |
 | `--chamber-fg-muted` | `#a39b90` | Labels inside it — dark `--fg-muted` |
 | `--chamber-critical` | `#ff5c45` | A blocked run, and a check that errored |
-| `--chamber-amber` | `#f2a900` | `blocked_pending`, and the gate the sweep is reading |
+| `--chamber-amber` | `#f2a900` | `blocked_pending`, and the light that reads the stars |
 | `--chamber-info` | `#66b0f0` | A clean run, and a run that errored |
-| `--chamber-inert` | `#958d82` | Superseded, denied, and a check still running |
+| `--chamber-inert` | `#958d82` | Superseded and denied |
+| `--chamber-live` | `#4fd18b` | A running run's core, and a check still running |
 
 Blue is a verdict in the chamber and nothing else, so a check still running is
 inert rather than blue: one hue saying two things in a single drawing is worse

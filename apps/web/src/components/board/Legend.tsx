@@ -96,10 +96,12 @@ export function Legend() {
                   {/* Reduced strength for a status that reached no conclusion,
                       which is how the rack draws the same distinction: `clean`
                       and `error` are both info blue by brand rule, and only
-                      one of them is a result. */}
+                      one of them is a result. `running` is exempt: it has its
+                      own hue, and it is the one swatch that should not be
+                      faint. */}
                   <span
                     className={`h-2 w-2 shrink-0 translate-y-px ${TONE_FILL[tone]} ${
-                      isVerdict(status) ? "" : "opacity-45"
+                      isVerdict(status) || status === "running" ? "" : "opacity-45"
                     }`}
                     aria-hidden="true"
                   />

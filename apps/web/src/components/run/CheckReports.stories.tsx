@@ -10,7 +10,7 @@ export default meta;
 
 type Story = StoryObj<typeof CheckReports>;
 
-/** The forensic view the operator reads before blocking. Opens itself. */
+/** The forensic view the operator reads before blocking. Closed until a card is picked. */
 export const Detonation: Story = { args: { checks: detonationChecks } };
 
 /** Checks that ran but returned no parseable report. */
