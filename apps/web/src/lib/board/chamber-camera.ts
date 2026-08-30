@@ -51,6 +51,8 @@ const BREATH_PITCH = 0.008;
 
 /** The aspect below which the frame is taller than the record is wide. */
 const REFERENCE_ASPECT = 16 / 9;
+/** How far left the aim moves per unit of narrowness past the reference. */
+const NARROW_AIM_LEFT = 1.2;
 
 export interface Drift {
   yaw: number;
@@ -109,12 +111,17 @@ export function cameraPlacement(input: {
   const standZ = (HOME.z - sparse * 1.6) * narrowness;
   const aimZ = AIM.z + sparse * 2.6;
   const swing = 0.55;
+  // Standing further back widens the frame on both sides, and the left side
+  // is the readout's. Aiming a little left as the frame narrows keeps the
+  // galaxy on the right of it rather than letting the back layers drift in
+  // under the paragraph.
+  const aimX = AIM.x - (narrowness - 1) * NARROW_AIM_LEFT;
 
   return {
     x: HOME.x + Math.sin(yaw) * standZ * swing,
     y: HOME.y + pitch * 1.6,
     z: standZ * Math.cos(yaw * swing),
-    aimX: AIM.x,
+    aimX,
     aimY: AIM.y,
     aimZ,
   };
