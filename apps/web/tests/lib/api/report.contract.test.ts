@@ -81,7 +81,9 @@ describe("the canonical report example", () => {
       blocks: [{ secret_probe: { decoy_in_egress: false } }],
     });
     // Neither one lights the alarm; only a true would.
-    expect(alarms(block(EXAMPLE, 1))).not.toContain("decoy secret left the sandbox");
+    expect(alarms(block(EXAMPLE, 1)).map((alarm) => alarm.text)).not.toContain(
+      "decoy secret left the sandbox",
+    );
   });
 
   it("opens the card for a sensor that was off, without raising a second chip", () => {

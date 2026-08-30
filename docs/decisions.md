@@ -87,6 +87,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 79. [Depth is time; across the volume means nothing, and says so](#79-depth-is-time-across-the-volume-means-nothing-and-says-so)
 80. [The record is a galaxy, and a run is a star with orbits](#80-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
 81. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#81-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
+82. [A lane says how bad, not what happened; the sentence is where the sentence fits](#82-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
+83. [An observed zero is a result; an unobserved one is not](#83-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -4507,3 +4509,150 @@ ring per check: the share is the one thing on a ring the timeline does not
 also say louder, and the board and the run page have to be the same drawing.
 **Re-randomising tilts on every rebuild**, which re-tilts every star each
 poll while a run is live. **Text labels on stars**, still the callout. **The diagram in the hero**, beside the stats: tried, and it competed with the galaxy it was a key to.
+
+## 82. A lane says how bad, not what happened; the sentence is where the sentence fits
+
+The run page had four places where a thing was said in the wrong size for the
+box it was said in, and the same fix in each: put the short form where the eye
+sweeps and the long form where a reader stops.
+
+**A timeline lane ends with a verdict, not with a finding's title.** The title is
+a sentence a model wrote — "3 tests pass on base and fail on head" — and the lane
+ends in a twelve-rem column, so every lane worth reading ended in an ellipsis.
+Truncation is the failure mode of putting prose in a slot: it cut most often
+exactly where the run had most to say. A lane now carries how many findings the
+check produced and how bad the worst one was (`2 critical`, `1 warn`, `ok`), or,
+where the sandbox itself tripped, which alarm it was (`decoy read`,
+`unknown egress`) — `lib/verdict.ts`, from fields already on the wire. The
+alarm outranks the count deliberately: "the decoy was read" is a fact the number
+of findings does not carry, and the number is one click away.
+
+**And the lane is that click.** It is a button over the whole row, and it opens
+the check's report card, scrolls it into view and moves focus to it — the
+delivery `Record` already does when a specimen in the chamber picks a row, down
+to `focus({ preventScroll: true })` and firing once per pick rather than on every
+poll. The two sections are siblings, so the signal is state in `RunView` rather
+than a store; a nonce rides with the name so picking the same lane twice delivers
+twice.
+
+**The decision bar is one line, and only while something is outstanding.** It was
+a pinned band of three sentences on every run — including the four statuses where
+nothing is being waited on, which spent a permanent strip of the window saying
+so. What confirming and dismissing *do* is a fact about the held review, so it is
+said under that review where there is room for it; what is pinned is the state
+and the two words. A run that is over says why in the flow of the page.
+
+**A collapsed disclosure shows the thing it is a disclosure of.** Provenance shut
+was a blank box with `expand` at the right of it: a section whose whole purpose
+is to name four handles, naming none. Shut, it is now the handles on one line.
+The words `expand` and `collapse` are gone from the page — they were a fifth
+column of type on rows that had four, and a word at the right edge reads as
+though only that word is the control, which was never true. A glyph on the same
+64-unit grid as the mark says the state, and the whole row is visibly the
+trigger it always was.
+
+**Every section says what it is.** One muted line under each heading, in the
+recipe the page already used once. "Provenance" and "detonation" are Cujo's
+words, not a reader's.
+
+### The specimen is a view, not a glyph
+
+128 pixels with nothing behind it, in the header of a page largely about it. It
+is 224 now (160 under `md`), on the chamber's own ground inside a hairline
+border, sized from a `ResizeObserver` rather than a constant. Two layout bugs
+were hiding under the old size and neither survives at this one: the header row
+wrapped in reverse, so a phone got the specimen *above* the title rather than
+under it, and `items-start` under `flex-wrap-reverse` means the bottom, so the
+title block hung off the specimen's floor.
+
+The mark moved too, or rather stopped moving: `HomeMark` positions itself against
+its nearest positioned ancestor, which on the board is the full-bleed chamber and
+on a run page was the centred column — half a gutter in from where the board puts
+it. One mark in two places is two marks.
+
+Rejected: **deriving "3 failed" or "500 on GET /orders"** for a lane, which is
+what the truncated sentences were saying and what a reader wants. Nothing on the
+wire carries a test count or a status code; only the model's prose does, and
+shortening that prose here would be this page inventing a measurement.
+**A severity word alone**, dropping the count, which loses the difference between
+one advisory note and eleven. **Anchors and `href="#"`** for lane-to-report,
+which apps/web has none of and which would put a check name in the URL bar as
+though it were a route. **Keeping the pinned bar on finished runs** as a
+consistent page footer, which is a strip of window spent on "nothing to do".
+
+## 83. An observed zero is a result; an unobserved one is not
+
+The report card is what an operator reads before blocking a merge, and it was a
+dump. Four tables with no column headers, so `185.220.101.4:443 | 3.1 KB |
+unknown` asked the reader which figure was bytes and what `unknown` was unknown
+about. Cells that rendered blank for three different reasons. And a group that
+returned nothing at all when it had no rows, so the cleanest possible check —
+the one where nothing happened — expanded into empty space, and the reader had
+to know that meant clean.
+
+**A table with a live sensor behind it says `none`; a table with no sensor
+behind it says nothing.** That is the whole rule, and it comes from the block
+`sandbox/cujo_sniff/report.py` writes for exactly this purpose: `sensors` exists
+so that "not observed" and "not observable" stop looking alike. The web side had
+been parsing it and rendering it as four grey dots. Now `groupState` reads it per
+table — the proxy behind egress, the audit hook behind files read and
+subprocesses, the filesystem diff behind the change list — and a table is either
+`measured` (rows, or the word `none`), `blind` (`not measured`, and what the
+sandbox said about the sensor), or `unknown`, which behaves exactly as the page
+always has, because a report that never said cannot be made to claim either.
+
+**Coverage is a sentence, once per block.** "All four sensors were watching." /
+"Nothing tripped, but the proxy was not running, so nothing outbound was
+measured." It replaces the dotted strip rather than joining it: the strip said
+the same thing in a form that read as decoration, and the four `detail` strings
+it carried are reference, so they moved under the raw-report disclosure. This is
+a qualification of one block's own tables, not a second alarm, so decision 20's
+rule — one blind interval must not be *counted* twice — is intact. Nothing here
+is counted.
+
+**An alarm's colour comes from whether a hard rule reads it.** The four flags
+`apps/cujo/src/review/findings.ts` turns into findings are all `critical` there;
+`wrote_outside_workspace` is read by no rule, because a build that writes to
+`/tmp` is ordinary. It was rendered in the same red as the other four, which is
+the page accusing the code of something Cujo's own rules do not.
+
+The rest is discipline. Named columns, shared between the header and the rows so
+they cannot drift. `—` where a cell was blank, and `in workspace` where the
+absence of "outside workspace" was doing the work. `refused ×3` where a row the
+proxy blocked was indistinguishable from a connection that moved no data — the
+count was on the wire from `merge_egress` and this side dropped it. A command
+that wraps rather than truncates, because the tail is the answer. Evidence set
+to its own measure, narrower than the page column, since a full-width table put
+seven hundred pixels between a host and its byte count. And one disclosure
+pattern: the raw report is a Collapsible with a chevron, like the card above it
+and the provenance section below it, not a native `<details>`.
+
+**The tables collapse, and a flag decides which ones open.** A detonation report
+is a roll-up plus one block per dependency, so a card that opened everything was
+twelve tables deep and the reader scrolled past eleven of them to reach the one
+the alarms were about. `flaggedTables` maps each derived flag to the table that
+proves it — unknown egress to egress, a decoy or sensitive read to files read,
+a write in the wrong place to filesystem changes, a spawned subprocess to the
+process list — and a card opens on exactly those. Everything else is a heading
+and a count until somebody asks, which is also what makes a clean block worth
+reading: four lines and four numbers instead of four tables of rows nobody
+wanted. `spawned_subprocess` is in that map and deliberately not in `alarms`: an
+install spawns processes, so it accuses nothing, but when the sandbox sets it the
+process list is the list to read. A table with no rows is not a control and
+carries no glyph, and its heading's `0` is the whole statement — the `none` line
+under it was the same fact twice.
+
+Rejected: **plain-language headings** ("Where it called out" for egress), which
+reads better cold and then disagrees with the finding, the review comment and the
+sandbox contract, all of which say `egress`. One vocabulary end to end is worth
+more than one easier heading. **Keeping the dotted strip beside the new
+sentence**, which is the same fact twice in four centimetres. **Rendering `none`
+for a report with no health block**, which would be this page claiming an
+observation no sandbox made. **A left rule down the open card** to tie the
+evidence to its row, which at hairline weight in a view that is already all
+hairlines is one more line, not a device. **A hover ground on a table heading**,
+which is the pattern the card row and the raw report use and is wrong at four
+headings a block and three blocks a card — the chevron says it is a control
+without putting a band of colour under every second line. **Collapsing the
+blocks too**, a third level of disclosure inside the second, which buys a
+scroll and costs a reader the ability to see what a card holds.

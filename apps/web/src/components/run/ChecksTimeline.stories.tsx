@@ -19,6 +19,15 @@ export const AllClean: Story = {
   args: { checks: cleanChecks, findings: [] },
 };
 
+/**
+ * The sandbox tripped and the fold has not turned it into a finding yet, which
+ * is what a live detonation looks like for the seconds between the two. The
+ * lane says what the sensor saw rather than "ok".
+ */
+export const SensorAlarmOnly: Story = {
+  args: { checks: detonationChecks, findings: [] },
+};
+
 /** Mid-run: two lanes still filling, one already finished. */
 export const StillRunning: Story = {
   args: { checks: runningChecks, findings: [] },

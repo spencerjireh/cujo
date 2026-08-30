@@ -19,6 +19,13 @@ import type { Run } from "@/lib/api/types";
  * one panel and it is keyed only on what the board publishes: `status`, the
  * pull request it belongs to, and whether a review has posted. Not `approval`,
  * which is withheld, and not `approver`, which names a person.
+ *
+ * One line, and only while something is outstanding. It used to be a band of
+ * three sentences pinned over the bottom of every run — including the ones
+ * where nothing is being waited on, which is a permanent strip of the window
+ * spent saying so. What the two commands *do* is a fact about the review being
+ * held, so it is said under that review, where there is room for it; what is
+ * left here is the state and the two words, which is what a pinned line is for.
  */
 export function ApproveBar({ run }: { run: Run }) {
   if (run.status === "blocked_pending") return <WaitingOnAMaintainer run={run} />;
@@ -26,37 +33,39 @@ export function ApproveBar({ run }: { run: Run }) {
 }
 
 function WaitingOnAMaintainer({ run }: { run: Run }) {
-  // Keyed on the held review, never on `run.review`: `run.review` is what
-  // already posted, so reading the tool off it would describe the advisory
-  // while a human is being asked about the accusation.
-  const gated = !!run.gated_review;
-  const target = `${run.repo} #${run.pr_number}`;
-
   return (
-    <div className="sticky bottom-0 -mx-4 border-t border-line bg-bg-raised px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="h-8 w-1 shrink-0 rounded-sm bg-accent-fill" aria-hidden="true" />
+    <div className="sticky bottom-0 -mx-4 border-t border-line bg-bg-raised px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className="h-4 w-1 shrink-0 rounded-sm bg-accent-fill" aria-hidden="true" />
+        {/* `flex-1` with a floor, so the commands sit at the far end of a wide
+            bar and drop to their own line on a narrow one rather than being
+            squeezed into a column beside three words. */}
         <p className="min-w-48 flex-1 text-sm">
-          {gated
-            ? `This run is waiting on a maintainer of ${target}. Confirming posts the held review as REQUEST_CHANGES and holds the merge.`
-            : `This run is waiting on a maintainer of ${target}.`}{" "}
-          <span className="text-fg-muted">
-            {gated && run.review
-              ? "The advisory review is already on the pull request; dismissing leaves it standing and posts nothing more."
-              : "Dismissing ends the run without posting it."}
+          Waiting on a maintainer of{" "}
+          <span className="font-mono text-xs">
+            {run.repo} #{run.pr_number}
           </span>
         </p>
         <p className="font-mono text-xs text-fg-muted">
-          Reply <span className="text-fg">/cujo confirm</span> or{" "}
-          <span className="text-fg">/cujo dismiss</span> on the pull request.
+          reply <Command>/cujo confirm</Command> or <Command>/cujo dismiss</Command> on the pull
+          request
         </p>
       </div>
     </div>
   );
 }
 
+/** One of the two words, set apart from the sentence it sits in. */
+function Command({ children }: { children: string }) {
+  return <span className="bg-bg px-1.5 py-0.5 text-fg">{children}</span>;
+}
+
 /**
  * Why there is nothing outstanding, rather than an absent control.
+ *
+ * In the flow of the page and not pinned to the bottom of the window: every
+ * status below is a run that is over, so there is nothing for a reader to come
+ * back to this line for once they have read it.
  *
  * None of these name the person who decided. `approver` is withheld by the
  * serializer and the confirming comment is on the pull request, which is a
@@ -87,11 +96,9 @@ function ExplainWhyNot({ run }: { run: Run }) {
   if (!reason) return null;
 
   return (
-    <div className="sticky bottom-0 -mx-4 border-t border-line bg-bg-raised px-4 py-3">
-      <p className="text-sm text-fg-muted">
-        {reason}
-        {run.external_resume ? " This run was resumed from the harness console." : ""}
-      </p>
-    </div>
+    <p className="border-t border-line pt-4 font-mono text-xs leading-relaxed text-fg-muted">
+      {reason}
+      {run.external_resume ? " This run was resumed from the harness console." : ""}
+    </p>
   );
 }
