@@ -790,7 +790,7 @@ describe("the webhook logs every branch it takes", () => {
     expect(logged("webhook.accepted")).toHaveLength(1);
   });
 
-  it("keeps the ignored branches at debug, because they are the loud ones", async () => {
+  it("keeps noisy ignored branches at debug so they do not dominate the log", async () => {
     // The App is subscribed to events it does not act on; at info these would
     // dominate the log and hide everything this vocabulary exists to show.
     const quiet = build();
@@ -803,6 +803,28 @@ describe("the webhook logs every branch it takes", () => {
       reason: "event",
       event_type: "push",
     });
+  });
+
+  it("logs draft and label skips at info — explicit human choices, not noise", async () => {
+    const draftBody = JSON.stringify({
+      action: "opened",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: { head: { sha: "h" }, draft: true },
+    });
+    const labelBody = JSON.stringify({
+      action: "opened",
+      number: 7,
+      repository: { full_name: "o/r" },
+      pull_request: { head: { sha: "h" }, labels: [{ name: "cujo:skip" }] },
+    });
+    const { app, logged } = build();
+    await app.fetch(post(draftBody));
+    await app.fetch(post(labelBody));
+    const ignored = logged("webhook.ignored");
+    expect(ignored).toHaveLength(2);
+    expect(ignored[0]).toMatchObject({ level: "info", reason: "draft" });
+    expect(ignored[1]).toMatchObject({ level: "info", reason: "label" });
   });
 
   it("keeps the delivery on a repository event too", async () => {
