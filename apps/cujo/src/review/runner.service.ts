@@ -381,8 +381,9 @@ export class Runner {
   /**
    * Consume a turn stream to its end, folding as events arrive. A stream that
    * drops before its terminal event is resubscribed with bounded backoff; if
-   * every attempt fails the run ends in error rather than staying running.
-   * One watchdog covers the whole sequence.
+   * every attempt fails the turn is *watched* rather than declared dead, since
+   * losing the stream says nothing about the work. One watchdog covers the
+   * whole sequence, and it is the only place a verdict is invented.
    */
   async consume(runId: string, stream: AsyncIterable<StreamEvent>): Promise<void> {
     const s = this.state(runId);
@@ -398,6 +399,28 @@ export class Runner {
         errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
       );
       this.refold(runId);
+      // The one place Cujo ends a turn on its own authority, so the one place
+      // that must clean up after itself. Left running, the turn holds the
+      // session and every later head fails to start on it -- TrueForge refuses
+      // a message while sub-agents run, and neither the status nor a later
+      // cancel can find it by then.
+      const run = this.store.getRun(runId);
+      // Awaited inside its own task, not chained with `.catch`: this runs in a
+      // timer callback, where a synchronous throw has no caller to land on and
+      // would take the process down rather than the turn.
+      if (run) {
+        void (async () => {
+          try {
+            await this.harness.cancelTurn(run.sessionId);
+          } catch (error) {
+            this.state(runId).log.warn("run.cancel.failed", {
+              session_id: run.sessionId,
+              reason: "turn_timeout",
+              ...errorFields(error),
+            });
+          }
+        })();
+      }
     }, this.options.turnTimeoutMs);
 
     const drain = async (source: AsyncIterable<StreamEvent>): Promise<void> => {
@@ -455,14 +478,14 @@ export class Runner {
         }
       }
       if (!sawTerminal && !timedOut) {
-        // Every retry is spent. A synthetic terminal event is injected so the
-        // run ends in error rather than staying running forever — say so,
-        // because downstream this is indistinguishable from a turn that
-        // genuinely failed on its merits.
+        // Every resubscribe is spent, which says the stream is gone -- not that
+        // the turn is. Injecting a terminal event here published a verdict
+        // about work Cujo had merely stopped watching, and that error then hid
+        // the run from `listUnfinishedRuns`, so nothing superseded it and its
+        // turn was never cancelled. Watch the turn instead; the watchdog above
+        // still bounds the wait (spec Contract 6, the `error` row).
         s.log.error("run.stream.lost", { attempts: this.retryDelaysMs.length });
-        s.syntheticTerminal = true;
-        this.push(runId, errorTurnDone(`cujo-stream-lost-${Date.now()}`, "turn stream lost"));
-        projection = this.refold(runId);
+        projection = await this.watchTurn(runId, () => timedOut);
       }
     } finally {
       clearTimeout(deadline);
@@ -485,6 +508,78 @@ export class Runner {
         }
       }
     }
+  }
+
+  /**
+   * Wait out a turn whose stream is gone, then fold what it actually did.
+   *
+   * A lost stream is lost observability, not a failed turn: the work carries on
+   * server-side, holds the session, and can still post its review. So the state
+   * is read rather than guessed -- `listTurns` carries each turn's real status
+   * -- and the verdict comes from the persisted events once the turn ends, the
+   * same way a restart rebuilds one.
+   *
+   * Deliberately not `startPolling`: that timer is a per-run singleton whose
+   * callback stops itself unless the run is `blocked_pending` and hunts for a
+   * *successor* turn. This waits on the turn already in hand, and `consume` is
+   * already async and already under the watchdog, so a plain loop needs no new
+   * machinery and no second timer to reason about.
+   *
+   * Every exit is a real projection, so `consume`'s tail is reached exactly as
+   * it would have been had the stream survived.
+   */
+  private async watchTurn(runId: string, timedOut: () => boolean): Promise<Projection> {
+    const s = this.state(runId);
+    const interval = this.options.pollIntervalMs ?? 15_000;
+    const turnId = this.currentTurnId(runId);
+    while (turnId && !timedOut() && !s.superseded) {
+      await sleep(interval);
+      if (timedOut() || s.superseded) break;
+      const run = this.store.getRun(runId);
+      if (!run) break;
+      let turn: Awaited<ReturnType<Harness["listTurns"]>>[number] | undefined;
+      try {
+        turn = (await this.harness.listTurns(run.sessionId)).find((t) => t.id === turnId);
+      } catch (error) {
+        // A read that fails is not a verdict either. The watchdog is the bound.
+        s.log.warn("run.poll.failed", { session_id: run.sessionId, ...errorFields(error) });
+        continue;
+      }
+      // A turn the server no longer lists is not one this can wait on.
+      if (!turn) break;
+      if (turn.state.status === "running") continue;
+      s.log.info("run.stream.recovered", { turn_id: turnId, status: turn.state.status });
+      break;
+    }
+    // The stream never delivered the tail of this turn, so `hydrate` cannot
+    // help: it refreshes events already held, and cannot add the ones that were
+    // missed. Rebuild from the session the way `rehydrate` does.
+    const run = this.store.getRun(runId);
+    if (run) {
+      try {
+        const items = await this.harness.listEvents(run.sessionId);
+        // `selectRunEvents` seeds ownership from `run.turnIds` and chains
+        // forward from there. The turn being watched is this run's by
+        // definition -- it is the one it was streaming -- so name it, rather
+        // than depend on it having been recorded before the stream broke.
+        const own = new Set([...run.turnIds, ...s.subscribedTurnIds]);
+        if (turnId) own.add(turnId);
+        const { events, turnIds } = Runner.selectRunEvents(
+          { ...run, turnIds: [...own] },
+          items,
+          this.foreignTurnIds(run),
+        );
+        // Never trade events in hand for none: a session that answers with
+        // nothing this run owns leaves the stream's own fold standing.
+        if (events.length > 0) {
+          s.events = events;
+          s.subscribedTurnIds = new Set([...s.subscribedTurnIds, ...turnIds]);
+        }
+      } catch (error) {
+        s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
+      }
+    }
+    return this.refold(runId);
   }
 
   /**
