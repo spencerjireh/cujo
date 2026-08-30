@@ -15,12 +15,17 @@ export default function NotFound() {
     <div className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="mb-2 text-2xl">No such page</h1>
       <p className="mb-6 max-w-[60ch] text-sm text-fg-muted">
-        The board has two kinds of page: the list of runs, and one page per run. Nothing else is
-        served here.
+        The board has two kinds of page — the list of runs, and one page per run — plus the
+        documentation. Nothing else is served here.
       </p>
-      <Link href="/" className="text-sm text-accent underline underline-offset-4">
-        All runs
-      </Link>
+      <div className="flex gap-6">
+        <Link href="/" className="text-sm text-accent underline underline-offset-4">
+          All runs
+        </Link>
+        <Link href="/docs" className="text-sm text-accent underline underline-offset-4">
+          Docs
+        </Link>
+      </div>
     </div>
   );
 }

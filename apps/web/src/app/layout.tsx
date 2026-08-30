@@ -2,6 +2,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Mark } from "@/components/brand/Mark";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono } from "next/font/google";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import "./globals.css";
@@ -107,14 +108,26 @@ function SiteFooter() {
           </ul>
         </div>
       </div>
-      {/* The scope line and the theme control, on one rule under the columns.
-          Both are about the page rather than about Cujo, which is why neither
-          belongs in a column above. */}
+      {/* The scope line, the manual and the theme control, on one rule under the
+          columns. All three are about the page rather than about Cujo, which is
+          why none of them belongs in a column above. */}
       <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-6">
         <p className="font-mono text-xs text-fg-muted">
           A run appears here only while its repository is public.
         </p>
-        <ThemeToggle />
+        {/* The manual, and the only site-wide link to it. It goes on this rule
+            rather than into a fifth column because the columns above are about
+            Cujo and this row is about the site — and because a five-column
+            footer breaks the composition the four were chosen for. */}
+        <div className="flex items-center gap-6">
+          <Link
+            href="/docs"
+            className="font-mono text-xs text-fg-muted underline decoration-line underline-offset-4 transition-colors hover:text-accent hover:decoration-accent"
+          >
+            Docs
+          </Link>
+          <ThemeToggle />
+        </div>
       </div>
     </footer>
   );
