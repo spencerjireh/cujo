@@ -285,13 +285,28 @@ Each check runs in its own subagent with fresh context. The subagent has the
 check's instructions and the sandbox tools, nothing else; only its final JSON
 report returns to the parent.
 
-They all start at once. No check reads another's report, and the two facts that
-decide which checks run at all — whether a test command could be inferred, and
-whether the manifest changed — are both settled during setup, before any
-subagent exists. The sensors serialise themselves (decision 41), so the wrapped
-commands still run one at a time whatever the parent does; what runs in parallel
-is the subagents' own reasoning, which is where almost all of a run's wall clock
-goes.
+No check reads another's report, and the two facts that decide which checks run
+at all — whether a test command could be inferred, and whether the manifest
+changed — are both settled during setup, before any subagent exists. The sensors
+serialise themselves (decision 41), so the wrapped commands still run one at a
+time whatever the parent does; what runs in parallel is the subagents' own
+reasoning, which is where almost all of a run's wall clock goes.
+
+So each is spawned as early as it can do anything, which is two moments and not
+one (decision 73). `detonation` goes first, during setup, because it needs only
+the two trees and the armed sensors: it installs each added specifier into its
+own fresh environment, so the repository's own install is nothing to it, and the
+manifest diff it reads first is free while that install runs. `tests`, `probes`
+and `smoke` go together once the install finishes, because all three run against
+an installed tree.
+
+**The parent's install is wrapped in `sniff.py run --check setup` for the lock,
+not for a report.** The proxy and decoy logs are shared and sliced by offset, so
+an unwrapped install running beside a spawned `detonation` would have its egress
+and any decoy read counted as that check's — feeding `egress_to_unknown_host`
+and `decoy_read`, both hard rules. Wrapping makes it a lock participant, so the
+windows queue rather than overlap. `setup` is not one of the four check names,
+so no report is folded from it and it is never evidence.
 
 - **`tests`** — run the suite on base and on head. Report per-test status for
   both, and the derived set `base_pass_head_fail`. If no suite is found and

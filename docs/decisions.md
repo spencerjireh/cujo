@@ -79,6 +79,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
 68. [The mechanical half of setup is one command, because none of it is a decision](#68-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
 72. [A length cap is spent on the escaped text, not on the text](#72-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
+69. [A length cap is spent on the escaped text, not on the text](#69-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
+73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2625,6 +2627,11 @@ which inotify does not report.
 
 ## 59. The checks start together, because nothing was ever waiting
 
+**Superseded in part by 73.** Three of the four still start together. The
+reasoning here is unchanged and is what 69 is built on; only the claim that one
+moment is the earliest for all four is wrong, and it was wrong because the
+install was not in this entry's frame.
+
 A measured run: **17.8 seconds of sandbox commands inside about 800 seconds of
 wall clock**, with 156 of those seconds spent before the first check started.
 The sandbox is not the cost; the model's own turns are. And the largest
@@ -3608,3 +3615,83 @@ to cover the worst case**, which would make the common report six times larger t
 bound a rare one. **Refusing to escape inside a tail**, which was never on the
 table: the escape is the whole reason the text is safe to put in front of a
 model (decision 26's argument, one boundary over).
+
+## 73. `detonation` starts during setup, and the install takes the lock so it can
+
+This corrects **decision 59**, which stands in every other respect and is the
+argument this is built on. 59 established that no check waits on another and
+moved all four to one spawn. Three of the four still start together. What 59 got
+wrong is that one moment is the earliest moment for all four, and it got it
+wrong because the repository's install was not in its frame: it reasoned about
+the checks and the lock, and the install is neither.
+
+`detonation` needs the two trees and the armed sensors. It does not need an
+installed repository — it installs each added specifier into its **own** fresh
+environment, which is the entire point of the check. So it can start before the
+install rather than after it, and on the measured run that mattered: on
+`orders-api` PR 17 detonation was the longest check at 151 seconds, of which
+18 were its wrapped command. The other 133 were reading a manifest diff and
+deciding specifiers, and that reading is free while an install runs.
+
+**The size of the gain is unmeasured, and this ships anyway.** What overlaps is
+detonation's thinking with the installs, so the gain is bounded by how long the
+installs take — and no run has ever reported that number, because the parent's
+installs were unwrapped and therefore unsensed. The 133 seconds above says how
+much thinking there is to overlap, not how much of it fits.
+
+The measurement now exists: wrapping the install makes it a sensed command with
+its own `duration_s`, and decision 67's `setup` window gives the whole span it
+sits inside. So the first run after this merges reports the number that decides
+whether the change was worth making, which is the honest order — the alternative
+was holding the PR to gather evidence its own merge is what produces.
+
+It ships on the second argument rather than the first. Wrapping the install is
+correct on its own: an unwrapped install runs beside the checks holding no lock,
+and decision 41's whole claim is that a report is the slice written while one
+command ran. That was true before this PR and the wrap fixes it either way. If
+the install span comes back small, the reordering is worth reversing and the
+wrap is not.
+
+**59 explicitly rejected moving `detonation`, and that rejection is not this
+one.** It rejected spawning three and keeping detonation **last**, on the ground
+that the slowest check is the worst one to start last. This is the opposite
+change and 59's reasoning supports it.
+
+**The install has to take the sensor lock, or this is a false-positive
+generator.** `runner.sensed_window` says why in its own docstring: the proxy and
+decoy logs are shared by every check and a report is the slice written while one
+command ran. The per-command audit log makes `files_read` and `subprocesses`
+safe, but `proxy_log` and `decoy_log` are global and sliced by byte offset. The
+parent's install was unwrapped, so it held no lock — put a live `pip install`
+beside a spawned `detonation` and detonation's report claims the install's
+egress and any decoy read it caused. Those feed `egress_to_unknown_host`
+(scoped to `detonation`) and `decoy_read` (any check), both hard rules, both
+`critical`. That is the exact failure decision 58 removed, rebuilt on the other
+side.
+
+So the rubric wraps the install in `sniff.py run --check setup`. The windows
+then queue instead of overlapping, which is what decision 41's lock is for, and
+detonation's own wrapped command waits for the install exactly as any second
+sensed command waits — that wait was always expected and is not the part that
+was overlapping.
+
+**Wrapping the install is not the parent running a check.** `--check setup` is
+not one of the four names; the fold builds a `CheckState` only from
+`thread.created`, so a report printed on the parent thread is folded by nothing
+and reaches no hard rule. The rubric's "you, the parent, never run a check
+yourself" needed the distinction spelled out, because it now runs a sensed
+command and that rule reads as though it forbade one. It forbids producing
+evidence, and this produces none.
+
+**The gain is bounded by the install, and decision 67 measures it.** If the
+installs turn out to be short, this bought little for a rubric that is harder to
+read — which is why it lands after the measurement rather than before it.
+
+Rejected: **leaving the install unwrapped and accepting the overlap**, which is
+a hard rule firing on a check that did nothing. **Wrapping the install and
+reporting it as a fifth check**, which puts the whole dependency tree's install
+in front of the hard rules — detonation already covers the added dependencies,
+deliberately and one at a time, and a `critical` sourced from a check the rubric
+never named is worse than no check. **Spawning all four during setup**, which
+puts `tests`, `probes` and `smoke` to work against a tree that is not installed
+yet.
