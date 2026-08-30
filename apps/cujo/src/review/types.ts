@@ -330,4 +330,23 @@ export interface DigestCheck {
   status: CheckState["status"];
   /** How long the check ran, or null while it runs and on an unstamped run. */
   ms: number | null;
+  /**
+   * How much of that was the sandbox executing the pull request, from
+   * `CheckTimings.sandboxMs`. The rest is the sub-agent deciding what to do
+   * next, which is the difference between a slow suite and a slow reviewer.
+   *
+   * Null is three different facts and the shape cannot tell them apart, which
+   * is why it is null rather than zero: the check is still running, or its
+   * report carried no `runs[]` to measure, or the digest was stored before this
+   * field existed and nothing re-derives a digest that is merely stale
+   * (`RunStore.backfillDigest` fires only on a missing row). A zero would claim
+   * the sandbox did nothing, and on a check that ran a test suite that is the
+   * one reading it certainly was not.
+   *
+   * Required rather than optional on purpose. `apps/web` mirrors this type by
+   * hand and assigns its copy into this one, so a required field is a red build
+   * there until the mirror gains it; an optional one compiles green with the
+   * board silently reading `undefined`.
+   */
+  sandboxMs: number | null;
 }

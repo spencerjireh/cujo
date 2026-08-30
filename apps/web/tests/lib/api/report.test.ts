@@ -126,7 +126,7 @@ describe("alarms", () => {
       derived: { egress_to_unknown_host: true, wrote_sensitive: true },
     });
     if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
-    expect(alarms(parsed.blocks[0])).toEqual([
+    expect(alarms(parsed.blocks[0], "detonation").map((alarm) => alarm.text)).toEqual([
       "decoy secret left the sandbox",
       "decoy secret was read",
       "egress to an unknown host",
@@ -134,9 +134,36 @@ describe("alarms", () => {
     ]);
   });
 
+  it("takes each flag's severity from whether a hard rule reads it", () => {
+    // The four hard rules in `apps/cujo/src/review/findings.ts` are all
+    // critical there. `wrote_outside_workspace` is read by no rule at all — a
+    // build that writes to /tmp is ordinary — so it is the one that is not.
+    const parsed = parseReport({
+      derived: { wrote_sensitive: true, wrote_outside_workspace: true },
+    });
+    if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
+    expect(alarms(parsed.blocks[0], "tests")).toEqual([
+      { text: "wrote to a sensitive path", severity: "critical" },
+      { text: "wrote outside the workspace", severity: "warn" },
+    ]);
+  });
+
+  it("charges unknown egress as critical only on detonation", () => {
+    // `docs/spec.md`: the rule is scoped to the install. A test suite that
+    // reached a host the allowlist does not name is worth a look, not a charge.
+    const parsed = parseReport({ derived: { egress_to_unknown_host: true } });
+    if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
+    expect(alarms(parsed.blocks[0], "detonation")).toEqual([
+      { text: "egress to an unknown host", severity: "critical" },
+    ]);
+    expect(alarms(parsed.blocks[0], "tests")).toEqual([
+      { text: "egress to an unknown host", severity: "warn" },
+    ]);
+  });
+
   it("says nothing when nothing tripped", () => {
     const parsed = parseReport({ egress: [], derived: { egress_to_unknown_host: false } });
     if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
-    expect(alarms(parsed.blocks[0])).toEqual([]);
+    expect(alarms(parsed.blocks[0], "detonation")).toEqual([]);
   });
 });

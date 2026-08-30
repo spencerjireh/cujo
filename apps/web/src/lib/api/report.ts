@@ -6,11 +6,20 @@
  * raw view.
  */
 
+import type { Severity } from "./types";
+
 export interface EgressEntry {
   host: string;
   port?: number;
   bytes?: number;
   known?: boolean;
+  /**
+   * How many connections to this host failed. The proxy refuses a host that is
+   * not on the allowlist, so a row with no bytes and several errors is a
+   * blocked attempt -- which is a different thing from a connection that
+   * carried nothing, and looked identical until this was read.
+   */
+  errors?: number;
 }
 
 export interface FileReadEntry {
@@ -143,7 +152,15 @@ function egress(value: unknown): EgressEntry[] {
     if (!isRecord(entry)) return [];
     const host = str(entry.host);
     if (!host) return [];
-    return [{ host, port: num(entry.port), bytes: num(entry.bytes), known: bool(entry.known) }];
+    return [
+      {
+        host,
+        port: num(entry.port),
+        bytes: num(entry.bytes),
+        known: bool(entry.known),
+        errors: num(entry.errors),
+      },
+    ];
   });
 }
 
@@ -298,15 +315,54 @@ export function unarmed(block: SensorBlock): string[] {
   return WATCHED_SENSORS.filter((name) => block.sensors?.[name]?.armed === false);
 }
 
-/** The flags worth surfacing above the tables, in severity order. */
-export function alarms(block: SensorBlock): string[] {
-  const out: string[] = [];
-  if (block.secret_probe?.decoy_in_egress) out.push("decoy secret left the sandbox");
-  if (block.secret_probe?.decoy_read) out.push("decoy secret was read");
-  if (block.derived?.egress_to_unknown_host) out.push("egress to an unknown host");
-  if (block.derived?.wrote_sensitive) out.push("wrote to a sensitive path");
-  if (block.derived?.wrote_outside_workspace) out.push("wrote outside the workspace");
-  return out;
+/** One tripped flag: what it says, and how bad it is. */
+export interface Alarm {
+  text: string;
+  severity: Severity;
+}
+
+/**
+ * The flags worth surfacing above the tables, in severity order.
+ *
+ * The severity is not this file's opinion. Four of the five are hard rules in
+ * `apps/cujo/src/review/findings.ts`, and every one of those is `critical`
+ * there -- they accuse the code of acting against the person running it.
+ * `wrote_outside_workspace` is read by no rule at all: a build that writes to
+ * /tmp is ordinary, and the flag is context for the four above rather than a
+ * charge of its own. Rendering it in the same red said otherwise.
+ *
+ * One of the four is scoped, which is why this takes the check's title.
+ * `egress_to_unknown_host` is a hard rule only on `detonation` (`docs/spec.md`,
+ * "the five rules are not interchangeable"): an install that phones home is
+ * malice, and a test suite that reaches a host the allowlist does not name is
+ * something to look at. Painting the second in the first's red is the page
+ * making an accusation the reviewer did not.
+ */
+export function alarms(block: SensorBlock, check: string): Alarm[] {
+  const out: Alarm[] = [];
+  const add = (text: string, severity: Severity) => out.push({ text, severity });
+  if (block.secret_probe?.decoy_in_egress) add("decoy secret left the sandbox", "critical");
+  if (block.secret_probe?.decoy_read) add("decoy secret was read", "critical");
+  if (block.derived?.egress_to_unknown_host) {
+    add("egress to an unknown host", check === "detonation" ? "critical" : "warn");
+  }
+  if (block.derived?.wrote_sensitive) add("wrote to a sensitive path", "critical");
+  if (block.derived?.wrote_outside_workspace) add("wrote outside the workspace", "warn");
+  // Stable, so within a severity the order above holds.
+  return out.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
+}
+
+const RANK: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
+
+/** Whether any of the five flags tripped, whatever the check. */
+export function tripped(block: SensorBlock): boolean {
+  return Boolean(
+    block.secret_probe?.decoy_in_egress ||
+      block.secret_probe?.decoy_read ||
+      block.derived?.egress_to_unknown_host ||
+      block.derived?.wrote_sensitive ||
+      block.derived?.wrote_outside_workspace,
+  );
 }
 
 /**
@@ -322,5 +378,5 @@ export function alarms(block: SensorBlock): string[] {
  * says which run it was.
  */
 export function needsAttention(block: SensorBlock): boolean {
-  return alarms(block).length > 0 || unarmed(block).length > 0;
+  return tripped(block) || unarmed(block).length > 0;
 }

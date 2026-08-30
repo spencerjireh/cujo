@@ -1,5 +1,5 @@
 import type { RunDigest, RunStatus, RunSummary } from "@/lib/api/types";
-import { armScale, specimensFrom } from "@/lib/board/specimen";
+import { armScale, specimenSignature, specimensFrom } from "@/lib/board/specimen";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -29,6 +29,19 @@ function digest(checks: RunDigest["checks"]): RunDigest {
   return { checks, findings: { critical: 0, warn: 0, info: 0 }, durationMs: null };
 }
 
+/**
+ * One entry in a digest's `checks`: a status, how long it ran, and how much of
+ * that was the sandbox. `sandboxMs` defaults to null, which is the shape every
+ * case here except the arm-split ones is about.
+ */
+function mark(
+  status: "done" | "error" | "running",
+  ms: number | null,
+  sandboxMs: number | null = null,
+) {
+  return { status, ms, sandboxMs };
+}
+
 describe("armScale", () => {
   it("has no scale when nothing measured anything", () => {
     expect(armScale([])).toBeNull();
@@ -41,7 +54,7 @@ describe("armScale", () => {
         row({
           id: `r${i}`,
           status: "clean",
-          digest: digest({ tests: { status: "done", ms: value * 1_000 } }),
+          digest: digest({ tests: { status: "done", ms: value * 1_000, sandboxMs: null } }),
         }),
       );
     const ordinary = Array.from({ length: 20 }, (_, i) => i + 1);
@@ -61,7 +74,13 @@ describe("specimensFrom", () => {
     // A stub would claim the check ran briefly. The gap is the fact, and it is
     // the fact the hard rule `check_missing` exists for.
     const [spec] = specimensFrom(
-      [row({ id: "a", status: "clean", digest: digest({ tests: { status: "done", ms: 5_000 } }) })],
+      [
+        row({
+          id: "a",
+          status: "clean",
+          digest: digest({ tests: { status: "done", ms: 5_000, sandboxMs: null } }),
+        }),
+      ],
       10,
     );
     const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
@@ -76,8 +95,8 @@ describe("specimensFrom", () => {
           id: "a",
           status: "running",
           digest: digest({
-            tests: { status: "running", ms: null },
-            probes: { status: "done", ms: 60_000 },
+            tests: { status: "running", ms: null, sandboxMs: null },
+            probes: { status: "done", ms: 60_000, sandboxMs: null },
           }),
         }),
       ],
@@ -100,8 +119,8 @@ describe("specimensFrom", () => {
           id: "a",
           status: "blocked_pending",
           digest: digest({
-            tests: { status: "done", ms: 1_000 },
-            detonation: { status: "error", ms: null },
+            tests: { status: "done", ms: 1_000, sandboxMs: null },
+            detonation: { status: "error", ms: null, sandboxMs: null },
           }),
         }),
       ],
@@ -114,6 +133,57 @@ describe("specimensFrom", () => {
     // Bone, not a severity: a check that reported is the calm case, and four
     // of them on every run would otherwise out-shout the one that failed.
     expect(byName.get("tests")?.tone).toBe("bone");
+  });
+
+  /**
+   * The second number an arm carries (decision 81). Length is how long the
+   * check watched; the solid part is how much of that was the sandbox actually
+   * executing the pull request, which is the same split `ChecksTimeline` draws
+   * as a lane on the run page.
+   */
+  it("splits an arm at the share of the check that was the sandbox", () => {
+    const [spec] = specimensFrom(
+      [
+        row({
+          id: "a",
+          status: "clean",
+          digest: digest({
+            tests: mark("done", 40_000, 30_000),
+            // No share measured: the arm is drawn whole, never all-model. A
+            // zero here would say a check that ran a suite ran nothing.
+            probes: mark("done", 20_000),
+          }),
+        }),
+      ],
+      10,
+    );
+    const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
+    expect(byName.get("tests")?.solid).toBeCloseTo(0.75, 10);
+    expect(byName.get("probes")?.solid).toBeNull();
+    // A check that never appeared has no arm, so it has no share of one.
+    expect(byName.get("smoke")?.solid).toBeNull();
+  });
+
+  it("refuses a share of a duration nobody measured, and one that overflows", () => {
+    const [spec] = specimensFrom(
+      [
+        row({
+          id: "a",
+          status: "running",
+          digest: digest({
+            // Still running: no length to take a share of.
+            tests: mark("running", null, 9_000),
+            // A sandbox that reported longer than the thread it ran in is a
+            // broken measurement, not an arm that overflows its own length.
+            probes: mark("done", 10_000, 90_000),
+          }),
+        }),
+      ],
+      10,
+    );
+    const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
+    expect(byName.get("tests")?.solid).toBeNull();
+    expect(byName.get("probes")?.solid).toBe(1);
   });
 
   it("orders newest first and trims to the chamber's capacity", () => {
@@ -209,5 +279,94 @@ describe("specimensFrom findings", () => {
     expect(spec?.findingTotal).toBe(0);
     expect(spec?.worst).toBeNull();
     expect(spec?.unmeasured).toBe(true);
+  });
+});
+
+/**
+ * What the chamber compares to decide whether a poll changed a drawing.
+ *
+ * The list is refetched every five seconds and comes back equal almost every
+ * time, so "changed" has to mean *would be drawn differently* rather than "is a
+ * new object" — otherwise every poll rebuilds twenty-four nodes to redraw the
+ * same picture.
+ */
+describe("specimenSignature", () => {
+  const one = (over: Partial<RunSummary> & { id: string; status: RunStatus }) => {
+    const [spec] = specimensFrom([row(over)], 10);
+    if (!spec) throw new Error("no specimen");
+    return spec;
+  };
+
+  it("is the same for two runs that would be drawn identically", () => {
+    const a = one({ id: "a", status: "clean", digest: digest({ tests: mark("done", 1_000) }) });
+    const b = one({ id: "b", status: "clean", digest: digest({ tests: mark("done", 1_000) }) });
+    expect(specimenSignature(a)).toBe(specimenSignature(b));
+  });
+
+  it("changes when a check ends differently", () => {
+    const running = one({
+      id: "a",
+      status: "running",
+      digest: digest({ tests: mark("running", null) }),
+    });
+    const errored = one({
+      id: "a",
+      status: "clean",
+      digest: digest({ tests: mark("error", 900) }),
+    });
+    expect(specimenSignature(running)).not.toBe(specimenSignature(errored));
+  });
+
+  it("changes when the verdict changes", () => {
+    const pending = one({ id: "a", status: "blocked_pending" });
+    const posted = one({ id: "a", status: "blocked_posted" });
+    expect(specimenSignature(pending)).not.toBe(specimenSignature(posted));
+  });
+
+  /**
+   * A poll that learns only where a check's time went still changes the
+   * drawing: the arm's solid part moves. Left out of the signature, the old
+   * geometry would stand and the specimen would keep a division it no longer
+   * has.
+   */
+  it("changes when only the sandbox share of a check changes", () => {
+    const whole = one({ id: "a", status: "clean", digest: digest({ tests: mark("done", 4_000) }) });
+    const split = one({
+      id: "a",
+      status: "clean",
+      digest: digest({ tests: mark("done", 4_000, 3_000) }),
+    });
+    expect(specimenSignature(whole)).not.toBe(specimenSignature(split));
+  });
+
+  it("changes when the findings do", () => {
+    const clean = one({
+      id: "a",
+      status: "clean",
+      digest: { checks: {}, findings: { critical: 0, warn: 0, info: 0 }, durationMs: null },
+    });
+    const found = one({
+      id: "a",
+      status: "clean",
+      digest: { checks: {}, findings: { critical: 1, warn: 0, info: 0 }, durationMs: null },
+    });
+    expect(specimenSignature(clean)).not.toBe(specimenSignature(found));
+  });
+
+  /**
+   * The one exclusion, and the reason the record can slide: a run that only
+   * moved a slot back is the same specimen and must not be rebuilt.
+   */
+  it("does not change when a run only moves down the record", () => {
+    const [first, second] = specimensFrom(
+      [
+        row({ id: "new", status: "clean", digest: digest({ tests: mark("done", 1_000) }) }),
+        row({ id: "a", status: "clean", digest: digest({ tests: mark("done", 1_000) }) }),
+      ],
+      10,
+    );
+    if (!first || !second) throw new Error("no specimens");
+    expect(first.index).not.toBe(second.index);
+    expect(specimenSignature(first)).toBe(specimenSignature(second));
   });
 });
