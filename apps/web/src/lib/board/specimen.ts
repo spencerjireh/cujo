@@ -56,6 +56,13 @@ export interface SpecimenBar {
    * lane for a check with no `timings`.
    */
   solid: number | null;
+  /**
+   * The measurements the ring is drawn from, carried so the callout can say
+   * them: how long the check ran and how much of that was the sandbox. Null
+   * where the digest had none, as `DigestCheck` has them.
+   */
+  ms: number | null;
+  sandboxMs: number | null;
 }
 
 /** One finding, as a satellite on the orbit outside the rings. Worst first. */
@@ -186,11 +193,14 @@ function barsFor(run: RunSummary, scale: number | null): SpecimenBar[] {
     const check = checks[name];
     const outcome = checkOutcome(check);
     const tone = OUTCOME_TONE[outcome];
-    if (outcome === "absent") return { name, outcome, tone, length: 0, solid: null };
+    if (outcome === "absent") {
+      return { name, outcome, tone, length: 0, solid: null, ms: null, sandboxMs: null };
+    }
     const solid = solidShare(check);
-    const ms = check?.ms;
+    const ms = check?.ms ?? null;
+    const sandboxMs = check?.sandboxMs ?? null;
     if (typeof ms !== "number" || scale === null || scale <= 0) {
-      return { name, outcome, tone, length: UNKNOWN_LENGTH, solid };
+      return { name, outcome, tone, length: UNKNOWN_LENGTH, solid, ms, sandboxMs };
     }
     return {
       name,
@@ -198,6 +208,8 @@ function barsFor(run: RunSummary, scale: number | null): SpecimenBar[] {
       tone,
       length: Math.min(1, Math.max(MIN_LENGTH, ms / scale)),
       solid,
+      ms,
+      sandboxMs,
     };
   });
 }

@@ -9,7 +9,7 @@ import {
 } from "@/lib/api/types";
 import { type SetupWindow, setupWindow } from "@/lib/board/setup";
 import { duration, elapsedMs } from "@/lib/format";
-import { type VerdictTone, checkVerdict, reportAlarm } from "@/lib/verdict";
+import { type VerdictTone, checkVerdict, notRunReason, reportAlarm } from "@/lib/verdict";
 import { type ReactNode, useMemo } from "react";
 
 /**
@@ -271,6 +271,11 @@ export function ChecksTimeline({
                 // wraps rather than lies.
                 <span className={`font-mono text-xs sm:text-sm ${lane.tone}`}>
                   {lane.outcome}
+                  {/* "not run" says the lane is empty; the reason says why,
+                      as far as the client knows it (`notRunReason`). */}
+                  {lane.outcome === "not run" ? (
+                    <span className="ml-2 text-fg-muted">{notRunReason(lane.check)}</span>
+                  ) : null}
                   {lane.check ? (
                     <span className="ml-2 text-fg-muted">
                       {duration(lane.check.startedAt, lane.check.endedAt) ?? ""}
@@ -302,6 +307,25 @@ export function ChecksTimeline({
             : ""}
         </p>
       ) : null}
+      {/* The two strengths, named. The caption above says it in a sentence,
+          and a reader who has not read the sentence still sees two shades of
+          one bar and needs to know which is which. The swatches use the same
+          classes the bars do — `bg-current` at full opacity and at 0.4 — so
+          the legend cannot drift from the drawing. */}
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-fg-muted">
+        <li className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-4 rounded-sm bg-current" aria-hidden="true" />
+          sandbox executing the code
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-2.5 w-4 rounded-sm bg-current"
+            style={{ opacity: 0.4 }}
+            aria-hidden="true"
+          />
+          agent deciding what to run
+        </li>
+      </ul>
     </section>
   );
 }
@@ -332,7 +356,7 @@ function SetupRow({
     <Row
       label="setup"
       note={
-        <span className="truncate font-mono text-xs text-fg-muted sm:text-sm">
+        <span className="font-mono text-xs text-fg-muted sm:text-sm">
           {window.messages} {window.messages === 1 ? "message" : "messages"}
           <span className="ml-2">{span(window.lengthMs)}</span>
         </span>

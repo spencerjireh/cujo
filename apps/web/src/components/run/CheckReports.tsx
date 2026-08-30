@@ -1,14 +1,15 @@
 "use client";
 
 import { Chevron } from "@/components/icons/Chevron";
-import { needsAttention, parseReport } from "@/lib/api/report";
-import type { CheckState } from "@/lib/api/types";
+import { type SensorBlock, parseReport } from "@/lib/api/report";
+import type { CheckState, UsageTotals } from "@/lib/api/types";
 import { compactCount, duration, usd } from "@/lib/format";
 import { prefersReducedMotion } from "@/lib/motion";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RawReport } from "./report/RawReport";
 import { SensorReport } from "./report/SensorReport";
+import { SensorStatus } from "./report/SensorStatus";
 
 /** What the timeline asks for: a check, and which ask this is. */
 export interface PickedCheck {
@@ -16,7 +17,93 @@ export interface PickedCheck {
   nonce: number;
 }
 
-/** One collapsible section per check that returned something. */
+/**
+ * What this one check cost the model, in words. It sat on the trigger row as
+ * `12.4k tok · $0.03`, beside the duration, where a PR author had to know
+ * what `tok` was and that the number was two counts added together. The row
+ * keeps the duration, which is the one figure worth a glance before opening.
+ */
+function CostLine({ usage }: { usage?: UsageTotals | null }) {
+  if (!usage) return null;
+  const parts = [
+    Number.isFinite(usage.inputTokens) ? `input ${compactCount(usage.inputTokens)} tokens` : null,
+    Number.isFinite(usage.outputTokens)
+      ? `output ${compactCount(usage.outputTokens)} tokens`
+      : null,
+    typeof usage.costUsd === "number" ? usd(usage.costUsd) : null,
+  ].filter((part): part is string => part !== null);
+  if (parts.length === 0) return null;
+  return <p className="mt-3 font-mono text-xs text-fg-muted">Model {parts.join(" · ")}</p>;
+}
+
+/**
+ * One line over a report of many probes: how many, how many passed, and how
+ * long the slowest and quickest took. Passed means the command exited zero.
+ *
+ * Counted over the blocks that ran a command, not over every block: a report
+ * with a roll-up envelope carries one commandless block above its `runs[]`,
+ * and counting it said "3 probes" over two commands.
+ */
+function probeSummary(blocks: SensorBlock[]): string {
+  const commands = blocks.flatMap((block) => (block.command ? [block.command] : []));
+  const passed = commands.filter((command) => command.exit === 0).length;
+  const durations = commands.flatMap((command) =>
+    command.duration_s !== null ? [command.duration_s] : [],
+  );
+  const noun = commands.length === 1 ? "probe" : "probes";
+  let line = `${commands.length} ${noun}, ${passed} passed`;
+  if (durations.length > 0) {
+    const min = Math.min(...durations);
+    const max = Math.max(...durations);
+    line += min === max ? `, ${min} s` : `, ${min}–${max} s`;
+  }
+  return line;
+}
+
+/**
+ * The blocks of one report. A single block is drawn as it always was. Several
+ * are a detonation or a probe sweep, and go behind one summary line, closed:
+ * the line says how many probes ran and how many passed, and the blocks are
+ * for a reader who opens it. It used to open on its own when a block tripped,
+ * which was one more thing unfolding on a page whose verdict card and timeline
+ * had already said what tripped. Once per report, not per block, the sensor
+ * health is said above this by `SensorStatus`.
+ */
+function Blocks({ blocks, check }: { blocks: SensorBlock[]; check: string }) {
+  const [open, setOpen] = useState(false);
+
+  const rendered = blocks.map((block, index) => (
+    <SensorReport
+      key={block.label ?? `block-${index}`}
+      block={block}
+      check={check}
+      index={index}
+      total={blocks.length}
+    />
+  ));
+  if (blocks.length <= 1) return <div className="mt-3">{rendered}</div>;
+
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="mt-3">
+      <Collapsible.Trigger className="-mx-2 flex w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-sm px-2 py-2 text-left hover:bg-bg-raised">
+        <span className="font-mono text-xs">{probeSummary(blocks)}</span>
+        <Chevron open={open} className="text-fg-muted" />
+      </Collapsible.Trigger>
+      <Collapsible.Content>{rendered}</Collapsible.Content>
+    </Collapsible.Root>
+  );
+}
+
+/**
+ * One collapsible section per check that returned something.
+ *
+ * Closed until asked. A card used to open itself when its report tripped
+ * anything or ran with a sensor down, and to open again when such a report
+ * arrived over the stream. That put the longest section of the page on screen
+ * before the reader had chosen it, under a verdict card and a timeline that
+ * had already said what was wrong; the timeline lane is now the one thing
+ * that opens a card, and it opens it on purpose.
+ */
 function CheckReport({
   check,
   /** Rises when this card is the one a timeline lane asked for. */
@@ -28,30 +115,15 @@ function CheckReport({
   onDeliver: (trigger: HTMLButtonElement) => void;
 }) {
   const parsed = parseReport(check.report);
-  // A check that tripped anything, or that ran with a sensor down, is worth
-  // opening without being asked. `some` over the blocks, so one blind interval
-  // reported on both the roll-up and its run opens the card once.
-  const attention = parsed.kind === "sensor" && parsed.blocks.some(needsAttention);
-  const [open, setOpen] = useState(attention);
+  const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  // The initializer runs once, and a check mounts while it is still running --
-  // `report: null`, nothing to be alarmed about yet. The report arrives later
-  // over the stream, into the same component, so without this the card a
-  // watcher most needs open is the one that stays shut. On the rising edge
-  // only: a card the reader closed again stays closed.
-  const wasAttention = useRef(attention);
-  useEffect(() => {
-    if (attention && !wasAttention.current) setOpen(true);
-    wasAttention.current = attention;
-  }, [attention]);
 
   /**
    * Somebody picked this check's lane on the timeline.
    *
-   * On the rising edge of the ask and not on the value, for the reason the
-   * effect above is written that way and for one more: the run re-renders every
-   * few seconds while it is live, and a card that re-opened itself on each of
-   * those would be a card a reader cannot close.
+   * On the rising edge of the ask and not on the value: the run re-renders
+   * every few seconds while it is live, and a card that re-opened itself on
+   * each of those would be a card a reader cannot close.
    */
   const delivered = useRef(summoned);
   useEffect(() => {
@@ -79,14 +151,6 @@ function CheckReport({
           ) : parsed.kind === "empty" ? (
             <span>no report</span>
           ) : null}
-          {/* What this one check cost, beside how long it took. Hidden on a
-              narrow screen, where the row already carries four things. */}
-          {check.usage ? (
-            <span className="hidden sm:inline">
-              {compactCount(check.usage.inputTokens + check.usage.outputTokens)} tok
-              {typeof check.usage.costUsd === "number" ? ` · ${usd(check.usage.costUsd)}` : ""}
-            </span>
-          ) : null}
           {duration(check.startedAt, check.endedAt) ?? ""}
           <Chevron open={open} />
         </span>
@@ -95,18 +159,12 @@ function CheckReport({
         {check.error ? (
           <p className="mt-3 font-mono text-xs text-sev-critical">{check.error}</p>
         ) : null}
+        <CostLine usage={check.usage} />
         {parsed.kind === "sensor" ? (
           <>
-            {parsed.blocks.map((block, index) => (
-              <SensorReport
-                key={block.label ?? `block-${index}`}
-                block={block}
-                check={check.title}
-                index={index}
-                total={parsed.blocks.length}
-              />
-            ))}
-            <RawReport raw={parsed.raw} blocks={parsed.blocks} />
+            <SensorStatus block={parsed.blocks[0]} />
+            <Blocks blocks={parsed.blocks} check={check.title} />
+            <RawReport raw={parsed.raw} />
           </>
         ) : parsed.kind === "opaque" ? (
           <RawReport raw={parsed.raw} />

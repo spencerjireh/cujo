@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { RunSpecimen } from "./RunSpecimen";
 import { RunSummary } from "./RunSummary";
+import { VerdictCard } from "./VerdictCard";
 
 const AVATAR = 20;
 
@@ -75,7 +76,10 @@ export function RunHeader({ run }: { run: Run }) {
         ← all runs
       </Link>
       {/* The shape beside the name, and beside everything under it: the title,
-          the author, what reviewed this and what setup cost. It stands to the
+          the author, the verdict and what setup cost. What reviewed this and
+          against which rubric is in the operator details below the evidence,
+          where a reader who wants to check the verdict goes; a reader who
+          arrived from GitHub does not need it above the verdict. It stands to the
           right of that whole block rather than to the left of the title alone,
           where it floated against a column three times its height.
 
@@ -116,20 +120,6 @@ export function RunHeader({ run }: { run: Run }) {
             <Author run={run} />
             {shortSha(run.head_sha)} · started <RelativeTime iso={run.created_at} />
           </p>
-          {/* What reviewed this pull request, and against what. A verdict from
-              an execution-backed reviewer is only checkable if the reader can
-              see which model reached it and which rubric it was reading — both
-              are published (commit 513d35f) and neither was on the page. Null
-              on a run recorded before the columns existed, and then this line
-              is absent rather than saying "unknown", which claims a lookup
-              happened. */}
-          {run.model || run.rubric_sha256 ? (
-            <p className="mt-1 font-mono text-xs text-fg-muted">
-              {run.model ? <>reviewed by {run.model}</> : null}
-              {run.model && run.rubric_sha256 ? " · " : null}
-              {run.rubric_sha256 ? <>rubric {shortSha(run.rubric_sha256)}</> : null}
-            </p>
-          ) : null}
           {/* What the run spent before it could start measuring anything
               (decision 67). One line, because the shape of it is on the
               timeline and the number is what a reader wants beside the verdict:
@@ -147,6 +137,10 @@ export function RunHeader({ run }: { run: Run }) {
               the handles beside it, so a sentence set below the whole row left
               a hole the height of a specimen next to it; here it fills the
               column the object stands against, which is what it is for. */}
+          {/* The verdict, then the run's own words about it. The card is the
+              answer a reader from GitHub came for; the summary under it is the
+              model's two lines, kept because they say why. */}
+          <VerdictCard run={run} />
           {run.summary ? <RunSummary summary={run.summary} /> : null}
         </div>
         {/* Last in the source, so at full width it stands to the right of the
