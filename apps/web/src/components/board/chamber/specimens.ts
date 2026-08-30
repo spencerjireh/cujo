@@ -1,43 +1,47 @@
 /**
  * A run, as geometry. The one part of the scene two scenes share.
  *
- * The chamber draws the record hanging on a chain; the run page draws exactly
- * one specimen, beside the pull request's title, with no room around it. They
- * have to be the same drawing — a specimen that means one thing on the board
- * and another on the run page would make the shape decorative — so the builder
- * is here and both callers use it.
+ * The chamber draws the record as a galaxy; the run page draws exactly one
+ * specimen, beside the pull request's title, with no room around it. They have
+ * to be the same drawing — a specimen that means one thing on the board and
+ * another on the run page would make the shape decorative — so the builder is
+ * here and both callers use it.
  *
- * What separates the two is a rig, not a flag named after the caller. The board
- * passes a floor to land on; the run page passes none, and the tether and the
- * shadow under it are simply not drawn. That is the whole seam: `build()`
- * returns a detached `Group`, and whoever asked for it decides what to add it
- * to.
+ * A run is a star system (decision 71). The core is the star: the verdict, in
+ * its colour, sized by the worst thing the run found, with an additive glow
+ * behind it that is what blooms. Each check is a ring around it, on one of four
+ * fixed tilts: its radius is how long the check watched, the bright arc of it
+ * is the share of that spent executing in the sandbox and the faint remainder
+ * is the agent deciding what to do next, and its colour is how the check
+ * ended. Findings are satellites on an orbit outside the rings, worst first.
+ *
+ * What separates the two callers is a rig, not a flag named after the caller:
+ * the board asks for the live pulse and the glow, the run page for the pulse
+ * alone. `build()` returns a detached `Group`, and whoever asked for it decides
+ * what to add it to.
  *
  * Every rule about what a specimen *means* lives in `@/lib/board/specimen` and
- * `@/lib/board/caltrop`, which are pure and tested. This module only turns that
- * into meshes.
+ * `@/lib/board/orbit`, which are pure and tested. This module only turns that
+ * into meshes — and it imports nothing from `three/examples`, because the run
+ * page's chunk must not carry the composer.
  */
 
-import { ARM_DIRECTIONS, markRing } from "@/lib/board/caltrop";
-import { ARM_MAX, ARM_THICKNESS } from "@/lib/board/chamber-layout";
+import { RING_MAX, RING_MIN, RING_TUBE } from "@/lib/board/chamber-layout";
+import { RING_NORMALS, SATELLITE_ORBIT, ringBasis, satelliteRing } from "@/lib/board/orbit";
 import type { Specimen } from "@/lib/board/specimen";
 import {
   AdditiveBlending,
-  BoxGeometry,
-  BufferAttribute,
-  BufferGeometry,
   type Camera,
   Group,
-  LineBasicMaterial,
-  LineSegments,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
-  OctahedronGeometry,
-  PlaneGeometry,
   RingGeometry,
+  SphereGeometry,
   Sprite,
   SpriteMaterial,
   type Texture,
+  TorusGeometry,
   Vector3,
 } from "three";
 import type { ChamberPalette } from "./palette";
@@ -47,49 +51,52 @@ import { radialTexture } from "./textures";
 export const DIMMED = 0.45;
 
 /**
- * The core, sized against the arms rather than in absolute units.
- *
- * It used to be 0.042 against an `ARM_MAX` of 0.3 — the verdict drawn as the
- * smallest thing in a picture that exists to show the verdict. Stated as a
- * ratio so the relationship survives the arms being resized, which is the sort
- * of change that otherwise silently undoes this one.
+ * The core, sized against the rings rather than in absolute units, so the
+ * relationship survives the rings being resized.
  */
-const CORE_RADIUS = ARM_MAX * 0.16;
+const CORE_RADIUS = RING_MAX * 0.14;
+/** The glow behind it: wide enough to read as a star, not a dot with a halo. */
+const GLOW_SCALE = CORE_RADIUS * 3.2;
+const GLOW_OPACITY = 0.55;
 
-/** The hollow half of an arm: thinner and fainter, never a second hue. */
-const HOLLOW_THICKNESS = ARM_THICKNESS * 0.5;
-const HOLLOW_OPACITY = 0.34;
+/** The faint arc of a ring: thinner and fainter, never a second hue. */
+const FAINT_TUBE = RING_TUBE * 0.55;
+const FAINT_OPACITY = 0.34;
+/** Segments round a ring, and round its tube. */
+const RING_SEGMENTS = 64;
+const TUBE_SEGMENTS = 6;
 
-/** One finding, as a cube on the ring around the core. */
-const MARK_SIZE = ARM_MAX * 0.055;
-
-/** `setFromUnitVectors` needs the axis a box's length runs along. */
-const X_AXIS = new Vector3(1, 0, 0);
+/** One finding, as a small sphere on the outer orbit. */
+const SATELLITE_RADIUS = RING_MAX * 0.045;
+/** How long the satellites take to go round once. Decoration; carries nothing. */
+const SATELLITE_TURN_SECONDS = 40;
+/** How long a live run's rings take to precess once. Decoration; carries nothing. */
+const PRECESS_SECONDS = 30;
 
 /**
- * What the specimen is hung on, which is the only thing the two scenes differ
- * by. Every field here is a fact about the room, so a scene with no room sets
- * them all to nothing and the builder draws a bare shape.
+ * What a pointer lands on. The core is a tenth of a unit across, and a hover
+ * that had to find it would find nothing; the system is picked as a whole.
+ */
+const PICK_RADIUS = RING_MAX * 0.7;
+
+/**
+ * What the specimen is drawn with beyond its own shape, which is the only
+ * thing the two scenes differ by.
  */
 export interface SpecimenRig {
-  /** Local y of the floor under the core. Null draws no tether and no shadow. */
-  tetherY: number | null;
-  /** The expanding ring a live run carries. */
+  /** The expanding pulse a live run emits. */
   ring: boolean;
-  /** The additive glow behind the core. */
+  /** The additive glow behind the core. The board has bloom; the run page does not. */
   glow: boolean;
 }
 
-interface SpecimenArm {
+interface SpecimenOrbit {
+  /** Oriented onto the ring's plane. Scaled while the check is still running. */
+  holder: Group;
   /** The sandbox's share, always drawn. */
-  solid: Mesh;
+  bright: Mesh;
   /** What was left, drawn only when the check measured a share to leave. */
-  hollow: Mesh | null;
-  /** Its measured length, which the running pulse oscillates around. */
-  baseLength: number;
-  /** 0 to 1, or null for an arm drawn undivided. */
-  share: number | null;
-  direction: Vector3;
+  faint: Mesh | null;
   running: boolean;
 }
 
@@ -97,9 +104,8 @@ interface SpecimenArm {
  * A material and the opacity it returns to when nothing is dimmed.
  *
  * Carried rather than inferred, because the specimens are not all opaque: the
- * floor shadow is a smudge at 0.28 and the hollow half of an arm sits at 0.34,
- * and resetting either to 1 would turn it into something it is not. The dim
- * state has to be reversible without guessing.
+ * faint arc of a ring sits at 0.34 and the glow at 0.55, and resetting either
+ * to 1 would turn it into something it is not.
  */
 interface ToneMaterial {
   material: MeshBasicMaterial | SpriteMaterial;
@@ -107,22 +113,25 @@ interface ToneMaterial {
 }
 
 export interface SpecimenNode {
-  /** At the slot. Never scaled, so the rigging stays attached to the room. */
+  /** At its place in the volume. Never scaled, so the pulse stays where it is. */
   group: Group;
-  /** What focus, the sweep and arrival scale: the core, the arms, the glow. */
+  /** What focus, the sweep and arrival scale: the core, the rings, the glow. */
   body: Group;
   core: Mesh;
+  /** Invisible, and what the raycaster is given. */
+  pick: Mesh;
   glow: Sprite | null;
-  arms: SpecimenArm[];
-  /** One per finding, on the ring around the core. */
-  marks: Mesh[];
+  /** The four ring planes, together, so a live run can precess them as one. */
+  rings: Group;
+  orbits: SpecimenOrbit[];
+  /** One per finding, on the outer orbit. Turned as a group. */
+  satellites: Group;
   /** Only on a live run. Its opacity is written every frame. */
   ring: Mesh | null;
   materials: ToneMaterial[];
   /**
    * Eased, not switched. These are the *current* values; the scene pushes
-   * targets and `applySpecimenFrame` walks them, which is what turned the old
-   * 1.55 snap into a response.
+   * targets and `applySpecimenFrame` walks them.
    */
   focusAmount: number;
   dimAmount: number;
@@ -131,6 +140,12 @@ export interface SpecimenNode {
   slotTo: number;
   /** When the current slide began, in scene seconds. Negative means at rest. */
   slideFrom: number;
+  /**
+   * Where the current slide started, when it started somewhere other than at
+   * a slot: a poll that lands mid-slide begins the next one from wherever the
+   * run is, so nothing jumps. Null for a slide from a slot.
+   */
+  slideOrigin: { x: number; y: number; z: number } | null;
   /** When this run arrived. Negative means it was always here. */
   arriveFrom: number;
   spec: Specimen;
@@ -145,46 +160,38 @@ export interface SpecimenKit {
   dispose(): void;
 }
 
-function lineGeometry(points: number[]): BufferGeometry {
-  const geometry = new BufferGeometry();
-  geometry.setAttribute("position", new BufferAttribute(new Float32Array(points), 3));
-  return geometry;
+/** A ring's radius for a check's measured length, 0–1 of the longest. */
+export function ringRadius(length: number): number {
+  return RING_MIN + Math.min(1, Math.max(0, length)) * (RING_MAX - RING_MIN);
 }
 
 /**
- * Put one segment of an arm between two distances along its direction.
- *
- * A box scaled along x and turned onto the direction, rather than swung in a
- * plane: the arms leave the core on the four diagonals of a cube now, so no two
- * of them share a plane and there is no angle to rotate by.
+ * Turn a holder so its local plane is the ring's plane and its local x is
+ * where the bright arc begins. `TorusGeometry` lies in local xy starting on
+ * +x, so this is all the orientation a ring needs.
  */
-export function placeSegment(mesh: Mesh, direction: Vector3, from: number, to: number): void {
-  const length = Math.max(to - from, 0);
-  // Never exactly zero: a zero scale collapses the matrix and three warns.
-  mesh.scale.x = Math.max(length, 1e-5);
-  mesh.visible = length > 1e-4;
-  mesh.quaternion.setFromUnitVectors(X_AXIS, direction);
-  mesh.position.copy(direction).multiplyScalar(from + length / 2);
-}
-
-/** Lay both halves of an arm out for a total reach. */
-function layArm(arm: SpecimenArm, reach: number): void {
-  const split = arm.share === null ? reach : reach * arm.share;
-  placeSegment(arm.solid, arm.direction, 0, split);
-  if (arm.hollow) placeSegment(arm.hollow, arm.direction, split, reach);
+function orient(holder: Group, index: number): void {
+  const normal = RING_NORMALS[index];
+  if (!normal) return;
+  const { u, v } = ringBasis(normal);
+  const basis = new Matrix4().makeBasis(
+    new Vector3(u.x, u.y, u.z),
+    new Vector3(v.x, v.y, v.z),
+    new Vector3(normal.x, normal.y, normal.z),
+  );
+  holder.quaternion.setFromRotationMatrix(basis);
 }
 
 export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): SpecimenKit {
-  const armGeometry = new BoxGeometry(1, ARM_THICKNESS, ARM_THICKNESS);
-  const hollowGeometry = new BoxGeometry(1, HOLLOW_THICKNESS, HOLLOW_THICKNESS);
-  const coreGeometry = new OctahedronGeometry(CORE_RADIUS, 0);
-  const markGeometry = new BoxGeometry(MARK_SIZE, MARK_SIZE, MARK_SIZE);
-  // Thin, and sized against the arms rather than the core: a thick ring at
-  // arm's length reads as a reticle drawn around the specimen, where a
-  // hairline that expands and fades reads as something the run is emitting.
-  const ringGeometry = new RingGeometry(ARM_MAX * 0.3, ARM_MAX * 0.315, 40);
-  const shadowGeometry = new PlaneGeometry(CORE_RADIUS * 2.2, CORE_RADIUS * 2.2);
-  const tetherMaterial = new LineBasicMaterial({ color: palette.line, fog: true });
+  const coreGeometry = new SphereGeometry(CORE_RADIUS, 20, 14);
+  const satelliteGeometry = new SphereGeometry(SATELLITE_RADIUS, 10, 8);
+  const pickGeometry = new SphereGeometry(PICK_RADIUS, 8, 6);
+  // Draws nothing and takes no depth, and is still there for the raycaster,
+  // which does not consult `visible`.
+  const pickMaterial = new MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  // Thin, and sized against the rings: a hairline that expands and fades reads
+  // as something the run is emitting rather than a reticle drawn round it.
+  const pulseGeometry = new RingGeometry(RING_MAX * 0.3, RING_MAX * 0.315, 40);
   // Built lazily and only where it is wanted: the texture needs a canvas, and a
   // rig that draws no glow should not touch the DOM to make one.
   let glow: Texture | null = null;
@@ -193,24 +200,6 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
     const group = new Group();
     const materials: ToneMaterial[] = [];
     const toneColor = palette.tone(spec.tone);
-
-    // The tether to the floor, and the shadow it lands on. Together they are
-    // the strongest depth cue available without a light in the room, and both
-    // are readings: the foot of the tether is where the run sits in the volume.
-    if (rig.tetherY !== null) {
-      group.add(new LineSegments(lineGeometry([0, 0, 0, 0, rig.tetherY, 0]), tetherMaterial));
-      const shadowMaterial = new MeshBasicMaterial({
-        color: toneColor,
-        fog: true,
-        transparent: true,
-        opacity: 0.28,
-      });
-      const shadow = new Mesh(shadowGeometry, shadowMaterial);
-      shadow.rotation.x = -Math.PI / 2;
-      shadow.position.y = rig.tetherY;
-      group.add(shadow);
-      materials.push({ material: shadowMaterial, base: 0.28 });
-    }
 
     const body = new Group();
     group.add(body);
@@ -227,13 +216,13 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
         transparent: true,
         blending: AdditiveBlending,
         depthWrite: false,
-        opacity: 0.4,
+        opacity: GLOW_OPACITY,
         fog: true,
       });
       glowSprite = new Sprite(material);
-      glowSprite.scale.setScalar(CORE_RADIUS * 3.4 * spec.coreScale);
+      glowSprite.scale.setScalar(GLOW_SCALE * spec.coreScale);
       body.add(glowSprite);
-      materials.push({ material, base: 0.4 });
+      materials.push({ material, base: GLOW_OPACITY });
     }
 
     const coreMaterial = new MeshBasicMaterial({
@@ -250,62 +239,75 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
     body.add(core);
     materials.push({ material: coreMaterial, base: 1 });
 
-    const arms: SpecimenArm[] = [];
+    const pick = new Mesh(pickGeometry, pickMaterial);
+    body.add(pick);
+
+    const rings = new Group();
+    body.add(rings);
+    const orbits: SpecimenOrbit[] = [];
     spec.bars.forEach((bar, i) => {
-      // Length zero is a check that never appeared. Drawing a stub would claim
+      // Length zero is a check that never appeared. Drawing a ring would claim
       // it ran briefly, so nothing is drawn at all and the gap is the fact.
       if (bar.length <= 0) return;
-      const direction = ARM_DIRECTIONS[i];
-      if (!direction) return;
+      if (!RING_NORMALS[i]) return;
       const color = palette.tone(bar.tone);
-      const solidMaterial = new MeshBasicMaterial({
+      const radius = ringRadius(bar.length);
+      const share = bar.solid === null ? 1 : Math.min(1, Math.max(0, bar.solid));
+
+      const holder = new Group();
+      orient(holder, i);
+      rings.add(holder);
+
+      const brightMaterial = new MeshBasicMaterial({
         color,
         fog: true,
         transparent: true,
         opacity: 1,
       });
-      const solid = new Mesh(armGeometry, solidMaterial);
-      body.add(solid);
-      materials.push({ material: solidMaterial, base: 1 });
+      const bright = new Mesh(
+        new TorusGeometry(radius, RING_TUBE, TUBE_SEGMENTS, RING_SEGMENTS, 2 * Math.PI * share),
+        brightMaterial,
+      );
+      holder.add(bright);
+      materials.push({ material: brightMaterial, base: 1 });
 
-      // Only where there is a share to leave. An arm the check measured no
-      // split for is one whole piece — a hollow tail at zero length would be
-      // invisible anyway, but it would also put a second material on a node for
-      // every unmeasured check on the board.
-      let hollow: Mesh | null = null;
-      if (bar.solid !== null && bar.solid < 1) {
+      // Only where there is a share to leave. A ring the check measured no
+      // split for is one whole piece.
+      let faint: Mesh | null = null;
+      if (share < 1) {
         // Same hue, less of it. Decision 68 rejected a second colour for the
         // sandbox share by name; strength is what it asked for instead.
-        const hollowMaterial = new MeshBasicMaterial({
+        const faintMaterial = new MeshBasicMaterial({
           color,
           fog: true,
           transparent: true,
-          opacity: HOLLOW_OPACITY,
+          opacity: FAINT_OPACITY,
         });
-        hollow = new Mesh(hollowGeometry, hollowMaterial);
-        body.add(hollow);
-        materials.push({ material: hollowMaterial, base: HOLLOW_OPACITY });
+        faint = new Mesh(
+          new TorusGeometry(
+            radius,
+            FAINT_TUBE,
+            TUBE_SEGMENTS,
+            RING_SEGMENTS,
+            2 * Math.PI * (1 - share),
+          ),
+          faintMaterial,
+        );
+        // Picks up where the bright arc stopped.
+        faint.rotation.z = 2 * Math.PI * share;
+        holder.add(faint);
+        materials.push({ material: faintMaterial, base: FAINT_OPACITY });
       }
 
-      const arm: SpecimenArm = {
-        solid,
-        hollow,
-        baseLength: bar.length * ARM_MAX,
-        share: bar.solid,
-        direction: new Vector3(direction.x, direction.y, direction.z),
-        running: bar.outcome === "running",
-      };
-      layArm(arm, arm.baseLength);
-      arms.push(arm);
+      orbits.push({ holder, bright, faint, running: bar.outcome === "running" });
     });
 
-    // One mark per finding, on a ring around the core: what the run produced,
-    // orbiting the verdict it produced. They used to be strung up a drop line,
-    // which read as a barcode at any distance and hung off rigging this
-    // specimen no longer has.
-    const marks: Mesh[] = [];
-    const ringRadius = CORE_RADIUS * spec.coreScale + MARK_SIZE * 1.4;
-    markRing(spec.marks.length).forEach((angle, i) => {
+    // One satellite per finding, on the orbit outside the rings, facing the
+    // reader: what the run produced, circling the verdict it produced.
+    const satellites = new Group();
+    body.add(satellites);
+    const orbit = RING_MAX * SATELLITE_ORBIT;
+    satelliteRing(spec.marks.length).forEach((angle, i) => {
       const mark = spec.marks[i];
       if (!mark) return;
       const material = new MeshBasicMaterial({
@@ -314,16 +316,15 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
         transparent: true,
         opacity: 1,
       });
-      const mesh = new Mesh(markGeometry, material);
-      mesh.position.set(Math.cos(angle) * ringRadius, Math.sin(angle) * ringRadius, 0);
-      body.add(mesh);
-      marks.push(mesh);
+      const mesh = new Mesh(satelliteGeometry, material);
+      mesh.position.set(Math.cos(angle) * orbit, Math.sin(angle) * orbit, 0);
+      satellites.add(mesh);
       materials.push({ material, base: 1 });
     });
 
-    // A live run gets a ring that expands and fades once a second. Amber,
-    // which brand.md allows on exactly the things that are waiting — and a run
-    // still in the sandbox is the board's other one.
+    // A live run gets a pulse that expands and fades. Amber, which brand.md
+    // allows on exactly the things that are waiting — and a run still in the
+    // sandbox is the board's other one.
     let ring: Mesh | null = null;
     if (rig.ring && spec.live) {
       const ringMaterial = new MeshBasicMaterial({
@@ -332,7 +333,7 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
         transparent: true,
         opacity: 0,
       });
-      ring = new Mesh(ringGeometry, ringMaterial);
+      ring = new Mesh(pulseGeometry, ringMaterial);
       group.add(ring);
     }
 
@@ -340,9 +341,11 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
       group,
       body,
       core,
+      pick,
       glow: glowSprite,
-      arms,
-      marks,
+      rings,
+      orbits,
+      satellites,
       ring,
       materials,
       focusAmount: 0,
@@ -350,6 +353,7 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
       slotFrom: spec.index,
       slotTo: spec.index,
       slideFrom: -1,
+      slideOrigin: null,
       arriveFrom: -1,
       spec,
     };
@@ -359,19 +363,19 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
     node.group.removeFromParent();
     for (const entry of node.materials) entry.material.dispose();
     if (node.ring) (node.ring.material as MeshBasicMaterial).dispose();
-    node.group.traverse((child) => {
-      if (child instanceof LineSegments) child.geometry.dispose();
-    });
+    // The tori are per node: their radius and arc are this run's own numbers.
+    for (const orbit of node.orbits) {
+      orbit.bright.geometry.dispose();
+      orbit.faint?.geometry.dispose();
+    }
   }
 
   function dispose(): void {
-    armGeometry.dispose();
-    hollowGeometry.dispose();
     coreGeometry.dispose();
-    markGeometry.dispose();
-    ringGeometry.dispose();
-    shadowGeometry.dispose();
-    tetherMaterial.dispose();
+    satelliteGeometry.dispose();
+    pickGeometry.dispose();
+    pickMaterial.dispose();
+    pulseGeometry.dispose();
     glow?.dispose();
     glow = null;
   }
@@ -413,23 +417,26 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
   node.body.scale.setScalar((1 + frame.focus * 0.55) * lift * frame.arrivalScale);
 
   // Opacity is the dim state and the arrival fade at once. Both are multipliers
-  // on the material's own resting value, which is not always 1 — the floor
-  // shadow is a smudge at 0.28 and the hollow half of an arm sits at 0.34, and
-  // both must stay what they are.
+  // on the material's own resting value, which is not always 1.
   const strength = (1 - frame.dim * (1 - DIMMED)) * frame.arrivalOpacity;
   for (const { material, base } of node.materials) {
     material.opacity = base * strength;
   }
 
   if (!reducedMotion) {
-    // A check still in the sandbox has no measured length, so its arm reaches
-    // and retracts around the unmeasured one rather than sitting at a length it
-    // never reported. Both halves move with it: the share is a proportion, so
-    // it holds at every reach.
-    for (const arm of node.arms) {
-      if (!arm.running) continue;
-      layArm(arm, arm.baseLength * (0.82 + 0.22 * (0.5 + 0.5 * Math.sin(elapsed * 3.1))));
+    // A check still in the sandbox has no measured radius, so its ring grows
+    // and shrinks around the unmeasured one rather than sitting at a size it
+    // never reported. Both arcs move with it: the share is a proportion.
+    for (const orbit of node.orbits) {
+      if (!orbit.running) continue;
+      orbit.holder.scale.setScalar(0.82 + 0.22 * (0.5 + 0.5 * Math.sin(elapsed * 3.1)));
     }
+
+    // The satellites go round, and a live run's rings precess. Neither carries
+    // anything: both are decoration by the rule that admits the haze and the
+    // glow, and what they show is the shape, which is entirely measurement.
+    node.satellites.rotation.z = (elapsed / SATELLITE_TURN_SECONDS) * 2 * Math.PI;
+    node.rings.rotation.y = node.spec.live ? (elapsed / PRECESS_SECONDS) * 2 * Math.PI : 0;
 
     // One second of expansion and fade, restarting: a pulse leaving a run that
     // is still executing.
@@ -437,17 +444,18 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
       const phase = (elapsed % 1.6) / 1.6;
       node.ring.scale.setScalar(0.55 + phase * 1.35);
       const material = node.ring.material as MeshBasicMaterial;
-      // Faint. It is a pulse leaving a run that is still executing, and at the
-      // near end of the record a heavier one reads as a reticle drawn around
-      // the specimen rather than as something the specimen is emitting.
       material.opacity = 0.3 * (1 - phase) * strength;
       node.ring.lookAt(camera.position);
     }
-  } else if (node.ring) {
-    // A defined resting value rather than whatever the last frame left: this is
+  } else {
+    // Defined resting values rather than whatever the last frame left: this is
     // the frame reduced motion actually sees.
-    node.ring.scale.setScalar(1);
-    (node.ring.material as MeshBasicMaterial).opacity = 0.18 * strength;
+    node.satellites.rotation.z = 0;
+    node.rings.rotation.y = 0;
+    if (node.ring) {
+      node.ring.scale.setScalar(1);
+      (node.ring.material as MeshBasicMaterial).opacity = 0.18 * strength;
+    }
   }
 }
 

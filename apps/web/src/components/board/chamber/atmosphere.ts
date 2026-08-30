@@ -1,5 +1,5 @@
 /**
- * The air in the room (decision 69).
+ * The air in the room (decision 69), and the sky behind it (decision 71).
  *
  * This is the one file in the scene whose contents are not measurements, and it
  * is a whole file for that reason: decision 69 amends decision 68's first rule
@@ -10,12 +10,14 @@
  * must not: if it ever needs to, the thing being drawn is a measurement and
  * belongs in `room.ts` or `specimens.ts` instead.
  *
- * What it buys: a volume with no lights in it, drawn in unlit materials on a
- * near-black ground, has no way to say "there is space here" — the fog resolves
- * into a flat colour and the box reads as a rectangle cut out of the page. A
- * graded backdrop gives the fog something to become, the shafts give the sweep
- * something to move through, and the dust is the only thing on a quiet board
- * that is moving at all.
+ * What it buys: a field of stars in a volume with no lights in it, drawn in
+ * unlit materials on a near-black ground, has no way to say "there is space
+ * here" — the fog resolves into a flat colour and the record reads as a
+ * picture cut out of the page. A graded backdrop gives the fog something to
+ * become, the shafts give the sweep something to move through, and the star
+ * field — far more motes than the record has stars, reaching well past its
+ * back layer and off every edge of the frame — is what makes the five layers
+ * a galaxy rather than five rings of objects in the dark.
  */
 
 import {
@@ -26,7 +28,7 @@ import {
   gradeWeight,
   hazeStrength,
 } from "@/lib/board/atmosphere-field";
-import { BACK_Z, CHAMBER_BOX, FRONT_Z, RECORD_X } from "@/lib/board/chamber-layout";
+import { BACK_Z, FRONT_Z, RECORD_X } from "@/lib/board/chamber-layout";
 import {
   AdditiveBlending,
   BufferAttribute,
@@ -40,8 +42,14 @@ import {
 } from "three";
 import type { ChamberPalette } from "./palette";
 
-/** How many motes. Enough to be air, few enough to be free. */
-const DUST_COUNT = 220;
+/**
+ * The star field, in two sizes. Most of it is fine dust; a few larger, fainter
+ * motes sit among it so the field has a near and a far of its own.
+ */
+const STARS = [
+  { count: 700, size: 0.018, opacity: 0.55, seed: 20260830 },
+  { count: 220, size: 0.036, opacity: 0.4, seed: 20260831 },
+] as const;
 /** How many haze planes stand in the volume. */
 const SHAFT_COUNT = 5;
 /** How far a shaft feels the sweep. */
@@ -49,18 +57,22 @@ const SHAFT_REACH = 3.4;
 /** How far in front of the camera the backdrop sits. Behind everything else. */
 const BACKDROP_DISTANCE = 40;
 
-/** The volume the dust fills: the box, slightly inset so nothing clips a wall. */
-const DUST_BOX: FieldBox = {
-  width: CHAMBER_BOX.width * 0.94,
-  height: CHAMBER_BOX.height * 0.9,
-  depth: CHAMBER_BOX.depth * 0.96,
+/**
+ * The volume the stars fill. Far larger than the record on every axis, on
+ * purpose: an edge of the field inside the frame reads as the field ending,
+ * and a galaxy does not end where the record does.
+ */
+const STAR_BOX: FieldBox = {
+  width: 16,
+  height: 9,
+  depth: 22,
   x: RECORD_X,
   y: 0,
-  z: FRONT_Z - CHAMBER_BOX.depth / 2 + 0.6,
+  z: (FRONT_Z + BACK_Z) / 2 - 3,
 };
 
 export interface Atmosphere {
-  /** The haze and the dust. Added to the scene. */
+  /** The haze and the stars. Added to the scene. */
   group: Group;
   /** The backdrop. Parented to the camera, so the composer adds it there. */
   backdrop: Mesh;
@@ -90,9 +102,9 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
     // The plane is one unit across and centred, so this maps to 0–1.
     const u = (position.getX(i) ?? 0) + 0.5;
     const v = (position.getY(i) ?? 0) + 0.5;
-    // The focus sits below centre and right of it, under the record, which is
-    // where the volume's floor is and so where a room would be brightest.
-    const weight = gradeWeight(u, v, 0.62, 0.36, 0.95);
+    // The focus sits right of centre and a little below it, behind the record,
+    // which is where the galaxy is densest and so where it would be brightest.
+    const weight = gradeWeight(u, v, 0.6, 0.45, 0.95);
     colors[i * 3] = near.r + (far.r - near.r) * weight;
     colors[i * 3 + 1] = near.g + (far.g - near.g) * weight;
     colors[i * 3 + 2] = near.b + (far.b - near.b) * weight;
@@ -112,11 +124,11 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
 
   // --- the shafts -----------------------------------------------------------
 
-  // Far wider and taller than the volume, on purpose: a quad with an edge
+  // Far wider and taller than the record, on purpose: a quad with an edge
   // inside the frame reads as a pane of glass standing in the record, which is
   // the one thing this layer must not do. Oversized, its edges are outside the
   // frustum and all that is left is the gradient of light through it.
-  const shaftGeometry = new PlaneGeometry(CHAMBER_BOX.width * 5, CHAMBER_BOX.height * 5);
+  const shaftGeometry = new PlaneGeometry(STAR_BOX.width * 3, STAR_BOX.height * 3);
   const shafts: { mesh: Mesh; material: MeshBasicMaterial; z: number }[] = [];
   const shaftColor = palette.fgMuted.clone().multiplyScalar(0.35);
   for (let i = 0; i < SHAFT_COUNT; i += 1) {
@@ -129,34 +141,36 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
       fog: true,
     });
     const mesh = new Mesh(shaftGeometry, material);
-    // Spread down the volume, skewed slightly so they never line up with the
-    // slot ribs and read as a second ruler.
+    // Spread down the record, skewed slightly so they never line up with the
+    // gates and read as a second set of them.
     const z = BACK_Z + ((i + 0.5) / SHAFT_COUNT) * (FRONT_Z - BACK_Z) + 0.17;
     mesh.position.set(RECORD_X, 0, z);
     shafts.push({ mesh, material, z });
     group.add(mesh);
   }
 
-  // --- the dust -------------------------------------------------------------
+  // --- the stars ------------------------------------------------------------
 
-  const base = dustPositions(DUST_COUNT, DUST_BOX, 20260830);
-  const live = new Float32Array(base);
-  const dustGeometry = new BufferGeometry();
-  const dustAttribute = new BufferAttribute(live, 3);
-  dustAttribute.setUsage(35048 /* DynamicDrawUsage */);
-  dustGeometry.setAttribute("position", dustAttribute);
-  const dustMaterial = new PointsMaterial({
-    color: palette.fgMuted,
-    size: 0.012,
-    sizeAttenuation: true,
-    transparent: true,
-    opacity: 0.5,
-    depthWrite: false,
-    blending: AdditiveBlending,
-    fog: true,
+  const fields = STARS.map((layer) => {
+    const base = dustPositions(layer.count, STAR_BOX, layer.seed);
+    const live = new Float32Array(base);
+    const geometry = new BufferGeometry();
+    const attribute = new BufferAttribute(live, 3);
+    attribute.setUsage(35048 /* DynamicDrawUsage */);
+    geometry.setAttribute("position", attribute);
+    const material = new PointsMaterial({
+      color: palette.fgMuted,
+      size: layer.size,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: layer.opacity,
+      depthWrite: false,
+      blending: AdditiveBlending,
+      fog: true,
+    });
+    group.add(new Points(geometry, material));
+    return { base, live, attribute, geometry, material };
   });
-  const dust = new Points(dustGeometry, dustMaterial);
-  group.add(dust);
 
   let sweepZ: number | null = null;
 
@@ -178,8 +192,10 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
     }
     // At elapsed 0 this writes back exactly the seeded field, which is what
     // makes the reduced-motion frame the same frame every time.
-    driftDust(live, base, reducedMotion ? 0 : elapsed, DUST_BOX);
-    dustAttribute.needsUpdate = true;
+    for (const field of fields) {
+      driftDust(field.live, field.base, reducedMotion ? 0 : elapsed, STAR_BOX);
+      field.attribute.needsUpdate = true;
+    }
   }
 
   function dispose(): void {
@@ -189,8 +205,11 @@ export function createAtmosphere(palette: ChamberPalette): Atmosphere {
     shaftGeometry.dispose();
     for (const shaft of shafts) shaft.material.dispose();
     shafts.length = 0;
-    dustGeometry.dispose();
-    dustMaterial.dispose();
+    for (const field of fields) {
+      field.geometry.dispose();
+      field.material.dispose();
+    }
+    fields.length = 0;
     group.removeFromParent();
   }
 

@@ -1,5 +1,5 @@
 import { RUN_STATUSES, SEVERITIES } from "@/lib/api/types";
-import { markRing, projectArms } from "@/lib/board/caltrop";
+import { SATELLITE_ORBIT, projectRing, satelliteRing } from "@/lib/board/orbit";
 import {
   SEVERITY_TONE,
   STATUS_LEGEND,
@@ -12,11 +12,11 @@ import {
 /**
  * The key to the chamber.
  *
- * The hero draws every run as a shape and then says, in one sentence, that the
- * arms are checks. That is enough to make it look deliberate and not enough to
- * read it. This is the rest: one specimen at a size where its parts are
- * legible, each part named, and then the two vocabularies the whole board is
- * written in — the eight verdicts and the three severities.
+ * The hero draws every run as a star system and then says, in one sentence,
+ * that the orbits are checks. That is enough to make it look deliberate and not
+ * enough to read it. This is the rest: one specimen at a size where its parts
+ * are legible, each part named, and then the two vocabularies the whole board
+ * is written in — the eight verdicts and the three severities.
  *
  * The lists come from `RUN_STATUSES`, `SEVERITIES` and the tone maps rather
  * than from prose, so a status added in `apps/cujo` appears here without anyone
@@ -35,26 +35,26 @@ const PARTS = [
     text: "The verdict. Bigger when the run found something worse.",
   },
   {
-    label: "arms",
-    // Two numbers, not one. The solid part is the half of the check that was
+    label: "orbits",
+    // Two numbers, not one. The bright arc is the part of the check that was
     // the sandbox executing the pull request; the rest was the agent deciding
     // what to do next, which is the same split the run page draws as a lane.
-    text: "One per check — tests, probes, smoke, detonation — as long as the check watched, solid for the part that was the sandbox running the code. A missing arm is a check that never appeared.",
+    text: "One ring per check — tests, probes, smoke, detonation — each on its own tilt, as wide as the check took, bright for the part that was the sandbox running the code. A missing ring is a check that never appeared.",
   },
   {
-    label: "marks",
+    label: "satellites",
     // The cap is part of the contract, not an implementation detail to leave
-    // out: a key that promises one mark per finding is wrong on every run that
-    // found more than six, which is exactly the runs worth reading.
-    text: "One per finding, on the ring around the core, worst first — six slots, past which they stop being countable. The record below carries the number.",
+    // out: a key that promises one satellite per finding is wrong on every run
+    // that found more than six, which is exactly the runs worth reading.
+    text: "One per finding, on the orbit outside the rings, worst first — six slots, past which they stop being countable. The record below carries the number.",
   },
   {
-    label: "the chain",
+    label: "layers",
     // Depth is a measurement and the other two axes are not, which a reader
-    // will assume otherwise — a specimen sitting high looks like it means
+    // will assume otherwise — a star sitting high looks like it means
     // something. Saying so is the whole reason this line is longer than the
-    // others (decision 70).
-    text: "It threads every run in order, newest nearest. Depth is time; how high or how far across a run sits is not a measurement of anything.",
+    // others (decisions 70, 71).
+    text: "Depth is time, in five layers, newest in front: the three newest runs, then the next five, and so on back. Where a run sits within its layer is not a measurement of anything.",
   },
 ];
 
@@ -142,8 +142,9 @@ export function Legend() {
             held until a maintainer confirms it on the pull request.
           </p>
           <p className="mt-3 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            The amber light running down the chain is the board re-reading the API: every five
-            seconds while a run is live, every thirty when it is quiet. It reads one run at a time.
+            The amber light passing through the layers is the board re-reading the API: every five
+            seconds while a run is live, every thirty when it is quiet. It reads one layer at a
+            time, oldest first.
           </p>
         </div>
       </div>
@@ -156,99 +157,78 @@ export function Legend() {
  *
  * Deliberately not one of the real ones: this is a diagram of the vocabulary,
  * and picking a run to be the example would make it a claim about that run.
- * The arms are four different lengths and one of them errored, so every case
- * the key names is visible in the same picture.
+ * The four rings are four different sizes and one of them errored, so every
+ * case the key names is visible in the same picture.
  */
 function SpecimenDiagram() {
   const cx = 104;
-  const cy = 118;
-  const chainY = 30;
+  const cy = 100;
   /** Where every leader ends and every label begins. */
-  const gutter = 196;
-  const core = 9;
+  const gutter = 200;
+  const core = 8;
+  const ringMax = 58;
+  const ringMin = ringMax * 0.29;
   /**
-   * Four reaches and four sandbox shares, chosen so every case the key names is
-   * visible in one picture: a long check that was almost all execution, a short
-   * one that was mostly the agent thinking, one that errored, and one that
-   * measured no share at all and is therefore drawn whole.
+   * Four lengths and four sandbox shares, chosen so every case the key names
+   * is visible in one picture: a long check that was almost all execution, a
+   * short one that was mostly the agent thinking, one that errored, and one
+   * that measured no share at all and is therefore drawn whole.
    */
-  const arms: [reach: number, share: number | null, stroke: string][] = [
-    [54, 0.8, "var(--chamber-fg-muted)"],
-    [34, 0.25, "var(--chamber-fg-muted)"],
-    [52, 0.65, "var(--chamber-critical)"],
-    [20, null, "var(--chamber-fg-muted)"],
+  const rings: [length: number, share: number | null, stroke: string][] = [
+    [1, 0.8, "var(--chamber-fg-muted)"],
+    [0.45, 0.25, "var(--chamber-fg-muted)"],
+    [0.85, 0.65, "var(--chamber-critical)"],
+    [0.2, null, "var(--chamber-fg-muted)"],
   ];
-  // Projected from the scene's own four directions rather than laid out again
-  // here, so the diagram cannot drift from the object it is a key to.
-  const projected = projectArms(1);
-  /** The bottom-right arm's tip, which is what the `arms` leader points at. */
-  const armX = cx + (projected[2]?.x ?? 0) * 52;
-  const armY = cy + (projected[2]?.y ?? 0) * 52;
-  /** Three findings, worst first around the ring. */
+  /** Three findings, worst first around the orbit. */
   const marks = ["var(--chamber-critical)", "var(--chamber-amber)", "var(--chamber-info)"];
-  const markSize = 3.5;
-  const ring = markRing(marks.length);
-  /** Where the `marks` leader points: the first slot on the ring. */
-  const markRadius = core + markSize * 1.4;
-  const markY = cy - Math.sin(ring[0] ?? 0) * markRadius;
+  const orbit = ringMax * SATELLITE_ORBIT;
+  const slots = satelliteRing(marks.length);
+  /** Where the `satellites` leader points: the first slot on the orbit. */
+  const satX = cx + Math.cos(slots[0] ?? 0) * orbit;
+  const satY = cy - Math.sin(slots[0] ?? 0) * orbit;
+  /** Where the `orbits` leader points: the widest ring's rightmost point. */
+  const widest = projectRing(0, ringMax, null, 180).bright;
+  let tip = widest[0] ?? { x: 0, y: 0 };
+  for (const p of widest) if (p.x > tip.x) tip = p;
+  const ringX = cx + tip.x;
+  const ringY = cy + tip.y;
+  const points = (list: { x: number; y: number }[]) =>
+    list.map((p) => `${(cx + p.x).toFixed(2)},${(cy + p.y).toFixed(2)}`).join(" ");
 
   return (
-    <svg viewBox="0 0 300 190" className="h-auto w-full" aria-hidden="true" focusable="false">
+    <svg viewBox="0 0 300 200" className="h-auto w-full" aria-hidden="true" focusable="false">
       <title>A specimen with its parts named</title>
-      {/* The chain, and the drop line that hangs the specimen off it. It stops
-          before the labels rather than running the width of the frame: every
-          leader would otherwise have to cross it. */}
-      <line
-        x1="18"
-        y1={chainY}
-        x2="158"
-        y2={chainY}
-        stroke="var(--chamber-fg-muted)"
-        strokeOpacity="0.4"
-      />
-      <line x1={cx} y1={chainY} x2={cx} y2={cy} stroke="var(--chamber-line)" strokeWidth="1.5" />
-      {arms.map(([reach, share, stroke], i) => {
-        const arm = projected[i];
-        if (!arm) return null;
-        const split = share ?? 1;
+      {/* Projected from the scene's own four ring planes rather than laid out
+          again here, so the diagram cannot drift from the object it is a key
+          to. */}
+      {rings.map(([length, share, stroke], i) => {
+        const ring = projectRing(i, ringMin + length * (ringMax - ringMin), share);
         return (
-          <g key={stroke + String(reach)}>
-            {/* Solid: the sandbox executing the pull request. */}
-            <line
-              x1={cx}
-              y1={cy}
-              x2={cx + arm.x * reach * split}
-              y2={cy + arm.y * reach * split}
-              stroke={stroke}
-              strokeWidth="3"
-              strokeLinecap="round"
-            />
-            {/* Hollow: what was left, which was the agent deciding what to do
+          <g key={stroke + String(length)} fill="none" strokeLinecap="round">
+            {/* Bright: the sandbox executing the pull request. */}
+            <polyline points={points(ring.bright)} stroke={stroke} strokeWidth="2.6" />
+            {/* Faint: what was left, which was the agent deciding what to do
                 next. Same hue, less of it — never a second colour. */}
-            {split < 1 ? (
-              <line
-                x1={cx + arm.x * reach * split}
-                y1={cy + arm.y * reach * split}
-                x2={cx + arm.x * reach}
-                y2={cy + arm.y * reach}
+            {ring.faint.length > 0 ? (
+              <polyline
+                points={points(ring.faint)}
                 stroke={stroke}
-                strokeWidth="1.5"
+                strokeWidth="1.2"
                 strokeOpacity="0.34"
-                strokeLinecap="round"
               />
             ) : null}
           </g>
         );
       })}
       {marks.map((fill, i) => {
-        const angle = ring[i] ?? 0;
+        const angle = slots[i] ?? 0;
         return (
-          <rect
+          <circle
             key={fill}
-            x={cx + Math.cos(angle) * markRadius - markSize}
-            y={cy - Math.sin(angle) * markRadius - markSize}
-            width={markSize * 2}
-            height={markSize * 2}
+            cx={cx + Math.cos(angle) * orbit}
+            cy={cy - Math.sin(angle) * orbit}
+            r="3"
             fill={fill}
           />
         );
@@ -258,23 +238,19 @@ function SpecimenDiagram() {
       {/* Leaders. Hairlines in the wireframe colour, so they read as callouts
           on a drawing and not as more of the specimen. */}
       <g stroke="var(--chamber-line)" strokeWidth="1">
-        <line x1="162" y1={chainY} x2={gutter} y2={chainY} />
-        <line x1={cx + markRadius + 6} y1={markY} x2={gutter} y2={markY} />
-        <line x1={cx + core + 6} y1={cy + 26} x2={gutter} y2={cy + 26} />
-        <line x1={armX + 5} y1={armY} x2={gutter} y2={armY} />
+        <line x1={satX + 5} y1={satY} x2={gutter} y2={satY} />
+        <line x1={ringX + 4} y1={ringY} x2={gutter} y2={ringY} />
+        <line x1={cx + core + 6} y1={cy + 40} x2={gutter} y2={cy + 40} />
       </g>
       <g fill="var(--chamber-fg-muted)" fontFamily="var(--font-mono)" fontSize="11">
-        <text x="202" y={chainY + 4}>
-          chain
+        <text x="206" y={satY + 4}>
+          satellites
         </text>
-        <text x="202" y={markY + 4}>
-          marks
+        <text x="206" y={ringY + 4}>
+          orbits
         </text>
-        <text x="202" y={cy + 30}>
+        <text x="206" y={cy + 44}>
           core
-        </text>
-        <text x="202" y={armY + 4}>
-          arms
         </text>
       </g>
     </svg>

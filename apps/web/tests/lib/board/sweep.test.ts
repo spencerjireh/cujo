@@ -1,28 +1,17 @@
-import { chainPath, minSegment } from "@/lib/board/chain";
-import { SPACING, slotZ } from "@/lib/board/chamber-layout";
-import { scatterAt } from "@/lib/board/scatter";
-import { SWEEP_SPAN, readStrength, sweepArc, sweepPhase } from "@/lib/board/sweep";
+import { BACK_Z, FRONT_Z, LAYER_COUNT, LAYER_SPACING, layerZ } from "@/lib/board/chamber-layout";
+import { SWEEP_SPAN, readStrength, sweepPhase, sweepZ } from "@/lib/board/sweep";
 import { describe, expect, it } from "vitest";
 
 /**
- * The sweep is the board re-reading the API (decision 68), and since decision
- * 70 it travels the chain rather than crossing as a plane.
+ * The sweep is the board re-reading the API (decision 68). It is a plane
+ * again since decision 71, because the record is layers and a layer is one
+ * depth.
  *
  * The claim worth asserting is the one nobody can check by looking: that it
- * reads the record **one run at a time**. A plane over a scattered field lights
- * everything at one depth together, which is what a cursor on the chain exists
- * to stop.
+ * reads the record **one layer at a time**.
  */
 
-/** The record as the scene builds it: ten runs, scattered, chained in order. */
-function record(count = 10) {
-  const points = Array.from({ length: count }, (_, i) => {
-    const z = slotZ(i);
-    const { x, y } = scatterAt(`run-${i}`, z);
-    return { x, y, z };
-  });
-  return chainPath(points);
-}
+const LAYERS = Array.from({ length: LAYER_COUNT }, (_, i) => layerZ(i));
 
 describe("sweepPhase", () => {
   it("reports nothing before the first poll has landed", () => {
@@ -45,81 +34,71 @@ describe("sweepPhase", () => {
   });
 });
 
-describe("sweepArc", () => {
-  it("starts past the far end and finishes before the near one", () => {
-    const path = record();
-    // Both ends overshoot, so the first and last runs get a full read rather
+describe("sweepZ", () => {
+  it("starts behind the oldest layer and finishes in front of the newest", () => {
+    // Both ends overshoot, so the first and last layers get a full read rather
     // than half of one.
-    expect(sweepArc(0, path.length)).toBeGreaterThan(path.length);
-    expect(sweepArc(1, path.length)).toBeLessThan(0);
+    expect(sweepZ(0)).toBeLessThan(BACK_Z);
+    expect(sweepZ(1)).toBeGreaterThan(FRONT_Z);
   });
 
-  it("only ever travels toward the newest run", () => {
-    const path = record();
-    let previous = Number.POSITIVE_INFINITY;
+  it("only ever travels toward the newest layer", () => {
+    let previous = Number.NEGATIVE_INFINITY;
     for (let phase = 0; phase <= 1; phase += 0.01) {
-      const arc = sweepArc(phase, path.length);
-      expect(arc).toBeLessThan(previous);
-      previous = arc;
+      const z = sweepZ(phase);
+      expect(z).toBeGreaterThan(previous);
+      previous = z;
     }
   });
 
   it("clamps outside the interval rather than running on", () => {
-    const path = record();
-    expect(sweepArc(-2, path.length)).toBe(sweepArc(0, path.length));
-    expect(sweepArc(4, path.length)).toBe(sweepArc(1, path.length));
+    expect(sweepZ(-2)).toBe(sweepZ(0));
+    expect(sweepZ(4)).toBe(sweepZ(1));
   });
 });
 
 describe("readStrength", () => {
-  it("peaks where the cursor meets the specimen", () => {
-    expect(readStrength(4, 4)).toBe(1);
+  it("peaks where the plane meets the layer", () => {
+    expect(readStrength(-4, -4)).toBe(1);
   });
 
-  it("reads nothing far ahead of the cursor or far behind it", () => {
-    expect(readStrength(4, 9)).toBe(0);
-    expect(readStrength(4, -1)).toBe(0);
+  it("reads nothing far ahead of the plane or far behind it", () => {
+    expect(readStrength(-4, 1)).toBe(0);
+    expect(readStrength(-4, -9)).toBe(0);
   });
 
-  it("rises sharply into the cursor and settles slowly behind it", () => {
-    // A specimen the cursor has not reached is anticipating; one it has passed
+  it("rises sharply into the plane and settles slowly behind it", () => {
+    // A layer the plane has not reached is anticipating; one it has passed
     // has just been read. Those are different events and are drawn differently.
-    const ahead = readStrength(4, 4.15);
-    const behind = readStrength(4, 3.85);
+    const ahead = readStrength(-4, -3.85);
+    const behind = readStrength(-4, -4.15);
     expect(behind).toBeGreaterThan(ahead);
   });
 
   it("never returns a strength outside 0 to 1", () => {
     for (let delta = -3; delta <= 3; delta += 0.01) {
-      const value = readStrength(4, 4 + delta);
+      const value = readStrength(-4, -4 + delta);
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(1);
     }
   });
 });
 
-describe("the sweep reads one run at a time", () => {
-  const path = record();
-
-  /**
-   * The property the whole envelope exists for, and the defect it replaced: at
-   * a reach of 1.1 against a spacing of 0.58, the old plane lit four specimens
-   * together.
-   */
-  it("never lights two runs strongly at once, anywhere in a crossing", () => {
+describe("the sweep reads one layer at a time", () => {
+  it("never lights two layers strongly at once, anywhere in a crossing", () => {
     for (let phase = 0; phase <= 1; phase += 0.002) {
-      const cursor = sweepArc(phase, path.length);
-      const lit = path.arcs.filter((arc) => readStrength(cursor, arc) > 0.5);
+      const plane = sweepZ(phase);
+      const lit = LAYERS.filter((z) => readStrength(plane, z) > 0.5);
       expect(lit.length).toBeLessThanOrEqual(1);
     }
   });
 
-  it("reads every run at some point in the crossing", () => {
-    const peaks = path.arcs.map(() => 0);
+  it("reads every layer at some point in the crossing", () => {
+    const peaks = LAYERS.map(() => 0);
     for (let phase = 0; phase <= 1; phase += 0.002) {
-      const cursor = sweepArc(phase, path.length);
-      path.arcs.forEach((arc, i) => {
-        peaks[i] = Math.max(peaks[i] ?? 0, readStrength(cursor, arc));
+      const plane = sweepZ(phase);
+      LAYERS.forEach((z, i) => {
+        peaks[i] = Math.max(peaks[i] ?? 0, readStrength(plane, z));
       });
     }
     for (const peak of peaks) expect(peak).toBeGreaterThan(0.9);
@@ -127,12 +106,9 @@ describe("the sweep reads one run at a time", () => {
 
   /**
    * Why the property above holds, stated as arithmetic rather than as a sweep
-   * of a particular record: the lit window is narrower than the tightest gap
-   * between two runs. The scatter only ever pushes runs further apart than
-   * their depth spacing, so `SPACING` is the floor.
+   * of a particular record: the lit window is shallower than a layer.
    */
-  it("keeps its lit window under the tightest gap on the chain", () => {
-    expect(SWEEP_SPAN).toBeLessThan(SPACING);
-    expect(SWEEP_SPAN).toBeLessThan(minSegment(path));
+  it("keeps its lit window under one layer's spacing", () => {
+    expect(SWEEP_SPAN).toBeLessThan(LAYER_SPACING);
   });
 });

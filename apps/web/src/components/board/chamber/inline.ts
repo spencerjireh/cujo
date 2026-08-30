@@ -47,9 +47,10 @@ const MARGIN = 1.12;
  */
 const TURN_SECONDS = 26;
 /**
- * A fixed tilt off the vertical, so the axis of rotation is not the axis the
- * arms are symmetric about. Spun about a symmetry axis, a tetrahedron repeats
- * itself every third of a turn and reads as a wobble.
+ * A fixed tilt off the vertical, so the axis of rotation is not one the four
+ * ring planes are symmetric about. Spun about a symmetry axis the system
+ * repeats itself every third of a turn and reads as a wobble; tilted, every
+ * ring opens and closes in its own time.
  */
 const TILT = 0.42;
 
@@ -83,14 +84,12 @@ export function createInlineSpecimen(options: {
   camera.position.set(0, 0, inlineDistance(FOV, INLINE_RADIUS, MARGIN));
   camera.lookAt(0, 0, 0);
 
-  // No floor to land on, so the tether and the shadow under it are not drawn.
-  //
-  // No glow either, which is the one place this rig differs for a reason that
-  // is not about the room. The sprite is drawn to be bloomed, and there is no
-  // bloom pass here — at this size it is a smudge over the shape rather than
-  // light coming off it, and it would make the canvas disagree with the flat
-  // drawing underneath it. Two drawings of one run have to be one drawing.
-  const kit = createSpecimenKit(palette, { tetherY: null, ring: true, glow: false });
+  // No glow, which is the one place this rig differs from the board's. The
+  // sprite is drawn to be bloomed, and there is no bloom pass here — at this
+  // size it is a smudge over the shape rather than light coming off it, and it
+  // would make the canvas disagree with the flat drawing underneath it. Two
+  // drawings of one run have to be one drawing.
+  const kit = createSpecimenKit(palette, { ring: true, glow: false });
 
   const holder = new Group();
   holder.rotation.x = TILT;
