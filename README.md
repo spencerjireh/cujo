@@ -72,7 +72,23 @@ gate that holds a blocking one. Cujo is the agent, the rubric, the in-sandbox
 sensor script, and the service around them: `apps/cujo` is the harness's only
 client, and the board in `apps/web` reads that service, never the harness.
 
-## Run it
+## Use it on your repository
+
+1. Install the App on a public repository at
+   <https://github.com/apps/cujo-guard>. Nothing else needs configuring, and
+   the repository stays public because nothing in Cujo holds a clone
+   credential.
+2. Open a pull request. Within a second it wears an eye reaction, which proves
+   delivery, and a few minutes later one review from `cujo-guard[bot]`.
+3. Protect the branch if a review should block. A `REQUEST_CHANGES` review
+   only gates a merge where the target branch requires review.
+
+Cujo infers the install, test and boot commands from the repository's own build
+files. A `.cujo.yml` overrides what it got wrong, and a `cujo:skip` label or a
+draft state stops a run before a sandbox is provisioned. The manual on the
+board has the rest at <https://cujo.spencerjireh.com/docs/install>.
+
+## Run your own
 
 ```bash
 cp .env.example .env   # POSTGRES_*, GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
@@ -95,9 +111,16 @@ curl -s -H 'Host: cujo' http://localhost:8080/public/runs
 ```
 
 Set `MODEL_PROVIDER_*` and `DAYTONA_API_KEY` to register the model and sandbox
-providers at start, or add them in the console. Then point the App's webhook at
-`/webhook` — `cloudflared tunnel --url http://localhost:8080` works, with the
-`Host` set to the webhook hostname — and open a PR where the App is installed.
+providers at start, or add them in the console. A self-hosted instance needs
+its own GitHub App, so that the private key is yours. Permissions are Contents
+read, Metadata read, Pull requests write and Issues read, events are
+`pull_request`, `issue_comment`, `pull_request_review_comment` and
+`repository`, and the webhook posts to `/webhook` with the secret from
+`GITHUB_WEBHOOK_SECRET`. For a laptop, `cloudflared tunnel --url
+http://localhost:8080` works, with the `Host` set to the webhook hostname. Then
+open a PR where the App is installed. The board's
+[self-host page](https://cujo.spencerjireh.com/docs/self-host) has the same in
+more detail.
 
 Discord notification is optional and bound from inside Discord: the repo names
 its server in `.cujo.yml`, someone there with Manage Server runs `/cujo watch`,
