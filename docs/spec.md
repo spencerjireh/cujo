@@ -844,7 +844,12 @@ trusts the sentence never pays to parse the instrument output (decision 97). A
 finding carrying neither `detail` nor `next`, with evidence that fits on a line,
 renders as a single line instead: `**title** · meta — evidence`. The condition
 is the fields and not the severity, so a `warn` making an argument keeps the
-full block and a `critical`, which carries both by rubric, never collapses. The
+full block — with one floor: a `critical` never collapses, because the rubric
+requires both fields there while the schema leaves them optional, and a
+`critical` arriving with neither must not read as the review's smallest thing.
+A check name, a finding title and every coverage note are flattened to one line
+before they are rendered, so a newline in a model-supplied value cannot end a
+list item and leave the rest reading as another entry. The
 inline comment on a diff line keeps its own order, evidence first, because it
 arrives with no headline above it and the evidence is why it is on that line.
 Coverage prints one line per check, name then note, rather than stacking the

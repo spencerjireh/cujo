@@ -186,11 +186,14 @@ function prepareFindings(
     if (typeof finding?.title !== "string" || finding.title.trim() === "") continue;
     if (!isSeverity(finding.severity)) continue;
 
+    // A title and a check name are one line wherever they are rendered — on the
+    // finding's own line, inside a code span, in an inline comment's heading —
+    // so a newline in either is flattened here rather than at each use.
     const plain = plainTitle(finding.title);
-    const title = safeText(plain.title);
+    const title = oneLine(safeText(plain.title));
     if (title === "") continue;
 
-    const check = safeText(typeof finding.check === "string" ? finding.check : "review");
+    const check = oneLine(safeText(typeof finding.check === "string" ? finding.check : "review"));
     // The raw expression is not lost when a title is translated: it moves to
     // the evidence, which is where a field name was always supposed to live.
     const rawEvidence = safeText(typeof finding.evidence === "string" ? finding.evidence : "");
@@ -370,9 +373,11 @@ function fold(summary: string, body: string): string {
  * `info` — is one line, so a review of four findings is not four identical
  * blocks at four identical lengths.
  *
- * Keyed on the fields and not on `warn`/`info`, because a `warn` may carry a
- * `next` and then has an argument to make, while a `critical` carries both by
- * rule and so never collapses.
+ * Keyed on the fields rather than on the severity, because a `warn` carrying a
+ * `next` has an argument to make and an argument does not fit on a title line.
+ * With one floor under it: a `critical` keeps its block whatever it carries,
+ * because the rubric requires both fields there and the schema does not, so the
+ * one shape this cannot render terse is the one that matters most.
  */
 function findingBlock(finding: Prepared, unanchored: ReadonlySet<string>): string {
   const meta = [`\`${finding.check}\``];
@@ -386,7 +391,15 @@ function findingBlock(finding: Prepared, unanchored: ReadonlySet<string>): strin
 
   // One line only when it fits on one: evidence spanning lines is a transcript,
   // and running its rows together with a space would lose what the rows meant.
-  if (!finding.detail && !finding.next && !finding.evidence.includes("\n")) {
+  //
+  // A `critical` never takes this path, whatever it carries. The rubric requires
+  // a `detail` and a `next` on every one, the tool schema does not — both are
+  // optional there, because a schema that refused a finding would drop a real
+  // one — so a `critical` arriving with neither is reachable. It is also the
+  // most serious thing in the review, and a one-line block is exactly how a
+  // reader is told something is minor.
+  const compactable = finding.severity !== "critical";
+  if (compactable && !finding.detail && !finding.next && !finding.evidence.includes("\n")) {
     return finding.evidence === "" ? head : `${head} — ${finding.evidence}`;
   }
 
@@ -405,12 +418,15 @@ function findingBlock(finding: Prepared, unanchored: ReadonlySet<string>): strin
  * nobody reads" — reproduced by the renderer over every check at once.
  */
 function coverageSection(coverage: Coverage): string {
+  // Every part through `oneLine`, the check name included: a newline inside one
+  // would end its list item and the rest of that value would read as another
+  // check this review says it ran.
   const ran = list(coverage.ran).map((entry) => {
     const note = entry.note ? ` — ${oneLine(safeText(entry.note))}` : "";
-    return `- ${safeText(entry.check)}${note}`;
+    return `- ${oneLine(safeText(entry.check))}${note}`;
   });
   const skipped = list(coverage.skipped).map(
-    (entry) => `- ${safeText(entry.check)} — ${oneLine(safeText(entry.reason))}`,
+    (entry) => `- ${oneLine(safeText(entry.check))} — ${oneLine(safeText(entry.reason))}`,
   );
   const lines = [ran.length > 0 ? `Ran:\n${ran.join("\n")}` : "Ran: nothing."];
   // Named rather than omitted when empty: "not run: nothing" is a claim worth

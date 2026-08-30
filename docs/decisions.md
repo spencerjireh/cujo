@@ -5339,8 +5339,13 @@ identical four-part blocks at four identical lengths read as a form rather than
 as writing, and give the eye nowhere to skip to. A finding carrying neither
 `detail` nor `next`, with evidence that fits on a line, is now
 `**title** · meta — evidence`. The condition is the fields and not the severity:
-a `warn` that carries a `next` is making a case and keeps the full block, and a
-`critical` carries both by rubric and so never collapses.
+a `warn` that carries a `next` is making a case and keeps the full block. With
+one floor under it — **a `critical` never collapses, whatever it carries.** The
+rubric requires a `detail` and a `next` on every one and the tool schema leaves
+both optional, deliberately, because a schema that refused a finding would drop
+a real one; so a `critical` with neither is reachable, and rendering it as a
+line is how a reader is told something is minor. The one shape this cannot
+render terse is the one that matters most.
 
 **Coverage prints one line per check.** It used to stack every note into one
 sentence of parentheticals — the exact shape the rubric warns about two
