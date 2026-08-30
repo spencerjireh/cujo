@@ -1,10 +1,16 @@
 import { RelativeTime } from "@/components/RelativeTime";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { Run } from "@/lib/api/types";
-import { avatarUrl, prUrl, profileUrl, shortSha } from "@/lib/format";
+import { setupWindow } from "@/lib/board/setup";
+import { avatarUrl, duration, prUrl, profileUrl, shortSha } from "@/lib/format";
 import Image from "next/image";
 
 const AVATAR = 20;
+
+/** A span in milliseconds, worded the way every other duration on the page is. */
+function span(ms: number): string {
+  return duration(new Date(0).toISOString(), new Date(ms).toISOString()) ?? "";
+}
 
 /**
  * Who opened the pull request (decision 55). Absent for a run recorded before
@@ -54,6 +60,7 @@ function Author({ run }: { run: Run }) {
 }
 
 export function RunHeader({ run }: { run: Run }) {
+  const window = setupWindow(run.setup);
   return (
     <header className="mb-8">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -91,6 +98,19 @@ export function RunHeader({ run }: { run: Run }) {
           {run.model ? <>reviewed by {run.model}</> : null}
           {run.model && run.rubric_sha256 ? " · " : null}
           {run.rubric_sha256 ? <>rubric {shortSha(run.rubric_sha256)}</> : null}
+        </p>
+      ) : null}
+      {/* What the run spent before it could start measuring anything
+          (decision 67). One line, because the shape of it is on the timeline
+          and the number is what a reader wants beside the verdict: a review
+          that took six minutes spent most of them here, and the page said
+          nothing about that until this landed. Absent, never zeroed, on a run
+          whose stamps cannot support it. */}
+      {window ? (
+        <p className="mt-1 font-mono text-xs text-fg-muted">
+          setup {span(window.lengthMs)} · {window.messages}{" "}
+          {window.messages === 1 ? "message" : "messages"}
+          {window.thinkingMs === null ? null : <> · {span(window.thinkingMs)} planning</>}
         </p>
       ) : null}
       {run.summary ? <p className="mt-4 max-w-[68ch] text-sm">{run.summary}</p> : null}

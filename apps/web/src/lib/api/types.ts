@@ -62,6 +62,30 @@ export interface CheckTimings {
   modelMs?: number;
 }
 
+/**
+ * Where the run went before the first check existed (decision 67).
+ *
+ * Four event stamps and a count of the parent's own messages, measuring the
+ * window decision 67 was written to expose: a run does seconds of execution
+ * inside minutes of wall clock, and this is the largest part of the remainder.
+ *
+ * Every stamp is nullable, and two of them are absent for reasons rather than
+ * by accident. `sandboxCreatedAt` is session-scoped, so a second run on the
+ * same pull request never sees one — the sandbox was already there, which is
+ * why a re-run is faster and why a zero would say the opposite. `ms` is
+ * `agentStartedAt` to `firstCheckAt`, and `apps/cujo` omits it unless both
+ * stamps are usable rather than publishing a subtraction it cannot stand
+ * behind, the same restraint `CheckTimings.modelMs` above is kept under.
+ */
+export interface SetupTimings {
+  turnCreatedAt: string | null;
+  sandboxCreatedAt: string | null;
+  agentStartedAt: string | null;
+  firstCheckAt: string | null;
+  messages: number;
+  ms?: number;
+}
+
 export interface CheckState {
   /**
    * The TrueForge thread. Operator plane only: it is a harness handle, and the
@@ -231,6 +255,14 @@ export interface Run extends RunSummary {
    */
   model?: string | null;
   rubric_sha256?: string | null;
+  /**
+   * The setup window (decision 67). Optional and nullable for the two different
+   * reasons `usage` above carries: absent is a `run` frame from a release that
+   * predates the field, null is a run the fold recorded before it existed.
+   * Neither is an empty window, which is why the timeline draws no setup lane
+   * rather than a lane of length zero.
+   */
+  setup?: SetupTimings | null;
 }
 
 /**
