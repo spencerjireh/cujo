@@ -11,7 +11,7 @@ here and how to regenerate it.
 | `logo/wordmark.svg` | `cujo` as outlines; needs no font. |
 | `logo/lockup-h.svg` | Mark and wordmark side by side. |
 | `logo/favicon.svg`, `logo/favicon-32.png` | Favicon cut: fixed bone fill on transparent, larger eye. |
-| `logo/candidates/` | Every mark that was considered, plus `prompts.md` for the raster route. |
+| `logo/candidates/` | Every mark that was considered. |
 | `readme/banner-*.svg` | README header, one per theme. No text, so GitHub renders it without fonts. |
 | `video/` | 1920x1080 title card and lower third, and the severity badge sprite. These use the brand fonts by name; install them in the editor. |
 | `tools/` | `render.mjs` rasterizes every mark at 16, 32, 64, and 512 px. `wordmark.mjs` regenerates the wordmark outlines from a font file. |

@@ -11,12 +11,5 @@ first. For what Cujo is and how to run it, see the [top-level README](../README.
   model.
 - [decisions.md](decisions.md) — every load-bearing choice and its reason,
   indexed, with each superseded entry naming the entry that replaced it.
-- [demo.md](demo.md) — the three demo pull requests and the judging narrative
-  (tentative).
-- [hackathon.md](hackathon.md) — the event Cujo is built for: dates, requirements,
-  judging, tracks.
-- [trueforge.md](trueforge.md) — TrueForge reference: concepts, the agent spec,
-  and driving it via the SDK.
 - [../brand/brand.md](../brand/brand.md) — the brand: logo, palette, type, voice,
   and how the UI, README, and video use them.
-- [sources.md](sources.md) — where the fetched facts came from, and when.
