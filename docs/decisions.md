@@ -73,6 +73,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 65. [A public list row carries what the checks measured, not only the verdict](#65-a-public-list-row-carries-what-the-checks-measured-not-only-the-verdict)
 66. [The sandbox must never crash silently; sensor logs count what they lost](#66-the-sandbox-must-never-crash-silently-sensor-logs-count-what-they-lost)
 67. [The setup window is measured, because guessing at it picks the wrong fix](#67-the-setup-window-is-measured-because-guessing-at-it-picks-the-wrong-fix)
+68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
+69. [The chamber may have air in it, and the air is two files](#69-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3047,6 +3049,10 @@ time and loses the two spans whose other end is on the run record.
 
 ## 68. Nothing in the chamber exists that is not a measurement
 
+**Amended by 69**, which narrows this rule to geometry and admits one named
+decorative layer. Not reversed: everything below still holds of every object
+that carries a fact.
+
 The board drew every run as a specimen and drew the room around it out of
 nothing: the floor grid repeated at a fixed pitch, the chain ran the length of
 the box whatever the record held, and the scan plane swept on an eleven-second
@@ -3176,3 +3182,118 @@ vocabulary plus the two functions that write `data-theme` and `localStorage`,
 pure enough for its own unit test. Only the *animation* suppression stays per
 instance, because a toggle mounted later still starts from the position the
 server rendered and must not slide from it.
+
+## 69. The chamber may have air in it, and the air is two files
+
+Decision 68 made every object in the chamber a measurement, and that was the
+right rule. What it left behind was an instrument that is correct and inert.
+Materials are unlit on near-black by design, `LineBasicMaterial` ignores
+`linewidth` on every desktop driver, and on a board with no live run the only
+motion in the whole scene was a forty-four second drift of four hundredths of a
+radian — which over the seconds anybody actually looks at a page is a still
+frame. The product's central claim was a faint wireframe in a 40rem band under
+a bordered header, with a type wash over three fifths of it.
+
+The honest reading of 68 forbids the fix. Haze is not a measurement. Neither is
+a graded backdrop, a mote of dust, film grain, or a glow behind a core. Each of
+them could be moved, resized or recoloured without a fact changing, which is
+exactly the test 68 wrote down.
+
+**So the rule is narrowed rather than broken: no *geometry* exists that is not
+a measurement.** Every shape, length, position and colour still comes from a
+run or from the room's own axis. What is admitted is a layer that describes the
+medium those shapes hang in rather than the shapes themselves — and it is
+admitted as a boundary, not as a licence. The decorative layer is
+`chamber/atmosphere.ts` and `chamber/post.ts`. Neither imports `Specimen`, and
+neither may. A reader checking whether this rule is being kept looks at two
+import lists, which is a cheaper check than the one 68 left them with.
+
+The layer is a graded backdrop parented to the camera, five additive haze
+planes that brighten where the sweep passes, about two hundred motes of drifting
+dust, an additive glow sprite behind each core, and a film pass. Everything
+brightens by `multiplyScalar` from an existing token; no `--chamber-*` value
+changed, and the glow sprite is greyscale and tinted per specimen, so the light
+in the room can never introduce a hue the palette does not already spend.
+
+**The bloom threshold is where the rule actually bites.** `UnrealBloomPass`
+thresholds in linear space, where `--chamber-fg` — the colour of a check that
+passed — sits near 0.72 and `--chamber-amber` near 0.47. Set low enough to
+bloom the amber sweep, it also blooms four bone arms and washes them toward
+white: a decorative pass repainting a colour that means something. The
+threshold sits above bone. What glows is the sprite drawn to glow, the amber
+sweep, and `blocked_pending` — things that emit light, never a verdict.
+
+### The sweep reads one specimen at a time
+
+Decision 68 made the sweep the poll, which was right, and then lit every
+specimen within `SWEEP_REACH` of the plane on a linear falloff. At a reach of
+1.1 scene units against a slot spacing of 0.58 that is nearly two slots either
+side: four specimens brightening together, which reads as a glow passing over
+the record rather than as an instrument taking one reading at a time. The
+envelope is now narrow enough that at most one specimen is more than half lit at
+any point in a crossing — asserted in `tests/lib/board/sweep.test.ts` rather
+than eyeballed — and asymmetric, because a specimen the plane has not reached is
+anticipating and one it has passed has just been read.
+
+### A run arrives; it does not appear
+
+`setSpecimens` released every node and rebuilt all of them on each poll. That is
+correct and says nothing: the board's most interesting moment, a review
+starting, was drawn as a flicker — while the sweep two lines away exists to
+announce exactly that. The record is now diffed by id (`lib/board/arrival.ts`),
+a landing run eases into the front slot while the rest slide back, and a node is
+rebuilt only when `specimenSignature` says its *drawing* changed. A poll that
+returns an equal record, which is almost every poll, touches nothing.
+
+### Everything with a rule in it left the scene files
+
+`apps/web` runs vitest in node with no DOM, so nothing under
+`components/board/chamber/` can be tested at all. The easing, the layout
+constants, the sweep envelope, the record diff, the dust field and the camera
+placement are now in `src/lib/board/`, where they are, and the scene modules are
+wiring. This is why the sweep's sequencing claim and the reduced-motion
+guarantee are assertions rather than intentions: reduced motion still renders
+exactly one frame, now through the whole composed pipeline, and every new motion
+has a defined resting value at time zero.
+
+### The bar is gone and the chamber takes the window
+
+The site header held a wordmark and a second theme control the footer already
+carried, and charged the chamber the top of every page for it. It is deleted.
+The mark is absolute in the corner and scrolls away, placed by each page rather
+than by the layout — its fill is `currentColor`, so what it needs is a text
+colour, and the board's chamber is pinned dark while a run page follows the
+reader's theme. A server layout cannot know which it is rendering without being
+told, and the page telling it is simpler than a hook. The run header gains an
+"all runs" breadcrumb, because most readers arrive there from a link in a GitHub
+review and the mark scrolls off.
+
+The hero is `100svh`, the wash is a band under the readout instead of three
+fifths of the frame, and the renderer gate comes down from `lg` to `md` — phones
+keep the flat elevation, which is where a composed frame with a bloom pass in it
+is the wrong trade. The record now starts below the fold: the board says what it
+is first and lists what it has second.
+
+### The run page draws its own specimen
+
+A reader who followed a specimen from the chamber used to arrive at a page that
+described the same run in words and gave them nothing to recognise. It now draws
+one, beside the title, from the same builder — parameterised by a rig rather
+than a flag named after its caller, so "no chain to hang from and no floor to
+land on" is stated in the builder's own vocabulary. The flat SVG renders first
+and the canvas replaces it once `three` loads, because that page is usually
+reached cold from a GitHub comment. `chamber/inline.ts` imports neither the room
+nor the composer, which keeps the addons off every run page — a property one
+stray `import` from `scene.ts` would silently undo.
+
+Rejected: **letting bone bloom**, which is more luminous on a healthy board and
+makes a post pass a partial author of what "this check passed" looks like.
+**Changing the `--chamber-*` values** to get vibrancy, which would have moved
+the drawing away from the badge for the same run and invalidated the contrast
+table in `brand/brand.md`; brightness at the call site does the same work and
+leaves the tokens true. **Dropping the measurement rule entirely** and treating
+the chamber as a hero image, which is the change this one exists to avoid.
+**A third `BOXES` preset in `ChamberFallback`** for the run page's flat
+specimen, which would have drawn a chain and a rail the WebGL version does not:
+two drawings of one run have to be one drawing, so it got its own glyph with the
+same rig.
