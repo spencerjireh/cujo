@@ -76,6 +76,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
 69. [The chamber may have air in it, and the air is two files](#69-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
 70. [Depth is time; across the volume means nothing, and says so](#70-depth-is-time-across-the-volume-means-nothing-and-says-so)
+71. [A lane says how bad, not what happened; the sentence is where the sentence fits](#71-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3477,3 +3478,73 @@ the field flat** for phones, which at that width is a smudge. And **a minimum
 presence floor** so a clean run reads as an object anyway — a calm board is
 calm, which is the reading `brand/brand.md` asks for and the one a maintainer
 wants to be able to take at a glance.
+
+## 71. A lane says how bad, not what happened; the sentence is where the sentence fits
+
+The run page had four places where a thing was said in the wrong size for the
+box it was said in, and the same fix in each: put the short form where the eye
+sweeps and the long form where a reader stops.
+
+**A timeline lane ends with a verdict, not with a finding's title.** The title is
+a sentence a model wrote — "3 tests pass on base and fail on head" — and the lane
+ends in a twelve-rem column, so every lane worth reading ended in an ellipsis.
+Truncation is the failure mode of putting prose in a slot: it cut most often
+exactly where the run had most to say. A lane now carries how many findings the
+check produced and how bad the worst one was (`2 critical`, `1 warn`, `ok`), or,
+where the sandbox itself tripped, which alarm it was (`decoy read`,
+`unknown egress`) — `lib/verdict.ts`, from fields already on the wire. The
+alarm outranks the count deliberately: "the decoy was read" is a fact the number
+of findings does not carry, and the number is one click away.
+
+**And the lane is that click.** It is a button over the whole row, and it opens
+the check's report card, scrolls it into view and moves focus to it — the
+delivery `Record` already does when a specimen in the chamber picks a row, down
+to `focus({ preventScroll: true })` and firing once per pick rather than on every
+poll. The two sections are siblings, so the signal is state in `RunView` rather
+than a store; a nonce rides with the name so picking the same lane twice delivers
+twice.
+
+**The decision bar is one line, and only while something is outstanding.** It was
+a pinned band of three sentences on every run — including the four statuses where
+nothing is being waited on, which spent a permanent strip of the window saying
+so. What confirming and dismissing *do* is a fact about the held review, so it is
+said under that review where there is room for it; what is pinned is the state
+and the two words. A run that is over says why in the flow of the page.
+
+**A collapsed disclosure shows the thing it is a disclosure of.** Provenance shut
+was a blank box with `expand` at the right of it: a section whose whole purpose
+is to name four handles, naming none. Shut, it is now the handles on one line.
+The words `expand` and `collapse` are gone from the page — they were a fifth
+column of type on rows that had four, and a word at the right edge reads as
+though only that word is the control, which was never true. A glyph on the same
+64-unit grid as the mark says the state, and the whole row is visibly the
+trigger it always was.
+
+**Every section says what it is.** One muted line under each heading, in the
+recipe the page already used once. "Provenance" and "detonation" are Cujo's
+words, not a reader's.
+
+### The specimen is a view, not a glyph
+
+128 pixels with nothing behind it, in the header of a page largely about it. It
+is 224 now (160 under `md`), on the chamber's own ground inside a hairline
+border, sized from a `ResizeObserver` rather than a constant. Two layout bugs
+were hiding under the old size and neither survives at this one: the header row
+wrapped in reverse, so a phone got the specimen *above* the title rather than
+under it, and `items-start` under `flex-wrap-reverse` means the bottom, so the
+title block hung off the specimen's floor.
+
+The mark moved too, or rather stopped moving: `HomeMark` positions itself against
+its nearest positioned ancestor, which on the board is the full-bleed chamber and
+on a run page was the centred column — half a gutter in from where the board puts
+it. One mark in two places is two marks.
+
+Rejected: **deriving "3 failed" or "500 on GET /orders"** for a lane, which is
+what the truncated sentences were saying and what a reader wants. Nothing on the
+wire carries a test count or a status code; only the model's prose does, and
+shortening that prose here would be this page inventing a measurement.
+**A severity word alone**, dropping the count, which loses the difference between
+one advisory note and eleven. **Anchors and `href="#"`** for lane-to-report,
+which apps/web has none of and which would put a check name in the URL bar as
+though it were a route. **Keeping the pinned bar on finished runs** as a
+consistent page footer, which is a strip of window spent on "nothing to do".

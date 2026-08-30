@@ -30,11 +30,21 @@ import { SpecimenGlyph } from "./SpecimenGlyph";
  */
 
 /**
- * Big enough to stand beside the title block rather than float against it: the
- * header runs to roughly this height once the author, the model and the setup
- * lines are under the title.
+ * The frame, and the plinth around it.
+ *
+ * It used to be a bare 128-pixel square, which is a thumbnail: the object this
+ * page is largely about was the smallest thing in its own header, and with
+ * nothing behind it, it read as a glyph beside the type rather than as a view
+ * into the chamber. It is now the height of the title block it stands beside,
+ * on the chamber's own ground — the same bordered panel the legend puts a
+ * specimen on, and the chamber tokens are pinned dark in both themes, so this
+ * is a window onto the instrument and not a light square that inverts.
+ *
+ * Two sizes, because the header wraps: at full width it stands beside the
+ * title, and on a narrow screen it lands under it, where 224 pixels of it would
+ * be most of a phone's first screen.
  */
-const SIZE = 128;
+const FRAME = "w-40 md:w-56";
 
 export function RunSpecimen({ run }: { run: Run }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -76,6 +86,15 @@ export function RunSpecimen({ run }: { run: Run }) {
       runIfWanted();
     });
     visible.observe(frame);
+
+    // The frame is sized in CSS and changes at `md`, so the renderer is told
+    // what it got rather than a constant. Square by construction, so the width
+    // is the whole answer.
+    const resize = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width;
+      if (width) handle?.resize(width);
+    });
+    resize.observe(frame);
     document.addEventListener("visibilitychange", runIfWanted);
 
     // The whole startup is inside the promise chain, import included: a
@@ -98,7 +117,9 @@ export function RunSpecimen({ run }: { run: Run }) {
       }
       handle = built;
       handleRef.current = built;
-      built.resize(SIZE);
+      // The observer fires on its own only when the box changes, and by now it
+      // has already reported the size it had before the import resolved.
+      built.resize(frame.getBoundingClientRect().width);
       setLive(true);
       // Through the gate rather than started outright: the page may have
       // scrolled past while the import was in flight, and no observer will
@@ -111,6 +132,7 @@ export function RunSpecimen({ run }: { run: Run }) {
     return () => {
       disposed = true;
       visible.disconnect();
+      resize.disconnect();
       document.removeEventListener("visibilitychange", runIfWanted);
       handleRef.current = null;
       handle?.dispose();
@@ -131,19 +153,16 @@ export function RunSpecimen({ run }: { run: Run }) {
     // Hidden from assistive technology: everything it draws is stated in words
     // on this page — the timeline, the findings list and the status badge — so
     // a screen reader meets the facts rather than a description of a picture.
-    <div
-      ref={frameRef}
-      aria-hidden="true"
-      className="relative shrink-0"
-      style={{ width: SIZE, height: SIZE }}
-    >
-      <div className={live ? "invisible absolute inset-0" : "absolute inset-0"}>
-        <SpecimenGlyph specimen={specimen} />
+    <div aria-hidden="true" className="shrink-0 border border-line bg-[var(--chamber)] p-3">
+      <div ref={frameRef} className={`relative aspect-square ${FRAME}`}>
+        <div className={live ? "invisible absolute inset-0" : "absolute inset-0"}>
+          <SpecimenGlyph specimen={specimen} />
+        </div>
+        <canvas
+          ref={canvasRef}
+          className={`absolute inset-0 h-full w-full ${live ? "" : "invisible"}`}
+        />
       </div>
-      <canvas
-        ref={canvasRef}
-        className={`absolute inset-0 h-full w-full ${live ? "" : "invisible"}`}
-      />
     </div>
   );
 }

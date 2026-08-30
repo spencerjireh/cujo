@@ -1,7 +1,8 @@
 "use client";
 
+import { Chevron } from "@/components/icons/Chevron";
 import type { Run } from "@/lib/api/types";
-import { absoluteTime } from "@/lib/format";
+import { absoluteTime, shortSha } from "@/lib/format";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { type ReactNode, useState } from "react";
 
@@ -25,6 +26,12 @@ import { type ReactNode, useState } from "react";
  * Collapsed by default. It is provenance, not evidence — a reader comes to this
  * page for the findings, and reaches for this only when they want to check the
  * findings against something.
+ *
+ * Collapsed used to be a blank box with a word at each end of it, which is the
+ * one state where a section that exists to name four handles named none of
+ * them. It now names them, on the row that opens it: shut, it is the answer to
+ * "what produced this" at a glance, and open it is the same answer with the
+ * full identifiers and the stamps under it.
  */
 
 /** One labelled value, monospaced, wrapping rather than truncating. */
@@ -56,20 +63,36 @@ export function RunProvenance({ run }: { run: Run }) {
     setup;
   if (!has) return null;
 
+  // The handles themselves, on one line, in the order the list below has them.
+  // Shortened where a short form identifies the thing — a rubric is a digest and
+  // seven characters name one — and left whole where it does not: a session id
+  // is what a reader takes to the console.
+  const summary = [
+    run.model,
+    run.rubric_sha256 ? `rubric ${shortSha(run.rubric_sha256)}` : null,
+    run.session_id ? `session ${run.session_id}` : null,
+    run.turn_ids && run.turn_ids.length > 0
+      ? `${run.turn_ids.length} ${run.turn_ids.length === 1 ? "turn" : "turns"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <section aria-label="Provenance">
+      <h2 className="mb-1 text-lg">Provenance</h2>
+      <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+        What produced this verdict. None of it authorizes anything: the harness console these name
+        keeps its own gate, and a held finding is answered on the pull request.
+      </p>
       <Collapsible.Root open={open} onOpenChange={setOpen}>
-        <Collapsible.Trigger className="flex w-full items-center justify-between gap-3 py-3 text-left">
-          <span className="text-lg">Provenance</span>
-          <span className="font-mono text-xs text-fg-muted" aria-hidden="true">
-            {open ? "collapse" : "expand"}
+        <Collapsible.Trigger className="-mx-2 flex w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-sm border-t border-line px-2 py-3 text-left hover:bg-bg-raised">
+          <span className="wrap-anywhere font-mono text-xs text-fg-muted">
+            {summary || "what this run was, in handles"}
           </span>
+          <Chevron open={open} className="text-fg-muted" />
         </Collapsible.Trigger>
         <Collapsible.Content className="pb-4">
-          <p className="mb-3 max-w-[68ch] font-mono text-xs text-fg-muted">
-            What produced this verdict. None of it authorizes anything: the harness console these
-            name keeps its own gate, and a held finding is answered on the pull request.
-          </p>
           <dl>
             {run.model ? <Entry label="model">{run.model}</Entry> : null}
             {run.rubric_sha256 ? <Entry label="rubric">{run.rubric_sha256}</Entry> : null}
