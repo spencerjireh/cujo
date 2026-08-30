@@ -90,6 +90,7 @@ export const FIELD_NAMES = [
   // the scrubber exists.
   "error_message",
   "error_stack",
+  "problem",
   // Names a person.
   "actor",
 ] as const;
@@ -189,6 +190,7 @@ export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   session_created: "flag",
   error_message: "text",
   error_stack: "text",
+  problem: "text",
   actor: "pii",
 };
 
