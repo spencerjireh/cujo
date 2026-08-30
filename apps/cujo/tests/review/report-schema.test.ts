@@ -126,6 +126,82 @@ describe("what the sandbox is allowed to leave out", () => {
     const { sensors: _s, truncated: _t, ...lean } = report();
     expect(validateReport(lean)).toEqual({ ok: true });
   });
+
+  it("accepts a sensor_logs flag, which the schema used not to name", () => {
+    // TRUNCATION_KEYS emits seven keys (report.py:34-42) and this schema named
+    // six, so the flag rode on `.passthrough()` and was never typed.
+    const run = runEntry();
+    run.truncated = { ...run.truncated, sensor_logs: true };
+    expect(validateReport(report({ runs: [run] }))).toEqual({ ok: true });
+  });
+
+  it("still wants sensor_logs to be a boolean when it is there", () => {
+    const run = runEntry();
+    run.truncated = { ...run.truncated, sensor_logs: "yes" };
+    expect(validateReport(report({ runs: [run] })).ok).toBe(false);
+  });
+});
+
+/**
+ * The envelope's roll-up, which is the only block in a report a model writes
+ * rather than copies. Every case here is a shape a production run actually
+ * sent: three models produced three different partial readings of one rubric
+ * sentence, and requiring the full shape warned on all of them (issue #101).
+ */
+describe("the envelope roll-up", () => {
+  it("accepts an empty roll-up", () => {
+    // Run bc0362c7 (orders-api#22): `truncated: {}` beside runs[] entries that
+    // each carried all seven keys.
+    expect(validateReport(report({ truncated: {}, derived: {} }))).toEqual({ ok: true });
+  });
+
+  it("accepts a roll-up short a key", () => {
+    // `derived.spawned_subprocess: Required` and `truncated.stdout_tail:
+    // Required`, the two most common of the fourteen.
+    const { spawned_subprocess: _s, ...partialDerived } = EXAMPLE.derived;
+    const { stdout_tail: _t, ...partialTruncated } = EXAMPLE.truncated;
+    expect(
+      validateReport(report({ derived: partialDerived, truncated: partialTruncated })),
+    ).toEqual({ ok: true });
+  });
+
+  it("still refuses a roll-up value that is not a boolean", () => {
+    // Lenient about which keys are there, never about what they say. A model
+    // that reports `wrote_sensitive` as a string is not reporting it.
+    const result = validateReport(report({ derived: { wrote_sensitive: "1" } }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("derived.wrote_sensitive");
+  });
+
+  it("still refuses a roll-up that is not an object", () => {
+    // Run bc0362c7 again, on `smoke`: `truncated: Expected object, received
+    // boolean`. A bare boolean is not a partial roll-up, it is a wrong one.
+    expect(validateReport(report({ truncated: true })).ok).toBe(false);
+  });
+
+  it("still requires the envelope to carry derived at all", () => {
+    const { derived: _derived, ...noDerived } = report();
+    expect(validateReport(noDerived).ok).toBe(false);
+  });
+
+  it("does not extend the leniency to a runs[] entry", () => {
+    // The point of the split. A runs[] block is copied verbatim from
+    // `sniff.py`, so a key missing there means the producer moved — which is
+    // the failure this file exists to catch. The problem names `runs.0` and
+    // not the key: `runs[]` is a union, and `validateReport` takes one issue
+    // rather than both branches at once.
+    const withoutDerived = runEntry();
+    const { spawned_subprocess: _s, ...shortDerived } = withoutDerived.derived;
+    withoutDerived.derived = shortDerived;
+    const derivedResult = validateReport(report({ runs: [withoutDerived] }));
+    expect(derivedResult.ok).toBe(false);
+    expect(derivedResult.ok === false && derivedResult.problem).toContain("runs.0");
+
+    const withoutTruncated = runEntry();
+    const { stdout_tail: _t, ...shortTruncated } = withoutTruncated.truncated;
+    withoutTruncated.truncated = shortTruncated;
+    expect(validateReport(report({ runs: [withoutTruncated] })).ok).toBe(false);
+  });
 });
 
 describe("what it will not accept", () => {

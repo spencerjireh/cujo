@@ -189,7 +189,8 @@ Every sub-agent wraps each command it runs in
 `python3 /tmp/cujo/sniff.py run --check <name> --cwd <dir> -- <command...>`, which prints
 a check report: `check, argv, exit, duration_s, stdout_tail, stderr_tail` plus the sensor
 block (`egress[]`, `files_read[]`, `fs_changes[]`, `subprocesses[]`,
-`secret_probe{decoy_read, decoy_in_egress}`, `derived{...}`). Only a wrapped command is
+`secret_probe{decoy_read, decoy_in_egress}`, `sensors{...}`, `truncated{...}`,
+`derived{...}`). Only a wrapped command is
 sensed: one that merely carries the exported environment produces no report and no
 evidence. The sensors serve one wrapped command at a time, so a second `run` waits for
 the first to finish; that wait is expected and is not a hang. The sub-agent ends its
@@ -200,9 +201,12 @@ booleans, true if true in any run>}, ...}` plus the fields below.
 Cujo checks that envelope against a schema and records a `warn` when it does not
 hold, so the report is worth getting right. The envelope must carry `check`,
 `runs[]` and `derived`, and should also carry `schema_version`, `sensors` and
-`truncated` — the same roll-up over every run. In the `sensors` roll-up only
-`armed` matters; you do not need to copy each sensor's `detail` prose up from
-the runs below. Copy each `runs[]` entry from what
+`truncated` — the same roll-up over every run. A roll-up you do send must be an
+object carrying the keys `sniff.py` printed, each one a boolean: omitting the
+block entirely is better than sending `{}` or a block short a key, because an
+absent roll-up claims nothing while a partial one claims a shape it is not. In
+the `sensors` roll-up only `armed` matters; you do not need to copy each
+sensor's `detail` prose up from the runs below. Copy each `runs[]` entry from what
 `sniff.py` printed, verbatim and whole: a `run` entry carries `schema_version`,
 `argv`, `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail` and
 the sensor block, and a `detonate` entry carries `dependency`, `source` and
