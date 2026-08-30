@@ -20,7 +20,11 @@ export function FindingsList({
   if (findings.length === 0) {
     return (
       <section aria-label="Findings">
-        <h2 className="mb-3 text-lg">Findings</h2>
+        <h2 className="mb-1 text-lg">Findings</h2>
+        <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+          What the checks concluded, worst first. A hard-rule hit is Cujo&rsquo;s own reading of a
+          report, not the model&rsquo;s.
+        </p>
         <p className="text-sm text-fg-muted">
           {isLive(status)
             ? "Nothing found so far. Checks that have not reported yet are still counted at the end of the run."
@@ -32,9 +36,13 @@ export function FindingsList({
 
   return (
     <section aria-label="Findings">
-      <h2 className="mb-3 text-lg">
+      <h2 className="mb-1 text-lg">
         Findings <span className="text-fg-muted">({findings.length})</span>
       </h2>
+      <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+        What the checks concluded, worst first. A hard-rule hit is Cujo&rsquo;s own reading of a
+        report, not the model&rsquo;s.
+      </p>
       <ul className="flex flex-col">
         {findings.map((finding) => (
           <li

@@ -106,7 +106,7 @@ describe("boardMetrics", () => {
       row({
         id: "a",
         status: "clean",
-        digest: digest({ checks: { tests: { status: "done", ms: 1_000 } } }),
+        digest: digest({ checks: { tests: { status: "done", ms: 1_000, sandboxMs: null } } }),
       }),
       row({ id: "b", status: "superseded" }),
     ]);
@@ -122,19 +122,19 @@ describe("boardMetrics", () => {
       row({
         id: "a",
         status: "clean",
-        digest: digest({ checks: { tests: { status: "done", ms: 10_000 } } }),
+        digest: digest({ checks: { tests: { status: "done", ms: 10_000, sandboxMs: null } } }),
       }),
       row({
         id: "b",
         status: "clean",
-        digest: digest({ checks: { tests: { status: "done", ms: 30_000 } } }),
+        digest: digest({ checks: { tests: { status: "done", ms: 30_000, sandboxMs: null } } }),
       }),
       // Running: it has an outcome but no measurement, so it is in `running`
       // and not in the median.
       row({
         id: "c",
         status: "running",
-        digest: digest({ checks: { tests: { status: "running", ms: null } } }),
+        digest: digest({ checks: { tests: { status: "running", ms: null, sandboxMs: null } } }),
       }),
     ]);
     const tests = metrics.sensors.find((row) => row.name === "tests");

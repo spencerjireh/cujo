@@ -17,6 +17,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  PUBLIC_DIGEST_CHECK_FIELDS,
   PUBLIC_DIGEST_FIELDS,
   PUBLIC_RUN_FIELDS,
   PUBLIC_SOURCE_FIELDS,
@@ -27,7 +28,7 @@ import {
 } from "../../../src/http/public/serialize";
 import { deriveDigest } from "../../../src/review/digest";
 import { emptyProjection } from "../../../src/review/fold";
-import type { Projection, RunDigest, RunRecord } from "../../../src/review/types";
+import type { DigestCheck, Projection, RunDigest, RunRecord } from "../../../src/review/types";
 
 // Layer 1. Add a field to either type and this stops compiling.
 const EVERY_RUN_FIELD: Record<keyof RunRecord, true> = {
@@ -81,6 +82,20 @@ const EVERY_DIGEST_FIELD: Record<keyof RunDigest, true> = {
   durationMs: true,
 };
 
+/**
+ * Layer 1 one level further down, which is where the guard above stops.
+ *
+ * `checks` is a key of `RunDigest` and was classified as one, and the
+ * serializer then copied the whole object through by reference — so every field
+ * of a `DigestCheck` was published by a list that had never named it. Adding
+ * `sandboxMs` is what found that, and this is the record that closes it.
+ */
+const EVERY_DIGEST_CHECK_FIELD: Record<keyof DigestCheck, true> = {
+  status: true,
+  ms: true,
+  sandboxMs: true,
+};
+
 const sorted = (values: readonly string[]) => [...new Set(values)].sort();
 
 describe("the public field allowlist", () => {
@@ -130,6 +145,16 @@ describe("the public field allowlist", () => {
    */
   it("classifies every field of the digest, and publishes all of them", () => {
     expect(sorted(PUBLIC_DIGEST_FIELDS)).toEqual(sorted(Object.keys(EVERY_DIGEST_FIELD)));
+  });
+
+  /**
+   * And the same of one check inside it. Without this the list above is a
+   * promise about `RunDigest` that reads like a promise about the payload.
+   */
+  it("classifies every field of a digest check, and publishes all of them", () => {
+    expect(sorted(PUBLIC_DIGEST_CHECK_FIELDS)).toEqual(
+      sorted(Object.keys(EVERY_DIGEST_CHECK_FIELD)),
+    );
   });
 });
 
@@ -340,7 +365,10 @@ describe("serializePublicSummary", () => {
       // `ms` and `durationMs` are null because the sentinel stamps are tokens
       // rather than dates — the same degradation a projection written by an
       // older fold gets.
-      checks: { tests: { status: "done", ms: null } },
+      // `sandboxMs` is null for a third reason: the sentinel check has no
+      // `timings`, which is exactly the shape a projection stored before the
+      // field existed rehydrates with.
+      checks: { tests: { status: "done", ms: null, sandboxMs: null } },
       findings: { critical: 1, warn: 0, info: 0 },
       durationMs: null,
     });
@@ -348,6 +376,41 @@ describe("serializePublicSummary", () => {
     for (const leaked of ["SENTINEL_report", "SENTINEL_evidence", "SENTINEL_threadId"]) {
       expect(json).not.toContain(leaked);
     }
+  });
+
+  it("says how much of a check was the sandbox executing", () => {
+    const view = sentinelView();
+    const checks = view.projection.checks.map((check) =>
+      check.title === "tests"
+        ? { ...check, timings: { wallMs: 41_000, sandboxMs: 30_000 } }
+        : check,
+    );
+    const body = serializePublicSummary({
+      run: view.run,
+      digest: deriveDigest({ ...view.projection, checks }),
+    });
+    expect(body.digest?.checks.tests?.sandboxMs).toBe(30_000);
+  });
+
+  /**
+   * The `?? null` in `publicDigestCheck`, which is not decoration.
+   *
+   * `backfillDigest` re-derives only a *missing* digest, so every run folded
+   * before this field existed keeps a blob without it — permanently. Parsed
+   * back, the key is `undefined`; `JSON.stringify` drops it; and the payload
+   * quietly loses a key this module promises to emit on every response.
+   */
+  it("emits the key for a digest stored before the field existed", () => {
+    const stored = JSON.parse(
+      JSON.stringify({
+        checks: { tests: { status: "done", ms: 41_000 } },
+        findings: {},
+        durationMs: null,
+      }),
+    ) as RunDigest;
+    const body = serializePublicSummary({ run: sentinelView().run, digest: stored });
+    expect(body.digest?.checks.tests).toHaveProperty("sandboxMs");
+    expect(body.digest?.checks.tests?.sandboxMs).toBeNull();
   });
 
   /**

@@ -50,7 +50,7 @@ describe("pullRequestUrl", () => {
   it("builds nothing for a repo that is not owner/name", () => {
     // A live link is the one place a hostile string chooses where a reader
     // goes, so the shape is enforced here rather than assumed of the store
-    // (rule 7's philosophy, applied to the structural link; decision 80).
+    // (rule 7's philosophy, applied to the structural link; decision 86).
     for (const repo of [
       "not a repo",
       "o/r/extra",

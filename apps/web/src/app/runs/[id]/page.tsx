@@ -1,3 +1,4 @@
+import { HomeMark } from "@/components/brand/HomeMark";
 import { RunView } from "@/components/run/RunView";
 import { ApiError } from "@/lib/api/client";
 import { runOptions } from "@/lib/api/queries";
@@ -27,7 +28,7 @@ const STATUS_LINE: Record<Run["status"], string> = {
 };
 
 /**
- * What a run link says about itself, wherever it is pasted (decision 80).
+ * What a run link says about itself, wherever it is pasted (decision 86).
  *
  * Built only from fields the anonymous caller can already read from this very
  * URL — the title, the status and the findings the detail route serves in full
@@ -91,10 +92,24 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      {/* The column the layout used to impose on every page. It stayed with the
-          pages that want it when the board took the full window. */}
-      <div className="mx-auto max-w-5xl px-4 py-8">
-        <RunView id={id} />
+      {/* Two boxes, and the mark is on the outer one. The column the layout
+          used to impose is the inner box — it stayed with the pages that want
+          it when the board took the full window — but `HomeMark` positions
+          itself against its nearest positioned ancestor, and against a centred
+          `max-w-5xl` that is half a gutter in from the window on a wide screen.
+          The board's mark sits in the window's own corner, because there it is
+          inside the full-bleed chamber. One mark in two places is two marks, so
+          the positioned box here is the full width and the column sits inside
+          it. It still carries the page's own text colour: the mark follows the
+          reader's theme here and never on the board, which is why it is placed
+          per page rather than by the layout. */}
+      <div className="relative">
+        <HomeMark />
+        <div className="mx-auto max-w-5xl px-4 py-8">
+          <div className="pt-10">
+            <RunView id={id} />
+          </div>
+        </div>
       </div>
     </HydrationBoundary>
   );

@@ -1,16 +1,15 @@
 "use client";
 
-import { Chamber } from "@/components/board/Chamber";
-import { ChamberFallback } from "@/components/board/ChamberFallback";
-import { HeroReadout } from "@/components/board/HeroReadout";
+import { Chamber, type ChamberStatus } from "@/components/board/Chamber";
+import { HeroLead, HeroStats } from "@/components/board/HeroReadout";
 import { Legend } from "@/components/board/Legend";
 import { ReadoutRack } from "@/components/board/ReadoutRack";
 import { Record } from "@/components/board/Record";
+import { HomeMark } from "@/components/brand/HomeMark";
 import { POLL_LIVE_MS, POLL_QUIET_MS, runsListOptions } from "@/lib/api/queries";
 import { boardMetrics } from "@/lib/board/metrics";
-import { specimensFrom } from "@/lib/board/specimen";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The board: the chamber, the rack, the record, the key.
@@ -20,21 +19,47 @@ import { useMemo, useState } from "react";
  * browser. There is no aggregate endpoint and the page does not want one — the
  * whole list arrives in a single response.
  *
- * That poll is also what drives the chamber's sweep: the plane crossing the
- * volume is the board re-reading the record, so it is handed the same interval
+ * That poll is also what drives the chamber's wash: the light walking the
+ * galaxy is the board re-reading the record, so it is handed the same interval
  * `runsListOptions` is using rather than a duration of its own.
  */
 export function RunsView() {
   const { data, error, isPending, dataUpdatedAt } = useQuery(runsListOptions());
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const metrics = useMemo(() => boardMetrics(runs), [runs]);
-  // Fewer than the scene draws: the margin strip is a hundred pixels wide and
-  // the whole record in it would be a column of dots.
-  const specimens = useMemo(() => specimensFrom(runs, 14), [runs]);
   const pollMs = metrics.live > 0 ? POLL_LIVE_MS : POLL_QUIET_MS;
-  // Only the WebGL scene can be clicked, so only it may say so. The flat
-  // elevation is a picture, and telling a reader to click one is a lie.
-  const [sceneLive, setSceneLive] = useState(false);
+  /**
+   * What the renderer is doing, which decides two things.
+   *
+   * Only a live scene may be told to click a specimen. And only a scene that
+   * will never come up collapses the hero: `pending` holds the screen open,
+   * because a canvas is a moment away and a hero that shrank and then grew
+   * again would be worse than one that waited.
+   */
+  const [scene, setScene] = useState<ChamberStatus>("pending");
+  /**
+   * Whether the record has slid up over the whole hero. The hero is sticky
+   * and the sheet below scrolls over it, so the chamber's own frame never
+   * leaves the viewport — it is only ever covered — and its intersection
+   * observer would keep the loop running under a sheet nobody can see
+   * through. A sentinel at the top of the sheet is what actually scrolls.
+   */
+  const [covered, setCovered] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      // Covered once the sentinel has passed the top of the viewport. Not
+      // "not intersecting": it is also not intersecting while below the
+      // fold, before the reader has scrolled at all.
+      const rect = entry?.boundingClientRect;
+      setCovered(entry?.isIntersecting === false && rect !== undefined && rect.top <= 0);
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   if (error) {
     return (
@@ -46,32 +71,55 @@ export function RunsView() {
     );
   }
 
+  const pinned = scene !== "unavailable";
+
   return (
     <div>
-      {/* The chamber is always dark and always full width: it is the
-          instrument's viewport, and the page is the panel around it. The scene
-          composes its record to the right of centre, so the readout sits in the
-          left half rather than on top of the specimens. */}
+      {/* The chamber is always dark, always full width, and the whole first
+          screen: it is the instrument's viewport, and the page is the panel
+          around it. From `md` up it is also pinned — the record does not
+          scroll the chamber away, it rises over it as a sheet, so the galaxy
+          is the ground the rest of the board sits on rather than a banner
+          the reader leaves behind. Below `md` there is no chamber and the
+          hero is a readout, which has no business being pinned. */}
       <section
         aria-label="The chamber"
-        className="relative isolate overflow-hidden bg-[var(--chamber)]"
+        className={`relative isolate overflow-hidden bg-[var(--chamber)] ${
+          pinned ? "z-0 md:sticky md:top-0 md:h-[100svh]" : ""
+        }`}
       >
-        {/* Two forms of the same record, because it is a long thin thing and a
-            viewport is not always wide. Wide: the scene, with the record
-            running beside the headline, which is what the camera is framed for.
-            Narrow: the chain hangs down the right margin, because the same
-            drawing turned sideways scales to a sliver of dots. */}
-        <div className="absolute inset-0 hidden lg:block">
-          <Chamber runs={runs} updatedAt={dataUpdatedAt} pollMs={pollMs} onLive={setSceneLive} />
+        {/* On the chamber, so it takes the pinned viewport tokens rather than
+            the page's: this surface is a screen and stays dark in a lit room.
+            Inside the section and not above it, because it is positioned
+            against the chamber and scrolls away with it. */}
+        <HomeMark tone="chamber" />
+        {/* From `md` up, and only there. Below it there is no drawing at all:
+            the record is a long thin thing, the same picture turned sideways in
+            a hundred-pixel margin was a column of dots, and a phone should not
+            be asked for a composed frame with a bloom pass in it either way. A
+            phone reader came for the runs, so a phone gets the runs. */}
+        <div className="absolute inset-0 hidden md:block">
+          <Chamber
+            runs={runs}
+            updatedAt={dataUpdatedAt}
+            pollMs={pollMs}
+            onStatus={setScene}
+            active={!covered}
+          />
         </div>
-        <div className="absolute inset-y-0 right-0 w-20 sm:w-28 lg:hidden" aria-hidden="true">
-          <ChamberFallback specimens={specimens} orientation="vertical" />
-        </div>
-        {/* A ground for the type on the wide layout, where it sits over the
-            scene. No box, no panel — the type just gets somewhere to sit. */}
+        {/* A ground for the type, at both ends of the frame now that the
+            readout is at both ends of it. The bottom band is the deeper of the
+            two, because the stats sit over the front of the galaxy; it is
+            shallower than it was (decision 83) — solid only for the last
+            tenth and gone by a third of the way up — because at half the
+            frame it covered the front layer. */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-0 hidden w-3/5 bg-gradient-to-r from-[var(--chamber)] from-40% to-transparent lg:block"
+          className="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-[var(--chamber)]/90 via-[var(--chamber)]/45 to-transparent"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[38%] bg-gradient-to-t from-[var(--chamber)] from-10% via-[var(--chamber)]/55 via-45% to-transparent"
         />
         {/* `pointer-events-none` on both this and the wash above, because they
             are painted after the canvas and span it: whichever of them the
@@ -80,27 +128,38 @@ export function RunsView() {
             here is interactive — the readout is text, the wash is decoration —
             so nothing needs the events back, and the scene reads the pointer
             for parallax off the frame underneath. */}
-        <div className="pointer-events-none relative flex min-h-[28rem] items-center py-16 pr-24 pl-4 sm:pr-32 md:pl-8 lg:min-h-[40rem] lg:pr-12 lg:pl-12">
-          <HeroReadout metrics={metrics} interactive={sceneLive} />
+        {/* `gap-10` rather than `justify-between` alone: with no chamber to
+            hold the section open the two halves have no height to be pushed
+            apart by, and would otherwise sit against each other. */}
+        <div className="pointer-events-none relative flex h-full flex-col justify-between gap-10 px-4 pt-16 pb-12 md:pt-20 md:pr-12 md:pb-14 md:pl-8 lg:pl-12">
+          <HeroLead metrics={metrics} />
+          <HeroStats metrics={metrics} interactive={scene === "live"} />
         </div>
       </section>
 
-      {isPending ? (
-        <p className="border-line border-t px-4 py-6 font-mono text-xs text-fg-muted md:px-6">
-          Loading the record…
-        </p>
-      ) : (
-        <>
-          {/* The rack renders on an empty board too, disarmed. A board with no
-              runs is an instrument that has not read anything yet, not a page
-              missing its middle. */}
-          <ReadoutRack metrics={metrics} />
-          <div className="border-line border-t">
-            <Record runs={runs} />
-          </div>
-          <Legend />
-        </>
-      )}
+      {/* In flow, unlike the sticky hero above it, so it scrolls: when it
+          reaches the top of the viewport the sheet has covered the chamber. */}
+      <div ref={sentinelRef} aria-hidden="true" className="h-px" />
+
+      {/* The sheet. Above the hero in the stacking order and opaque, so it
+          rises over the galaxy rather than through it, with a hairline and a
+          shadow at its top edge so the edge reads as an edge. */}
+      <div className="relative z-10 border-line border-t bg-bg md:shadow-[0_-32px_64px_-24px_rgba(0,0,0,0.55)]">
+        {isPending ? (
+          <p className="px-4 py-6 font-mono text-xs text-fg-muted md:px-6">Loading the record…</p>
+        ) : (
+          <>
+            {/* The rack renders on an empty board too, disarmed. A board with
+                no runs is an instrument that has not read anything yet, not a
+                page missing its middle. */}
+            <ReadoutRack metrics={metrics} />
+            <div className="border-line border-t">
+              <Record runs={runs} />
+            </div>
+            <Legend />
+          </>
+        )}
+      </div>
     </div>
   );
 }

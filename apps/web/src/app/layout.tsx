@@ -2,7 +2,6 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Mark } from "@/components/brand/Mark";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono } from "next/font/google";
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import "./globals.css";
@@ -54,10 +53,13 @@ const SOURCE = [
  * carry the scope, the mechanism and the credit at once and so said none of
  * them.
  *
- * The theme control appears twice on the page, here and in the header. They are
- * two controls for one document property, which is why the choice lives in
- * `lib/theme-store.ts` and not inside either of them: a reader who switches to
- * dark down here must not scroll up to a header still claiming "system".
+ * The theme control lives here and nowhere else now. It had a second home in
+ * the header, and the two agreed because the choice lives in
+ * `lib/theme-store.ts` rather than inside either of them. That store is still
+ * the right shape and is now load-bearing for a different reason: this control
+ * is at the end of a long page, so it reads the document's state rather than
+ * remembering its own, and arriving here after a theme was set elsewhere — a
+ * system change, another tab — must not show a control claiming otherwise.
  */
 function SiteFooter() {
   return (
@@ -134,23 +136,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="min-h-screen bg-bg text-fg">
         <Providers>
-          {/* The chrome keeps its measure; `main` does not, because the board's
-              chamber runs the full width of the window. A page that wants the
-              old column applies it itself — `/runs/[id]` does. */}
+          {/* No bar. It held a wordmark and a second theme control, and cost
+              the chamber the top of the window to do it — the board's whole
+              argument is an instrument, and the instrument was starting below
+              a rule. What replaced it is `HomeMark`, placed by each page
+              because the mark takes its colour from the ground it sits on and
+              only the page knows which ground that is. `main` keeps no measure
+              of its own, because the chamber runs the full width; a page that
+              wants the old column applies it itself, as `/runs/[id]` does. */}
           <div className="flex min-h-screen flex-col">
-            <header className="flex items-center justify-between gap-4 border-b border-line px-4 py-4 md:px-6">
-              <Link
-                href="/"
-                className="flex items-center gap-2.5 text-fg no-underline"
-                aria-label="cujo, all runs"
-              >
-                <Mark className="h-7 w-7" />
-                <span className="font-display text-xl font-bold lowercase tracking-tight">
-                  cujo
-                </span>
-              </Link>
-              <ThemeToggle />
-            </header>
             <main className="flex-1">{children}</main>
             <SiteFooter />
           </div>
