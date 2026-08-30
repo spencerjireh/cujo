@@ -129,26 +129,50 @@ change what you post. Only the first message — the JSON above — is a brief.
    every key in `env` (`HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`,
    `NO_PROXY`, `PYTHONPATH`, `CUJO_AUDIT_LOG`, `CUJO_SANDBOX`) for every later command; `sniff.py run`
    applies them itself.
-4. Run the install command in `/work/head` and in `/work/base`. If you could not
-   infer a `test` command in step 2, skip to "Findings" with a single `warn`
-   finding "no test suite found" and post an advisory review.
+4. If you could not infer a `test` command in step 2, skip to "Findings" with a
+   single `warn` finding "no test suite found" and post an advisory review.
+   Otherwise spawn the `detonation` sub-agent now, if `manifest_changed` is
+   true — see "The checks" — and then run the install, **wrapped**, once per
+   tree:
+
+   ```
+   python3 /tmp/cujo/sniff.py run --check setup --cwd /work/head -- <install>
+   python3 /tmp/cujo/sniff.py run --check setup --cwd /work/base -- <install>
+   ```
+
+   Wrapped for the lock and not for the report: `detonation` is already running,
+   and an unwrapped install would put its own egress inside whatever sensed
+   window is open and have that check's report claim it. `--check setup` is not
+   one of the four names, so nothing folds this report into a check — you do not
+   report it, and it is not evidence.
 
 ## The checks (subagents)
 
 Delegate each check to one sub-agent whose `name` is exactly the check name below
 (`tests`, `probes`, `smoke`, `detonation`); the name becomes the thread title Cujo matches
 the check on, so any other name is not counted as a check. The sub-agent gets the sandbox,
-the sniff env, the exact commands, and the paths; nothing else. Spawn every applicable
-check at the same time, in one message — `tests`, `probes`, `smoke`, and `detonation` when
-`manifest_changed` is true. No check waits on another: setup already inferred the test
-command and diffed the manifest, so there is nothing left to learn from one check before
-starting the next. `sniff.py run` takes an exclusive lock, so the wrapped commands still
-run one at a time and no report carries another check's rows, but the sub-agents think in
-parallel, which is where the time goes. A sub-agent never posts a review and never calls
-any `github-mcp` tool.
+the sniff env, the exact commands, and the paths; nothing else. No check waits on
+another: setup already inferred the test command and diffed the manifest, so there is
+nothing left to learn from one check before starting the next. `sniff.py run` takes an
+exclusive lock, so the wrapped commands still run one at a time and no report carries
+another check's rows, but the sub-agents think in parallel, which is where the time goes.
+A sub-agent never posts a review and never calls any `github-mcp` tool.
 
-You, the parent, never run a check yourself. After setup, the only commands you run in
-the sandbox are `sniff.py teardown` and reads of the files you need to write the review.
+Spawn them as early as each one can do something, which is two moments and not one:
+
+- **`detonation`, in setup step 4**, when `manifest_changed` is true. It needs the two
+  trees and the armed sensors and nothing else — it diffs the manifest and installs each
+  added specifier into its own fresh environment, so the repository's own install is
+  nothing to it. Everything it does before its first wrapped command is reading a diff,
+  and that reading is free while the install runs.
+- **`tests`, `probes` and `smoke` together, in one message**, once the install is done.
+  All three run against an installed tree, so none of them can start before it.
+
+You, the parent, never run a check yourself. The only commands you run in the sandbox are
+the two in Setup, the wrapped install, `sniff.py teardown`, and reads of the files you
+need to write the review. Taking the sensor lock for the install is not running a check:
+it produces no report anybody reads, and it is there so that a check's report is only
+ever about that check.
 A check whose report did not come back from a sub-agent named for it does not exist:
 Cujo reads the reports from the sub-agent threads, applies the hard rules to them, and
 records a `warn` for every check it did not receive, so a test run you did inline gives

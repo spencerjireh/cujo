@@ -203,9 +203,11 @@ the session refuses the new head's turn while one is pending (decision 39).
    parent settles policy and infers the commands in one step rather than five
    (decision 71). `sniff.py setup` then seeds the decoy secret and starts the
    logging proxy and the decoy watcher.
-4. **Run the checks.** The agent spawns one subagent per check, all at once —
-   nothing a check needs comes from another, and the sensors serialise
-   themselves (decision 41). `tests` runs
+4. **Run the checks.** Nothing a check needs comes from another and the sensors
+   serialise themselves (decision 41), so each is spawned as early as it can do
+   anything: `detonation` during setup, since it installs into its own fresh
+   environment and needs nothing the repository's install produces, then the
+   other three together once that install is done (decision 73). `tests` runs
    the suite on base and head. `probes` writes and runs scripts against the
    changed functions. `smoke` boots the app and hits it. `detonation` runs
    only when a dependency manifest changed, installing each new or bumped
