@@ -48,12 +48,12 @@ fully automatic.
    `probes` shows a two-line order that totals one cent off. `smoke` still
    returns 200.
 4. The hard rule forces a `critical` finding anchored on the changed line. The
-   agent calls `post_blocking_review`, which is gated, and the turn pauses.
-5. In the Cujo UI the run turns `blocked_pending` and shows the proposed
-   REQUEST_CHANGES review with the failing test output and the probe result. A
-   human clicks Approve.
-6. The blocking review posts as `cujo-guard[bot]` with an inline comment on the
-   rounding line, and gates the merge.
+   claim is correctness, so the agent calls `post_blocking_review`, which is
+   not gated (decision 42).
+5. The REQUEST_CHANGES review posts as `cujo-guard[bot]` with an inline comment
+   on the rounding line, unattended, and gates the merge. The run ends
+   `blocked_unattended`. Nobody was asked: "your tests fail" is checkable by
+   the author in thirty seconds.
 
 This is the case that shows execution-backed review catching what a diff-only
 review cleared.
@@ -69,10 +69,15 @@ review cleared.
    proxy does not see (spec non-goals); `pip`'s isolated build environment
    also keeps the audit hook out of `setup.py`, so the report does not show
    that egress. The decoy read alone is a hard rule.
-4. The hard rules force `critical`. The agent calls `post_blocking_review`, the
-   turn pauses, a human reviews the forensic report in the Cujo UI and clicks
-   Approve.
-5. The blocking review posts as `cujo-guard[bot]` and gates the merge.
+4. The hard rules force `critical`, and the claim is malice, so it posts in two
+   halves. The observation goes up first as an advisory review, with the decoy
+   read marked `held`. Then the agent calls `post_gated_review` and the turn
+   pauses; the run turns `blocked_pending`.
+5. A maintainer reads the evidence on the pull request and answers
+   `/cujo confirm` there (decisions 45, 49 — there is no UI to click, and none
+   since decision 57). The blocking review posts as `cujo-guard[bot]` and gates
+   the merge. `/cujo dismiss` instead would leave the observation standing and
+   publish no conclusion.
 
 This is the case that shows a real sandbox detonation catching a supply-chain
 pattern, with the one consequential action held for a human.
@@ -107,12 +112,16 @@ cut the first one short, so the compose file raises it (docs/trueforge.md).
 2. **PR 1, clean** (30s): open the PR, show the subagents run, show Cujo
    auto-post a review with the execution summary.
 3. **PR 2, regression** (60s): open the PR, show Qodo clear it, watch the
-   check cards fill in the Cujo UI as the subagents run, see `tests` catch the
-   failure, land on the paused run, approve, see the inline comment block the
-   merge. One-second cut to the TrueForge operator console showing the same
-   turn paused: the harness is doing the work and Cujo is its client.
+   check cards fill in on the board as the subagents run, see `tests` catch the
+   failure, and see the REQUEST_CHANGES post on its own with the inline comment
+   blocking the merge. Nobody is asked, and that is the point: Cujo blocks on
+   its own authority when the claim is about code. One-second cut to the
+   TrueForge operator console showing the same turn: the harness is doing the
+   work and Cujo is its client.
 4. **PR 3, hostile** (50s): open the PR, watch the detonation, show the report
-   catching the exfiltration attempt, approve the block.
+   catching the exfiltration attempt, land on the held observation, answer
+   `/cujo confirm` on the pull request, see the block post. This is the one
+   action a human is asked for.
 5. **Close** (20s): one flow covering every requirement — subagents in a
    sandbox, an MCP review tool, gated by a human.
 
