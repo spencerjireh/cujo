@@ -8,6 +8,7 @@ import {
 } from "../clients/trueforge";
 import type { RunStore } from "../store";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
+import { validateEvent } from "./event-schema";
 import { isMaliceClaim, isOperationalRule } from "./findings";
 import { fold, lastTurnOutcome, pendingApproval } from "./fold";
 import { runLogger } from "./start-run";
@@ -320,9 +321,33 @@ export class Runner {
   private push(runId: string, event: AnyEvent): boolean {
     const s = this.state(runId);
     if (s.events.some((e) => e.id === event.id)) return false;
+    this.checkEvent(s.log, event);
     if (event.type === "turn.created") s.subscribedTurnIds.add(event.turnId);
     s.events.push(event);
     return true;
+  }
+
+  /**
+   * Validate one event (decision 105). Warns on a shape mismatch; never
+   * drops. The event stays in the fold regardless, so a field that moved
+   * is visible rather than silently lost toward `clean`.
+   */
+  private checkEvent(log: Logger, event: unknown): void {
+    const result = validateEvent(event);
+    if (!result.valid) {
+      log.warn("run.event.invalid", {
+        event_type:
+          typeof event === "object" && event !== null
+            ? String((event as Record<string, unknown>).type ?? "unknown")
+            : "unknown",
+        problem: result.problem ?? "unknown",
+      });
+    }
+  }
+
+  /** Batch-validate a list of events (replay path). */
+  private checkEvents(log: Logger, events: readonly unknown[]): void {
+    for (const event of events) this.checkEvent(log, event);
   }
 
   /** Record a turn as the run's own before any of its events arrive. */
@@ -641,6 +666,7 @@ export class Runner {
         // -- a run nothing can finish. Keep whatever arrived meanwhile.
         const replayed = new Set(events.map((e) => e.id));
         const appended = s.events.filter((e) => !beforeIds.has(e.id) && !replayed.has(e.id));
+        this.checkEvents(s.log, events);
         s.events = [...events, ...appended];
         s.subscribedTurnIds = new Set([...s.subscribedTurnIds, ...turnIds]);
       }
@@ -1129,6 +1155,7 @@ export class Runner {
     }
     const items = await this.harness.listEvents(run.sessionId);
     const { events, turnIds } = Runner.selectRunEvents(run, items, this.foreignTurnIds(run));
+    this.checkEvents(s.log, events);
     s.events = events;
     s.subscribedTurnIds = new Set(turnIds);
     const projection = this.refold(run.id);
