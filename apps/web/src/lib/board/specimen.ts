@@ -1,14 +1,14 @@
 /**
  * A run, as a shape.
  *
- * Each specimen in the chamber is four arms around a core, leaving it on the
- * four diagonals of a cube (`caltrop.ts`). The core is the verdict; each arm is
- * one check, its length the time that check watched, its solid part the share
+ * Each specimen in the chamber is a star system: a core with four rings round
+ * it, each on its own tilt (`orbit.ts`). The core is the verdict; each ring is
+ * one check, its radius the time that check watched, its bright arc the share
  * of that spent in the sandbox, and its tone how the check ended. So the
- * silhouette of a run is its evidence: a clean sweep is balanced, a run whose
- * detonation errored is lopsided and red on one arm, a run with a check that
- * never appeared is missing an arm entirely, and a run the agent spent longer
- * thinking about than running is mostly hollow.
+ * silhouette of a run is its evidence: a clean sweep is four even rings, a run
+ * whose detonation errored has one red ring, a run with a check that never
+ * appeared is missing a ring entirely, and a run the agent spent longer
+ * thinking about than running is mostly faint.
  *
  * Pure and DOM-free, so the shape is unit-tested without a renderer. `scene.ts`
  * turns what this returns into geometry and nothing else.
@@ -21,7 +21,7 @@ import {
   type Severity,
   isLive,
 } from "@/lib/api/types";
-import { MARK_SLOTS } from "./caltrop";
+import { SATELLITE_SLOTS } from "./orbit";
 import {
   type FindingCounts,
   OUTCOME_TONE,
@@ -41,24 +41,24 @@ export interface SpecimenBar {
   outcome: CheckOutcome;
   tone: Tone;
   /**
-   * 0 to 1 of the longest arm the chamber draws. Zero means "do not draw an
-   * arm": the check never appeared, and a stub would claim it ran briefly.
+   * 0 to 1 of the widest ring the chamber draws. Zero means "do not draw a
+   * ring": the check never appeared, and a stub would claim it ran briefly.
    */
   length: number;
   /**
-   * How much of the arm was the sandbox executing the pull request, 0 to 1,
-   * drawn as the solid part of it. The rest is the sub-agent deciding what to
+   * How much of the ring was the sandbox executing the pull request, 0 to 1,
+   * drawn as the bright arc of it. The rest is the sub-agent deciding what to
    * do next — the same split the run page's timeline draws as a lane.
    *
    * Null means the check measured no share, which is not zero: a zero would
-   * draw an arm that was all model on a check that ran a test suite. An arm
-   * with a null share is drawn undivided, exactly as `ChecksTimeline` draws a
+   * draw a ring that was all model on a check that ran a test suite. A ring
+   * with a null share is drawn whole, exactly as `ChecksTimeline` draws a
    * lane for a check with no `timings`.
    */
   solid: number | null;
 }
 
-/** One finding, as a mark on the ring around the core. Worst first. */
+/** One finding, as a satellite on the orbit outside the rings. Worst first. */
 export interface SpecimenMark {
   severity: Severity;
   tone: Tone;
@@ -76,7 +76,7 @@ export interface Specimen {
   tone: Tone;
   live: boolean;
   bars: SpecimenBar[];
-  /** True when no digest was folded, so the arms are unknown rather than absent. */
+  /** True when no digest was folded, so the rings are unknown rather than absent. */
   unmeasured: boolean;
   /** What the run found, by severity. All zeroes on a run that found nothing. */
   findings: FindingCounts;
@@ -84,7 +84,7 @@ export interface Specimen {
   findingTotal: number;
   /** The worst one, or null when the run is clean. Decides `coreScale`. */
   worst: Severity | null;
-  /** The findings as drawable marks, worst first, capped at `MARK_SLOTS`. */
+  /** The findings as drawable marks, worst first, capped at `SATELLITE_SLOTS`. */
   marks: SpecimenMark[];
   /**
    * How much bigger the core is drawn than a clean run's. Size and not only
@@ -96,7 +96,7 @@ export interface Specimen {
   durationMs: number | null;
 }
 
-/** Shortest arm the chamber will draw, so a fast check is still visible. */
+/** Smallest ring the chamber will draw, so a fast check is still visible. */
 const MIN_LENGTH = 0.18;
 
 /**
@@ -107,11 +107,11 @@ const MIN_LENGTH = 0.18;
  * `findingTotal` carries the real count for the callout and the record row, and
  * `coreScale` still grows with the worst severity, so nothing is hidden by it.
  *
- * The number lives with the ring it fills (`caltrop.ts`) rather than here: the
+ * The number lives with the orbit it fills (`orbit.ts`) rather than here: the
  * cap and the number of slots around the core are one fact, and two constants
  * would let a mark be produced with nowhere to sit.
  */
-const MARK_CAP = MARK_SLOTS;
+const MARK_CAP = SATELLITE_SLOTS;
 
 /** No findings, which is the shape a run with no digest also reports. */
 const NO_FINDINGS: FindingCounts = { critical: 0, warn: 0, info: 0 };
@@ -136,19 +136,19 @@ function marksFrom(counts: FindingCounts): SpecimenMark[] {
 }
 
 /**
- * What an arm is when the check reported no duration — running now, or folded
+ * What a ring is when the check reported no duration — running now, or folded
  * before the stamps existed. Deliberately between the minimum and the middle:
- * long enough to read as an arm, short enough that it never looks measured.
+ * wide enough to read as a ring, small enough that it never looks measured.
  */
 const UNKNOWN_LENGTH = 0.32;
 
 /**
- * The arm length that means "as long as this board has seen".
+ * The ring radius that means "as long as this board has seen".
  *
  * p95 rather than the maximum, so one pathological run does not flatten every
  * other specimen into a dot; and one scale across the whole chamber rather than
  * per run, so a slow run is visibly bigger than a fast one. Null when nothing
- * measured anything, in which case every arm falls back to `UNKNOWN_LENGTH`.
+ * measured anything, in which case every ring falls back to `UNKNOWN_LENGTH`.
  */
 export function armScale(runs: RunSummary[]): number | null {
   const values: number[] = [];
@@ -170,7 +170,7 @@ export function armScale(runs: RunSummary[]): number | null {
  * Guarded on both numbers rather than on `sandboxMs` alone: a share of a
  * duration nobody measured has no meaning, and the ratio is clamped because a
  * sandbox that reported longer than the thread it ran in is a broken
- * measurement, not an arm that overflows its own length.
+ * measurement, not a ring that overflows its own radius.
  */
 function solidShare(check: { ms: number | null; sandboxMs: number | null } | undefined) {
   const ms = check?.ms;
@@ -215,7 +215,7 @@ export function specimensFrom(runs: RunSummary[], limit: number): Specimen[] {
   return visible.map((run, index) => {
     // A run with no digest found nothing *that anyone knows of*, which the
     // `unmeasured` flag already says. Zeroes here rather than a null shape, so
-    // every reader draws the same empty drop line and the callout says
+    // every reader draws the same empty orbit and the callout says
     // "no checks folded" instead of "0 findings".
     const findings = run.digest?.findings ?? NO_FINDINGS;
     const worst = worstSeverity(run.digest?.findings);
@@ -256,8 +256,8 @@ export function specimensFrom(runs: RunSummary[], limit: number): Specimen[] {
  * being rebuilt.
  */
 export function specimenSignature(spec: Specimen): string {
-  // `solid` is in the string because it is drawn: an arm whose sandbox share
-  // changed is a different arm, and a poll that only learned the share would
+  // `solid` is in the string because it is drawn: a ring whose sandbox share
+  // changed is a different ring, and a poll that only learned the share would
   // otherwise leave the old geometry standing.
   const bars = spec.bars.map(
     (bar) =>

@@ -1,54 +1,45 @@
 /**
- * The chamber: a sealed volume with the run history hanging inside it.
+ * The chamber: a galaxy of the run history, five layers deep.
  *
  * Imperative and framework-free on purpose. React owns when this exists and
  * what data it holds; this file owns the renderer, the camera, the pointer and
- * the loop, and composes four modules that own everything else — the room, the
- * specimens, the air, and the passes the frame is drawn through.
+ * the loop, and composes four modules that own everything else — the gates,
+ * the specimens, the air, and the passes the frame is drawn through.
  *
- * The rules, from decision 68 and as amended by decision 69:
+ * The rules, from decision 68 as amended by 69, 70 and 71:
  *
- * - **No geometry exists that is not a measurement.** The floor ticks say which
- *   slots hold a run, the wall ribs are the axis those slots sit on, the chain
- *   ends where the record ends, and the sweep is the board re-reading the API.
+ * - **No geometry exists that is not a measurement.** A gate is drawn only for
+ *   a layer that holds a run, and the sweep is the board re-reading the API.
  *   Anything that could be moved, resized or recoloured without a fact changing
  *   does not belong in `room.ts` or `specimens.ts`.
  * - **The exception is air, and it is one file.** `atmosphere.ts` and `post.ts`
  *   are decorative and carry no data. That is the whole of decision 69, and it
  *   is stated as a boundary so a reader can check it by looking at two imports.
- * - **Depth is time.** The newest run is nearest, the oldest recedes into fog.
- * - **Every specimen is drawn from its own digest.** Arm lengths are check
- *   durations on one shared scale, arm colours are how each check ended, the
+ * - **Depth is time, in five layers.** The newest runs are nearest; each layer
+ *   behind holds older ones. Where a run sits within its layer is a function
+ *   of its id and means nothing (decision 70).
+ * - **Every specimen is drawn from its own digest.** Ring radii are check
+ *   durations on one shared scale, ring colours are how each check ended, the
  *   core is the verdict at a size set by the worst thing the run found.
- * - **The chain.** Cujo is a guard dog on a chain (brand/brand.md).
  *
  * Materials are unlit: this is an instrument face, not a lit room, so there are
  * no lights to tune and nothing costs a shadow pass. Depth is bought with what
- * a technical drawing uses instead — recession, fog, a tether under every
- * specimen, parallax — and now with a graded backdrop behind all of it.
+ * a technical drawing uses instead — recession, fog, the gates, parallax — and
+ * with a graded backdrop and a star field behind all of it.
  */
 
 import { arrivalCurve, diffRecord, slideProgress } from "@/lib/board/arrival";
-import type { Vec3 } from "@/lib/board/caltrop";
-import { type ChainPath, chainPath, pointAtArc } from "@/lib/board/chain";
 import { PITCH_LIMIT, YAW_LIMIT, cameraDrift, cameraPlacement } from "@/lib/board/chamber-camera";
-import {
-  CHAMBER_BOX,
-  FLOOR_Y,
-  RECORD_X,
-  RECORD_Y,
-  slotZ,
-  sparseness,
-} from "@/lib/board/chamber-layout";
+import { LAYER_COUNT, sparseness } from "@/lib/board/chamber-layout";
 import { approach, clamp } from "@/lib/board/ease";
-import { scatterAt } from "@/lib/board/scatter";
+import { layerOf, placeAt } from "@/lib/board/galaxy";
 import { type Specimen, specimenSignature } from "@/lib/board/specimen";
 import {
   SWEEP_MAX_SECONDS,
   SWEEP_MIN_SECONDS,
   readStrength,
-  sweepArc,
   sweepPhase,
+  sweepZ,
 } from "@/lib/board/sweep";
 import { Fog, Group, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3 } from "three";
 import { WebGLRenderer } from "three";
@@ -125,17 +116,14 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   const viewport = { width: 1, height: 1 };
 
   const scene = new Scene();
-  // The fog is the back wall. It does the work a horizon does in a photograph:
+  // The fog is the far end. It does the work a horizon does in a photograph:
   // it says the record continues past what is drawn, rather than stopping.
-  //
-  // It starts further out than it did, and that is the camera's doing rather
-  // than the fog's: standing inside the mouth puts the nearest specimen 2.4
-  // units away, and a near plane at 5.5 would have fogged the newest run in the
-  // record — the one every reader looks at first.
-  scene.fog = new Fog(palette.chamber, 4.2, CHAMBER_BOX.depth + 2);
+  // It starts past the front layer, so the newest stars — the ones every
+  // reader looks at first — keep their whole colour, and it takes the back
+  // layer most of the way to the ground without taking its silhouette.
+  scene.fog = new Fog(palette.chamber, 3.5, 14);
 
   const camera = new PerspectiveCamera(FOV, 1, 0.1, 60);
-  camera.position.set(-1.45, 0.35, 3.4);
   // The camera is in the scene because the backdrop hangs off it: parented that
   // way it is always exactly behind everything, at any angle.
   scene.add(camera);
@@ -151,23 +139,11 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   // renderer's ratio in its constructor.
   const post = createPost({ renderer, scene, camera });
 
-  const kit = createSpecimenKit(palette, {
-    tetherY: FLOOR_Y - RECORD_Y,
-    ring: true,
-    glow: true,
-  });
+  const kit = createSpecimenKit(palette, { ring: true, glow: true });
 
   const specimens = new Group();
   scene.add(specimens);
   let nodes: SpecimenNode[] = [];
-  /**
-   * The chain through the record, and the axis the sweep travels.
-   *
-   * Rebuilt from where the specimens actually are rather than from where they
-   * belong, because during an advance they are between two slots and a chain
-   * drawn to the destination would leave them hanging off it.
-   */
-  let chain: ChainPath = chainPath([]);
   let focus: string | null = null;
   let selection: string | null = null;
   /** 0 with a full record, 1 with one run. Eased toward, so a landing glides. */
@@ -182,35 +158,29 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   }
 
   /**
-   * Where a run sits, at a fractional slot.
+   * Where a run sits, part way between two slots.
    *
-   * Depth is the slot, which is time. The other two come from `scatterAt`,
-   * seeded off the run's id and carrying nothing (decision 70) — and taken at
-   * the *destination* slot rather than the one being slid through, so a run
-   * that is only changing place does not also drift sideways on its way.
+   * Depth is the layer, which is time. Within the layer the place comes from
+   * `placeAt`, seeded off the run's id and carrying nothing (decision 70). A
+   * run sliding from one slot to the next moves in a straight line between
+   * the two places, which may be in two different layers.
    */
-  function seat(node: SpecimenNode, slot: number, lead: number): void {
-    const z = slotZ(slot) + lead;
-    const { x, y } = scatterAt(node.spec.id, slotZ(node.slotTo));
-    node.group.position.set(x, RECORD_Y + y, z);
+  function seat(node: SpecimenNode, t: number, lead: number): void {
+    const from = node.slideOrigin ?? placeAt(node.slotFrom, node.spec.id);
+    const to = placeAt(node.slotTo, node.spec.id);
+    node.group.position.set(
+      from.x + (to.x - from.x) * t,
+      from.y + (to.y - from.y) * t,
+      from.z + (to.z - from.z) * t + lead,
+    );
   }
 
   function place(node: SpecimenNode, index: number): void {
     node.slotFrom = index;
     node.slotTo = index;
     node.slideFrom = -1;
-    seat(node, index, 0);
-  }
-
-  /** The record as a path, in order, from where the specimens are now. */
-  function refreshChain(): void {
-    const points: Vec3[] = nodes.map((node) => ({
-      x: node.group.position.x,
-      y: node.group.position.y,
-      z: node.group.position.z,
-    }));
-    chain = chainPath(points);
-    room.setRecord(chain);
+    node.slideOrigin = null;
+    seat(node, 1, 0);
   }
 
   function add(spec: Specimen): SpecimenNode {
@@ -238,7 +208,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     } else if (diff.kind === "same") {
       // Same ids in the same order. Only a node whose *drawing* changed is
       // rebuilt — a poll returns an equal record almost every time, and
-      // rebuilding twenty-four nodes to redraw the same picture is what this
+      // rebuilding thirty nodes to redraw the same picture is what this
       // comparison exists to avoid.
       nodes = nodes.map((node) => {
         const spec = byId.get(node.spec.id);
@@ -253,6 +223,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
         rebuilt.slotFrom = node.slotFrom;
         rebuilt.slotTo = node.slotTo;
         rebuilt.slideFrom = node.slideFrom;
+        rebuilt.slideOrigin = node.slideOrigin;
         rebuilt.arriveFrom = node.arriveFrom;
         rebuilt.focusAmount = node.focusAmount;
         rebuilt.dimAmount = node.dimAmount;
@@ -265,7 +236,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
       for (const id of diff.leaving) {
         const node = kept.get(id);
         // Released outright rather than faded: a run pushed past the capacity
-        // is at the fog wall, where fog has already taken its colour.
+        // is in the back layer, where fog has already taken its colour.
         if (node) kit.release(node);
         kept.delete(id);
       }
@@ -273,9 +244,17 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
         const existing = kept.get(spec.id);
         if (existing) {
           existing.spec = spec;
-          // From wherever it is right now, fractional included, so a poll that
-          // lands mid-slide does not jump.
-          existing.slotFrom = currentSlot(existing);
+          // From wherever it is right now, so a poll that lands mid-slide
+          // does not jump.
+          existing.slideOrigin =
+            existing.slideFrom >= 0
+              ? {
+                  x: existing.group.position.x,
+                  y: existing.group.position.y,
+                  z: existing.group.position.z,
+                }
+              : null;
+          existing.slotFrom = existing.slotTo;
           existing.slotTo = spec.index;
           existing.slideFrom = elapsedNow;
           return existing;
@@ -288,7 +267,11 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
       });
     }
 
-    refreshChain();
+    // A gate per layer that holds a run, and none for one that does not.
+    const occupied = Array.from({ length: LAYER_COUNT }, () => false);
+    for (const spec of drawn) occupied[layerOf(spec.index).layer] = true;
+    room.setOccupied(occupied);
+
     sparseTarget = sparseness(drawn.length);
     if (options.reducedMotion) sparse = sparseTarget;
     applyFocus();
@@ -297,11 +280,10 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     if (frame === 0) renderOnce();
   }
 
-  /** Where a node is between its two slots, right now. */
-  function currentSlot(node: SpecimenNode): number {
-    if (node.slideFrom < 0) return node.slotTo;
-    const t = slideProgress(node.slideFrom, elapsedNow, SLIDE_SECONDS);
-    return node.slotFrom + (node.slotTo - node.slotFrom) * t;
+  /** How far a node is along its slide, 0 to 1. 1 at rest. */
+  function slideT(node: SpecimenNode): number {
+    if (node.slideFrom < 0) return 1;
+    return slideProgress(node.slideFrom, elapsedNow, SLIDE_SECONDS);
   }
 
   /** Hovered, or picked and still marked in the record below. */
@@ -364,14 +346,14 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
-    // Cores only. The arms are thin and a run is picked by its verdict, which
-    // is the part a pointer can actually land on.
+    // The pick sphere round each system, not the core: the core is a tenth of
+    // a unit across, and a hover that had to find it would find nothing.
     const hits = raycaster.intersectObjects(
-      nodes.map((node) => node.core),
+      nodes.map((node) => node.pick),
       false,
     );
     const first = hits[0]?.object;
-    return nodes.find((node) => node.core === first)?.spec.id ?? null;
+    return nodes.find((node) => node.pick === first)?.spec.id ?? null;
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -463,17 +445,22 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     camera.position.set(placement.x, placement.y, placement.z);
     camera.lookAt(placement.aimX, placement.aimY, placement.aimZ);
 
-    // Move the specimens first, then the chain, then the sweep that rides it —
-    // in that order, because each reads the one before it and a sweep placed
-    // from last frame's chain would trail the record it is reading.
-    let moving = false;
+    // The sweep is the poll. It leaves the back layer when data lands and
+    // reaches the front as the next request is due, so a busy board sweeps
+    // every five seconds and a quiet one crawls once every thirty.
+    const phase = options.reducedMotion ? null : sweepPhase(elapsed, sweepFrom, sweepSeconds);
+    const plane = phase === null ? null : sweepZ(phase);
+    room.setSweep(plane);
+    atmosphere.setSweep(plane);
+    atmosphere.update(elapsed, options.reducedMotion);
+
     const lit = litId();
-    const frames: { node: SpecimenNode; arrivalScale: number; arrivalOpacity: number }[] = [];
     for (const node of nodes) {
       // Slot, which the advance animation walks between.
-      const slot = currentSlot(node);
-      if (node.slideFrom >= 0 && slideProgress(node.slideFrom, elapsed, SLIDE_SECONDS) >= 1) {
+      const t = slideT(node);
+      if (node.slideFrom >= 0 && t >= 1) {
         node.slideFrom = -1;
+        node.slideOrigin = null;
         node.slotFrom = node.slotTo;
       }
 
@@ -482,15 +469,14 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
       let arrivalOpacity = 1;
       let lead = 0;
       if (node.arriveFrom >= 0) {
-        const t = slideProgress(node.arriveFrom, elapsed, ARRIVE_SECONDS);
-        const curve = arrivalCurve(t);
+        const a = slideProgress(node.arriveFrom, elapsed, ARRIVE_SECONDS);
+        const curve = arrivalCurve(a);
         arrivalScale = curve.scale;
         arrivalOpacity = curve.opacity;
         lead = curve.lead;
-        if (t >= 1) node.arriveFrom = -1;
+        if (a >= 1) node.arriveFrom = -1;
       }
-      seat(node, slot, lead);
-      if (node.slideFrom >= 0 || node.arriveFrom >= 0) moving = true;
+      seat(node, t, lead);
 
       const target = focusTargets.get(node.spec.id) ?? { focus: 0, dim: 0 };
       node.focusAmount = options.reducedMotion
@@ -500,33 +486,9 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
         ? target.dim
         : approach(node.dimAmount, target.dim, FOCUS_RATE, dt);
 
-      frames.push({ node, arrivalScale, arrivalOpacity });
-    }
-
-    // The chain follows the specimens while any of them is in motion. At rest
-    // it is left alone: a poll returns an equal record almost every time, and
-    // rebuilding a `LineSegmentsGeometry` every frame to redraw the same line
-    // is the sort of cost that only shows up on the weakest hardware the `md`
-    // gate admits.
-    if (moving) refreshChain();
-
-    // The sweep is the poll. It leaves the far end of the record when data
-    // lands and reaches the near end as the next request is due, so a busy
-    // board sweeps every five seconds and a quiet one crawls once every thirty.
-    const phase = options.reducedMotion ? null : sweepPhase(elapsed, sweepFrom, sweepSeconds);
-    const cursorArc = phase === null ? null : sweepArc(phase, chain.length);
-    const cursor = cursorArc === null ? null : pointAtArc(chain, cursorArc);
-    room.setSweep(cursor, camera.position);
-    atmosphere.setSweep(cursor === null ? null : cursor.z);
-    atmosphere.update(elapsed, options.reducedMotion);
-
-    for (let i = 0; i < frames.length; i += 1) {
-      const entry = frames[i];
-      if (!entry) continue;
-      const { node, arrivalScale, arrivalOpacity } = entry;
-      // Read against this run's own place on the chain, not against a depth:
-      // the record is a field, and several runs share a depth.
-      const read = cursorArc === null ? 0 : readStrength(cursorArc, chain.arcs[i] ?? 0);
+      // Read against the run's own depth: the plane lights a layer at a time,
+      // and a run sliding between two layers is lit for wherever it is.
+      const read = plane === null ? 0 : readStrength(plane, node.group.position.z);
       applySpecimenFrame(node, {
         elapsed,
         reducedMotion: options.reducedMotion,
@@ -571,8 +533,8 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
 
   function renderOnce(): void {
     // Zero delta, which every pass and every motion has a defined value for:
-    // the grain does not advance, the dust sits at its seeded field, the drift
-    // is exactly zero. The same frame every time, with the whole pipeline.
+    // the grain does not advance, the stars sit at their seeded field, the
+    // drift is exactly zero. The same frame every time, with the whole pipeline.
     draw(elapsedNow, 0);
   }
 
@@ -619,7 +581,7 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     camera.updateProjectionMatrix();
     post.setSize(width, height, ratio);
     // CSS pixels, not device pixels: that is the space `LineMaterial` measures
-    // its width in, so a 1.4px rule is 1.4px on any display.
+    // its width in, so a 1.1px gate is 1.1px on any display.
     room.setResolution(width, height);
     atmosphere.setFrame(FOV, camera.aspect);
     if (options.reducedMotion || frame === 0) renderOnce();

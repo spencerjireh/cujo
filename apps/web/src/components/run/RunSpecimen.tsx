@@ -11,8 +11,8 @@ import { SpecimenGlyph } from "./SpecimenGlyph";
 /**
  * This run, as the shape the chamber would draw it.
  *
- * The board's whole argument is that a run has a silhouette — arms sized by how
- * long each check watched, a core sized by the worst thing it found — and until
+ * The board's whole argument is that a run has a silhouette — rings sized by
+ * how long each check watched, a core sized by the worst thing it found — and until
  * now that argument stopped at the board. A reader who followed a specimen to
  * its run page lost the object they had just clicked on.
  *
@@ -119,7 +119,7 @@ export function RunSpecimen({ run }: { run: Run }) {
   }, []);
 
   // The run updates over the stream while it is live, and the shape has to
-  // follow: an arm that stopped growing when the page loaded would be a
+  // follow: a ring that stopped growing when the page loaded would be a
   // drawing of a moment rather than of the run.
   useEffect(() => {
     if (specimen) handleRef.current?.setSpecimen(specimen);

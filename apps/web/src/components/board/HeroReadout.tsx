@@ -132,7 +132,7 @@ export function HeroStats({
         ) : null}
       </dl>
       <p className="mt-6 max-w-md font-mono text-xs leading-relaxed text-[var(--chamber-fg-muted)]">
-        Each specimen is one run: four arms, one per check, as long as the check watched.
+        Each star is one run: four orbits, one per check, as wide as the check took.
         {interactive ? " Click one to find its run in the record below." : null}
       </p>
     </div>
