@@ -13,9 +13,16 @@
  */
 
 import { CHECK_NAMES, type CheckName, RUN_STATUSES, type RunStatus } from "@/lib/api/types";
-import type { RunSummary } from "@/lib/api/types";
+import type { RunSummary, Severity } from "@/lib/api/types";
 import { isLive } from "@/lib/api/types";
-import { type CheckOutcome, checkOutcome, checksOf, statusTone } from "./tone";
+import {
+  type CheckOutcome,
+  type FindingCounts,
+  SEVERITY_ORDER,
+  checkOutcome,
+  checksOf,
+  statusTone,
+} from "./tone";
 import type { Tone } from "./tone";
 
 export interface VerdictSlice {
@@ -56,6 +63,21 @@ export interface DurationSummary {
   measured: number;
 }
 
+export interface FindingsSummary {
+  bySeverity: FindingCounts;
+  total: number;
+  /** Runs that produced at least one finding. */
+  producing: number;
+  /**
+   * Runs with a digest at all, which is the denominator `producing` is a share
+   * of. The same rule the sensor rows keep: a run that folded nothing is not
+   * evidence that it found nothing.
+   */
+  observed: number;
+  /** The worst severity anything on this board produced, or null. */
+  worst: Severity | null;
+}
+
 export interface BoardMetrics {
   total: number;
   live: number;
@@ -69,6 +91,7 @@ export interface BoardMetrics {
   sensors: SensorRow[];
   activity: ActivityBucket[];
   duration: DurationSummary;
+  findings: FindingsSummary;
 }
 
 /** Nearest-rank percentile. Null on an empty set rather than zero. */
@@ -176,6 +199,42 @@ export function activity(runs: RunSummary[], maxBuckets = 60): ActivityBucket[] 
   return buckets;
 }
 
+/**
+ * What the board has found, by severity.
+ *
+ * `digest.findings` is the one thing the list row carries that nothing on this
+ * page read until now, and it is the answer to the question the verdict ribbon
+ * cannot answer: a board can be 40% blocked and that says how many runs went
+ * badly, not what was wrong with them.
+ *
+ * Runs with no digest are excluded from `observed` for the same reason they are
+ * excluded from the sensor rows — a run that folded nothing is not evidence
+ * that it found nothing.
+ */
+function findings(runs: RunSummary[]): FindingsSummary {
+  const bySeverity: FindingCounts = { critical: 0, warn: 0, info: 0 };
+  let observed = 0;
+  let producing = 0;
+  for (const run of runs) {
+    if (!run.digest) continue;
+    observed += 1;
+    let any = 0;
+    for (const severity of SEVERITY_ORDER) {
+      const count = run.digest.findings[severity] ?? 0;
+      bySeverity[severity] += count;
+      any += count;
+    }
+    if (any > 0) producing += 1;
+  }
+  return {
+    bySeverity,
+    total: SEVERITY_ORDER.reduce((sum, severity) => sum + bySeverity[severity], 0),
+    producing,
+    observed,
+    worst: SEVERITY_ORDER.find((severity) => bySeverity[severity] > 0) ?? null,
+  };
+}
+
 function duration(runs: RunSummary[]): DurationSummary {
   const values = runs
     .map((run) => run.digest?.durationMs)
@@ -210,5 +269,6 @@ export function boardMetrics(runs: RunSummary[]): BoardMetrics {
     sensors: sensors(runs),
     activity: activity(runs),
     duration: duration(runs),
+    findings: findings(runs),
   };
 }

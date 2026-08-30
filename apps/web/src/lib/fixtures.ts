@@ -29,13 +29,54 @@ export const cleanChecks: CheckState[] = [
 ];
 
 export const detonationChecks: CheckState[] = [
-  check({ title: "tests", startedAt: at(2), endedAt: at(110) }),
-  check({ title: "probes", startedAt: at(4), endedAt: at(56) }),
+  // Four different sandbox shares, because the timeline draws that split and a
+  // fixture where every lane divides identically proves nothing about it.
+  // `tests` spends most of its wall clock executing; `probes` almost none.
+  check({
+    title: "tests",
+    startedAt: at(2),
+    endedAt: at(110),
+    usage: {
+      inputTokens: 18_400,
+      outputTokens: 1_900,
+      cacheReadTokens: 142_000,
+      cacheWriteTokens: 9_100,
+      messages: 8,
+      costUsd: 0.0912,
+    },
+    timings: { wallMs: 108_000, sandboxMs: 81_000, modelMs: 27_000 },
+  }),
+  check({
+    title: "probes",
+    startedAt: at(4),
+    endedAt: at(56),
+    usage: {
+      inputTokens: 9_200,
+      outputTokens: 840,
+      cacheReadTokens: 61_000,
+      cacheWriteTokens: 0,
+      messages: 5,
+      costUsd: 0.0311,
+    },
+    timings: { wallMs: 52_000, sandboxMs: 7_000, modelMs: 45_000 },
+  }),
+  // No `timings` at all: a check from before the field existed, which the
+  // timeline has to draw as one undivided lane rather than as all-model.
   check({ title: "smoke", startedAt: at(6), endedAt: at(76) }),
   check({
     title: "detonation",
     startedAt: at(8),
     endedAt: at(158),
+    usage: {
+      inputTokens: 24_600,
+      outputTokens: 3_400,
+      cacheReadTokens: 210_000,
+      cacheWriteTokens: 14_000,
+      reasoningTokens: 1_200,
+      messages: 11,
+      costUsd: 0.1544,
+    },
+    timings: { wallMs: 150_000, sandboxMs: 118_000, modelMs: 32_000 },
     report: {
       runs: [
         {
@@ -169,6 +210,20 @@ export function run(over: Partial<Run> = {}): Run {
     external_resume: false,
     error: null,
     summary: "Four checks ran. Two hard rules tripped, so the review blocks the merge.",
+    // Larger than the four checks add up to, which is the honest shape: the
+    // run total is summed over every turn, and the turn that folded the
+    // reports and drafted the review is not one of the checks.
+    usage: {
+      inputTokens: 61_800,
+      outputTokens: 8_140,
+      cacheReadTokens: 486_000,
+      cacheWriteTokens: 27_400,
+      reasoningTokens: 1_200,
+      messages: 31,
+      costUsd: 0.3418,
+    },
+    model: "claude-sonnet-5",
+    rubric_sha256: "9f2c41ba7d6e5308c1aa4bf0d2e79c3518ab6e40f7c92d15b8ae3c6104d7f2b9",
     ...over,
   };
 }

@@ -3,29 +3,38 @@
 import { Chamber } from "@/components/board/Chamber";
 import { ChamberFallback } from "@/components/board/ChamberFallback";
 import { HeroReadout } from "@/components/board/HeroReadout";
+import { Legend } from "@/components/board/Legend";
 import { ReadoutRack } from "@/components/board/ReadoutRack";
 import { Record } from "@/components/board/Record";
-import { runsListOptions } from "@/lib/api/queries";
+import { POLL_LIVE_MS, POLL_QUIET_MS, runsListOptions } from "@/lib/api/queries";
 import { boardMetrics } from "@/lib/board/metrics";
 import { specimensFrom } from "@/lib/board/specimen";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 /**
- * The board: the chamber, the rack, the record.
+ * The board: the chamber, the rack, the record, the key.
  *
- * One query feeds all three (`runsListOptions`, polling at 5 s while anything
+ * One query feeds all of them (`runsListOptions`, polling at 5 s while anything
  * is live and 30 s otherwise), and every number below is derived from it in the
  * browser. There is no aggregate endpoint and the page does not want one — the
  * whole list arrives in a single response.
+ *
+ * That poll is also what drives the chamber's sweep: the plane crossing the
+ * volume is the board re-reading the record, so it is handed the same interval
+ * `runsListOptions` is using rather than a duration of its own.
  */
 export function RunsView() {
-  const { data, error, isPending } = useQuery(runsListOptions());
+  const { data, error, isPending, dataUpdatedAt } = useQuery(runsListOptions());
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const metrics = useMemo(() => boardMetrics(runs), [runs]);
   // Fewer than the scene draws: the margin strip is a hundred pixels wide and
   // the whole record in it would be a column of dots.
   const specimens = useMemo(() => specimensFrom(runs, 14), [runs]);
+  const pollMs = metrics.live > 0 ? POLL_LIVE_MS : POLL_QUIET_MS;
+  // Only the WebGL scene can be clicked, so only it may say so. The flat
+  // elevation is a picture, and telling a reader to click one is a lie.
+  const [sceneLive, setSceneLive] = useState(false);
 
   if (error) {
     return (
@@ -53,7 +62,7 @@ export function RunsView() {
             Narrow: the chain hangs down the right margin, because the same
             drawing turned sideways scales to a sliver of dots. */}
         <div className="absolute inset-0 hidden lg:block">
-          <Chamber runs={runs} />
+          <Chamber runs={runs} updatedAt={dataUpdatedAt} pollMs={pollMs} onLive={setSceneLive} />
         </div>
         <div className="absolute inset-y-0 right-0 w-20 sm:w-28 lg:hidden" aria-hidden="true">
           <ChamberFallback specimens={specimens} orientation="vertical" />
@@ -69,9 +78,10 @@ export function RunsView() {
             pointer lands on is the hit target, and the chamber would never
             receive a hover, a click or a drag anywhere in the hero. Nothing in
             here is interactive — the readout is text, the wash is decoration —
-            so nothing needs the events back. */}
+            so nothing needs the events back, and the scene reads the pointer
+            for parallax off the frame underneath. */}
         <div className="pointer-events-none relative flex min-h-[28rem] items-center py-16 pr-24 pl-4 sm:pr-32 md:pl-8 lg:min-h-[40rem] lg:pr-12 lg:pl-12">
-          <HeroReadout metrics={metrics} />
+          <HeroReadout metrics={metrics} interactive={sceneLive} />
         </div>
       </section>
 
@@ -81,10 +91,14 @@ export function RunsView() {
         </p>
       ) : (
         <>
+          {/* The rack renders on an empty board too, disarmed. A board with no
+              runs is an instrument that has not read anything yet, not a page
+              missing its middle. */}
           <ReadoutRack metrics={metrics} />
           <div className="border-line border-t">
             <Record runs={runs} />
           </div>
+          <Legend />
         </>
       )}
     </div>

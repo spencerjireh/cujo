@@ -34,4 +34,15 @@ export const Many: Story = {
   },
 };
 
+/**
+ * Two runs, which is what a board looks like on its first day. The table keeps
+ * its rhythm with empty rows rather than sitting hard against what follows it —
+ * a young record should look young, not cramped.
+ */
+export const Sparse: Story = { args: { runs: runs.slice(0, 2) } };
+
+/**
+ * No runs at all. The block has height and says what to do next, because an
+ * empty screen is an invitation to act and not a sentence in muted grey.
+ */
 export const Empty: Story = { args: { runs: [] } };

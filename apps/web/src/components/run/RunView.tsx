@@ -10,6 +10,7 @@ import { ChecksTimeline } from "./ChecksTimeline";
 import { FindingsList } from "./FindingsList";
 import { ReviewPanel } from "./ReviewPanel";
 import { RunHeader } from "./RunHeader";
+import { RunLedger } from "./RunLedger";
 
 /**
  * Timeline first: the lanes are the page's thesis, then the findings they
@@ -48,6 +49,10 @@ export function RunView({ id }: { id: string }) {
         <ReviewPanel review={run.gated_review} posted={gatedReviewPosted(run)} />
       ) : null}
       <CheckReports checks={run.checks} />
+      {/* Last of the evidence, before the decision: what the run cost is
+          context for the verdict and never an argument for it. Renders
+          nothing at all on a run that carries no record of it. */}
+      <RunLedger usage={run.usage} />
       <ApproveBar run={run} />
     </article>
   );
