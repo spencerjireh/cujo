@@ -112,8 +112,8 @@ reason and resolved before merge.
 
 Across the project's history:
 
-- **103** merged PRs, all 103 reviewed by Qodo (100% coverage from PR #1).
-- **92** PRs received findings — **374** inline review threads in total.
+- **105** merged PRs, all 105 reviewed by Qodo (100% coverage from PR #1).
+- **94** PRs received findings — **376** inline review threads in total.
 - **11** PRs received a clean review with no material issues.
 - Every finding was addressed with a code fix or a design-decision citation,
   and every thread resolved before merge.
