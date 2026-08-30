@@ -87,11 +87,19 @@ function CutOutput({ block }: { block: SensorBlock }) {
     block.truncated?.stdout_tail ? "stdout" : null,
     block.truncated?.stderr_tail ? "stderr" : null,
   ].filter(Boolean);
-  if (cut.length === 0) return null;
   return (
-    <p className="mb-3 font-mono text-xs text-sev-high">
-      {cut.join(" and ")} was cut at the tail limit; the raw report below holds what survived
-    </p>
+    <>
+      {cut.length > 0 ? (
+        <p className="mb-3 font-mono text-xs text-sev-high">
+          {cut.join(" and ")} was cut at the tail limit; the raw report below holds what survived
+        </p>
+      ) : null}
+      {block.truncated?.sensor_logs ? (
+        <p className="mb-3 font-mono text-xs text-sev-high">
+          some sensor log lines could not be decoded
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -123,15 +131,49 @@ function Group({
   );
 }
 
+function CommandHeader({ block }: { block: SensorBlock }) {
+  if (!block.command) return null;
+  const { argv, exit, duration_s } = block.command;
+  return (
+    <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <code className="truncate font-mono text-xs">{argv.join(" ")}</code>
+      <span className="flex gap-3 font-mono text-xs text-fg-muted">
+        {exit !== null ? (
+          <span className={exit !== 0 ? "text-sev-high" : ""}>exit {exit}</span>
+        ) : null}
+        {duration_s !== null ? <span>{duration_s}s</span> : null}
+      </span>
+    </div>
+  );
+}
+
+function ScriptContent({ block }: { block: SensorBlock }) {
+  const content = block.command?.script_content;
+  if (content === null || content === undefined) return null;
+  const cut = block.truncated?.script_content;
+  return (
+    <details className="mb-3">
+      <summary className="cursor-pointer font-mono text-xs text-fg-muted">
+        captured script{cut ? <Cut cut label="truncated" /> : null}
+      </summary>
+      <pre className="mt-1 max-h-80 overflow-auto rounded-md bg-canvas-inset p-3 font-mono text-xs leading-relaxed">
+        {content}
+      </pre>
+    </details>
+  );
+}
+
 const ROW = "grid gap-3 border-t border-line py-1.5 font-mono text-xs";
 
 export function SensorReport({ block }: { block: SensorBlock }) {
   return (
     <div>
       {block.label ? <p className="mb-2 font-mono text-sm">{block.label}</p> : null}
+      <CommandHeader block={block} />
       <Alarms block={block} />
       <Sensors block={block} />
       <CutOutput block={block} />
+      <ScriptContent block={block} />
 
       <Group title="egress" count={block.egress.length}>
         <VirtualRows items={block.egress}>
