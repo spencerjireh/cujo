@@ -54,8 +54,12 @@ export function dustPositions(count: number, box: FieldBox, seed = 1): Float32Ar
   return out;
 }
 
-/** How far a mote wanders from where it was seeded. Small: this is air, not weather. */
-const DRIFT = { x: 0.06, y: 0.09, z: 0.04 } as const;
+/**
+ * How far a mote wanders from where it was seeded. Small: this is air, not
+ * weather — but large enough to be seen against a field several units across,
+ * which the old sixteenths of a unit were not.
+ */
+const DRIFT = { x: 0.11, y: 0.15, z: 0.07 } as const;
 const DRIFT_SECONDS = { x: 17, y: 11, z: 23 } as const;
 
 /**

@@ -11,7 +11,6 @@ import { ChecksTimeline } from "./ChecksTimeline";
 import { FindingsList } from "./FindingsList";
 import { ReviewPanel } from "./ReviewPanel";
 import { RunHeader } from "./RunHeader";
-import { RunLedger } from "./RunLedger";
 import { RunProvenance } from "./RunProvenance";
 
 /**
@@ -60,7 +59,14 @@ export function RunView({ id }: { id: string }) {
         onSelect={(check) => setPicked((was) => ({ check, nonce: (was?.nonce ?? 0) + 1 }))}
       />
       <FindingsList findings={run.findings} status={run.status} />
-      {run.review ? <ReviewPanel review={run.review} posted={reviewPosted(run)} /> : null}
+      {run.review ? (
+        <ReviewPanel
+          review={run.review}
+          posted={reviewPosted(run)}
+          checks={run.checks}
+          findings={run.findings}
+        />
+      ) : null}
       {/*
         Both, when there are both. The advisory is already on the pull request
         while the accusation waits, and showing only one of them is how a human
@@ -71,15 +77,14 @@ export function RunView({ id }: { id: string }) {
           review={run.gated_review}
           posted={gatedReviewPosted(run)}
           advisoryStands={!!run.review && reviewPosted(run)}
+          checks={run.checks}
+          findings={run.findings}
         />
       ) : null}
       <CheckReports checks={run.checks} picked={picked} />
-      {/* Last of the evidence, before the decision: what the run cost is
-          context for the verdict and never an argument for it. Renders
-          nothing at all on a run that carries no record of it. */}
-      <RunLedger usage={run.usage} />
-      {/* Last before the decision, with the cost: both are context for the
-          verdict and neither is an argument for it. */}
+      {/* Last before the decision, and folded: what the run cost and what
+          produced it are context for the verdict, never an argument for it,
+          and they are the operator's context rather than the author's. */}
       <RunProvenance run={run} />
       <ApproveBar run={run} />
     </article>

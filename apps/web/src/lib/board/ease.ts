@@ -29,6 +29,26 @@ export function easeInOutSine(t: number): number {
   return (1 - Math.cos(Math.PI * clamp01(t))) / 2;
 }
 
+/** Where a beat peaks, as a share of its length. Quick up, slow down. */
+const BEAT_PEAK = 1 / 3;
+
+/**
+ * One beat: 0 at rest, up to 1 and back to 0 over the unit interval.
+ *
+ * Asymmetric on purpose. The rise is an ease-out, fast off the mark and
+ * peaking at a third of the way, which is what makes it a beat and not a
+ * swell; the settle is a sine in and out over the remaining two thirds, so
+ * the return is slower than the strike and there is no corner at the peak
+ * for the eye to catch. Zero on both sides of the interval, so a caller can
+ * hand it any progress and get rest for a beat that has not started or has
+ * finished.
+ */
+export function beat(t: number): number {
+  if (t <= 0 || t >= 1) return 0;
+  if (t < BEAT_PEAK) return easeOutCubic(t / BEAT_PEAK);
+  return 1 - easeInOutSine((t - BEAT_PEAK) / (1 - BEAT_PEAK));
+}
+
 /**
  * Exponential approach toward a target, independent of frame rate.
  *

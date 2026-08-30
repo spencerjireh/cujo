@@ -1,5 +1,13 @@
 import type { Severity } from "@/lib/api/types";
-import { SEVERITY_TONE, compareFindings, findingTotal, worstSeverity } from "@/lib/board/tone";
+import {
+  OUTCOME_TONE,
+  SEVERITY_TONE,
+  checkSentence,
+  compareFindings,
+  findingTotal,
+  statusTone,
+  worstSeverity,
+} from "@/lib/board/tone";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -70,5 +78,35 @@ describe("compareFindings", () => {
     expect(compareFindings(null, counts())).toBeLessThan(0);
     expect(compareFindings(counts(), null)).toBeGreaterThan(0);
     expect(compareFindings(null, undefined)).toBe(0);
+  });
+});
+
+describe("running is live", () => {
+  it("gives a running run and a running check the live tone, and nothing else", () => {
+    expect(statusTone("running")).toBe("live");
+    expect(OUTCOME_TONE.running).toBe("live");
+    expect(statusTone("clean")).not.toBe("live");
+    expect(OUTCOME_TONE.done).not.toBe("live");
+  });
+});
+
+describe("checkSentence", () => {
+  it("says how a check ended, how long it took, and how much was the sandbox", () => {
+    expect(checkSentence("tests", { status: "done", ms: 108_000, sandboxMs: 81_000 })).toBe(
+      "tests: reported, 1m 48s, 75% in the sandbox",
+    );
+  });
+
+  it("leaves out what was not measured", () => {
+    expect(checkSentence("tests", { status: "done", ms: 5_000, sandboxMs: null })).toBe(
+      "tests: reported, 5s",
+    );
+    expect(checkSentence("tests", { status: "running", ms: null, sandboxMs: null })).toBe(
+      "tests: running",
+    );
+  });
+
+  it("names a check that never appeared", () => {
+    expect(checkSentence("smoke", undefined)).toBe("smoke: did not run");
   });
 });

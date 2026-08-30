@@ -16,6 +16,12 @@ const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /**
  * Append the link to the run's public page, when there is one.
  *
+ * A labelled markdown link rather than the bare URL it used to be: the page is
+ * the only thing the review asks a reader to open, and a 36-character UUID
+ * hanging under the fold does not read as an invitation to open anything. The
+ * label is a literal in this file and the target is built by `runUrl`, so the
+ * link text still cannot be chosen by the pull request being reviewed.
+ *
  * Both halves must be present: `publicBaseUrl` is this deployment's board and
  * is empty when none is configured, and `runId` is absent for a private
  * repository, which has no page a reader of the pull request could open. With
@@ -29,7 +35,7 @@ export function appendRunFooter(
 ): string {
   const url = runUrl(publicBaseUrl, runId);
   if (!url) return body;
-  return `${body.trimEnd()}\n\n---\n\nFull evidence: ${url}\n`;
+  return `${body.trimEnd()}\n\n---\n\n**[View the full evidence →](${url})**\n`;
 }
 
 /**

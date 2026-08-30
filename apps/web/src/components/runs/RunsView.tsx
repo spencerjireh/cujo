@@ -5,9 +5,11 @@ import { HeroLead, HeroStats } from "@/components/board/HeroReadout";
 import { Legend } from "@/components/board/Legend";
 import { ReadoutRack } from "@/components/board/ReadoutRack";
 import { Record } from "@/components/board/Record";
+import { SpecimenKey } from "@/components/board/SpecimenKey";
 import { HomeMark } from "@/components/brand/HomeMark";
 import { POLL_LIVE_MS, POLL_QUIET_MS, runsListOptions } from "@/lib/api/queries";
 import { boardMetrics } from "@/lib/board/metrics";
+import { useFocusedRun } from "@/lib/board/store";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -37,6 +39,13 @@ export function RunsView() {
    * again would be worse than one that waited.
    */
   const [scene, setScene] = useState<ChamberStatus>("pending");
+  /**
+   * Whether a specimen is under the pointer, which is when the hero shows the
+   * key instead of the readings. Read from the same store the chamber and the
+   * record write, so hovering a row shows the key too — the row lights the
+   * star, and the key explains the star.
+   */
+  const keyed = useFocusedRun() !== null && scene === "live";
   /**
    * Whether the record has slid up over the whole hero. The hero is sticky
    * and the sheet below scrolls over it, so the chamber's own frame never
@@ -133,7 +142,32 @@ export function RunsView() {
             apart by, and would otherwise sit against each other. */}
         <div className="pointer-events-none relative flex h-full flex-col justify-between gap-10 px-4 pt-16 pb-12 md:pt-20 md:pr-12 md:pb-14 md:pl-8 lg:pl-12">
           <HeroLead metrics={metrics} />
-          <HeroStats metrics={metrics} interactive={scene === "live"} />
+          {/* The bottom block is two things in one place: the readings, and
+              the key. While a specimen is under the pointer the readings fade
+              and the key fades in, so what the reader is looking at is
+              explained where they were already reading. Both stay mounted and
+              stacked on one grid cell, so the swap moves nothing else. The key
+              only takes over on a device with a pointer that can hover: on a
+              phone there is no chamber and nothing to hover, and a key that
+              appeared on a tap would replace the readings for no reason. */}
+          <div className="grid">
+            <div
+              className={`col-start-1 row-start-1 transition-opacity duration-200 motion-reduce:transition-none ${
+                keyed ? "[@media(hover:hover)]:opacity-0" : ""
+              }`}
+              aria-hidden={keyed || undefined}
+            >
+              <HeroStats metrics={metrics} interactive={scene === "live"} />
+            </div>
+            <div
+              className={`col-start-1 row-start-1 self-end opacity-0 transition-opacity duration-200 motion-reduce:transition-none ${
+                keyed ? "[@media(hover:hover)]:opacity-100" : ""
+              }`}
+              aria-hidden={!keyed || undefined}
+            >
+              <SpecimenKey />
+            </div>
+          </div>
         </div>
       </section>
 

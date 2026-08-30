@@ -135,10 +135,12 @@ function Waiting({ children }: { children: React.ReactNode }) {
 /**
  * A run that reached no conclusion is drawn at reduced strength in its own hue.
  * `clean` and `error` are both info blue by brand rule, which made two legend
- * rows identical; this keeps the rule and tells them apart.
+ * rows identical; this keeps the rule and tells them apart. `running` is the
+ * exception: it has its own hue (decision 94) and nothing to be told apart
+ * from, and a live run drawn faint was the thing the hue exists to stop.
  */
 function swatchStrength(status: RunStatus): string {
-  return isVerdict(status) ? "" : "opacity-45";
+  return isVerdict(status) || status === "running" ? "" : "opacity-45";
 }
 
 function VerdictRibbon({ metrics }: { metrics: BoardMetrics }) {
@@ -194,15 +196,24 @@ function Sensors({ rows, empty }: { rows: SensorRow[]; empty: boolean }) {
                     note above cannot carry it: that counts runs with no digest
                     at all, and a check can also be present with no duration. A
                     median over one run and one over twenty-six are different
-                    claims, and only this says which. */}
+                    claims, and only this says which. Said as "over N runs"
+                    and not "n=N": the reader is a developer, not a
+                    statistician. A check nobody has seen run says "not run";
+                    one seen but never timed says so. */}
                 <span className="text-fg-muted">
                   {row.medianMs === null ? (
-                    "not timed"
+                    row.observed === 0 ? (
+                      "not run"
+                    ) : (
+                      "not timed"
+                    )
                   ) : (
                     <>
                       {duration(new Date(0).toISOString(), new Date(row.medianMs).toISOString()) ??
                         "not timed"}
-                      <span className="ml-2 opacity-70">n={row.measured}</span>
+                      <span className="ml-2 opacity-70">
+                        over {row.measured} {row.measured === 1 ? "run" : "runs"}
+                      </span>
                     </>
                   )}
                 </span>
@@ -214,7 +225,7 @@ function Sensors({ rows, empty }: { rows: SensorRow[]; empty: boolean }) {
                   <>
                     <Segment share={row.done / total} className="bg-fg" />
                     <Segment share={row.error / total} className="bg-sev-critical" />
-                    <Segment share={row.running / total} className="bg-sev-info" />
+                    <Segment share={row.running / total} className="bg-sev-live" />
                     {/* A check that never appeared reads as a gap, the way it
                         does on a specimen: `check_missing` is not the same
                         fact as a failure. */}
