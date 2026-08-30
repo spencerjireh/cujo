@@ -72,6 +72,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 64. [Nothing says when a compaction happened, so Cujo does not](#64-nothing-says-when-a-compaction-happened-so-cujo-does-not)
 65. [A public list row carries what the checks measured, not only the verdict](#65-a-public-list-row-carries-what-the-checks-measured-not-only-the-verdict)
 66. [The sandbox must never crash silently; sensor logs count what they lost](#66-the-sandbox-must-never-crash-silently-sensor-logs-count-what-they-lost)
+67. [The setup window is measured, because guessing at it picks the wrong fix](#67-the-setup-window-is-measured-because-guessing-at-it-picks-the-wrong-fix)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2974,7 +2975,77 @@ the hard rules can read. None of the three changes alters a report's shape in
 a way that breaks an older consumer, because `truncated` uses `.passthrough()`
 (decision 62).
 
-## 67. Nothing in the chamber exists that is not a measurement
+## 67. The setup window is measured, because guessing at it picks the wrong fix
+
+Three runs on `orders-api`, read off the public API after decision 59 landed:
+
+| run | total | claim → first check | checks | tail | sensed |
+|---|---|---|---|---|---|
+| PR 17 | 526s | **84s** | 151s | 291s | 28s |
+| PR 16 | 633s | **109s** | 122s | 402s | 17s |
+| PR 15 | 1452s | **156s** | 653s | 643s | 18s |
+
+PR 15 predates decision 59 and is the serialised-checks shape that decision
+fixed; the other two are the current one. **A run does 17 to 28 seconds of
+actual execution inside 500 to 630 seconds of wall clock.** Cujo is not slow
+because it runs code. Decision 59 said this and removed the largest recoverable
+slice. The window before the first check is what is left, and it is the same
+156 seconds that entry named without being able to break down.
+
+**Nothing measured it, and the two candidate causes have opposite fixes.**
+`timings.ts` splits a check into `sandboxMs` and `modelMs`, but the parent runs
+on thread `main`, which never emits `thread.created`, so it has no stamp in the
+projection at all. If the 84 seconds is Daytona provisioning a box, the rubric
+is irrelevant and the answer is upstream. If it is the parent taking a dozen
+round trips to clone a repository and read a manifest, the rubric is the whole
+answer. Acting without knowing which would have been a guess dressed as a fix.
+
+**`sandbox.created` was already on the wire and unread.** Decision 64 wrote out
+the SDK's entire event vocabulary in order to prove that compaction has no
+event; `sandbox.created` is in that list, carries a required `createdAt`, and
+appears in both `SessionEvent` and `TurnStreamingEvent`. The fold has been
+dropping it into `default` since the fold existed. So provisioning is measured
+now rather than inferred, and no new subscription was needed to do it.
+
+Four stamps, not one duration: `turnCreatedAt`, `sandboxCreatedAt`,
+`agentStartedAt`, `firstCheckAt`, plus `messages` — the parent's own message
+count before the first check. Two of the useful spans end outside the object
+(the claim is `createdAt` on the run), so storing spans would have picked the
+subtractions for a reader. `messages` is the field a rubric change can actually
+move: every mechanical step the parent runs as its own command is one more
+round trip, and the count says how many there were without anybody counting
+commands by eye.
+
+**`sandboxCreatedAt` is null on a re-run, and that is the measurement.** The
+event is session-scoped, and `hydrate` scopes a fold to its own run's turns
+(`foreignTurnIds`), so a second run on one pull request sees none. Null there
+says the sandbox already existed — which is why a re-run is faster. A zero
+would have said the opposite. Absence is a fact, never a zero (decisions 54
+and 65).
+
+Nothing here reads a clock: every input is an event timestamp, so a rehydrated
+run computes what the live one did, which is the rule `timings.ts` already
+kept. `ms` is omitted rather than guessed whenever either end is missing, and
+also when the subtraction runs backwards — the ordering guard is not a rounding
+guard here, because unlike `modelMs` both of these stamps come off one clock and
+there is no honest way for it to go negative. If it does, the events are not
+what this code believes and no number is the right answer.
+
+Published on the run's detail route only, not on the list row's digest. A
+number a reader consults when asking why one run was slow is not a column on a
+table of a hundred runs, and keeping it off the digest is what lets this ship
+without touching `apps/web` at all.
+
+Rejected: **inferring provisioning from the first parent message**, which was
+the plan until `sandbox.created` turned up in decision 64's own list — it
+conflates provisioning with the first generation, and there is no reason to
+infer what is measured. **Closing the window on any `thread.created`**, which a
+helper subagent spawned mid-setup would end early, reporting a setup that never
+happened; it closes on the first thread the rubric *named* for a check.
+**Storing the spans instead of the stamps**, which fixes the arithmetic at write
+time and loses the two spans whose other end is on the run record.
+
+## 68. Nothing in the chamber exists that is not a measurement
 
 The board drew every run as a specimen and drew the room around it out of
 nothing: the floor grid repeated at a fixed pitch, the chain ran the length of

@@ -66,6 +66,7 @@ const EVERY_PROJECTION_FIELD: Record<keyof Projection, true> = {
   error: true,
   summary: true,
   usage: true,
+  setup: true,
 };
 
 /**

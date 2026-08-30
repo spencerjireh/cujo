@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { checkTimings } from "../../src/review/timings";
+import { checkTimings, emptySetup, settleSetup } from "../../src/review/timings";
 import type { CheckState } from "../../src/review/types";
 
 const check = (over: Partial<CheckState> = {}): CheckState => ({
@@ -76,5 +76,41 @@ describe("checkTimings", () => {
 
   it("is exact when the sandbox accounts for all of it", () => {
     expect(checkTimings(check({ report: runs(100) })).modelMs).toBe(0);
+  });
+});
+
+describe("settleSetup", () => {
+  const spoke = "2026-08-29T10:00:00.000Z";
+  const spawn = "2026-08-29T10:01:00.000Z";
+
+  it("spans the parent's first message to the first check", () => {
+    const setup = { ...emptySetup(), agentStartedAt: spoke, firstCheckAt: spawn };
+    settleSetup(setup);
+    expect(setup.ms).toBe(60_000);
+  });
+
+  it("omits the span while either end is missing", () => {
+    const started = { ...emptySetup(), agentStartedAt: spoke };
+    settleSetup(started);
+    expect(started.ms).toBeUndefined();
+
+    const spawned = { ...emptySetup(), firstCheckAt: spawn };
+    settleSetup(spawned);
+    expect(spawned.ms).toBeUndefined();
+  });
+
+  it("omits a span that runs backwards rather than reporting one", () => {
+    // Both stamps come off the same harness clock, so this cannot happen
+    // honestly — which is exactly why it is refused instead of clamped. A
+    // number here would mean the events are not what this code thinks they are.
+    const setup = { ...emptySetup(), agentStartedAt: spawn, firstCheckAt: spoke };
+    settleSetup(setup);
+    expect(setup.ms).toBeUndefined();
+  });
+
+  it("keeps a zero span, which is a measurement and not a gap", () => {
+    const setup = { ...emptySetup(), agentStartedAt: spoke, firstCheckAt: spoke };
+    settleSetup(setup);
+    expect(setup.ms).toBe(0);
   });
 });
