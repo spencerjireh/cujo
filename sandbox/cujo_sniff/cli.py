@@ -159,4 +159,24 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "run" and args.cmd[:1] == ["--"]:
         args.cmd = args.cmd[1:]
-    print(json.dumps(args.func(Context.from_env(), args)))
+    try:
+        result = args.func(Context.from_env(), args)
+    except Exception as exc:
+        import sys
+        import traceback
+
+        from cujo_sniff.scrub import scrub
+
+        MAX_ERROR = 2000
+        MAX_TRACEBACK = 4000
+        error = scrub(f"{type(exc).__name__}: {exc}")[:MAX_ERROR]
+        tb = scrub(traceback.format_exc())[:MAX_TRACEBACK]
+        result = {
+            "schema_version": SCHEMA_VERSION,
+            "ok": False,
+            "error": error,
+            "traceback": tb,
+        }
+        print(json.dumps(result))
+        sys.exit(1)
+    print(json.dumps(result))

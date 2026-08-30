@@ -299,6 +299,17 @@ The sensor block itself, the same on every check so the hard rules read one
 shape regardless of which one ran: `egress[]`, `files_read[]`, `fs_changes[]`,
 `subprocesses[]`, `secret_probe`, `sensors`, `truncated`, `derived`.
 
+Inside `sensors`, each entry carries `armed` and `detail`. **`armed` is
+required and `detail` is not.** `sniff.py` writes both in every `runs[]` entry,
+and `docs/contracts/report.example.json` shows that maximal shape — but the
+envelope's `sensors` is a roll-up the sub-agent writes by hand, where only
+`armed` carries meaning: it is the half `unarmedSensors` rules on, while
+`detail` is prose for a reader ("port 8899", "793 rows") already quoted
+verbatim in the runs below. The validator accepts a roll-up without it, and the
+rubric says so, because the first production review after the validator shipped
+warned on four sensors that were correct and complete in every way a rule or a
+reader can use.
+
 **Every string in a report is written by the code under review** — what it
 printed, the arguments it ran, the filenames it chose, the hosts it asked for —
 and it is read by the parent agent, quoted into a review, and rendered in a
@@ -491,15 +502,18 @@ every rule here fires on a sensor reporting *false*.
 
 #### `truncated` — where the evidence was cut
 
-Five caps bound what a report can cost: `TAIL_CHARS` on each output tail,
+Six caps bound what a report can cost: `TAIL_CHARS` on each output tail,
 `MAX_FILES_READ` on `files_read` (a sensitive read is never dropped),
-`MAX_SNAPSHOT_FILES` on each filesystem walk, and `HASH_MAX_BYTES` on the file a
-digest will be taken over. `truncated` carries one boolean per cap, because a
-list that was cut is not a list that was empty — and because a comparison that
-was never made must not read like one that came back clean. `truncated.hashes`
-is that last case: over the size limit there is no digest on either side, so the
-file falls back to the `(mtime, size)` a restored timestamp defeats. The limit
-sits well past any real credential for exactly that reason.
+`MAX_SNAPSHOT_FILES` on each filesystem walk, `HASH_MAX_BYTES` on the file a
+digest will be taken over, and the JSONL parser itself. `truncated` carries one
+boolean per cap, because a list that was cut is not a list that was empty — and
+because a comparison that was never made must not read like one that came back
+clean. `truncated.sensor_logs` is true when any sensor log file contained lines
+that could not be decoded as JSON — typically a torn last line written by a
+daemon killed mid-flush. `truncated.hashes` is the size-limit case: over the
+limit there is no digest on either side, so the file falls back to the
+`(mtime, size)` a restored timestamp defeats. The limit sits well past any real
+credential for exactly that reason.
 
 A capped walk also changes what the filesystem diff may conclude, and which of
 the two walks was capped decides which half. A `created` row reads the *before*

@@ -13,7 +13,14 @@
     "sensor is down. A fixture where nothing happened does not exercise any of",
     "the code that reads it. Conformance tests in all three consumers load this",
     "file -- sandbox/tests/test_contract.py, apps/cujo and apps/web -- so a field",
-    "added on one side and forgotten on another fails somewhere."
+    "added on one side and forgotten on another fails somewhere.",
+    "",
+    "Every sensor here carries `armed` and `detail`, which is the maximal shape",
+    "and the reason this file is worth reading. The contract is looser than the",
+    "example in exactly one place: in the envelope's `sensors` roll-up, which a",
+    "sub-agent writes by hand rather than copying from `sniff.py`, `armed` is",
+    "required and `detail` is not. `armed` is the half `unarmedSensors` rules",
+    "on; `detail` is prose a reader can already find quoted in the runs below."
   ],
   "schema_version": 1,
   "check": "tests",
@@ -61,7 +68,8 @@
         "stderr_tail": false,
         "files_read": true,
         "snapshot": false,
-        "hashes": false
+        "hashes": false,
+        "sensor_logs": false
       },
       "derived": {
         "egress_to_unknown_host": true,
@@ -94,7 +102,8 @@
         "stderr_tail": false,
         "files_read": false,
         "snapshot": false,
-        "hashes": true
+        "hashes": true,
+        "sensor_logs": false
       },
       "derived": {
         "egress_to_unknown_host": false,
@@ -115,7 +124,8 @@
     "stderr_tail": false,
     "files_read": true,
     "snapshot": false,
-    "hashes": true
+    "hashes": true,
+    "sensor_logs": false
   },
   "derived": {
     "egress_to_unknown_host": true,
