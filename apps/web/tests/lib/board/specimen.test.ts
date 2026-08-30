@@ -136,7 +136,7 @@ describe("specimensFrom", () => {
   });
 
   /**
-   * The second number an arm carries (decision 70). Length is how long the
+   * The second number an arm carries (decision 79). Length is how long the
    * check watched; the solid part is how much of that was the sandbox actually
    * executing the pull request, which is the same split `ChecksTimeline` draws
    * as a lane on the run page.

@@ -172,17 +172,97 @@ cross back out of the sandbox.
 
 ### Setup
 
-1. Clone the repo at the head SHA; add a worktree at the base SHA. Both live
-   in the same sandbox so the comparison is like-for-like.
-2. Seed the decoy secret: a fake credential file (`~/.aws/credentials` with a
-   bogus key) placed before anything runs.
-3. Start the in-sandbox logging proxy and export `HTTP(S)_PROXY` for every
-   process the checks spawn. Start the inotify watcher on the decoy file.
-4. Read `.cujo.yml` from the **base** SHA, if present. Policy comes from the
-   branch the PR targets, never from the PR itself, so a PR cannot allowlist
-   its own exfiltration host. If the PR changes `.cujo.yml`, the parent emits
-   a `warn` finding ("`.cujo.yml` changed in this PR; the base version was
-   used") and ignores the head copy for that run. Schema:
+Two commands, not six. Everything before the sensors are armed has no decision
+in it, so `sniff.py prepare` does all of it at once and hands back the two
+things the next decision needs (decision 71).
+
+1. `sniff.py prepare` clones the repo at the head SHA and adds a worktree at the
+   base SHA — both in the same sandbox, so the comparison is like-for-like — and
+   returns, in the same result:
+   - `cujo_yml`: the text of `.cujo.yml` from the **base** SHA, or null. Policy
+     comes from the branch the PR targets, never from the PR itself, so a PR
+     cannot allowlist its own exfiltration host. If the PR changes `.cujo.yml`,
+     the parent emits a `warn` finding ("`.cujo.yml` changed in this PR; the
+     base version was used") and ignores the head copy for that run.
+   - `files`: the head's human-authored build files, keyed by path relative to
+     the clone — `pyproject.toml`, `package.json`, `go.mod`, `composer.json`,
+     `CMakeLists.txt`, `Makefile`, CI workflows and the like — from which the
+     parent infers whatever `install`, `test` and `boot` the policy did not
+     give. Found up to two directories deep, so a repository of services under
+     `services/<name>/` is covered; `node_modules` and its kin are never
+     descended. Lock files are never read: hundreds of kilobytes that say
+     nothing about how to run anything.
+   - `truncated`, `unreadable` and `omitted`: which files came back capped,
+     which matched but could not be read at all, and how many the file cap
+     dropped entirely. They are answered differently: a capped or omitted file
+     is an ordinary file the parent may open in `/work/head`, while an
+     `unreadable` one was *refused* — usually a symlink out of the checkout —
+     and opening it directly would walk around the containment check that put it
+     there. All three are the parent's cue that `files` is a
+     starting point rather than the whole repository — "no test suite found"
+     skips every check and becomes the entire review, so it must mean the
+     repository has none, never that one result did not name one.
+
+   It parses no YAML. Nothing under `sandbox/` may import a third-party module
+   (decision 46), so the raw text goes back and the parent reads it.
+
+   The two texts have different sources and different caps. `files` is head
+   content: written by the pull request, under `PREPARE_FILE_CHARS` each.
+   `cujo_yml` is the target branch's policy, which the pull request cannot
+   write — that is the whole reason it is read from base — and it has its own
+   much larger `PREPARE_POLICY_CHARS`. Both are still escaped on the way out,
+   because "the PR did not write it" is a statement about this commit and not a
+   property of the bytes, and escaping costs nothing on text that needs none.
+
+   Every cap bounds the read itself and not only the output, and each is spent
+   on the *escaped* text: escaping expands one character into four or six, so a
+   cap applied before it bounds the wrong quantity. Only real files resolving
+   inside the clone are read — a build file's name is the PR's to choose, and so
+   is whether it is a symlink.
+
+   `.cujo.yml` is **not** one of those capped strings and never appears in
+   `truncated`. It comes from base, it decides `allow_hosts`, and `truncated` is
+   the list the rubric re-reads from `/work/head` — so a policy file long enough
+   to cap would have handed the pull request its own allowlist. It has a much
+   larger budget of its own, and past that it is reported unreadable through
+   `cujo_yml_error` rather than returned in part: half a policy is worse than
+   none, because the missing half may be the hosts.
+
+   The head commit is fetched as `refs/pull/<n>/head` and not assumed to be in
+   the clone. `apps/cujo` sends the base repository's clone URL and no
+   credential, so a pull request opened from a fork has its head in a repository
+   the sandbox never sees; GitHub publishes that commit on the base repository,
+   publicly. The fetch is on the always path, not a fallback, so one code path
+   serves fork and same-repository alike. If the ref has moved off `--head-sha`
+   — somebody pushed between the webhook and the clone — `prepare` refuses and
+   names both, because a review attached to a SHA the run does not claim is
+   worse than a late one, and `supersede` already handles the new push.
+
+   `prepare` never deletes a directory it did not create. `--head` and `--base`
+   arrive on argv, argv is composed by the model, and the model has just read a
+   pull request: a path is replaced only when it is absent or when a marker this
+   command wrote sits beside it. The clone URL is checked against `--repo` for
+   the same reason — it starts at the GitHub API and arrives through a prompt,
+   so it must name the host *and the repository* the run is for.
+
+   `cujo_yml_status` is `read`, `absent`, `too_large` or `unreadable`, and the
+   rubric acts differently on each. `too_large` is a real file the parent may
+   open in `/work/base`; `unreadable` was refused and must not be opened, and
+   the run stops rather than proceeding without a policy it knows exists.
+
+   The clone URL must be `http`/`https` and must carry no credential, in
+   userinfo or in a query string; `prepare` refuses one that does, which is
+   where the trust boundary's "no clone credential may ever reach the sandbox"
+   is now enforced rather than assumed. Each git call has a timeout, so a
+   stalled remote is a diagnosable failed step rather than a hung run.
+2. `sniff.py setup` seeds the decoy secret — a fake credential file
+   (`~/.aws/credentials` with a bogus key) placed before anything runs — starts
+   the in-sandbox logging proxy and the inotify watcher on the decoy, and prints
+   the env every later command exports, `HTTP(S)_PROXY` included. Its
+   `--allow-host` list is the `allow_hosts` the parent just read.
+3. The parent runs the install in `/work/head` and `/work/base`, and delegates.
+
+`.cujo.yml`'s schema:
 
    ```yaml
    install: uv sync            # how to install the repo
@@ -205,13 +285,28 @@ Each check runs in its own subagent with fresh context. The subagent has the
 check's instructions and the sandbox tools, nothing else; only its final JSON
 report returns to the parent.
 
-They all start at once. No check reads another's report, and the two facts that
-decide which checks run at all — whether a test command could be inferred, and
-whether the manifest changed — are both settled during setup, before any
-subagent exists. The sensors serialise themselves (decision 41), so the wrapped
-commands still run one at a time whatever the parent does; what runs in parallel
-is the subagents' own reasoning, which is where almost all of a run's wall clock
-goes.
+No check reads another's report, and the two facts that decide which checks run
+at all — whether a test command could be inferred, and whether the manifest
+changed — are both settled during setup, before any subagent exists. The sensors
+serialise themselves (decision 41), so the wrapped commands still run one at a
+time whatever the parent does; what runs in parallel is the subagents' own
+reasoning, which is where almost all of a run's wall clock goes.
+
+So each is spawned as early as it can do anything, which is two moments and not
+one (decision 73). `detonation` goes first, during setup, because it needs only
+the two trees and the armed sensors: it installs each added specifier into its
+own fresh environment, so the repository's own install is nothing to it, and the
+manifest diff it reads first is free while that install runs. `tests`, `probes`
+and `smoke` go together once the install finishes, because all three run against
+an installed tree.
+
+**The parent's install is wrapped in `sniff.py run --check setup` for the lock,
+not for a report.** The proxy and decoy logs are shared and sliced by offset, so
+an unwrapped install running beside a spawned `detonation` would have its egress
+and any decoy read counted as that check's — feeding `egress_to_unknown_host`
+and `decoy_read`, both hard rules. Wrapping makes it a lock participant, so the
+windows queue rather than overlap. `setup` is not one of the four check names,
+so no report is folded from it and it is never evidence.
 
 - **`tests`** — run the suite on base and on head. Report per-test status for
   both, and the derived set `base_pass_head_fail`. If no suite is found and
@@ -318,6 +413,13 @@ zero-width characters are therefore escaped where they appear, as visible
 `\xNN` and `\uNNNN`. Escaped, not stripped: the record still says what the
 command did, and the escape is its own account of itself, so there is no
 "sanitized" flag to carry.
+
+Because escaping expands — four characters for a control byte, six for a
+bidirectional override — a length cap is measured on the escaped text and never
+on the text (decision 72). Every capped string spends its budget one whole
+character at a time, so no escape is ever cut in half: a truncated `\u202e`
+would read as `\u20`, which is text the command did not print. `truncated` is
+true when either the output or its escaped form was cut.
 
 The sensors, layered from language-agnostic to language-specific:
 
@@ -508,8 +610,11 @@ Six caps bound what a report can cost: `TAIL_CHARS` on each output tail,
 digest will be taken over, and the JSONL parser itself. `truncated` carries one
 boolean per cap, because a list that was cut is not a list that was empty — and
 because a comparison that was never made must not read like one that came back
-clean. `truncated.sensor_logs` is true when any sensor log file contained lines
-that could not be decoded as JSON — typically a torn last line written by a
+clean. The tail flags mean the output *or its escaped form* was cut: escaping
+expands, the cap is charged after it, so a command that printed only bidi
+overrides overflows a budget its raw length fits inside (decision 72).
+`truncated.sensor_logs` is true when any sensor log file contained lines that
+could not be decoded as JSON — typically a torn last line written by a
 daemon killed mid-flush. `truncated.hashes` is the size-limit case: over the
 limit there is no digest on either side, so the file falls back to the
 `(mtime, size)` a restored timestamp defeats. The limit sits well past any real
@@ -528,6 +633,22 @@ not lower.
 `false` means another sensed command overlapped this one, so rows in this report
 may belong to it.
 
+#### `script_content` — what the sensor captured before execution
+
+When `argv[0]` is a known interpreter (`python3`, `node`, `bash`, `sh`, and
+versioned Python names) and the first positional argument is a readable file,
+`run_sensed` reads and scrubs that file before the subprocess starts. The result
+sits beside `argv` on the per-run dict as `script_content`, a string or `null`.
+`null` means the command was not a script invocation — a bare `python3 -m
+pytest` carries no file — not that the capture failed.
+
+This closes a trust gap: the rubric asks the agent to self-report
+`{script, expectation, outcome}` for probes, but that is voluntary and
+unvalidated. `script_content` is written by the sensor from the file as it
+existed at the moment the command was about to run, scrubbed through `scrub()`
+and capped at `MAX_SCRIPT_CHARS` (8 000). `truncated.script_content` is `true`
+when the cap cut the file short (decision 70).
+
 ## Contract 3 — findings and the hard rules
 
 The parent turns the check reports into a list of findings. Each finding:
@@ -538,13 +659,22 @@ The parent turns the check reports into a list of findings. Each finding:
   "severity": "critical",
   "title": "test_order_total_rounding passes on base, fails on head",
   "evidence": "AssertionError: 10.05 != 10.04 (tests/test_orders.py::test_order_total_rounding)",
+  "detail": "The change rounds the line total before the discount is applied rather than after.",
+  "next": "Round after the discount is applied, or update the two expectations.",
+  "held": false,
   "path": "app/orders.py",
   "line": 42,
   "side": "RIGHT"
 }
 ```
 
-`severity` is one of `info`, `warn`, `critical`. `path`, `line`, and `side`
+`severity` is one of `info`, `warn`, `critical`. `detail` is one paragraph of
+judgment, expected on every `critical`; `next` is one imperative clause naming
+the action, required on `critical`, allowed on `warn`, never on `info`, and only
+ever following from something a sensor observed — never style, architecture or
+preference. `held` marks a malice observation whose conclusion a
+`post_gated_review` call is holding back, and is set only on the call that also
+passes `accusation_follows`. `path`, `line`, and `side`
 are optional and anchor the finding as an inline comment. `line` is a line in
 the PR diff; `side` is `RIGHT` (the head version, the default) or `LEFT` (a
 line that exists only on base, for a finding about removed code).
@@ -583,7 +713,11 @@ accusation that harms someone if it is wrong, and it is the one place in this
 pipeline where a human holds information the sandbox cannot observe: they know
 the host, or the package, or the fixture that touches a fake credentials file on
 purpose. Each rule carries its identity on the finding as `rule`, so the split is
-matched on an id and never on the wording of a title.
+matched on an id and never on the wording of a title. `github-mcp`'s title
+backstop (decision 74) is that rule pointed the other way: it rewrites a title
+that is *nothing but* a Contract 2 field name into the sentence it means, and
+leaves one that is already prose alone — which is why no hard-rule finding is
+ever rewritten, since those have carried plain titles since they were written.
 
 The hard rules are tripwires, not proofs of absence. Each fires only on
 positive evidence a sensor recorded, so a sensor gap (a direct socket the
@@ -661,17 +795,36 @@ Which kind a finding is, is a decision the model expresses by choosing a tool
 name — see Contract 3 for what `apps/cujo` can and cannot verify about it after
 the fact.
 
-All three tools take the same input: a summary body and a `comments[]` array. The
-summary body lists what ran (checks, commands, durations), the results, and the
-egress observed. Each entry in `comments[]` is one finding with a `path`,
-`line`, and `side`, posted as an inline review comment on that diff line.
-`github-mcp` validates each anchor against the PR diff before posting; a
-finding with no anchor, or with an anchor outside the diff, moves into the
-body so a bad anchor never blocks the review. Which of the three it was —
-`file_not_in_diff`, `line_not_in_hunk` or `bad_line` — is recorded per comment
-and logged, because an agent citing a file the PR does not touch and one citing
-a real file outside the hunk are different mistakes (decision 37). The review
-body is unchanged either way.
+**The review body is composed by `github-mcp`, not written by the agent**
+(decision 74). All three tools take the same input: a one-sentence `body` giving
+the verdict in plain language, a `findings[]` array, and optional `coverage` and
+`egress`. From those the server builds the posted body, in a fixed order: a
+headline carrying the verdict word and the severity counts, the lede, the
+findings by severity, the coverage caveat, the egress line and its host table,
+and a collapsed machine-readable block. An empty section is omitted. **The
+verdict word comes from the tool**, so a model cannot write "blocked" onto an
+advisory review — the word is not a thing it supplies.
+
+**`comments[]` is deprecated.** A finding carrying a `path`, a `line` and a
+`side` becomes an inline review comment on that diff line, derived from the
+finding rather than sent beside it. The parameter survives only for the
+migration: a session pins its rubric at creation (decision 16), so an in-flight
+pull request goes on sending one, and a call that does still posts exactly
+those comments rather than derived ones. Remove it once no session predating
+decision 74 can be running. `github-mcp` validates each derived anchor against the PR
+diff before posting, and a finding whose anchor is not in the diff is marked in
+place in the body — `(not in this diff)` — rather than moved to a section of its
+own, because the body already carries every finding. Which of the three
+rejections it was — `file_not_in_diff`, `line_not_in_hunk` or `bad_line` — is
+recorded per comment and logged, because an agent citing a file the PR does not
+touch and one citing a real file outside the hunk are different mistakes
+(decision 37).
+
+**A body written against an older rubric still renders.** A session pins its
+rubric at creation (decision 16) while `github-mcp` is stateless, so both shapes
+arrive on the same deploy: prose is detected, its headings demoted, and it is
+kept under a `### Notes` section with the headline and findings composed around
+it as usual. Nothing about an in-flight pull request degrades.
 
 A GitHub call that does not return 2xx raises a `GitHubError` carrying `status`,
 `path` and `method` as fields rather than interpolated into a message, so a
@@ -683,9 +836,12 @@ a request header back, and that is how one reaches a log line.
 Both also take an optional `run_id`, which the agent copies verbatim from the
 turn payload and never writes into the body itself. `github-mcp` validates it
 as a UUID, builds the link from its own `CUJO_PUBLIC_BASE_URL`, and appends the
-footer — a rule, then `Full evidence: <url>` — after the anchorless findings,
-so the link is always last, always the same shape, and always on Cujo's own
-host (decision 36). The agent supplies neither the format nor the destination.
+footer — a rule, then `Full evidence: <url>` — after the composed body, so the
+link is always last, always the same shape, and always on Cujo's own host
+(decision 36). The agent supplies neither the format nor the destination. The
+same URL is built once and appears twice, in the footer and as `run_url` inside
+the machine-readable block, so the visible link and the parseable one cannot
+disagree.
 
 Two independent conditions gate the footer, and each side owns the one it can
 answer: `apps/cujo` omits `run_id` from the turn payload for a private
@@ -713,9 +869,11 @@ what a tool does, but it is the explicit list that decides what pauses, so
 a finding accuses code of acting maliciously the agent calls the gated tool,
 after posting the observation, and the turn pauses with a `tool.approval_required`
 event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
-`apps/cujo` reads the drafted review (the tool call's `body` and `comments[]`)
-from the `model.message` event that `source_event_id` names, marks the run
-`blocked_pending`. The board shows nothing of it until it posts: publishing a
+`apps/cujo` reads the drafted review from the `model.message` event that
+`source_event_id` names, and rebuilds both the posted body and its inline
+comments by calling `@cujo/review-render` — the same package `github-mcp`
+posts with, so the board cannot describe a finding differently from the pull
+request (decision 74). It marks the run `blocked_pending`. The board shows nothing of it until it posts: publishing a
 held accusation is exactly what the gate prevents, and the audience there had no
 way to allow it. The answer comes from `/cujo confirm` or
 `/cujo dismiss` on the pull request (Contract 8, decisions 45 and 49), and
@@ -831,7 +989,7 @@ Status moves on events from the session's turn streams, with one exception
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
-| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). |
+| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. |
 | `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. A run that was waiting on a human also has its approval denied, so the session can take the newer head's turn (decision 39). |
 
 One run, one turn chain. Every run on a PR shares the PR's session, so a run

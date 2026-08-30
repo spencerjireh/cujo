@@ -141,12 +141,19 @@ export function validateAnchors(files: PullFile[], comments: ReviewComment[]): A
   return { inline, moved };
 }
 
-/** Append the comments that lost their anchor to the review body. */
+/**
+ * Append the legacy comments that lost their anchor to the review body.
+ *
+ * Retired for findings-derived comments (decision 74) — a finding whose anchor
+ * GitHub refused is already printed in the composed body and marked there, so
+ * exiling it to a section of its own would print it twice. It survives for the
+ * deprecated `comments[]` path, where the same is not true: a legacy comment's
+ * text lives nowhere but the comment, so a rejected anchor drops it from the
+ * review entirely. That is a regression this function exists to prevent, and
+ * it goes when `comments[]` does.
+ */
 export function appendMovedComments(body: string, moved: MovedComment[]): string {
   if (moved.length === 0) return body;
-  // The reason is for the log, not for the review: a reader of the pull
-  // request wants the finding, and "line_not_in_hunk" is Cujo talking about
-  // itself. The rendered section is unchanged.
   const lines = moved.map(
     ({ comment: c }) => `- \`${c.path}:${c.line}\` (${c.side ?? "RIGHT"}): ${c.body.trim()}`,
   );

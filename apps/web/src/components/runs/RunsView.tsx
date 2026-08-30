@@ -110,7 +110,7 @@ export function RunsView() {
         {/* A ground for the type, at both ends of the frame now that the
             readout is at both ends of it. The bottom band is the deeper of the
             two, because the stats sit over the front of the galaxy; it is
-            shallower than it was (decision 72) — solid only for the last
+            shallower than it was (decision 81) — solid only for the last
             tenth and gone by a third of the way up — because at half the
             frame it covered the front layer. */}
         <div

@@ -78,11 +78,31 @@ export interface Truncated {
    * defeats. The filesystem comparison ran; it did not run on everything.
    */
   hashes?: boolean;
+  /** Any sensor log file contained lines the JSONL parser could not decode. */
+  sensor_logs?: boolean;
+  /** The captured script was longer than `MAX_SCRIPT_CHARS` and was cut. */
+  script_content?: boolean;
+}
+
+/**
+ * The command that a `sniff.py run` executed. Only present on per-run blocks,
+ * not on the roll-up which has no single command.
+ */
+export interface CommandInfo {
+  argv: string[];
+  exit: number | null;
+  duration_s: number | null;
+  stdout_tail: string | null;
+  stderr_tail: string | null;
+  /** The script file content captured before execution (decision 70). */
+  script_content: string | null;
 }
 
 /** One sensor block, plus whatever identifying fields sat beside it. */
 export interface SensorBlock {
   label: string | null;
+  /** Present on per-run blocks; `null` on the envelope roll-up. */
+  command: CommandInfo | null;
   egress: EgressEntry[];
   files_read: FileReadEntry[];
   fs_changes: FsChangeEntry[];
@@ -187,6 +207,21 @@ function truncated(value: unknown): Truncated | null {
     files_read: bool(value.files_read),
     snapshot: bool(value.snapshot),
     hashes: bool(value.hashes),
+    sensor_logs: bool(value.sensor_logs),
+    script_content: bool(value.script_content),
+  };
+}
+
+function commandInfo(value: Record<string, unknown>): CommandInfo | null {
+  const argv = asArray(value.argv).filter((a): a is string => typeof a === "string");
+  if (argv.length === 0) return null;
+  return {
+    argv,
+    exit: typeof value.exit === "number" ? value.exit : null,
+    duration_s: typeof value.duration_s === "number" ? value.duration_s : null,
+    stdout_tail: typeof value.stdout_tail === "string" ? value.stdout_tail : null,
+    stderr_tail: typeof value.stderr_tail === "string" ? value.stderr_tail : null,
+    script_content: typeof value.script_content === "string" ? value.script_content : null,
   };
 }
 
@@ -224,6 +259,7 @@ function looksLikeSensorBlock(value: unknown): boolean {
 function toBlock(value: Record<string, unknown>): SensorBlock {
   return {
     label: str(value.dependency) ?? str(value.name) ?? str(value.label),
+    command: commandInfo(value),
     egress: egress(value.egress),
     files_read: filesRead(value.files_read),
     fs_changes: fsChanges(value.fs_changes),

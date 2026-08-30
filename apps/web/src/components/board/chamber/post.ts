@@ -1,7 +1,7 @@
 /**
  * The composed pass: bloom, grain, and the sRGB conversion at the end.
  *
- * The second half of decision 69's named exception. Everything here is
+ * The second half of decision 78's named exception. Everything here is
  * decorative, nothing here reads a run, and nothing outside this file and
  * `atmosphere.ts` is.
  *

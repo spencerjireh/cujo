@@ -26,8 +26,29 @@ DEFAULT_PROXY_PORT = 8899
 DECOY_KEY = "AKIACUJODECOY0000000"
 DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
+MAX_SCRIPT_CHARS = 8000
 MAX_FILES_READ = 200
 MAX_SNAPSHOT_FILES = 200_000
+INTERPRETER_NAMES = frozenset(
+    {
+        "python3",
+        "python",
+        "python3.14",
+        "python3.13",
+        "python3.12",
+        "python3.11",
+        "python3.10",
+        "node",
+        "bash",
+        "sh",
+        "ruby",
+        "perl",
+        "deno",
+        "bun",
+        "tsx",
+        "ts-node",
+    }
+)
 # Above this a file is compared by (mtime, size) alone, and the report says so.
 # The cap exists so a snapshot cannot be turned into a hashing benchmark by
 # dropping a huge file somewhere sensitive -- but it is set well past any real
@@ -39,6 +60,101 @@ HASH_MAX_BYTES = 64 * 1024 * 1024
 # than any check should take, so the wait ends because the other command
 # finished and not because the clock ran out.
 SENSED_LOCK_TIMEOUT_S = 900.0
+
+# What `prepare` puts in front of the model, and how much of it.
+#
+# Human-authored build files only. Every lock file is deliberately absent:
+# `uv.lock` and `pnpm-lock.yaml` run to hundreds of kilobytes, say nothing about
+# how to install or test anything, and would crowd out the files that do. The
+# manifest that *names* the dependencies is here; the one that pins them is the
+# detonation check's business, and it reads it from the diff.
+# It has to cover every language the reviewer might meet, not every language we
+# happened to think of: the parent infers `test` from these, and a build system
+# missing here reads downstream as "no test suite found", which skips every
+# check and posts that as the entire review. The demo target alone is C++, Go,
+# Node, PHP, Python and Rust.
+PREPARE_FILES = frozenset(
+    {
+        # Python
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "requirements-dev.txt",
+        "tox.ini",
+        "noxfile.py",
+        # JavaScript and TypeScript
+        "package.json",
+        # Go, Rust, Ruby, PHP
+        "go.mod",
+        "Cargo.toml",
+        "Gemfile",
+        "Rakefile",
+        "composer.json",
+        # JVM
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "build.sbt",
+        # C, C++ and anything that just has a runner
+        "CMakeLists.txt",
+        "meson.build",
+        "Makefile",
+        "makefile",
+        "GNUmakefile",
+        "justfile",
+        "Justfile",
+    }
+)
+#: A CI workflow is any YAML directly inside a directory with this name.
+WORKFLOW_DIR = "workflows"
+# How far down to look. Zero would only find a single-project repository, and
+# the demo target is not one: `orders-api` holds six services under
+# `services/<name>/`, with no manifest at the root at all, and its workflows sit
+# at `.github/workflows/`. Both are depth 2. Deeper than that and a monorepo's
+# `node_modules` starts to look like a project.
+PREPARE_MAX_DEPTH = 2
+# Never descended into. Every one of these holds manifests belonging to somebody
+# else's code, and `node_modules` alone can hold thousands.
+PREPARE_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".tox",
+        ".venv",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+        "target",
+        "vendor",
+        "venv",
+    }
+)
+# Enough for a polyglot repository's every service and CI workflow, capped so a
+# repository with two hundred of them cannot fill the turn. Shallower paths win
+# the cap, and whatever the cap dropped is counted in `omitted` — which the
+# rubric reads, because a cap that silently hid the one workflow naming the test
+# command would turn a real suite into "no test suite found".
+PREPARE_MAX_FILES = 40
+PREPARE_FILE_CHARS = 4000
+# `.cujo.yml` gets its own, larger budget and is never counted against the one
+# above. It comes from the *base* branch -- the code a maintainer already
+# merged -- so it is not the pull request's to write, which is the whole reason
+# policy is read from there. A cap still exists because a base file large
+# enough to fill the turn would be a denial of service against the review, but
+# a policy file this size is already unreasonable and the limit is set where no
+# real one lives.
+#
+# Past it the file is reported *unreadable* rather than returned in part. Half a
+# policy is worse than none: the half that did not fit may be `allow_hosts`, and
+# a reviewer that reads `test:` and misses the allowlist proceeds confidently
+# with the wrong permissions.
+PREPARE_POLICY_CHARS = 32000
+# Long enough for a cold clone of a large repository, short enough that a
+# stalled remote fails with a diagnosable step instead of hanging the run.
+PREPARE_GIT_TIMEOUT_S = 300.0
 
 # Hosts an install legitimately talks to. Anything else, and not allowlisted,
 # is `egress_to_unknown_host`.
@@ -54,6 +170,8 @@ KNOWN_INDEX_HOSTS = frozenset(
         "static.crates.io",
         "proxy.golang.org",
         "sum.golang.org",
+        "rubygems.org",
+        "index.rubygems.org",
     }
 )
 
@@ -111,14 +229,17 @@ SENSITIVE_ABS_PATHS = (
     "/etc/ld.so.preload",
 )
 
-NOISE_READ_PARTS = ("/site-packages/", "/dist-packages/", "/__pycache__/", "/node_modules/")
+NOISE_READ_PARTS = (
+    "/site-packages/",
+    "/dist-packages/",
+    "/__pycache__/",
+    "/node_modules/",
+    "/.gem/",
+    "/vendor/",
+)
 # Directory prefixes end in "/" so /usr/libexec is not taken for /usr/lib.
 NOISE_READ_PREFIXES = ("/usr/lib/", "/usr/local/lib/", "/proc/", "/sys/", "/dev/", "/etc/ld.so")
 NOISE_READ_SUFFIXES = (".pyc", ".dist-info/METADATA", ".dist-info/RECORD")
-
-
-def tail(text: str, limit: int = TAIL_CHARS) -> str:
-    return text[-limit:]
 
 
 def is_sensitive(path: str, home_dir: Path | None = None) -> bool:

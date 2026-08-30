@@ -2,12 +2,12 @@
  * A run's orbits: where its four rings lie, how one is drawn flat, and where
  * its satellites sit. The shape's own geometry, with no renderer in it.
  *
- * A run is a star system (decision 71). The core is the star and the verdict;
+ * A run is a star system (decision 80). The core is the star and the verdict;
  * each check is a ring around it, its radius how long the check watched, the
  * bright arc of it the share spent executing in the sandbox, its colour how
  * the check ended; findings are satellites on an orbit outside the rings.
  *
- * The ring planes are the run's own (decision 72). Four tilts seeded off the
+ * The ring planes are the run's own (decision 81). Four tilts seeded off the
  * run's id: four azimuths a quarter turn apart from a jittered start, and a
  * polar lean bounded so no ring is ever seen edge-on or flat. Four fixed
  * tetrahedral planes were the Bohr atom, and thirty of them were thirty of

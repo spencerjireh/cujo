@@ -18,7 +18,7 @@ import { SpecimenDiagram } from "./SpecimenDiagram";
  * rest: one specimen at a size where its parts are legible, each part named
  * in one line, and then the two vocabularies the whole board is written in —
  * the eight verdicts and the three severities. One line per part and not a
- * paragraph (decision 72): a key is read while looking at the thing, and a
+ * paragraph (decision 81): a key is read while looking at the thing, and a
  * reader who wants the reasoning has the run page.
  *
  * The lists come from `RUN_STATUSES`, `SEVERITIES` and the tone maps rather
@@ -51,7 +51,7 @@ const PARTS = [
   },
   {
     label: "layers",
-    // Depth is a measurement and the other two axes are not (decisions 70, 71).
+    // Depth is a measurement and the other two axes are not (decisions 79, 80).
     text: "Depth is time, newest in front. Where a star sits within its layer means nothing.",
   },
 ];

@@ -143,7 +143,10 @@ export type ReviewTool = (typeof REVIEW_TOOLS)[number];
 export interface DraftedReview {
   tool: ReviewTool;
   toolCallId?: string;
+  /** What the model sent. Since decision 74 that is one sentence. */
   body: string;
+  /** What `github-mcp` posted, reproduced by the shared renderer. */
+  composed_body?: string;
   comments: ReviewComment[];
   findings?: unknown[];
 }

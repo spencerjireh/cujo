@@ -381,8 +381,9 @@ export class Runner {
   /**
    * Consume a turn stream to its end, folding as events arrive. A stream that
    * drops before its terminal event is resubscribed with bounded backoff; if
-   * every attempt fails the run ends in error rather than staying running.
-   * One watchdog covers the whole sequence.
+   * every attempt fails the turn is *watched* rather than declared dead, since
+   * losing the stream says nothing about the work. One watchdog covers the
+   * whole sequence, and it is the only place a verdict is invented.
    */
   async consume(runId: string, stream: AsyncIterable<StreamEvent>): Promise<void> {
     const s = this.state(runId);
@@ -398,6 +399,42 @@ export class Runner {
         errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
       );
       this.refold(runId);
+      // The one place Cujo ends a turn on its own authority, so the one place
+      // that must clean up after itself. Left running, the turn holds the
+      // session and every later head fails to start on it -- TrueForge refuses
+      // a message while sub-agents run, and neither the status nor a later
+      // cancel can find it by then.
+      const run = this.store.getRun(runId);
+      const timedOutTurn = this.currentTurnId(runId);
+      // Awaited inside its own task, not chained with `.catch`: this runs in a
+      // timer callback, where a synchronous throw has no caller to land on and
+      // would take the process down rather than the turn.
+      if (run && timedOutTurn && !this.state(runId).superseded) {
+        void (async () => {
+          try {
+            // `cancelTurn` takes a session and stops whatever is running on it
+            // *now*, which is not necessarily what timed out. Runs share a
+            // pull request's session, and this timer stays armed until its own
+            // `consume` returns, so a supersede that lands first can have a
+            // newer head's turn running by the time this fires. Cancel only
+            // while the turn that timed out is still the one in progress.
+            const turns = await this.harness.listTurns(run.sessionId);
+            const mine = turns.find((t) => t.id === timedOutTurn);
+            if (mine?.state.status !== "running") return;
+            await this.harness.cancelTurn(run.sessionId);
+          } catch (error) {
+            this.state(runId).log.warn("run.cancel.failed", {
+              session_id: run.sessionId,
+              reason: "turn_timeout",
+              ...errorFields(error),
+            });
+          }
+          // Terminal catch on a detached promise, even though the body already
+          // handles its own failure: if the logging above is what threw, there
+          // is nothing left to report it with, and an unhandled rejection out
+          // of a timer callback would end the process.
+        })().catch(() => {});
+      }
     }, this.options.turnTimeoutMs);
 
     const drain = async (source: AsyncIterable<StreamEvent>): Promise<void> => {
@@ -455,20 +492,32 @@ export class Runner {
         }
       }
       if (!sawTerminal && !timedOut) {
-        // Every retry is spent. A synthetic terminal event is injected so the
-        // run ends in error rather than staying running forever — say so,
-        // because downstream this is indistinguishable from a turn that
-        // genuinely failed on its merits.
+        // Every resubscribe is spent, which says the stream is gone -- not that
+        // the turn is. Injecting a terminal event here published a verdict
+        // about work Cujo had merely stopped watching, and that error then hid
+        // the run from `listUnfinishedRuns`, so nothing superseded it and its
+        // turn was never cancelled. Watch the turn instead; the watchdog above
+        // still bounds the wait (spec Contract 6, the `error` row).
         s.log.error("run.stream.lost", { attempts: this.retryDelaysMs.length });
-        s.syntheticTerminal = true;
-        this.push(runId, errorTurnDone(`cujo-stream-lost-${Date.now()}`, "turn stream lost"));
-        projection = this.refold(runId);
+        projection = await this.watchTurn(runId, () => timedOut);
       }
     } finally {
       clearTimeout(deadline);
     }
     if (!projection) projection = this.refold(runId);
     if (await this.retryTurn(runId, projection)) return;
+    if (projection.status === "running") {
+      // Nothing follows this method. The stream is done with, the watchdog was
+      // cleared in the `finally` above, and only `blocked_pending` starts a
+      // poller -- so a run still `running` here can never reach a verdict by
+      // any path. Three separate defects have landed in this state during this
+      // change alone, so the invariant is enforced where it is owned rather
+      // than argued about at each call site. Saying the turn could not be
+      // followed is the honest report: it is what was observed.
+      this.state(runId).log.error("run.stream.lost", { attempts: this.retryDelaysMs.length });
+      this.fail(runId, "turn could not be followed to its end");
+      projection = this.refold(runId);
+    }
     if (projection.status === "blocked_pending") this.startPolling(runId);
     else if (this.isTerminal(projection.status)) {
       this.stopPolling(runId);
@@ -485,6 +534,113 @@ export class Runner {
         }
       }
     }
+  }
+
+  /**
+   * Wait out a turn whose stream is gone, then fold what it actually did.
+   *
+   * A lost stream is lost observability, not a failed turn: the work carries on
+   * server-side, holds the session, and can still post its review. So the state
+   * is read rather than guessed -- `listTurns` carries each turn's real status
+   * -- and the verdict comes from the persisted events once the turn ends, the
+   * same way a restart rebuilds one.
+   *
+   * Deliberately not `startPolling`: that timer is a per-run singleton whose
+   * callback stops itself unless the run is `blocked_pending` and hunts for a
+   * *successor* turn. This waits on the turn already in hand, and `consume` is
+   * already async and already under the watchdog, so a plain loop needs no new
+   * machinery and no second timer to reason about.
+   *
+   * Every exit is a real projection, so `consume`'s tail is reached exactly as
+   * it would have been had the stream survived.
+   */
+  private async watchTurn(runId: string, timedOut: () => boolean): Promise<Projection> {
+    const s = this.state(runId);
+    const interval = this.options.pollIntervalMs ?? 15_000;
+    const turnId = this.currentTurnId(runId);
+    if (!turnId) {
+      // Nothing to wait on, and the watchdog dies with this call -- returning
+      // here would leave the run `running` with nobody left to end it, which is
+      // the one failure the synthetic terminal did exist to prevent. Saying so
+      // is not a guess: the absence of a turn is observed, and `rehydrate`
+      // already reports it the same way.
+      this.fail(runId, "run lost before its turn started");
+      return this.refold(runId);
+    }
+    while (!timedOut() && !s.superseded) {
+      await sleep(interval);
+      if (timedOut() || s.superseded) break;
+      const run = this.store.getRun(runId);
+      if (!run) break;
+      let turn: Awaited<ReturnType<Harness["listTurns"]>>[number] | undefined;
+      try {
+        turn = (await this.harness.listTurns(run.sessionId)).find((t) => t.id === turnId);
+      } catch (error) {
+        // A read that fails is not a verdict either. The watchdog is the bound.
+        s.log.warn("run.poll.failed", { session_id: run.sessionId, ...errorFields(error) });
+        continue;
+      }
+      if (turn?.state.status === "running") continue;
+      // The turn is over, or the server no longer lists it. Either way there is
+      // something to read back now.
+      const projection = await this.replayTurn(runId, run, turnId);
+      // `running` is the one status that means the replay taught us nothing --
+      // it failed, or came back without the terminal tail. That is not a
+      // verdict, so stay under the watchdog and read again rather than let
+      // `consume` return with the timer about to be cleared and no follower,
+      // no poller and no watchdog left to finish the run.
+      if (projection.status !== "running") {
+        s.log.info("run.stream.recovered", {
+          turn_id: turnId,
+          status: turn?.state.status ?? "unlisted",
+        });
+        return projection;
+      }
+    }
+    return this.refold(runId);
+  }
+
+  /**
+   * Rebuild a run's fold from the session's persisted events.
+   *
+   * `hydrate` cannot do this: it refreshes events already held, matched by id,
+   * and the whole problem after a lost stream is the events that never arrived.
+   * This is what `rehydrate` does on restart, minus the resubscribe.
+   */
+  private async replayTurn(runId: string, run: RunRecord, turnId: string): Promise<Projection> {
+    const s = this.state(runId);
+    // What the run held before the read. Anything that appears while it is in
+    // flight was appended by something else -- the watchdog's synthetic
+    // terminal, above all -- and must survive the replacement below.
+    const beforeIds = new Set(s.events.map((e) => e.id));
+    try {
+      const items = await this.harness.listEvents(run.sessionId);
+      // `selectRunEvents` seeds ownership from `run.turnIds` and chains forward
+      // from there. The turn being replayed is this run's by definition -- it
+      // is the one it was streaming -- so name it, rather than depend on it
+      // having been recorded before the stream broke.
+      const own = new Set([...run.turnIds, ...s.subscribedTurnIds, turnId]);
+      const { events, turnIds } = Runner.selectRunEvents(
+        { ...run, turnIds: [...own] },
+        items,
+        this.foreignTurnIds(run),
+      );
+      // Never trade events in hand for none: a session that answers with
+      // nothing this run owns leaves the stream's own fold standing.
+      if (events.length > 0) {
+        // The read crossed an await, and the watchdog can fire inside it. A
+        // wholesale assignment would drop the synthetic terminal it appended,
+        // and the fold would go back to `running` with the timer already spent
+        // -- a run nothing can finish. Keep whatever arrived meanwhile.
+        const replayed = new Set(events.map((e) => e.id));
+        const appended = s.events.filter((e) => !beforeIds.has(e.id) && !replayed.has(e.id));
+        s.events = [...events, ...appended];
+        s.subscribedTurnIds = new Set([...s.subscribedTurnIds, ...turnIds]);
+      }
+    } catch (error) {
+      s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
+    }
+    return this.refold(runId);
   }
 
   /**

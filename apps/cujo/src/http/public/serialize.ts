@@ -199,7 +199,12 @@ export const PUBLIC_SUMMARY_FIELDS = [
  */
 function publicReview(review: DraftedReview | null) {
   if (!review) return null;
-  return { tool: review.tool, body: review.body, comments: review.comments };
+  return {
+    tool: review.tool,
+    body: review.body,
+    composed_body: review.composedBody,
+    comments: review.comments,
+  };
 }
 
 /**

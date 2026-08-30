@@ -51,21 +51,66 @@ def _escape(ch: str) -> str:
     return f"\\x{point:02x}" if point <= 0xFF else f"\\u{point:04x}"
 
 
+def _render(ch: str, keep: str) -> str:
+    """One character as it will appear in a report: itself, or its escape."""
+    if ch in keep or unicodedata.category(ch) not in _ESCAPED_CATEGORIES:
+        return ch
+    return _escape(ch)
+
+
 def scrub(text: str, keep: str = "") -> str:
     """Render every meaning-changing character as a visible escape.
 
     `keep` names the ones that carry structure in this position: `"\\n\\t"` for
     a command's output, nothing at all for a path or an argument.
     """
+    return "".join(_render(ch, keep) for ch in text)
+
+
+def scrub_head(text: str, limit: int, keep: str = "") -> tuple[str, bool]:
+    """The first `limit` characters *of the escaped text*, and whether it was cut.
+
+    Escaping is an expansion, so where the cap goes decides whether it holds.
+    One character becomes four (`\\x1b`) or six (`\\u202e`), which means capping
+    the input and escaping afterwards lets four thousand permitted characters
+    leave as twenty-four thousand. The text here is written by the pull request,
+    so that is a lever and not a corner case: the budget exists to stop an
+    untrusted manifest from crowding the turn, and a budget measured before the
+    expansion does not measure what is spent.
+
+    Escaping everything first and slicing the result would fix the size and cut
+    an escape sequence in half, turning `\\u202e` into `\\u20`, which reads as
+    text the file did not contain. So the budget is spent one whole character at
+    a time and the last one that does not fit ends the string.
+    """
     out: list[str] = []
+    used = 0
     for ch in text:
-        if ch in keep:
-            out.append(ch)
-        elif unicodedata.category(ch) in _ESCAPED_CATEGORIES:
-            out.append(_escape(ch))
-        else:
-            out.append(ch)
-    return "".join(out)
+        piece = _render(ch, keep)
+        if used + len(piece) > limit:
+            return "".join(out), True
+        out.append(piece)
+        used += len(piece)
+    return "".join(out), False
+
+
+def scrub_tail(text: str, limit: int, keep: str = "") -> tuple[str, bool]:
+    """The last `limit` characters of the escaped text, and whether it was cut.
+
+    `scrub_head` read from the other end and for the same reason. The direction
+    is the whole difference: a manifest declares its dependencies at the top,
+    while a command that failed says why at the bottom, so each keeps the end
+    that carries the meaning.
+    """
+    out: list[str] = []
+    used = 0
+    for ch in reversed(text):
+        piece = _render(ch, keep)
+        if used + len(piece) > limit:
+            return "".join(reversed(out)), True
+        out.append(piece)
+        used += len(piece)
+    return "".join(reversed(out)), False
 
 
 def scrub_argv(value: Any) -> list[str]:
@@ -81,7 +126,10 @@ def scrub_argv(value: Any) -> list[str]:
     out: list[str] = []
     for item in items[:MAX_ARGV_ITEMS]:
         text = item if isinstance(item, str) else repr(item)
-        out.append(scrub(text[:MAX_ARGV_CHARS]))
+        # `scrub_head` and not a slice-then-escape, for the reason in its
+        # docstring: the budget has to be charged after the expansion or it is
+        # not the budget that ships.
+        out.append(scrub_head(text, MAX_ARGV_CHARS)[0])
     if len(items) > MAX_ARGV_ITEMS:
         out.append(f"... {len(items) - MAX_ARGV_ITEMS} more arguments")
     return out

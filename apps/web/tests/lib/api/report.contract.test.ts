@@ -53,7 +53,23 @@ describe("the canonical report example", () => {
     expect(run.secret_probe).toEqual({ decoy_read: true, decoy_in_egress: null });
     expect(run.sensors?.decoy).toEqual({ armed: true, detail: "inotify" });
     expect(run.truncated?.files_read).toBe(true);
+    expect(run.truncated?.sensor_logs).toBe(false);
+    expect(run.truncated?.script_content).toBe(false);
     expect(run.derived?.wrote_sensitive).toBe(true);
+  });
+
+  it("extracts command info from per-run blocks", () => {
+    const run = block(EXAMPLE, 1);
+    expect(run.command).toMatchObject({
+      argv: ["python3", "-m", "pytest", "-q"],
+      exit: 1,
+      script_content: null,
+    });
+    expect(run.command?.duration_s).toBe(4.31);
+  });
+
+  it("does not extract command info from the roll-up block", () => {
+    expect(block(EXAMPLE, 0).command).toBeNull();
   });
 
   it("keeps null apart from false on decoy_in_egress", () => {

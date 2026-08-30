@@ -119,11 +119,11 @@ Every crossing, with what it carries and what protects it:
 | Sandbox → internet | Through the in-sandbox proxy | Whatever the PR or a dependency tries to reach; logged, becomes evidence | None; the decoy secret is the only "secret" it can find |
 | TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
 | TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` and `post_blocking_review` (free) or `post_gated_review` (paused until a human confirms) | Internal |
-| `github-mcp` → GitHub | REST API | The review: summary body plus inline comments, as `cujo-guard[bot]` | Installation token minted from the App private key |
+| `github-mcp` → GitHub | REST API | The review, as `cujo-guard[bot]`: a body **composed by `github-mcp`** from the agent's findings, coverage and egress (verdict headline, findings by severity, coverage, egress, a machine-readable block — decision 74), plus one inline comment per anchored finding, derived from the findings rather than sent beside them; `apps/cujo` rebuilds both with the same `@cujo/review-render` package for the board | Installation token minted from the App private key |
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
 | `apps/cujo` → GitHub | REST API | A reply on the pull request, and a reaction on the comment it answers (decision 43). Text, but only ever in answer to a person who addressed Cujo directly — never an unprompted finding | Installation token minted from the App private key; the same `pull_requests: write` |
 | `apps/cujo` → TrueForge | HTTP on the compose network | A **second** session per pull request, for conversation only (Contract 10): `sessions.create` with a spec carrying `mcpServers: []`, then one turn per question. Never the review's session, which a second turn would cancel, be refused on, or corrupt | Internal |
-| Human → `apps/web` | HTTPS on `cujo.spencerjireh.com` | Reads runs, check cards, findings and the posted review for a **public** repo, redacted by the allowlist in `http/public/serialize.ts`. The board opens on a full-height chamber that stays pinned while the rest of the board rises over it, holding the thirty newest runs as a galaxy three layers deep — each run a star system: a core sized by the worst thing it found, one ring per check on a tilt seeded off the run's id, as wide as the check watched and bright for the share of that spent executing, and up to six satellites for what it found (decisions 65, 68, 71) — then a rack of summary strips, then the record, then the key to the drawing. A run's **layer** is time, newest in front, and its position within the layer is a deterministic function of its id that means nothing, which the key says in words; everything else in there is a measurement, down to the gate drawn at each occupied layer and the light that walks the stars, which is the board re-reading this API, oldest run first (decision 72). The decorative layer admitted alongside it is the air in the room and the star field behind it, and lives in exactly two files (decisions 69, 71). Clicking a star scrolls the record to its row rather than leaving the board, and a run's own page draws the same object turning beside the pull request's title. Nothing flat is served in the chamber's place: a phone, and a browser that will not give it a WebGL context, get the readout and then the record. There is no site header: the mark sits in the corner of whichever page is rendering it. It writes nothing and decides nothing: a held finding is answered with `/cujo confirm` on the pull request (decision 49), and a Discord channel is bound with `/cujo watch` (decision 57) | None. There is no credential and no authenticated route left |
+| Human → `apps/web` | HTTPS on `cujo.spencerjireh.com` | Reads runs, check cards, findings and the posted review for a **public** repo, redacted by the allowlist in `http/public/serialize.ts`. The board opens on a full-height chamber that stays pinned while the rest of the board rises over it, holding the thirty newest runs as a galaxy three layers deep — each run a star system: a core sized by the worst thing it found, one ring per check on a tilt seeded off the run's id, as wide as the check watched and bright for the share of that spent executing, and up to six satellites for what it found (decisions 65, 68, 80) — then a rack of summary strips, then the record, then the key to the drawing. A run's **layer** is time, newest in front, and its position within the layer is a deterministic function of its id that means nothing, which the key says in words; everything else in there is a measurement, down to the gate drawn at each occupied layer and the light that walks the stars, which is the board re-reading this API, oldest run first (decision 81). The decorative layer admitted alongside it is the air in the room and the star field behind it, and lives in exactly two files (decisions 78, 80). Clicking a star scrolls the record to its row rather than leaving the board, and a run's own page draws the same object turning beside the pull request's title. Nothing flat is served in the chamber's place: a phone, and a browser that will not give it a WebGL context, get the readout and then the record. There is no site header: the mark sits in the corner of whichever page is rendering it. It writes nothing and decides nothing: a held finding is answered with `/cujo confirm` on the pull request (decision 49), and a Discord channel is bound with `/cujo watch` (decision 57) | None. There is no credential and no authenticated route left |
 | `apps/cujo` → TrueForge | HTTP on the compose network | `createTurn` with `user.tool_approval {allow \| deny}`, then `subscribeToTurn`; the turn resumes | Internal |
 | Discord → `apps/cujo` | HTTPS to `cujo-ingress.spencerjireh.com` | A `/cujo` interaction: the server, the invoking member and their permissions, and the chosen repo, channel and role (Contract 8) | Ed25519 over `timestamp + rawBody`, verified against `DISCORD_PUBLIC_KEY`; an invalid signature is 401 |
 | `apps/cujo` → Discord | HTTPS to `discord.com/api/v10` | One card per run, edited in place: repo, PR number, status, check names, finding titles and evidence, and the run's Cujo link. Every derived string escaped, stripped of bidi, truncated, and mention-suppressed (Contract 7) | `Authorization: Bot`; `DISCORD_BOT_TOKEN`, held only by `apps/cujo` and never near the sandbox |
@@ -196,13 +196,18 @@ the session refuses the new head's turn while one is pending (decision 39).
    session with that context: repo, PR number, base SHA, head SHA, changed
    files. It stays subscribed to the turn's event stream and folds what it
    sees into a run the UI can show while the checks are still going.
-3. **Into the sandbox.** The agent provisions a Daytona sandbox, clones head,
-   adds a worktree at base, seeds the decoy secret, starts the logging proxy
-   and the decoy watcher, and reads `.cujo.yml` from base if the repo has one
-   (policy comes from the target branch, never from the PR).
-4. **Run the checks.** The agent spawns one subagent per check, all at once —
-   nothing a check needs comes from another, and the sensors serialise
-   themselves (decision 41). `tests` runs
+3. **Into the sandbox.** The agent provisions a Daytona sandbox and runs two
+   commands. `sniff.py prepare` clones head, adds a worktree at base, and hands
+   back `.cujo.yml` from base if the repo has one (policy comes from the target
+   branch, never from the PR) together with the head's build files, so the
+   parent settles policy and infers the commands in one step rather than five
+   (decision 71). `sniff.py setup` then seeds the decoy secret and starts the
+   logging proxy and the decoy watcher.
+4. **Run the checks.** Nothing a check needs comes from another and the sensors
+   serialise themselves (decision 41), so each is spawned as early as it can do
+   anything: `detonation` during setup, since it installs into its own fresh
+   environment and needs nothing the repository's install produces, then the
+   other three together once that install is done (decision 73). `tests` runs
    the suite on base and head. `probes` writes and runs scripts against the
    changed functions. `smoke` boots the app and hits it. `detonation` runs
    only when a dependency manifest changed, installing each new or bumped
@@ -213,8 +218,9 @@ the session refuses the new head's turn while one is pending (decision 39).
 5. **Decide.** The parent turns the reports into findings. Hard rules force
    `critical` on a regression, a decoy read, a sensitive write, or unknown
    egress during an install, and `warn` when a sensor was not watching. The agent assigns `info`, `warn`, or `critical`
-   to everything else against the rubric, then drafts one review: a summary of
-   what ran plus an inline comment per anchored finding.
+   to everything else against the rubric, then hands `github-mcp` its findings,
+   its coverage and the egress it saw. The server composes the review — verdict
+   first, provenance after — and anchors what can be anchored (decision 74).
 6. **Post, pausing only to accuse.** With no `critical` finding the review
    posts automatically as `cujo-guard[bot]`. A `critical` that says the pull
    request is broken posts too, as REQUEST_CHANGES, with no human asked. Only a

@@ -63,7 +63,7 @@ export function HeroLead({ metrics }: { metrics: BoardMetrics }) {
       </h1>
       {/* One line, and only while there is nothing to read. With a record on
           screen the headline says what this is and the drawing says the rest;
-          a paragraph beside a galaxy was read by nobody (decision 72). */}
+          a paragraph beside a galaxy was read by nobody (decision 81). */}
       {empty ? (
         <p className="mt-5 max-w-md font-mono text-sm leading-relaxed text-[var(--chamber-fg-muted)]">
           The chamber is empty and the instrument is on. Every verdict it draws comes from running
@@ -136,7 +136,7 @@ export function HeroStats({
         ) : null}
       </dl>
       {/* One sentence, which is all a reader needs to decode the drawing; the
-          key below the record carries the rest (decision 72). */}
+          key below the record carries the rest (decision 81). */}
       <p className="mt-6 max-w-md font-mono text-xs leading-relaxed text-[var(--chamber-fg-muted)]">
         Each star is one run. Colour is the verdict, rings are checks, dots are findings.
         {interactive ? " Click one to find its run below." : null}

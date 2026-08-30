@@ -629,23 +629,158 @@ describe("Runner.consume", () => {
     expect(store.runs.getRun(r.id)?.status).toBe("clean");
   });
 
-  it("ends the run in error when every resubscribe fails", async () => {
-    const store = new Store(":memory:");
-    const { run: r } = store.runs.createRun(claim());
-    const subscribe = vi.fn(async () => {
-      throw new Error("still down");
+  /**
+   * A lost stream says nothing about the turn, so none of these end the run on
+   * the stream's account. The verdict comes from what the turn actually did,
+   * read back from the session; the watchdog is the only bound.
+   */
+  describe("when every resubscribe fails", () => {
+    const persisted = (events: Ev[]) => events.map((event) => ({ turnId: "t1", event }));
+    const lost = (harness: Partial<Record<string, unknown>>, turnTimeoutMs = 10_000) => {
+      const store = new Store(":memory:");
+      const { run: r } = store.runs.createRun(claim());
+      const subscribe = vi.fn(async () => {
+        throw new Error("still down");
+      });
+      const cancelTurn = vi.fn(async () => {});
+      const runner = new Runner(
+        store.runs,
+        { subscribe, cancelTurn, ...harness } as unknown as Harness,
+        { turnTimeoutMs, retryDelaysMs: [0, 0], pollIntervalMs: 1 },
+      );
+      const opening = streamOf(
+        [turnCreated("t1", null, "2026-08-27T10:00:01Z"), reviewCall("c1")],
+        1,
+      );
+      return { store, r, runner, subscribe, cancelTurn, opening };
+    };
+
+    it("waits for the turn, then folds the verdict it really reached", async () => {
+      const whole = [
+        turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+        reviewCall("c1"),
+        turnDone("t1"),
+      ];
+      const { store, r, runner, subscribe, opening } = lost({
+        listTurns: vi.fn(async () => [{ id: "t1", state: { status: "done" } }]),
+        listEvents: vi.fn(async () => persisted(whole)),
+      });
+      await runner.consume(r.id, opening);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+      // Not "turn stream lost": the turn posted its review, and it says so.
+      expect(store.runs.getRun(r.id)?.status).toBe("clean");
+      expect(store.runs.getProjection(r.id)?.error).toBeNull();
     });
-    const runner = new Runner(store.runs, { subscribe } as unknown as Harness, {
-      turnTimeoutMs: 10_000,
-      retryDelaysMs: [0, 0],
+
+    it("reports a real failure as the turn's own, not the stream's", async () => {
+      const failed: Ev = {
+        id: "td-t1",
+        type: "turn.done",
+        createdAt: "2026-08-27T10:00:09Z",
+        threadId: null,
+        state: { status: "error", message: "provider exploded" },
+      } as unknown as Ev;
+      const { store, r, runner, opening } = lost({
+        listTurns: vi.fn(async () => [{ id: "t1", state: { status: "error" } }]),
+        listEvents: vi.fn(async () =>
+          persisted([turnCreated("t1", null, "2026-08-27T10:00:01Z"), failed]),
+        ),
+      });
+      await runner.consume(r.id, opening);
+      expect(store.runs.getRun(r.id)?.status).toBe("error");
+      expect(store.runs.getProjection(r.id)?.error).toContain("provider exploded");
     });
-    await runner.consume(
-      r.id,
-      streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), reviewCall("c1")], 1),
-    );
-    expect(subscribe).toHaveBeenCalledTimes(2);
-    expect(store.runs.getRun(r.id)?.status).toBe("error");
-    expect(store.runs.getProjection(r.id)?.error).toBe("turn stream lost");
+
+    it("keeps waiting while the turn is still running, and lets the watchdog end it", async () => {
+      const listTurns = vi.fn(async () => [{ id: "t1", state: { status: "running" } }]);
+      const { store, r, runner, cancelTurn, opening } = lost(
+        { listTurns, listEvents: vi.fn(async () => []) },
+        150,
+      );
+      await runner.consume(r.id, opening);
+      expect(listTurns).toHaveBeenCalled();
+      // The watchdog ended it, so the error names the timeout and not the
+      // stream -- and it cancelled the turn it chose to abandon.
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+      expect(cancelTurn).toHaveBeenCalledWith("s");
+    });
+
+    it("keeps reading when the turn ended but its events would not come back", async () => {
+      // The turn is over, so the watch would stop -- but a replay that teaches
+      // nothing is not a verdict. Returning here would hand `consume` a
+      // `running` projection with its watchdog about to be cleared and no
+      // follower, poller or timer left to finish the run.
+      const listEvents = vi.fn(async () => {
+        throw new Error("session unreadable");
+      });
+      const { store, r, runner, opening } = lost(
+        { listTurns: vi.fn(async () => [{ id: "t1", state: { status: "done" } }]), listEvents },
+        150,
+      );
+      await runner.consume(r.id, opening);
+      expect(listEvents.mock.calls.length).toBeGreaterThan(1);
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    });
+
+    it("keeps reading when the replay comes back without the turn's tail", async () => {
+      const listEvents = vi.fn(async () => [
+        { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
+      ]);
+      const { store, r, runner, opening } = lost(
+        { listTurns: vi.fn(async () => [{ id: "t1", state: { status: "done" } }]), listEvents },
+        150,
+      );
+      await runner.consume(r.id, opening);
+      expect(listEvents.mock.calls.length).toBeGreaterThan(1);
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    });
+
+    it("keeps the watchdog's verdict when it fires part-way through a replay", async () => {
+      // The read crosses an await and the watchdog can fire inside it. A
+      // wholesale assignment would drop the terminal event the watchdog had
+      // just appended, put the fold back to `running`, and strand the run with
+      // its timer already spent.
+      const listEvents = vi.fn(async () => {
+        await new Promise((res) => setTimeout(res, 220));
+        return [{ turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") }];
+      });
+      const { store, r, runner, opening } = lost(
+        { listTurns: vi.fn(async () => [{ id: "t1", state: { status: "done" } }]), listEvents },
+        120,
+      );
+      await runner.consume(r.id, opening);
+      // The watchdog's verdict, not the replay's silence -- and specifically
+      // not the "could not be followed" backstop, which would mean the
+      // synthetic terminal had been lost.
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    });
+
+    it("ends a run that has no turn to watch, rather than leaving it running", async () => {
+      // The watchdog is cleared when `consume` returns, so a path that waits on
+      // nothing would strand the run at `running` with nobody left to end it --
+      // the one failure the synthetic terminal was there to prevent.
+      const { store, r, runner } = lost({ listTurns: vi.fn(), listEvents: vi.fn() });
+      await runner.consume(r.id, streamOf([reviewCall("c1")], 0));
+      expect(store.runs.getRun(r.id)?.status).toBe("error");
+      expect(store.runs.getProjection(r.id)?.error).toBe("run lost before its turn started");
+    });
+
+    it("survives a session it cannot read, rather than calling that a failure", async () => {
+      const { store, r, runner, opening } = lost(
+        {
+          listTurns: vi.fn(async () => {
+            throw new Error("harness down");
+          }),
+          listEvents: vi.fn(async () => {
+            throw new Error("harness down");
+          }),
+        },
+        150,
+      );
+      await runner.consume(r.id, opening);
+      // Still the watchdog's verdict, never "turn stream lost".
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    });
   });
 });
 

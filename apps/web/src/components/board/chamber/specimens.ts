@@ -7,10 +7,10 @@
  * another on the run page would make the shape decorative — so the builder is
  * here and both callers use it.
  *
- * A run is a star system (decision 71). The core is the star: the verdict, in
+ * A run is a star system (decision 80). The core is the star: the verdict, in
  * its colour, sized by the worst thing the run found, with an additive glow
  * behind it that is what blooms. Each check is a ring around it, on a tilt
- * seeded off the run's id (decision 72): its radius is how long the check
+ * seeded off the run's id (decision 81): its radius is how long the check
  * watched, the bright arc of it is the share of that spent executing in the
  * sandbox and the faint remainder is the agent deciding what to do next, and
  * its colour is how the check ended. Findings are satellites on an orbit
@@ -440,7 +440,7 @@ const READ_GLOW = 0.6;
  * Scale has one contributor beyond arrival, so nothing ever pulses out of
  * phase with the instrument that is supposed to be driving it: focus is the
  * reader. The wash is not a scale either — a star that grew as the light
- * passed was the strobe decision 72 removed — it is the glow swelling. A live
+ * passed was the strobe decision 81 removed — it is the glow swelling. A live
  * run is not a scale: it turns.
  */
 export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): void {
