@@ -4032,13 +4032,26 @@ turned out not to be double pushes: each is a `pull_request` run beside a
 `workflow_dispatch` run that a person started by hand on the same branch,
 seconds later, for the same commit.
 
-That is why the group keys on `github.head_ref || github.ref_name` rather than
-on `github.event.pull_request.number`. A `workflow_dispatch` run has no pull
-request, so a key built from the number falls back to a different expression and
-puts the manual run in its own group — leaving the one pairing this is here to
-collapse running exactly as before, while looking like it had been fixed. The
-branch name is the thing both events actually share. Runs on *different*
-branches keep their own groups and are untouched.
+That is why the group does not key on `github.event.pull_request.number`. A
+`workflow_dispatch` run has no pull request, so a key built from the number
+falls back to a different expression and puts the manual run in its own group —
+leaving the one pairing this is here to collapse running exactly as before,
+while looking like it had been fixed. The branch name is the thing both events
+actually share.
+
+**A branch name is not an identity, though, which is the second half of the
+key.** Two forks can both offer `patch-1`, and a group keyed on the branch alone
+would put those two pull requests together; with `cancel-in-progress` one
+stranger's push would cancel another's run and leave that pull request with no
+completed CI — a worse failure than the duplication being fixed, because it is
+silent and it lands on somebody who did nothing. So the group is
+`github.event.pull_request.head.repo.full_name || github.repository` and then
+the branch, which separates forks while still letting a `workflow_dispatch` run
+share the group with the `pull_request` run for the same branch here. Every pull
+request this repository has ever had is from a branch on the repository itself,
+so this is a latent bug rather than an observed one; it is in the key because
+the cost of carrying it is one expression and the cost of hitting it is a
+contributor who cannot see why their CI never finished.
 
 Rejected: **marking the slow tests and skipping them in CI**, which buys the
 time back by not running the detonation test — the one that proves the product's
