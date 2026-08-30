@@ -21,9 +21,13 @@ import { TONE_CHAMBER_VAR } from "@/lib/board/tone";
 export function SpecimenGlyph({ specimen }: { specimen: Specimen }) {
   const size = 120;
   const centre = size / 2;
-  const arm = 34;
-  const core = 7 * specimen.coreScale;
-  const markSize = 3.4;
+  // Sized so the projected arms fill the same fraction of the box the WebGL
+  // camera frames them at: this drawing is on screen for the few hundred
+  // milliseconds before the canvas replaces it, and a shape that changed size
+  // in the swap would read as a jump rather than as the same object.
+  const arm = 53;
+  const core = 11 * specimen.coreScale;
+  const markSize = 5.3;
 
   return (
     <svg

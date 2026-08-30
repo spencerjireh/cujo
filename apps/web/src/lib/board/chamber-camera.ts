@@ -8,7 +8,7 @@
  * claim a test can hold.
  */
 
-import { CHAMBER_BOX, RECORD_X } from "./chamber-layout";
+import { ARM_MAX, CHAMBER_BOX, RECORD_X } from "./chamber-layout";
 import { clamp } from "./ease";
 
 /**
@@ -130,12 +130,15 @@ export function cameraPlacement(input: {
  * The inline scene's framing, on the run page.
  *
  * A single specimen with no room around it, so the camera is placed from the
- * shape's own extent rather than from the volume's. The radius is a constant
- * and not measured off the specimen: two runs drawn at two sizes because one
- * had longer arms would make the drawing a comparison of itself rather than of
- * the runs, and the arms already carry that.
+ * shape's own extent rather than from the volume's. The radius is the longest
+ * arm the chamber draws and not something measured off this specimen: two runs
+ * drawn at two sizes because one had longer arms would make the drawing a
+ * comparison of itself rather than of the runs, and the arms already carry
+ * that. Reading `ARM_MAX` is what keeps it framed when the arms are resized —
+ * it was a bare 0.42 against arms that reached 0.3, and stayed 0.42 when they
+ * grew to 0.5.
  */
-export const INLINE_RADIUS = 0.42;
+export const INLINE_RADIUS = ARM_MAX;
 
 /** How far back a camera of this field of view must stand to frame a radius. */
 export function inlineDistance(fovDeg: number, radius: number, margin: number): number {

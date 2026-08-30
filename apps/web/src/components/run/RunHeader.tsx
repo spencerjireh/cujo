@@ -73,12 +73,16 @@ export function RunHeader({ run }: { run: Run }) {
       <Link href="/" className="font-mono text-xs text-fg-muted no-underline hover:text-accent">
         ← all runs
       </Link>
-      {/* The shape beside the name. A reader who followed a specimen from the
-          chamber arrives holding an object, and until now the run page took it
-          away — the same run, described in words, with nothing to recognise. */}
-      <div className="mt-2 flex items-start gap-4">
-        <RunSpecimen run={run} />
-        <div className="min-w-0 flex-1">
+      {/* The shape beside the name, and beside everything under it: the title,
+          the author, what reviewed this and what setup cost. It stands to the
+          right of that whole block rather than to the left of the title alone,
+          where it floated against a column three times its height.
+
+          A reader who followed a specimen from the chamber arrives holding an
+          object, and until now the run page took it away — the same run,
+          described in words, with nothing to recognise. */}
+      <div className="mt-2 flex flex-wrap-reverse items-start justify-between gap-x-6 gap-y-4">
+        <div className="min-w-0 flex-1 basis-80">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {/* The pull request's own title when there is one, and `repo #N`
                 when there is not — the shape every run had before titles were
@@ -100,38 +104,43 @@ export function RunHeader({ run }: { run: Run }) {
               {run.repo} #{run.pr_number}
             </p>
           ) : null}
+          <p className="mt-2 font-mono text-xs text-fg-muted">
+            <Author run={run} />
+            {shortSha(run.head_sha)} · started <RelativeTime iso={run.created_at} />
+          </p>
+          {/* What reviewed this pull request, and against what. A verdict from
+              an execution-backed reviewer is only checkable if the reader can
+              see which model reached it and which rubric it was reading — both
+              are published (commit 513d35f) and neither was on the page. Null
+              on a run recorded before the columns existed, and then this line
+              is absent rather than saying "unknown", which claims a lookup
+              happened. */}
+          {run.model || run.rubric_sha256 ? (
+            <p className="mt-1 font-mono text-xs text-fg-muted">
+              {run.model ? <>reviewed by {run.model}</> : null}
+              {run.model && run.rubric_sha256 ? " · " : null}
+              {run.rubric_sha256 ? <>rubric {shortSha(run.rubric_sha256)}</> : null}
+            </p>
+          ) : null}
+          {/* What the run spent before it could start measuring anything
+              (decision 67). One line, because the shape of it is on the
+              timeline and the number is what a reader wants beside the verdict:
+              a review that took six minutes spent most of them here, and the
+              page said nothing about that until this landed. Absent, never
+              zeroed, on a run whose stamps cannot support it. */}
+          {window ? (
+            <p className="mt-1 font-mono text-xs text-fg-muted">
+              setup {span(window.lengthMs)} · {window.messages}{" "}
+              {window.messages === 1 ? "message" : "messages"}
+              {window.thinkingMs === null ? null : <> · {span(window.thinkingMs)} planning</>}
+            </p>
+          ) : null}
         </div>
+        {/* `flex-wrap-reverse` above puts this first in the source and last on
+            screen at full width: wrapped, on a narrow column, the specimen
+            lands under the words rather than pushing the title down the page. */}
+        <RunSpecimen run={run} />
       </div>
-      <p className="mt-2 font-mono text-xs text-fg-muted">
-        <Author run={run} />
-        {shortSha(run.head_sha)} · started <RelativeTime iso={run.created_at} />
-      </p>
-      {/* What reviewed this pull request, and against what. A verdict from an
-          execution-backed reviewer is only checkable if the reader can see
-          which model reached it and which rubric it was reading — both are
-          published (commit 513d35f) and neither was on the page. Null on a run
-          recorded before the columns existed, and then this line is absent
-          rather than saying "unknown", which claims a lookup happened. */}
-      {run.model || run.rubric_sha256 ? (
-        <p className="mt-1 font-mono text-xs text-fg-muted">
-          {run.model ? <>reviewed by {run.model}</> : null}
-          {run.model && run.rubric_sha256 ? " · " : null}
-          {run.rubric_sha256 ? <>rubric {shortSha(run.rubric_sha256)}</> : null}
-        </p>
-      ) : null}
-      {/* What the run spent before it could start measuring anything
-          (decision 67). One line, because the shape of it is on the timeline
-          and the number is what a reader wants beside the verdict: a review
-          that took six minutes spent most of them here, and the page said
-          nothing about that until this landed. Absent, never zeroed, on a run
-          whose stamps cannot support it. */}
-      {window ? (
-        <p className="mt-1 font-mono text-xs text-fg-muted">
-          setup {span(window.lengthMs)} · {window.messages}{" "}
-          {window.messages === 1 ? "message" : "messages"}
-          {window.thinkingMs === null ? null : <> · {span(window.thinkingMs)} planning</>}
-        </p>
-      ) : null}
       {run.summary ? <p className="mt-4 max-w-[68ch] text-sm">{run.summary}</p> : null}
       {run.error ? (
         <p className="mt-3 rounded-md bg-sev-critical-bg px-3 py-2 font-mono text-xs text-sev-critical">
