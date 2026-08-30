@@ -103,6 +103,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 95. [The gates go, depth wanders, and the light beats the star it reads](#95-the-gates-go-depth-wanders-and-the-light-beats-the-star-it-reads)
 96. [The envelope roll-up is the model's work, so the schema reads it leniently](#96-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
 97. [The template tires the reader, not the model](#97-the-template-tires-the-reader-not-the-model)
+98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5379,3 +5380,86 @@ comment too**: on the Files changed tab it arrives with no headline above it,
 it is short, and the evidence is the reason it is on that line. **Telling the
 model to write shorter blocks** instead of rendering them shorter, which is
 decision 74 reversed — a rule a model applies is a rule that fails silently.
+
+## 98. The board carries the manual, and it is the one thing indexed
+
+**Status:** active — `/docs` in `apps/web`, `robots.ts` amended.
+
+**Context.** Everything a person needs in order to adopt Cujo was written for
+somebody else. `architecture.md` and `spec.md` are the design of record and are
+written for a contributor; the README is four paragraphs; the board itself
+teaches how to read a specimen and, when it is empty, three lines of
+onboarding. So a reader handed a board link could learn what a satellite means
+and could not learn what `.cujo.yml` accepts, which pull requests are skipped,
+who may answer a held finding, or how to run their own instance. The gap was
+not a missing document — the facts are all written down — it was that the
+audience for them had never been the person deciding whether to install this.
+
+**Decision.** A documentation plane on `apps/web`, at `/docs`, in four groups
+that are tasks rather than topics: point it at a repository, understand a
+verdict, use it day to day, run your own. Twelve pages, `nav.ts` as the only
+ordering, `registry.ts` as the only slug-to-component map, and a test that the
+two agree — a page listed in the sidebar with no component behind it is a 404
+nobody notices.
+
+**Routes and not one page.** A single scrolling page is cheaper to build and
+worse to link: half of what this covers is reference a reader returns to for
+one answer, and "see the section on the gate" wants a URL. The overview is
+served at `/docs` itself rather than at `/docs/overview`, so no page has two
+addresses.
+
+**TSX and not MDX.** MDX is a pinned dependency and build configuration bought
+for authoring convenience this does not need, and it makes the thing that
+matters harder rather than easier: the severity list, the run-status table and
+the alarm vocabulary are generated from `SEVERITIES`, `RUN_STATUSES`,
+`STATUS_LINE` and `lib/api/report.ts`, exactly as `Legend.tsx` already
+generates its own legends. Those words are matched literally in `apps/cujo`. A
+manual that retypes them is a manual that will eventually describe a status the
+product no longer has. `STATUS_LINE` moved out of the run page to
+`lib/api/status-line.ts` for this, so the sentence a link preview shows and the
+sentence the manual shows are one sentence.
+
+**`/docs` is indexed; nothing else is.** `robots.ts` grew an `allow` beside its
+`disallow`, and the docs segment overrides the root layout's `noindex`. The
+argument for the board's own exclusion is untouched and still holds: Cujo
+reviews public pull requests belonging to people who did not ask to be listed
+beside their own repository, and a finding quotes their code. None of that
+reaches these pages. They are ours, they quote nobody, they name no repository —
+and unlike a run, a manual that cannot be found has failed at its job, because
+somebody deciding whether to adopt this is not holding a link to it yet.
+
+**No navigation bar came back.** Decision 65's bar was removed because it cost
+the chamber the top of the window, and reversing that is a bigger change than
+this one and would deserve its own. The manual is reached from the footer's
+bottom rule, from the 404, and from the board's empty-state onboarding list,
+whose first step already read "Install Cujo on a repository" with nothing to
+click. The sidebar is the manual's own chrome and lives inside its column.
+
+**The self-host page names no vendor.** This deploy runs on one particular
+host, behind one particular proxy, deployed by one particular tool, and none of
+that is a requirement of the product. The page says "a container host", "a
+reverse proxy that terminates TLS", "an OpenAI-compatible provider", and names
+only what is actually required: Compose, a Daytona key, a model provider, a
+GitHub App. `architecture.md` keeps the specifics, where they belong — that
+file documents this deployment, and the manual documents the software.
+
+**Consequences.** Twelve statically rendered pages that call nothing, so the
+manual is readable when `apps/cujo` is not. A status added in `apps/cujo` now
+appears in the manual without anyone remembering, and fails a test if its
+sentence is missing. `robots.txt` has an exception in it, so it grew a test of
+its own: one line there stands between an anonymous board of other people's
+pull requests and a search index. `docs/demo.md` was corrected in the same
+change, because it still described approving a held finding by clicking a
+button in a UI that decisions 49 and 57 deleted, and a repository whose own
+demo script contradicts its published manual is worse than one with neither.
+
+Rejected: **a `sitemap.ts`**, which needs an absolute `metadataBase` and so a
+build-time origin — decision 35 warns about freezing a `main`-relative value
+into an image, and `allow: /docs` is sufficient without one. **A fifth footer
+column**, which breaks the four-column composition the footer was built as; the
+link goes on the bottom rule, with the other two things that are about the page
+rather than about Cujo. **Reusing `.cujo-prose`**, which exists to style
+sanitized agent markdown arriving as bare tags — restyling the manual must not
+restyle what the agent wrote on a pull request. **Indexing the whole board
+while we were there**, which is decision 34's argument thrown away for the
+convenience of one fewer line.

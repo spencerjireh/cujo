@@ -168,3 +168,28 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The docs sidebar is one element serving two shapes: a disclosure on a phone,
+   an always-open column from `lg`. It is a `<details>` because the mobile form
+   has to work with no JavaScript, and `open` cannot be conditioned on a media
+   query — so the collapsed state is the default (a topic page must not open
+   with a screenful of index above its own title) and this block forces it open
+   on a wide viewport.
+
+   Both models of `<details>` are covered. Engines that simply do not render a
+   closed element's non-summary children need the `display` rule; engines that
+   render them behind `::details-content { content-visibility: hidden }` need
+   the second. A Tailwind arbitrary variant cannot name a pseudo-element, which
+   is why this is here rather than on the element. */
+@media (min-width: 64rem) {
+  .docs-sidebar > summary {
+    display: none;
+  }
+  .docs-sidebar > *:not(summary) {
+    display: block;
+  }
+  .docs-sidebar::details-content {
+    block-size: auto;
+    content-visibility: visible;
+  }
+}

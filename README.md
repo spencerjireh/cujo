@@ -40,6 +40,9 @@ first, somewhere it can do no harm, and tells you what it saw.
 No secret ever enters the sandbox. PR code and dependency names go in; JSON
 reports come out.
 
+The board carries a user-facing manual at `/docs` — installing it, `.cujo.yml`,
+what each check measures, the gate, Discord, and running your own instance.
+
 Start with [docs/architecture.md](docs/architecture.md) for the mental model,
 then [docs/spec.md](docs/spec.md) for the contracts the code follows. The docs
 are canonical: a design change lands there first.
