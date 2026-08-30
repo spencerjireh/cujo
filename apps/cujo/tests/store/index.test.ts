@@ -220,6 +220,7 @@ describe("store", () => {
     expect(store.runs.listPublicRuns()[0]?.digest?.checks.tests).toEqual({
       status: "done",
       ms: 30_000,
+      sandboxMs: null,
     });
 
     // A run folded before `run_digests` existed. It never refolds, so the list

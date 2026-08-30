@@ -87,7 +87,15 @@ export function digestFrom(run: Run): RunDigest {
 
   const checks: Partial<Record<CheckName, DigestCheck>> = {};
   for (const [name, check] of named) {
-    checks[name] = { status: check.status, ms: checkMs(check) };
+    checks[name] = {
+      status: check.status,
+      ms: checkMs(check),
+      // Off the check's own timings, exactly as the server reads them. The
+      // detail route publishes `timings` in full, so this page has the number
+      // the list row was given — and if it read it differently, the specimen
+      // here and the specimen in the chamber would disagree about one run.
+      sandboxMs: check.timings?.sandboxMs ?? null,
+    };
   }
 
   const findings = { ...NO_FINDINGS };

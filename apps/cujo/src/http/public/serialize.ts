@@ -17,10 +17,18 @@
  * into `SourceField` would collide on those two names and make the no-duplicate
  * assertion unstatable — a third list keeps every key of every source type
  * written down, which is the property that matters.
+ *
+ * `DigestCheck` gets a fourth list, and it is here because the third was not
+ * enough. `PUBLIC_DIGEST_FIELDS` classifies `RunDigest`'s three keys, one of
+ * which is `checks` — and this file used to copy that object through by
+ * reference, so every field of a check reached the wire without appearing on
+ * any list. The guard was blind exactly one level below where it was written.
  */
 
+import { CHECK_NAMES, type CheckName } from "../../review/types";
 import type {
   CheckState,
+  DigestCheck,
   DraftedReview,
   Projection,
   RunDigest,
@@ -145,6 +153,25 @@ export const PUBLIC_DIGEST_FIELDS: readonly (keyof RunDigest)[] = [
   "durationMs",
 ];
 
+/**
+ * Every key of one check inside `digest.checks`, all published.
+ *
+ * Its own list because the one above cannot reach here. `PUBLIC_DIGEST_FIELDS`
+ * classifies `RunDigest`'s three top-level keys, and `checks` is one of them —
+ * so a field added to `DigestCheck` was published by a list that never named
+ * it, past a test that could not see it, contradicting the promise this file
+ * makes twice. `sandboxMs` is the field that found the hole.
+ *
+ * Each of these is still a reduction of what the detail route already serves in
+ * full to the same anonymous caller: `status` and `ms` restate the check's own
+ * stamps, and `sandboxMs` is `timings.sandboxMs` off the same check.
+ */
+export const PUBLIC_DIGEST_CHECK_FIELDS: readonly (keyof DigestCheck)[] = [
+  "status",
+  "ms",
+  "sandboxMs",
+];
+
 /** Exactly the keys `serializePublicSummary` emits. */
 export const PUBLIC_SUMMARY_FIELDS = [
   "id",
@@ -199,6 +226,40 @@ function publicCheck(check: CheckState) {
     usage: check.usage ?? null,
     timings: check.timings ?? null,
   };
+}
+
+/**
+ * One check of a digest, shaped rather than passed through — which is the whole
+ * point, because passing `digest.checks` through by reference is what let a new
+ * field reach the wire unclassified.
+ *
+ * `?? null` for the reason `usage` and `setup` have it below: a digest stored
+ * before `sandboxMs` existed parses without the key, `JSON.stringify` drops an
+ * `undefined`, and the key this module promises to emit would disappear exactly
+ * where a client is least able to see it coming. Nothing re-derives a digest
+ * that is merely stale — `backfillDigest` fires only on a missing row — so
+ * those rows are permanent and this is the only thing standing between them and
+ * a payload that silently changes shape per run.
+ */
+function publicDigestCheck(check: DigestCheck) {
+  return { status: check.status, ms: check.ms, sandboxMs: check.sandboxMs ?? null };
+}
+
+/**
+ * The checks of a digest, keyed by check name.
+ *
+ * Walked over `CHECK_NAMES` rather than `Object.entries`, so the key order is
+ * the fold's and a key that is not a check name cannot reach the wire at all. A
+ * check the run never had stays absent, which is the fact `RunDigest.checks`
+ * documents: a missing key is not a check that reported nothing.
+ */
+function publicDigestChecks(checks: RunDigest["checks"]) {
+  const out: Partial<Record<CheckName, ReturnType<typeof publicDigestCheck>>> = {};
+  for (const name of CHECK_NAMES) {
+    const check = checks[name];
+    if (check) out[name] = publicDigestCheck(check);
+  }
+  return out;
 }
 
 /** One run in full, for the public detail page. */
@@ -278,9 +339,15 @@ export function serializePublicSummary(row: { run: RunRecord; digest: RunDigest 
     // Shaped rather than passed through, for the reason the rest of this file
     // is: a field added to `RunDigest` has to be written into
     // `PUBLIC_DIGEST_FIELDS` and then into this literal before it can reach
-    // the wire.
+    // the wire. `checks` goes through `publicDigestChecks` for the same reason
+    // one level down — it used to be copied by reference, so that promise held
+    // of `RunDigest` and not of `DigestCheck`.
     digest: digest
-      ? { checks: digest.checks, findings: digest.findings, durationMs: digest.durationMs }
+      ? {
+          checks: publicDigestChecks(digest.checks),
+          findings: digest.findings,
+          durationMs: digest.durationMs,
+        }
       : null,
   };
 }

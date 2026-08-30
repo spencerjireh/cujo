@@ -29,9 +29,17 @@ function digest(checks: RunDigest["checks"]): RunDigest {
   return { checks, findings: { critical: 0, warn: 0, info: 0 }, durationMs: null };
 }
 
-/** One entry in a digest's `checks`, which is a status and how long it ran. */
-function mark(status: "done" | "error" | "running", ms: number | null) {
-  return { status, ms };
+/**
+ * One entry in a digest's `checks`: a status, how long it ran, and how much of
+ * that was the sandbox. `sandboxMs` defaults to null, which is the shape every
+ * case here except the arm-split ones is about.
+ */
+function mark(
+  status: "done" | "error" | "running",
+  ms: number | null,
+  sandboxMs: number | null = null,
+) {
+  return { status, ms, sandboxMs };
 }
 
 describe("armScale", () => {
@@ -46,7 +54,7 @@ describe("armScale", () => {
         row({
           id: `r${i}`,
           status: "clean",
-          digest: digest({ tests: { status: "done", ms: value * 1_000 } }),
+          digest: digest({ tests: { status: "done", ms: value * 1_000, sandboxMs: null } }),
         }),
       );
     const ordinary = Array.from({ length: 20 }, (_, i) => i + 1);
@@ -66,7 +74,13 @@ describe("specimensFrom", () => {
     // A stub would claim the check ran briefly. The gap is the fact, and it is
     // the fact the hard rule `check_missing` exists for.
     const [spec] = specimensFrom(
-      [row({ id: "a", status: "clean", digest: digest({ tests: { status: "done", ms: 5_000 } }) })],
+      [
+        row({
+          id: "a",
+          status: "clean",
+          digest: digest({ tests: { status: "done", ms: 5_000, sandboxMs: null } }),
+        }),
+      ],
       10,
     );
     const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
@@ -81,8 +95,8 @@ describe("specimensFrom", () => {
           id: "a",
           status: "running",
           digest: digest({
-            tests: { status: "running", ms: null },
-            probes: { status: "done", ms: 60_000 },
+            tests: { status: "running", ms: null, sandboxMs: null },
+            probes: { status: "done", ms: 60_000, sandboxMs: null },
           }),
         }),
       ],
@@ -105,8 +119,8 @@ describe("specimensFrom", () => {
           id: "a",
           status: "blocked_pending",
           digest: digest({
-            tests: { status: "done", ms: 1_000 },
-            detonation: { status: "error", ms: null },
+            tests: { status: "done", ms: 1_000, sandboxMs: null },
+            detonation: { status: "error", ms: null, sandboxMs: null },
           }),
         }),
       ],

@@ -202,6 +202,18 @@ export interface DigestCheck {
   status: CheckState["status"];
   /** How long the check ran, or null while it runs and on an unstamped run. */
   ms: number | null;
+  /**
+   * How much of that was the sandbox executing the pull request; the rest was
+   * the sub-agent deciding what to do next. The specimen draws the split as the
+   * solid part of an arm, which is the same reading `ChecksTimeline` gives a
+   * lane on the run page.
+   *
+   * Null three ways and the shape cannot tell them apart, so nothing may treat
+   * it as zero: the check is still running, its report carried nothing to
+   * measure, or the digest was stored before the field existed and is never
+   * re-derived. An arm with a null share is drawn undivided.
+   */
+  sandboxMs: number | null;
 }
 
 export interface RunList {

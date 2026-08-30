@@ -32,8 +32,34 @@ describe("digestFrom", () => {
         ],
       }),
     );
-    expect(digest.checks.tests).toEqual({ status: "done", ms: 30_000 });
-    expect(digest.checks.detonation).toEqual({ status: "error", ms: 15_000 });
+    expect(digest.checks.tests).toEqual({ status: "done", ms: 30_000, sandboxMs: null });
+    expect(digest.checks.detonation).toEqual({ status: "error", ms: 15_000, sandboxMs: null });
+  });
+
+  /**
+   * The half of a check that was the sandbox executing. It comes off the
+   * check's own `timings`, which the detail route publishes in full — so this
+   * page derives the same number the list row was handed, and the specimen here
+   * and the specimen in the chamber cannot disagree about one run.
+   */
+  it("carries how much of a check was the sandbox executing", () => {
+    const digest = digestFrom(
+      subject({
+        checks: [
+          check({
+            title: "tests",
+            startedAt: at(0),
+            endedAt: at(30),
+            timings: { wallMs: 30_000, sandboxMs: 21_000, modelMs: 9_000 },
+          }),
+          // No `timings` at all: a check from before the field existed. Null,
+          // never zero — the arm it draws is undivided, not all-model.
+          check({ title: "probes", startedAt: at(0), endedAt: at(12) }),
+        ],
+      }),
+    );
+    expect(digest.checks.tests?.sandboxMs).toBe(21_000);
+    expect(digest.checks.probes?.sandboxMs).toBeNull();
   });
 
   it("leaves out a check that never appeared, rather than zeroing it", () => {
@@ -66,14 +92,14 @@ describe("digestFrom", () => {
         ],
       }),
     );
-    expect(digest.checks.tests).toEqual({ status: "done", ms: 10_000 });
+    expect(digest.checks.tests).toEqual({ status: "done", ms: 10_000, sandboxMs: null });
   });
 
   it("reports no duration for a check still running", () => {
     const digest = digestFrom(
       subject({ checks: [check({ title: "tests", startedAt: at(0), endedAt: null })] }),
     );
-    expect(digest.checks.tests).toEqual({ status: "done", ms: null });
+    expect(digest.checks.tests).toEqual({ status: "done", ms: null, sandboxMs: null });
   });
 
   it("reports no duration for a check stamped backwards", () => {

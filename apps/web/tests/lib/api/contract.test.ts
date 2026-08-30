@@ -9,6 +9,7 @@ import {
 import type {
   CheckState,
   CheckTimings,
+  DigestCheck,
   Finding,
   ReviewTool,
   Run,
@@ -19,6 +20,7 @@ import type {
 } from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
 import {
+  PUBLIC_DIGEST_CHECK_FIELDS,
   PUBLIC_RUN_FIELDS,
   PUBLIC_SUMMARY_FIELDS,
 } from "../../../../cujo/src/http/public/serialize";
@@ -283,16 +285,40 @@ describe("the public wire shape tracks apps/cujo", () => {
    */
   it("type-checks a digest as apps/cujo emits it", () => {
     const digest: RunDigest = {
-      checks: { tests: { status: "done", ms: 41_230 }, detonation: { status: "error", ms: null } },
+      checks: {
+        tests: { status: "done", ms: 41_230, sandboxMs: 30_100 },
+        detonation: { status: "error", ms: null, sandboxMs: null },
+      },
       findings: { critical: 1, warn: 2, info: 0 },
       durationMs: 132_400,
     };
     const asCujo: CujoRunDigest = digest;
     expect(asCujo.checks.tests?.ms).toBe(41_230);
+    // The execution share, published per check on a list row since decision 70.
+    // Read through the assignment above rather than off `digest`, so the
+    // assertion is about the field cujo's type declares and not this mirror's.
+    expect(asCujo.checks.tests?.sandboxMs).toBe(30_100);
+    expect(asCujo.checks.detonation?.sandboxMs).toBeNull();
     // A run claimed but never folded carries no digest at all, which every
     // reader has to tell apart from four checks that reported nothing.
     const unfolded: RunSummary = { ...summaryBase, digest: null };
     expect(unfolded.digest).toBeNull();
+  });
+
+  /**
+   * And the same one level down, against the list `apps/cujo` actually
+   * publishes from. The assignment above catches a *renamed* key; this catches
+   * a key the serializer emits that this mirror has never heard of — which is
+   * how `sandboxMs` could have arrived, since `digest.checks` used to be copied
+   * through by reference past every guard on both sides.
+   */
+  it("types every field of a digest check that the list route publishes", () => {
+    const CHECK_KEYS: Record<keyof DigestCheck, true> = {
+      status: true,
+      ms: true,
+      sandboxMs: true,
+    };
+    expect(Object.keys(CHECK_KEYS).sort()).toEqual([...PUBLIC_DIGEST_CHECK_FIELDS].sort());
   });
 
   it("never publishes a field that names a person or the state of the gate", () => {
