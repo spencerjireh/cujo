@@ -838,6 +838,23 @@ and a collapsed machine-readable block. An empty section is omitted. **The
 verdict word comes from the tool**, so a model cannot write "blocked" onto an
 advisory review — the word is not a thing it supplies.
 
+Inside one finding the order is title, `detail`, `next`, then the quoted
+`evidence` — the proof below the sentence that explains it, so a reader who
+trusts the sentence never pays to parse the instrument output (decision 97). A
+finding carrying neither `detail` nor `next`, with evidence that fits on a line,
+renders as a single line instead: `**title** · meta — evidence`. The condition
+is the fields and not the severity, so a `warn` making an argument keeps the
+full block — with one floor: a `critical` never collapses, because the rubric
+requires both fields there while the schema leaves them optional, and a
+`critical` arriving with neither must not read as the review's smallest thing.
+A check name, a finding title and every coverage note are flattened to one line
+before they are rendered, so a newline in a model-supplied value cannot end a
+list item and leave the rest reading as another entry. The
+inline comment on a diff line keeps its own order, evidence first, because it
+arrives with no headline above it and the evidence is why it is on that line.
+Coverage prints one line per check, name then note, rather than stacking the
+notes into one sentence of parentheticals.
+
 **`comments[]` is deprecated.** A finding carrying a `path`, a `line` and a
 `side` becomes an inline review comment on that diff line, derived from the
 finding rather than sent beside it. The parameter survives only for the
