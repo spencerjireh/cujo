@@ -3998,6 +3998,18 @@ startup and IO, on a runner with four cores and one of them working. The same
 261 tests take 34.1s serially on a developer machine and 10.9s to 14.6s under
 `pytest-xdist` over five consecutive runs.
 
+**Running four at a time found a race in the suite on the first try.**
+`test_health.py`'s stand-in daemon handed its pid over the instant `Popen`
+returned, but `daemon_alive` reads `/proc/<pid>/cmdline` and wants `cujo_sniff`
+in it — and until the child reaches `execve` that file still holds the parent's
+argv. A health check winning that window reads a live daemon as dead. It could
+never fail on a developer machine here, because macOS has no procfs and
+`daemon_alive` stops at the pid check, so the branch only runs in CI; and it was
+rare enough on one core to have never been seen. The fixture now waits for the
+child to announce itself, which cannot happen before the exec. Worth recording
+as a cost of this decision honestly: parallelism did not create that bug, but it
+is the reason the suite is a place where such bugs surface rather than lurk.
+
 **Measured in CI, the step went from 344.3s to 177.6s on four workers, and the
 whole run from six minutes to 193s.** That is 1.9x, not the 3x the local ratio
 predicts, and the gap is the point: the runner's four vCPUs are two physical
