@@ -27,6 +27,8 @@ from cujo_sniff.daemons import daemon_alive
 from cujo_sniff.jsonl import file_size, read_jsonl
 from cujo_sniff.policy import (
     DEFAULT_PROXY_PORT,
+    INTERPRETER_NAMES,
+    MAX_SCRIPT_CHARS,
     SCHEMA_VERSION,
     SENSED_LOCK_TIMEOUT_S,
     TAIL_CHARS,
@@ -170,6 +172,70 @@ def sensed_window(ctx: Context, timeout: float = SENSED_LOCK_TIMEOUT_S) -> Itera
         fh.close()
 
 
+_TERMINATES_SCRIPT = frozenset({"-c", "-m", "--module", "-e", "--eval", "--require"})
+_CONSUMES_NEXT = frozenset(
+    {
+        "-c",
+        "-m",
+        "-W",
+        "-X",
+        "-Q",
+        "-e",
+        "--require",
+        "--loader",
+    }
+)
+
+
+def capture_script(argv: list[str], cwd: Path) -> tuple[str | None, bool]:
+    """Read the script file when argv looks like an interpreter invocation.
+
+    Returns (content_or_none, was_truncated). The content is scrubbed and
+    capped at MAX_SCRIPT_CHARS so a large generated file cannot inflate the
+    report. Returns (None, False) when the command is not a script invocation
+    or the file cannot be read.
+    """
+    if len(argv) < 2:
+        return None, False
+    interpreter = Path(argv[0]).name
+    if interpreter not in INTERPRETER_NAMES:
+        return None, False
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--":
+            i += 1
+            break
+        if arg in _TERMINATES_SCRIPT:
+            return None, False
+        if arg in _CONSUMES_NEXT:
+            i += 2
+            continue
+        if not arg.startswith("-"):
+            break
+        i += 1
+    else:
+        return None, False
+    if i >= len(argv):
+        return None, False
+    script_path = Path(argv[i])
+    if not script_path.is_absolute():
+        script_path = cwd / script_path
+    if not script_path.is_file():
+        return None, False
+    try:
+        with script_path.open(errors="replace") as fh:
+            raw = fh.read(MAX_SCRIPT_CHARS + 1)
+    except OSError:
+        return None, False
+    truncated = len(raw) > MAX_SCRIPT_CHARS
+    content = scrub(raw[:MAX_SCRIPT_CHARS], KEEP_IN_TEXT)
+    if len(content) > MAX_SCRIPT_CHARS:
+        content = content[:MAX_SCRIPT_CHARS]
+        truncated = True
+    return content, truncated
+
+
 def run_sensed(
     ctx: Context, argv: list[str], *, check: str, workspace_roots: list[Path], cwd: Path
 ) -> dict[str, Any]:
@@ -182,6 +248,7 @@ def run_sensed(
     # earlier check left running keeps writing to that check's log.
     audit_log = paths["audit_dir"] / f"{os.urandom(6).hex()}.jsonl"
     audit_log.parent.mkdir(parents=True, exist_ok=True)
+    script_content, script_truncated = capture_script(argv, cwd)
     walk = {"state_dir": ctx.state_dir, "home_dir": ctx.home}
     with sensed_window(ctx) as exclusive:
         offsets = {k: file_size(paths[k]) for k in ("proxy_log", "decoy_log")}
@@ -222,6 +289,7 @@ def run_sensed(
             # a comparison that was not made and one that came back clean.
             "hashes": bool(before.uncompared or after.uncompared),
             "sensor_logs": torn_lines > 0,
+            "script_content": script_truncated,
         },
         home_dir=ctx.home,
         cwd=cwd,
@@ -236,5 +304,6 @@ def run_sensed(
         "window_exclusive": exclusive,
         "stdout_tail": scrub(tail(out), KEEP_IN_TEXT),
         "stderr_tail": scrub(tail(err), KEEP_IN_TEXT),
+        "script_content": script_content,
         **block,
     }

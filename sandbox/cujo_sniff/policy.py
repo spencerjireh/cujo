@@ -26,8 +26,23 @@ DEFAULT_PROXY_PORT = 8899
 DECOY_KEY = "AKIACUJODECOY0000000"
 DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
+MAX_SCRIPT_CHARS = 8000
 MAX_FILES_READ = 200
 MAX_SNAPSHOT_FILES = 200_000
+INTERPRETER_NAMES = frozenset(
+    {
+        "python3",
+        "python",
+        "python3.14",
+        "python3.13",
+        "python3.12",
+        "python3.11",
+        "python3.10",
+        "node",
+        "bash",
+        "sh",
+    }
+)
 # Above this a file is compared by (mtime, size) alone, and the report says so.
 # The cap exists so a snapshot cannot be turned into a hashing benchmark by
 # dropping a huge file somewhere sensitive -- but it is set well past any real

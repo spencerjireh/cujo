@@ -36,6 +36,7 @@
       "window_exclusive": true,
       "stdout_tail": "1 failed, 12 passed in 4.29s",
       "stderr_tail": "",
+      "script_content": null,
       "egress": [
         { "host": "pypi.org", "port": 443, "bytes": 3200, "known": true },
         { "host": "collect.example", "port": 443, "bytes": 512, "known": false }
@@ -69,7 +70,8 @@
         "files_read": true,
         "snapshot": false,
         "hashes": false,
-        "sensor_logs": false
+        "sensor_logs": false,
+        "script_content": false
       },
       "derived": {
         "egress_to_unknown_host": true,
@@ -86,6 +88,7 @@
       "window_exclusive": true,
       "stdout_tail": "\\x1b[32mAll suites passed\\x1b[0m",
       "stderr_tail": "",
+      "script_content": null,
       "egress": [],
       "files_read": [],
       "fs_changes": [],
@@ -103,7 +106,8 @@
         "files_read": false,
         "snapshot": false,
         "hashes": true,
-        "sensor_logs": false
+        "sensor_logs": false,
+        "script_content": false
       },
       "derived": {
         "egress_to_unknown_host": false,
@@ -125,7 +129,8 @@
     "files_read": true,
     "snapshot": false,
     "hashes": true,
-    "sensor_logs": false
+    "sensor_logs": false,
+    "script_content": false
   },
   "derived": {
     "egress_to_unknown_host": true,
