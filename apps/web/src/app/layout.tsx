@@ -63,6 +63,10 @@ const THEME_SCRIPT = `try{var t=localStorage.getItem("cujo-theme");if(t==="light
  * so the three things a reader would want to check are the reviewer, the
  * harness it runs on, and the sandbox the pull request is executed in.
  */
+/** The two footer buttons share one shape; the theme toggle beside them has its own. */
+const FOOTER_BUTTON =
+  "rounded-md border border-line px-3 py-1.5 font-mono text-xs text-fg-muted transition-colors hover:border-accent hover:text-accent";
+
 const SOURCE = [
   { label: "Cujo", href: "https://github.com/spencerjireh/cujo" },
   { label: "TrueForge", href: "https://github.com/truefoundry/trueforge" },
@@ -83,7 +87,7 @@ const SOURCE = [
  * remembering its own, and arriving here after a theme was set elsewhere — a
  * system change, another tab — must not show a control claiming otherwise.
  */
-function SiteFooter() {
+export function SiteFooter() {
   return (
     <footer className="border-t border-line px-4 py-10 md:px-6">
       <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
@@ -136,16 +140,19 @@ function SiteFooter() {
         <p className="font-mono text-xs text-fg-muted">
           A run appears here only while its repository is public.
         </p>
-        {/* The manual, and the only site-wide link to it. It goes on this rule
-            rather than into a fifth column because the columns above are about
-            Cujo and this row is about the site — and because a five-column
-            footer breaks the composition the four were chosen for. */}
-        <div className="flex items-center gap-6">
-          <Link
-            href="/docs"
-            className="font-mono text-xs text-fg-muted underline decoration-line underline-offset-4 transition-colors hover:text-accent hover:decoration-accent"
-          >
-            Docs
+        {/* The manual and the install page, as buttons rather than a text link,
+            because a reader who scrolled this far is deciding whether to try
+            it and the footer was the one place that decision could be acted on.
+            They go on this rule rather than into a fifth column because the
+            columns above are about Cujo and this row is about the site — and
+            because a five-column footer breaks the composition the four were
+            chosen for. The hero legend carries a second, quieter link. */}
+        <div className="flex items-center gap-3">
+          <Link href="/docs" className={FOOTER_BUTTON}>
+            Manual
+          </Link>
+          <Link href="/docs/install" className={FOOTER_BUTTON}>
+            Install the App
           </Link>
           <ThemeToggle />
         </div>
