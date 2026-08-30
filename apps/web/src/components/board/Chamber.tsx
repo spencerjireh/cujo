@@ -1,10 +1,10 @@
 "use client";
 
 import type { RunSummary } from "@/lib/api/types";
-import { specimensFrom } from "@/lib/board/specimen";
-import { focusStore, setFocusedRun, useFocusedRun } from "@/lib/board/store";
-import { STATUS_LABELS } from "@/lib/board/tone";
-import { useRouter } from "next/navigation";
+import { type Specimen, specimensFrom } from "@/lib/board/specimen";
+import { focusStore, setFocusedRun, setSelectedRun, useFocusedRun } from "@/lib/board/store";
+import { SEVERITY_ORDER, STATUS_LABELS, TONE_CHAMBER_VAR } from "@/lib/board/tone";
+import { duration } from "@/lib/format";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChamberFallback } from "./ChamberFallback";
 import type { ChamberHandle } from "./chamber/scene";
@@ -27,6 +27,8 @@ import type { ChamberHandle } from "./chamber/scene";
 const MIN_WIDTH = 640;
 /** How many runs the chamber draws. The record below still lists them all. */
 const CAPACITY = 24;
+/** Kept clear of the frame edge, so the callout never hangs off the volume. */
+const CALLOUT_MARGIN = 16;
 
 function prefersReducedMotion(): boolean {
   return (
@@ -34,13 +36,38 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-export function Chamber({ runs }: { runs: RunSummary[] }) {
+export function Chamber({
+  runs,
+  updatedAt,
+  pollMs,
+  onLive,
+}: {
+  runs: RunSummary[];
+  /**
+   * When the list query last returned. A change is a poll landing, which is
+   * what starts a sweep — the plane is the board re-reading the record, not a
+   * timer that happens to look like one.
+   */
+  updatedAt: number;
+  /** How long until the next one, so the sweep arrives as the read does. */
+  pollMs: number;
+  /**
+   * True once the renderer came up. The page uses it to decide whether it may
+   * tell a reader to click a specimen: the flat elevation underneath is a
+   * picture, and inviting a click on one is an instruction that does nothing.
+   */
+  onLive?: (live: boolean) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const calloutRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<ChamberHandle | null>(null);
   const [live, setLive] = useState(false);
-  const router = useRouter();
   const focused = useFocusedRun();
+  // Read through a ref inside the mount-scoped effect below, which must not
+  // tear down and rebuild the scene because a parent passed a new closure.
+  const onLiveRef = useRef(onLive);
+  onLiveRef.current = onLive;
 
   const specimens = useMemo(() => specimensFrom(runs, CAPACITY), [runs]);
   // Read once per mount rather than per render: the scene is built around the
@@ -65,6 +92,33 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
       if (reducedMotion || !handle) return;
       if (onScreen && document.visibilityState === "visible") handle.start();
       else handle.stop();
+    };
+
+    /**
+     * Move the callout to the specimen it names, clamped inside the frame.
+     *
+     * Written straight to the element and never through state: this is called
+     * from the render loop, and a `setState` here would re-render the board
+     * sixty times a second.
+     */
+    const anchor = (x: number | null, y: number | null) => {
+      const node = calloutRef.current;
+      if (!node) return;
+      if (x === null || y === null) {
+        node.style.opacity = "0";
+        return;
+      }
+      const width = node.offsetWidth;
+      const height = node.offsetHeight;
+      const maxX = frame.clientWidth - width - CALLOUT_MARGIN;
+      const maxY = frame.clientHeight - height - CALLOUT_MARGIN;
+      const left = Math.min(Math.max(x + 18, CALLOUT_MARGIN), Math.max(maxX, CALLOUT_MARGIN));
+      const top = Math.min(
+        Math.max(y - height / 2, CALLOUT_MARGIN),
+        Math.max(maxY, CALLOUT_MARGIN),
+      );
+      node.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+      node.style.opacity = "1";
     };
 
     /**
@@ -96,13 +150,12 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
             capacity: CAPACITY,
             reducedMotion,
             onHover: setFocusedRun,
-            onSelect: (id) => {
-              // Cleared before leaving: the store outlives this component, so
-              // a run left focused here is still focused when the board is
-              // next opened, with the pointer nowhere near it.
-              setFocusedRun(null);
-              router.push(`/runs/${id}`);
-            },
+            // A click does not leave the board. It sends the record to the
+            // run's row and marks it, which keeps the chamber and the log on
+            // one screen — the whole reason they are on one page. The row's
+            // own link is still the way to the run.
+            onSelect: setSelectedRun,
+            onAnchor: anchor,
           });
         } catch {
           // No WebGL context, or a driver that refused one. The fallback is
@@ -116,8 +169,10 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
         // focused while the import is in flight, and that effect cannot
         // replay, because assigning a ref does not re-run one.
         built.setFocus(focusStore.state.runId);
+        built.setSelection(focusStore.state.selectedId);
         built.resize(frame.clientWidth, frame.clientHeight);
         setLive(true);
+        onLiveRef.current?.(true);
         // Through the gates rather than started outright: the frame may have
         // scrolled away or the tab been hidden while the import was in
         // flight, and no observer will fire again to correct it.
@@ -140,6 +195,23 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
     });
     visible.observe(frame);
     document.addEventListener("visibilitychange", runIfWanted);
+
+    // Parallax over the whole hero, not only over the canvas: the readout and
+    // the wash above it are `pointer-events-none`, so a move anywhere in the
+    // section lands here, and the volume answers the pointer before it is
+    // touched. This is the cheapest depth in a scene with no lights.
+    const onMove = (event: PointerEvent) => {
+      const rect = frame.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      handle?.setPointer(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        ((event.clientY - rect.top) / rect.height) * 2 - 1,
+      );
+    };
+    const onLeave = () => handle?.setPointer(null, null);
+    frame.addEventListener("pointermove", onMove);
+    frame.addEventListener("pointerleave", onLeave);
+
     startWhenWideEnough();
 
     return () => {
@@ -147,14 +219,17 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
       resize.disconnect();
       visible.disconnect();
       document.removeEventListener("visibilitychange", runIfWanted);
+      frame.removeEventListener("pointermove", onMove);
+      frame.removeEventListener("pointerleave", onLeave);
       handleRef.current = null;
       handle?.dispose();
+      onLiveRef.current?.(false);
       // The store is module state and outlives this component.
       setFocusedRun(null);
     };
-    // Mount-scoped. `specimens` and `focused` are pushed in by the effects
-    // below rather than rebuilding the scene, and `router` is stable.
-  }, [router]);
+    // Mount-scoped. Everything below is pushed in by the effects that follow
+    // rather than rebuilding the scene.
+  }, []);
 
   useEffect(() => {
     handleRef.current?.setSpecimens(specimens);
@@ -163,6 +238,24 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
   useEffect(() => {
     handleRef.current?.setFocus(focused);
   }, [focused]);
+
+  // Subscribed rather than read through a hook: the selection has no effect on
+  // this component's own markup, so re-rendering the whole hero to push one
+  // string into the scene would be a render for nothing.
+  useEffect(() => {
+    const subscription = focusStore.subscribe(() => {
+      handleRef.current?.setSelection(focusStore.state.selectedId);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // A poll landed. `updatedAt` changes on every successful fetch, including the
+  // ones that return an unchanged list — which is the honest signal, because
+  // the sweep is drawing the read and not the change.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `updatedAt` is the trigger, not an input — the effect reads only `pollMs`, and the timestamp is in the list precisely so a fetch that changed nothing still starts a sweep.
+  useEffect(() => {
+    handleRef.current?.pulse(pollMs);
+  }, [updatedAt, pollMs]);
 
   const label = specimens.find((spec) => spec.id === focused);
 
@@ -182,21 +275,81 @@ export function Chamber({ runs }: { runs: RunSummary[] }) {
         ref={canvasRef}
         className={`absolute inset-0 h-full w-full ${live ? "" : "invisible"}`}
       />
-      {/* Bottom right, clear of the readout on the left and of the near end of
-          the record. Named rather than only titled: a run is a pull request at
-          a SHA, and the verdict is the thing the specimen's colour is saying. */}
-      {label ? (
-        <div className="pointer-events-none absolute right-6 bottom-6 max-w-[24rem] border border-[var(--chamber-line)] bg-[var(--chamber)] px-3 py-2 font-mono text-xs">
-          <p className="text-[var(--chamber-fg)]">{label.pullRequest}</p>
-          {label.label !== label.pullRequest ? (
-            <p className="mt-1 truncate text-[var(--chamber-fg-muted)]">{label.label}</p>
-          ) : null}
-          <p className="mt-1 text-[var(--chamber-fg-muted)]">
-            {STATUS_LABELS[label.status]}
-            {label.unmeasured ? " · no checks folded" : ""}
-          </p>
-        </div>
-      ) : null}
+      {/* Seats the volume in the page: without it the scene ends at a hard
+          rectangle edge and reads as a picture of a box rather than a view
+          into one. Painted over the canvas, so it takes no pointer events. */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 120% 90% at 50% 45%, transparent 45%, var(--chamber) 100%)",
+        }}
+      />
+      {/* Positioned by the render loop, beside the specimen it names, so a
+          hover on a record row points at a shape rather than only dimming the
+          others. Kept mounted and faded, because measuring its size is what
+          the clamp needs and an unmounted node has none. */}
+      <div
+        ref={calloutRef}
+        className={`pointer-events-none absolute top-0 left-0 max-w-[22rem] border border-[var(--chamber-line)] bg-[var(--chamber)] px-3 py-2 font-mono text-xs transition-opacity duration-150 ${
+          label ? "" : "opacity-0"
+        }`}
+      >
+        {label ? <Callout spec={label} /> : null}
+      </div>
     </div>
+  );
+}
+
+/**
+ * What the specimen is, in the order the shape reads: the pull request it is,
+ * the verdict its core is drawing, how long the arms took, and what the marks
+ * on its drop line are.
+ */
+function Callout({ spec }: { spec: Specimen }) {
+  return (
+    <>
+      <p className="text-[var(--chamber-fg)]">{spec.pullRequest}</p>
+      {spec.label !== spec.pullRequest ? (
+        <p className="mt-1 truncate text-[var(--chamber-fg-muted)]">{spec.label}</p>
+      ) : null}
+      <p className="mt-1.5 text-[var(--chamber-fg-muted)]">
+        {STATUS_LABELS[spec.status]}
+        {spec.durationMs === null
+          ? ""
+          : ` · ${duration(new Date(0).toISOString(), new Date(spec.durationMs).toISOString()) ?? ""}`}
+      </p>
+      {spec.unmeasured ? (
+        <p className="mt-1.5 text-[var(--chamber-fg-muted)]">no checks folded</p>
+      ) : (
+        <>
+          <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[var(--chamber-fg-muted)]">
+            {spec.bars.map((bar) => (
+              <li key={bar.name} className="flex items-baseline gap-1">
+                {/* A check that never appeared is the wireframe colour, the
+                    same gap the specimen draws instead of an arm. */}
+                <span
+                  className="inline-block h-1.5 w-1.5 translate-y-px"
+                  style={{
+                    background:
+                      bar.outcome === "absent"
+                        ? "var(--chamber-line)"
+                        : `var(${TONE_CHAMBER_VAR[bar.tone]})`,
+                  }}
+                />
+                {bar.name}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[var(--chamber-fg-muted)]">
+            {spec.findingTotal === 0
+              ? "no findings"
+              : SEVERITY_ORDER.filter((severity) => spec.findings[severity] > 0)
+                  .map((severity) => `${spec.findings[severity]} ${severity}`)
+                  .join(" · ")}
+          </p>
+        </>
+      )}
+    </>
   );
 }

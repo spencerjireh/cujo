@@ -141,3 +141,73 @@ describe("specimensFrom", () => {
     expect(specs[1]?.label).toBe("o/r #42");
   });
 });
+
+/**
+ * What the run found, as part of its shape. `digest.findings` is the field
+ * decision 65 put on every list row, and until now the chamber drew none of it.
+ */
+describe("specimensFrom findings", () => {
+  const found = (findings: RunDigest["findings"]) => ({
+    checks: {},
+    findings,
+    durationMs: 1_000,
+  });
+
+  it("strings one mark per finding, worst nearest the core", () => {
+    const [spec] = specimensFrom(
+      [
+        row({
+          id: "a",
+          status: "blocked_posted",
+          digest: found({ critical: 1, warn: 2, info: 1 }),
+        }),
+      ],
+      10,
+    );
+    expect(spec?.findingTotal).toBe(4);
+    expect(spec?.marks.map((mark) => mark.severity)).toEqual(["critical", "warn", "warn", "info"]);
+    // Amber on a warn, per the severity ramp: `warn` renders as `high`.
+    expect(spec?.marks.map((mark) => mark.tone)).toEqual(["critical", "amber", "amber", "info"]);
+  });
+
+  it("caps the marks but never the count", () => {
+    // Past the cap the marks merge into a dashed line, so drawing more would
+    // claim a precision the drawing has lost. The number still has to be right.
+    const [spec] = specimensFrom(
+      [row({ id: "a", status: "clean", digest: found({ critical: 0, warn: 0, info: 40 }) })],
+      10,
+    );
+    expect(spec?.marks).toHaveLength(6);
+    expect(spec?.findingTotal).toBe(40);
+  });
+
+  it("sizes the core by the worst severity, not by how many there are", () => {
+    const [one] = specimensFrom(
+      [row({ id: "a", status: "clean", digest: found({ critical: 1, warn: 0, info: 0 }) })],
+      10,
+    );
+    const [many] = specimensFrom(
+      [row({ id: "b", status: "clean", digest: found({ critical: 3, warn: 9, info: 9 }) })],
+      10,
+    );
+    const [none] = specimensFrom(
+      [row({ id: "c", status: "clean", digest: found({ critical: 0, warn: 0, info: 0 }) })],
+      10,
+    );
+    // A run with three criticals is not more dangerous than one with one.
+    expect(one?.coreScale).toBe(many?.coreScale);
+    expect(none?.coreScale).toBe(1);
+    expect(one?.worst).toBe("critical");
+    expect(none?.worst).toBeNull();
+  });
+
+  it("draws no marks on a run that folded nothing, and does not call that clean", () => {
+    // The two are different claims: this run found nothing *that anyone knows
+    // of*, which `unmeasured` says and a bare zero would not.
+    const [spec] = specimensFrom([row({ id: "a", status: "superseded" })], 10);
+    expect(spec?.marks).toEqual([]);
+    expect(spec?.findingTotal).toBe(0);
+    expect(spec?.worst).toBeNull();
+    expect(spec?.unmeasured).toBe(true);
+  });
+});

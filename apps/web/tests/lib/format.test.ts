@@ -1,14 +1,53 @@
 import {
   avatarUrl,
   bytes,
+  compactCount,
   duration,
   elapsedMs,
   prUrl,
   profileUrl,
   relativeTime,
   shortSha,
+  usd,
 } from "@/lib/format";
 import { describe, expect, it } from "vitest";
+
+describe("compactCount", () => {
+  it("keeps a small count exact", () => {
+    expect(compactCount(0)).toBe("0");
+    expect(compactCount(940)).toBe("940");
+  });
+
+  it("shortens thousands and millions", () => {
+    expect(compactCount(1_000)).toBe("1.0k");
+    expect(compactCount(12_400)).toBe("12.4k");
+    expect(compactCount(1_250_000)).toBe("1.3M");
+  });
+});
+
+describe("usd", () => {
+  it("gives a sub-cent estimate the places it needs", () => {
+    // `$0.00` beside a real figure reads as free, which is the one thing this
+    // number must never say by accident.
+    expect(usd(0.0037)).toBe("$0.0037");
+    expect(usd(0)).toBe("$0.00");
+  });
+
+  it("bounds an estimate too small for four places instead of rounding it away", () => {
+    // Four decimals moved the failure down rather than fixing it: a call
+    // priced at three hundredths of a cent still rendered `$0.0000`, which is
+    // the same lie about the same number.
+    expect(usd(0.00003)).toBe("<$0.0001");
+    expect(usd(0.000_000_9)).toBe("<$0.0001");
+    // The boundary itself is representable, so it is printed.
+    expect(usd(0.0001)).toBe("$0.0001");
+  });
+
+  it("uses cents above a cent", () => {
+    expect(usd(0.37)).toBe("$0.37");
+    expect(usd(12.5)).toBe("$12.50");
+  });
+});
 
 describe("duration", () => {
   it("formats minutes and seconds", () => {

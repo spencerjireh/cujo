@@ -80,6 +80,19 @@ export function RunHeader({ run }: { run: Run }) {
         <Author run={run} />
         {shortSha(run.head_sha)} · started <RelativeTime iso={run.created_at} />
       </p>
+      {/* What reviewed this pull request, and against what. A verdict from an
+          execution-backed reviewer is only checkable if the reader can see
+          which model reached it and which rubric it was reading — both are
+          published (commit 513d35f) and neither was on the page. Null on a run
+          recorded before the columns existed, and then this line is absent
+          rather than saying "unknown", which claims a lookup happened. */}
+      {run.model || run.rubric_sha256 ? (
+        <p className="mt-1 font-mono text-xs text-fg-muted">
+          {run.model ? <>reviewed by {run.model}</> : null}
+          {run.model && run.rubric_sha256 ? " · " : null}
+          {run.rubric_sha256 ? <>rubric {shortSha(run.rubric_sha256)}</> : null}
+        </p>
+      ) : null}
       {run.summary ? <p className="mt-4 max-w-[68ch] text-sm">{run.summary}</p> : null}
       {run.error ? (
         <p className="mt-3 rounded-md bg-sev-critical-bg px-3 py-2 font-mono text-xs text-sev-critical">

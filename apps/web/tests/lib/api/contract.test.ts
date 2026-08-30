@@ -6,17 +6,28 @@ import {
   isLive,
   reviewPosted,
 } from "@/lib/api/types";
-import type { CheckState, Finding, ReviewTool, Run, RunDigest, RunSummary } from "@/lib/api/types";
+import type {
+  CheckState,
+  CheckTimings,
+  Finding,
+  ReviewTool,
+  Run,
+  RunDigest,
+  RunSummary,
+  UsageTotals,
+} from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
 import {
   PUBLIC_RUN_FIELDS,
   PUBLIC_SUMMARY_FIELDS,
 } from "../../../../cujo/src/http/public/serialize";
+import type { CheckTimings as CujoCheckTimings } from "../../../../cujo/src/review/timings";
 import { CHECK_NAMES as CUJO_CHECK_NAMES } from "../../../../cujo/src/review/types";
 import type {
   CheckState as CujoCheckState,
   Finding as CujoFinding,
   RunDigest as CujoRunDigest,
+  UsageTotals as CujoUsageTotals,
 } from "../../../../cujo/src/review/types";
 
 /**
@@ -41,17 +52,37 @@ describe("wire types track apps/cujo", () => {
       error: null,
       startedAt: "2026-08-28T10:00:00Z",
       endedAt: "2026-08-28T10:01:00Z",
+      // What the check cost and where its wall time went (commit 513d35f).
+      // Stated here so a key renamed in apps/cujo stops this compiling rather
+      // than quietly rendering `undefined` on the run page.
+      usage: {
+        inputTokens: 1_200,
+        outputTokens: 340,
+        cacheReadTokens: 8_000,
+        cacheWriteTokens: 0,
+        messages: 6,
+      },
+      timings: { wallMs: 61_000, sandboxMs: 41_000, modelMs: 20_000 },
     };
     // `threadId` is restated rather than spread: it is optional on this side
     // because the public plane withholds it, and required on cujo's, where
     // every check has one (decision 34).
+    //
+    // `usage` and `timings` are restated for a different reason, and the
+    // difference is the point. In `apps/cujo` they are optional and never
+    // null — a check that reported none simply has no key. On the wire
+    // `publicCheck` emits `?? null`, so a reader here meets null and has to
+    // hold both. Mapping null back to undefined is what states that.
     const asCujo: CujoCheckState = {
       ...check,
       threadId: check.threadId ?? "t",
       startedAt: null,
       endedAt: null,
+      usage: check.usage ?? undefined,
+      timings: check.timings ?? undefined,
     };
     expect(asCujo.title).toBe("tests");
+    expect(asCujo.timings?.sandboxMs).toBe(41_000);
 
     const finding: Finding = {
       source: "hard_rule",
@@ -274,6 +305,43 @@ describe("the public wire shape tracks apps/cujo", () => {
       expect(PUBLIC_RUN_FIELDS).toContain(field);
       expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
     }
+  });
+
+  /**
+   * What the run cost and what produced it: also detail-only, for the same
+   * reason. The list already carries a reduction of the checks (decision 65),
+   * and a board of every run is not the place for a token count.
+   */
+  it("publishes cost and provenance on the detail, never on the list", () => {
+    for (const field of ["usage", "model", "rubric_sha256"]) {
+      expect(PUBLIC_RUN_FIELDS).toContain(field);
+      expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
+    }
+  });
+
+  /**
+   * The same hand-written-mirror guard the digest gets, for the two shapes the
+   * run page reads. A key renamed in `apps/cujo` has to stop this assignment
+   * compiling rather than become `undefined` at runtime.
+   */
+  it("type-checks usage and timings as apps/cujo emits them", () => {
+    const usage: UsageTotals = {
+      inputTokens: 41_000,
+      outputTokens: 2_100,
+      cacheReadTokens: 380_000,
+      cacheWriteTokens: 12_000,
+      reasoningTokens: 900,
+      costUsd: 0.37,
+      messages: 24,
+    };
+    const asCujoUsage: CujoUsageTotals = usage;
+    expect(asCujoUsage.costUsd).toBe(0.37);
+
+    // Every key optional: `apps/cujo` omits `modelMs` rather than publishing a
+    // negative remainder, and omits the whole object when nothing timed.
+    const timings: CheckTimings = { wallMs: 61_000 };
+    const asCujoTimings: CujoCheckTimings = timings;
+    expect(asCujoTimings.sandboxMs).toBeUndefined();
   });
 
   /**

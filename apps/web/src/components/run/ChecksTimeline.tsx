@@ -12,6 +12,15 @@ import { duration, elapsedMs } from "@/lib/format";
  * endedAt that apps/cujo stamps on each thread; when a run predates those
  * fields the lanes fall back to plain state, which is why every offset is
  * computed defensively.
+ *
+ * A lane is split where `timings` says it can be. `sandboxMs` is what the
+ * sensors measured inside the sandbox — the pull request's own code actually
+ * executing — and the rest is the model deciding what to make of it. That
+ * division is the single claim this product makes that a linter cannot, and
+ * `apps/cujo` has published it since commit 513d35f without anything drawing
+ * it. It is drawn as strength and not as a second hue: the lane already
+ * carries the check's outcome in its colour, and a lane saying two things in
+ * two colours would be the mistake the chamber's blue rule exists to avoid.
  */
 
 interface Lane {
@@ -21,6 +30,27 @@ interface Lane {
   lengthMs: number | null;
   outcome: string;
   tone: string;
+  /**
+   * How much of the lane the sandbox accounted for, 0–1. Null when the check
+   * reported no `timings`, which every run predating them does.
+   */
+  sandboxShare: number | null;
+}
+
+/**
+ * The sandbox's share of a check's wall time.
+ *
+ * Measured against `wallMs` when the check reported one and against the lane
+ * otherwise, and clamped: `sandboxMs` is summed from what `sniff.py` reported
+ * for its own runs, so a concurrent sensor can push it past the wall clock, and
+ * a bar wider than the lane it sits in would be a drawing that is wrong.
+ */
+function sandboxShare(check: CheckState | undefined, lengthMs: number | null): number | null {
+  const sandboxMs = check?.timings?.sandboxMs;
+  if (typeof sandboxMs !== "number" || sandboxMs <= 0) return null;
+  const whole = check?.timings?.wallMs ?? lengthMs;
+  if (typeof whole !== "number" || whole <= 0) return null;
+  return Math.min(1, sandboxMs / whole);
 }
 
 function outcomeOf(check: CheckState | undefined, findings: Finding[]): [string, string] {
@@ -61,11 +91,13 @@ export function ChecksTimeline({
       lengthMs: length,
       outcome,
       tone,
+      sandboxShare: sandboxShare(check, length),
     };
   });
 
   const span = Math.max(1, ...lanes.map((lane) => (lane.offsetMs ?? 0) + (lane.lengthMs ?? 0)));
   const hasTiming = lanes.some((lane) => lane.lengthMs !== null);
+  const hasSplit = lanes.some((lane) => lane.sandboxShare !== null);
 
   return (
     <section aria-label="Checks">
@@ -75,6 +107,11 @@ export function ChecksTimeline({
           const left = ((lane.offsetMs ?? 0) / span) * 100;
           const width = lane.lengthMs === null ? null : Math.max(1.5, (lane.lengthMs / span) * 100);
           const running = lane.check?.status === "running";
+          // Null unless the check reported a sandbox measurement and the lane
+          // has a width to divide. Zero is not drawn either: a check that spent
+          // no time in the sandbox has one part, not two.
+          const splitWidth =
+            width === null || !lane.sandboxShare ? null : Math.max(width * lane.sandboxShare, 0.6);
           return (
             <li
               key={lane.name}
@@ -91,10 +128,23 @@ export function ChecksTimeline({
                     style={
                       width === null
                         ? { left: 0, right: 0, opacity: 0.35 }
-                        : { left: `${left}%`, width: `${width}%` }
+                        : // Reduced when a split is drawn on top of it, so the
+                          // full-strength part is the sandbox and the rest is
+                          // visibly the remainder.
+                          {
+                            left: `${left}%`,
+                            width: `${width}%`,
+                            opacity: splitWidth === null ? 1 : 0.4,
+                          }
                     }
                   />
                 ) : null}
+                {splitWidth === null ? null : (
+                  <span
+                    className={`absolute inset-y-0 rounded-sm bg-current ${lane.tone}`}
+                    style={{ left: `${left}%`, width: `${splitWidth}%` }}
+                  />
+                )}
               </div>
               <span className={`font-mono text-xs sm:text-sm ${lane.tone} truncate`}>
                 {lane.outcome}
@@ -112,6 +162,9 @@ export function ChecksTimeline({
         <p className="mt-2 font-mono text-xs text-fg-muted">
           Lanes share one time axis,{" "}
           {duration(new Date(0).toISOString(), new Date(span).toISOString())} end to end.
+          {hasSplit
+            ? " The solid part of a lane is the sandbox executing the pull request; the rest is the model reading what came back."
+            : ""}
         </p>
       ) : null}
     </section>
