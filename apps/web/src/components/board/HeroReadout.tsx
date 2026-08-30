@@ -162,10 +162,18 @@ export function HeroStats({
         />
       </dl>
       {/* One sentence, which is all a reader needs to decode the drawing; the
-          key below the record carries the rest (decision 83). */}
+          key below the record carries the rest (decision 83). The manual link
+          rides on the same line so the docs are reachable above the fold
+          without giving the page a bar back. */}
       <p className="mt-6 max-w-md font-mono text-xs leading-relaxed text-[var(--chamber-fg-muted)]">
         Each star is one run. Colour is the verdict, rings are checks, dots are findings.
-        {interactive ? " Click one to find its run below." : null}
+        {interactive ? " Click one to find its run below." : null}{" "}
+        <Link
+          href="/docs"
+          className="underline decoration-[var(--chamber-line)] underline-offset-4 transition-colors hover:text-[var(--chamber-amber)] hover:decoration-[var(--chamber-amber)]"
+        >
+          Manual
+        </Link>
       </p>
     </div>
   );
