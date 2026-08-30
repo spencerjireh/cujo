@@ -39,7 +39,10 @@ const PARTS = [
   },
   {
     label: "marks",
-    text: "One per finding, strung on the drop line, worst nearest the core.",
+    // The cap is part of the contract, not an implementation detail to leave
+    // out: a key that promises one mark per finding is wrong on every run that
+    // found more than six, which is exactly the runs worth reading.
+    text: "One per finding, strung on the drop line, worst nearest the core — up to six, past which they stop being countable. The record below carries the number.",
   },
   {
     label: "the chain",
@@ -117,15 +120,18 @@ export function Legend() {
             ))}
           </ul>
           {/* Which critical is which decides who answers, and the two answers
-              are opposite. A broken test is mechanical, so it blocks at once
-              and nobody is asked; an accusation of bad faith is held until a
-              maintainer confirms it, which is what the gate exists for
-              (agent/SKILL.md, "Which tool"). Saying a maintainer confirms
-              every critical described the wrong product. */}
+              are opposite. Anything mechanical blocks at once and nobody is
+              asked; an accusation of bad faith is held until a maintainer
+              confirms it, which is what the gate exists for (agent/SKILL.md,
+              "Which tool"). Named as a category rather than by one example:
+              `tests.base_pass_head_fail` is the familiar case and not the only
+              one — a contradicted probe and an endpoint that stopped answering
+              take the same path. */}
           <p className="mt-4 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            A critical defect — a test that passes on the base and fails on the head — blocks the
-            merge at once. A critical <em>accusation</em>, that code or a dependency acted in bad
-            faith, is held until a maintainer confirms it on the pull request.
+            A critical <em>defect</em> — anything the run demonstrated mechanically, from a test
+            that fails only on the head to an endpoint that stopped answering — blocks the merge at
+            once. A critical <em>accusation</em>, that code or a dependency acted in bad faith, is
+            held until a maintainer confirms it on the pull request.
           </p>
           <p className="mt-3 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
             The amber plane crossing the chamber is the board re-reading the API: every five seconds
