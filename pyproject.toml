@@ -8,6 +8,7 @@ dependencies = []
 [dependency-groups]
 dev = [
   "pytest>=8.3",
+  "pytest-xdist>=3.6",
   "ruff>=0.8",
 ]
 
@@ -34,7 +35,14 @@ testpaths = ["sandbox/tests"]
 # arrangement inside the sandbox, where `sniff.py` and `cujo_sniff/` are
 # siblings and `sys.path[0]` is what finds the package.
 pythonpath = ["sandbox"]
-addopts = "--strict-markers"
+# `-n auto` because nearly every test here spawns `python3 -m cujo_sniff` and
+# waits on it, so the suite is bound by process startup and IO rather than by
+# CPU. Every test already owns its directories -- the `cli` fixture roots HOME,
+# CUJO_DIR and CUJO_ENVS_DIR in `tmp_path`, and the proxy binds port 0 -- so
+# there is nothing for workers to collide over. Add `-n0` to run in one process
+# when debugging a single test; the workers are pure overhead for one test, and
+# they swallow the output a debugger wants.
+addopts = "--strict-markers -n auto"
 markers = [
   "harness: needs a real state directory, subprocesses, or the sensor daemons",
   "slow: builds a virtualenv or installs a package",

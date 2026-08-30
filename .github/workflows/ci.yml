@@ -5,6 +5,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One run per branch. Two runs otherwise finish in full when only the later one
+# describes the code now on the branch -- from a second push, or from somebody
+# pressing "Run workflow" on a branch a `pull_request` run is already covering.
+# The key is the branch and not `pull_request.number`, because a
+# `workflow_dispatch` run has no pull request and would land in its own group,
+# which is the pairing this is here to collapse.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   node:
     runs-on: ubuntu-latest

@@ -3981,3 +3981,63 @@ in the sandbox. The same OS-level sensors (fsdiff, decoy, proxy) observe
 the install, so filesystem writes, egress, and credential reads are reported
 the same way they are for npm and PyPI. No existing behaviour changes for
 Python or Node repos.
+
+## 78. The Python suite runs in parallel, and a superseded run is cancelled
+
+CI took six minutes, and one step was five minutes forty-four of it: `uv run
+pytest`. Every other job finished well inside two minutes — `contract` at 1.8,
+`node` at 1.0, the three `docker` builds at half a minute each in parallel. The
+Python job was not slow among peers; it was the entire critical path, and the
+rest of the matrix had been waiting on it for as long as it has existed.
+
+The step is not slow because the tests are heavy. It is slow because it is
+serial. Almost every test in `sandbox/tests/` spawns `python3 -m cujo_sniff` and
+blocks on it, several start and stop the sensor daemons, and one builds a
+virtualenv and installs a package — so the suite spends its time on process
+startup and IO, on a runner with four cores and one of them working. The same
+261 tests take 34.1s serially on a developer machine and 10.9s to 14.6s under
+`pytest-xdist` over five consecutive runs; the CI runner has fewer cores than
+that machine, so the 344s is expected to land nearer 110s than to divide by the
+local ratio.
+
+**The isolation this depends on was already there, which is why the change is a
+flag and not a refactor.** The `cli` fixture roots `HOME`, `CUJO_DIR` and
+`CUJO_ENVS_DIR` in the test's own `tmp_path`, and `setup` takes `--proxy-port 0`
+and gets an ephemeral port. There is no shared directory and no fixed port for
+two workers to fight over. That was written for the sandbox's benefit rather
+than for parallelism, and it happens to be exactly the property parallelism
+needs. It is now load-bearing for a second reason: a test that reaches for a
+fixed path or a fixed port will fail here intermittently, under a worker count
+that varies by machine, which is the worst way to find out.
+
+`-n auto` lives in `addopts` and not in the workflow, so that `uv run pytest` is
+one command with one meaning in CI, in `AGENTS.md`, and on a developer machine.
+A flag in the workflow would have made the documented command a slower thing
+than the one CI actually runs, and the gap would only be visible to somebody
+reading the YAML.
+
+**A second run on the same branch answers a question nobody asked.** The
+workflow had no `concurrency` group, so two runs on one branch both finished in
+full when only the later one described the code now on it. Eight of the last
+twenty runs were this, and the pairs starting two, three and four seconds apart
+turned out not to be double pushes: each is a `pull_request` run beside a
+`workflow_dispatch` run that a person started by hand on the same branch,
+seconds later, for the same commit.
+
+That is why the group keys on `github.head_ref || github.ref_name` rather than
+on `github.event.pull_request.number`. A `workflow_dispatch` run has no pull
+request, so a key built from the number falls back to a different expression and
+puts the manual run in its own group — leaving the one pairing this is here to
+collapse running exactly as before, while looking like it had been fixed. The
+branch name is the thing both events actually share. Runs on *different*
+branches keep their own groups and are untouched.
+
+Rejected: **marking the slow tests and skipping them in CI**, which buys the
+time back by not running the detonation test — the one that proves the product's
+central claim, and the last one that should be optional. **Sharding the suite
+across matrix jobs**, which parallelises across runners instead of across cores,
+pays a fresh checkout and `uv sync` per shard, and splits one readable report
+into several. **`-n auto` in the workflow only**, above. **Caching the Docker
+layers and deduplicating the three builds of the same apps** — real duplication,
+but every one of those builds is off the critical path, so it is work that
+changes no wall clock until this decision lands, and possibly not after.
