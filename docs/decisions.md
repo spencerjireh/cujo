@@ -3036,10 +3036,32 @@ pads its axis to twelve slots, and the chamber's camera comes in below five
 specimens so the volume frames what is in it. All three are spacing and none of
 them invents a row, a bucket or a run.
 
-The one-line footer becomes three columns, and a new closing section is the key
+The one-line footer becomes four columns, and a new closing section is the key
 to the chamber — one specimen drawn large with its parts named, and the verdict
 and severity vocabularies listed from `RUN_STATUSES`, `SEVERITIES` and the tone
 maps rather than from prose, so a status added in `apps/cujo` appears there
-without anyone remembering to add it. The footer carries no external links: this
-build records no repository or App URL anywhere, and a footer is not the place
-to guess one.
+without anyone remembering to add it.
+
+The footer's fourth column is the source: Cujo, TrueForge and Daytona, each
+linked to its repository. All three are named in the prose beside it already,
+and a product whose whole claim is that it executes what it reviews should let a
+reader check the reviewer, the harness it runs on, and the sandbox the pull
+request is executed in. `README.md` already carried the TrueForge link;
+`https://github.com/spencerjireh/cujo` is this repository's own `origin`, and
+`https://github.com/daytonaio/daytona` is the sandbox named in `config.ts` —
+none of the three is guessed.
+
+### The theme control appears twice, so the choice leaves the component
+
+The footer carries a second `ThemeToggle` beside the scope line. Two controls
+for one document property, and `ThemeToggle` held the selected choice in its own
+`useState`: the second instance rendered whatever the first had left, so
+switching to dark in the footer scrolled up to a header still claiming "system".
+
+The choice, the persistence warning, and whether the stored value has been read
+back move to `lib/theme-store.ts` — the same `@tanstack/react-store` pattern
+`lib/board/store.ts` already uses. `lib/theme.ts` stays what it was: the
+vocabulary plus the two functions that write `data-theme` and `localStorage`,
+pure enough for its own unit test. Only the *animation* suppression stays per
+instance, because a toggle mounted later still starts from the position the
+server rendered and must not slide from it.
