@@ -1,10 +1,13 @@
 import { CHECK_NAMES } from "@/lib/api/types";
 import {
-  PROJECTED_SQUASH,
+  AZIMUTH_JITTER,
   RING_NORMALS,
   SATELLITE_SLOTS,
+  TILT_MAX_Z,
+  TILT_MIN_Z,
   projectRing,
   ringBasis,
+  ringNormals,
   ringPoint,
   satelliteRing,
 } from "@/lib/board/orbit";
@@ -14,12 +17,20 @@ import { describe, expect, it } from "vitest";
  * A run's orbits. Three claims worth pinning, all of the sort that read as
  * obvious and are not:
  *
- * 1. The four ring planes really are as far apart as four planes can be.
- * 2. Projected flat, every ring is the same ellipse squashed along a different
- *    diagonal — which is what lets the run page's glyph and the legend's
- *    diagram stay the same drawing as the object in the chamber.
+ * 1. A run's four ring planes come from its id alone, and are never edge-on,
+ *    flat, or close to each other.
+ * 2. A flat drawing given a run's normals projects that run's own planes —
+ *    which is what lets the run page's glyph stay the same drawing as the
+ *    object in the chamber.
  * 3. The bright arc and the faint arc make one closed ring between them.
  */
+
+const IDS = ["run-1", "run-2", "a", "0f3c9e", "owner/repo#42:abc", "z".repeat(40)];
+const azimuthOf = (n: { x: number; y: number }) => Math.atan2(n.y, n.x);
+const turnBetween = (a: number, b: number) => {
+  const d = Math.abs(a - b) % (2 * Math.PI);
+  return Math.min(d, 2 * Math.PI - d);
+};
 
 const degrees = (radians: number) => (radians * 180) / Math.PI;
 
@@ -47,13 +58,60 @@ describe("RING_NORMALS", () => {
       }
     }
   });
+});
 
-  it("never lies flat to the reader, so every ring is seen as a ring", () => {
+describe("ringNormals", () => {
+  it("has one ring per check, in the order the checks are named", () => {
+    for (const id of IDS) expect(ringNormals(id)).toHaveLength(CHECK_NAMES.length);
+  });
+
+  it("is a function of the id alone", () => {
+    for (const id of IDS) expect(ringNormals(id)).toEqual(ringNormals(id));
+    expect(ringNormals("run-1")).not.toEqual(ringNormals("run-2"));
+  });
+
+  it("is unit length, so a ring's radius is its measurement and nothing else", () => {
+    for (const id of IDS) {
+      for (const n of ringNormals(id)) expect(Math.hypot(n.x, n.y, n.z)).toBeCloseTo(1, 10);
+    }
+  });
+
+  it("never lies flat to the reader and is never edge-on", () => {
     // A ring with its normal on the view axis is a circle; one with its normal
-    // across it is a line. Both lose the tilt that says which check it is.
-    for (const n of RING_NORMALS) {
-      expect(Math.abs(n.z)).toBeGreaterThan(0.2);
-      expect(Math.abs(n.z)).toBeLessThan(0.9);
+    // across it is a line. Neither is a ring with a tilt to show.
+    for (const id of IDS) {
+      for (const n of ringNormals(id)) {
+        expect(Math.abs(n.z)).toBeGreaterThanOrEqual(TILT_MIN_Z);
+        expect(Math.abs(n.z)).toBeLessThanOrEqual(TILT_MAX_Z);
+      }
+    }
+  });
+
+  it("keeps the four planes of one run apart in azimuth", () => {
+    // A quarter turn apart, each jittered by less than half of that, so the
+    // nearest two planes are still further apart than the jitter allows.
+    const floor = Math.PI / 2 - 2 * AZIMUTH_JITTER;
+    for (const id of IDS) {
+      const normals = ringNormals(id);
+      for (let i = 0; i < normals.length; i += 1) {
+        for (let j = i + 1; j < normals.length; j += 1) {
+          const a = normals[i];
+          const b = normals[j];
+          if (!a || !b) throw new Error("unreachable");
+          expect(turnBetween(azimuthOf(a), azimuthOf(b))).toBeGreaterThanOrEqual(floor - 1e-9);
+        }
+      }
+    }
+  });
+
+  it("leans alternate rings away from the reader", () => {
+    for (const id of IDS) {
+      const [a, b, c, d] = ringNormals(id);
+      if (!a || !b || !c || !d) throw new Error("unreachable");
+      expect(Math.sign(a.z)).toBe(1);
+      expect(Math.sign(b.z)).toBe(-1);
+      expect(Math.sign(c.z)).toBe(1);
+      expect(Math.sign(d.z)).toBe(-1);
     }
   });
 });
@@ -94,46 +152,19 @@ describe("projectRing", () => {
     expect(RING_NORMALS.map((_, i) => projectRing(i, 1, 1).name)).toEqual([...CHECK_NAMES]);
   });
 
-  /**
-   * The whole reason the tetrahedral set is worth keeping as normals: every
-   * ring is the same ellipse, so the projection is not a ranking of the checks.
-   */
-  it("projects every ring to the same ellipse, squashed by the same amount", () => {
-    for (let i = 0; i < RING_NORMALS.length; i += 1) {
-      const radii = projectRing(i, 1, null, 720).bright.map((p) => Math.hypot(p.x, p.y));
+  it("projects the normals it is given, and the tetrahedral set otherwise", () => {
+    // The squash of a projected ring is `|n.z|`, so a drawing handed a run's
+    // own normals shows that run's own tilts and not the fallback's.
+    const normals = ringNormals("run-1");
+    for (let i = 0; i < normals.length; i += 1) {
+      const n = normals[i];
+      if (!n) throw new Error("unreachable");
+      const radii = projectRing(i, 1, null, 720, normals).bright.map((p) => Math.hypot(p.x, p.y));
       expect(Math.max(...radii)).toBeCloseTo(1, 3);
-      expect(Math.min(...radii)).toBeCloseTo(PROJECTED_SQUASH, 3);
+      expect(Math.min(...radii)).toBeCloseTo(Math.abs(n.z), 3);
     }
-  });
-
-  /**
-   * The specimen has always put `tests` upper-left and `detonation` lower-left.
-   * Each ring's minor axis — the direction it is squashed along — lies on that
-   * check's diagonal, so the quadrant a reader learned still belongs to it.
-   */
-  it("squashes each ring along the diagonal its check has always been drawn on", () => {
-    const expected: [number, number][] = [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1],
-    ];
-    for (let i = 0; i < RING_NORMALS.length; i += 1) {
-      const points = projectRing(i, 1, null, 720).bright;
-      let nearest = points[0];
-      if (!nearest) throw new Error("unreachable");
-      for (const p of points) {
-        if (Math.hypot(p.x, p.y) < Math.hypot(nearest.x, nearest.y)) nearest = p;
-      }
-      // Screen coordinates: y runs down. The minor axis is a line, so either
-      // end is the same axis.
-      const sign = expected[i];
-      if (!sign) throw new Error("unreachable");
-      const along = Math.sign(nearest.x) === sign[0] && Math.sign(nearest.y) === sign[1];
-      const opposite = Math.sign(nearest.x) === -sign[0] && Math.sign(nearest.y) === -sign[1];
-      expect(along || opposite).toBe(true);
-      expect(Math.abs(degrees(Math.atan2(nearest.y, nearest.x))) % 90).toBeCloseTo(45, 1);
-    }
+    const fallback = projectRing(0, 1, null, 720).bright.map((p) => Math.hypot(p.x, p.y));
+    expect(Math.min(...fallback)).toBeCloseTo(1 / Math.sqrt(3), 3);
   });
 
   it("closes the ring between the bright arc and the faint one", () => {

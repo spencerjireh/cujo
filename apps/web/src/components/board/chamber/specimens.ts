@@ -9,11 +9,18 @@
  *
  * A run is a star system (decision 71). The core is the star: the verdict, in
  * its colour, sized by the worst thing the run found, with an additive glow
- * behind it that is what blooms. Each check is a ring around it, on one of four
- * fixed tilts: its radius is how long the check watched, the bright arc of it
- * is the share of that spent executing in the sandbox and the faint remainder
- * is the agent deciding what to do next, and its colour is how the check
- * ended. Findings are satellites on an orbit outside the rings, worst first.
+ * behind it that is what blooms. Each check is a ring around it, on a tilt
+ * seeded off the run's id (decision 72): its radius is how long the check
+ * watched, the bright arc of it is the share of that spent executing in the
+ * sandbox and the faint remainder is the agent deciding what to do next, and
+ * its colour is how the check ended. Findings are satellites on an orbit
+ * outside the rings, worst first.
+ *
+ * A live run is the one thing here that moves on its own: its rings turn in
+ * their planes so the bright arcs circulate, its satellites go round faster,
+ * the whole system precesses, and it emits a slow pulse. A finished run only
+ * turns its satellites. Nothing here breathes: a scale that pulsed on its own
+ * was jitter, and the sweep already lifts a star when it reads it.
  *
  * What separates the two callers is a rig, not a flag named after the caller:
  * the board asks for the live pulse and the glow, the run page for the pulse
@@ -27,7 +34,13 @@
  */
 
 import { RING_MAX, RING_MIN, RING_TUBE } from "@/lib/board/chamber-layout";
-import { RING_NORMALS, SATELLITE_ORBIT, ringBasis, satelliteRing } from "@/lib/board/orbit";
+import {
+  SATELLITE_ORBIT,
+  type Vec3,
+  ringBasis,
+  ringNormals,
+  satelliteRing,
+} from "@/lib/board/orbit";
 import type { Specimen } from "@/lib/board/specimen";
 import {
   AdditiveBlending,
@@ -68,10 +81,18 @@ const TUBE_SEGMENTS = 6;
 
 /** One finding, as a small sphere on the outer orbit. */
 const SATELLITE_RADIUS = RING_MAX * 0.045;
-/** How long the satellites take to go round once. Decoration; carries nothing. */
+/**
+ * How long the satellites take to go round once, at rest and on a live run.
+ * Decoration; carries nothing.
+ */
 const SATELLITE_TURN_SECONDS = 40;
+const SATELLITE_TURN_LIVE_SECONDS = 10;
 /** How long a live run's rings take to precess once. Decoration; carries nothing. */
-const PRECESS_SECONDS = 30;
+const PRECESS_SECONDS = 8;
+/** How long a live run's ring takes to turn once in its own plane. */
+const RING_SPIN_SECONDS = 6;
+/** How often a live run emits a pulse. */
+const PULSE_SECONDS = 4;
 
 /**
  * What a pointer lands on. The core is a tenth of a unit across, and a hover
@@ -91,13 +112,17 @@ export interface SpecimenRig {
 }
 
 interface SpecimenOrbit {
-  /** Oriented onto the ring's plane. Scaled while the check is still running. */
+  /** Oriented onto the ring's plane. */
   holder: Group;
+  /**
+   * Inside the holder, and what a live run turns. A rotation written to the
+   * holder itself would replace the orientation it was given.
+   */
+  spin: Group;
   /** The sandbox's share, always drawn. */
   bright: Mesh;
   /** What was left, drawn only when the check measured a share to leave. */
   faint: Mesh | null;
-  running: boolean;
 }
 
 /**
@@ -115,7 +140,7 @@ interface ToneMaterial {
 export interface SpecimenNode {
   /** At its place in the volume. Never scaled, so the pulse stays where it is. */
   group: Group;
-  /** What focus, the sweep and arrival scale: the core, the rings, the glow. */
+  /** What focus, the wash and arrival scale: the core, the rings, the glow. */
   body: Group;
   core: Mesh;
   /** Invisible, and what the raycaster is given. */
@@ -170,9 +195,7 @@ export function ringRadius(length: number): number {
  * where the bright arc begins. `TorusGeometry` lies in local xy starting on
  * +x, so this is all the orientation a ring needs.
  */
-function orient(holder: Group, index: number): void {
-  const normal = RING_NORMALS[index];
-  if (!normal) return;
+function orient(holder: Group, normal: Vec3): void {
   const { u, v } = ringBasis(normal);
   const basis = new Matrix4().makeBasis(
     new Vector3(u.x, u.y, u.z),
@@ -245,18 +268,24 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
     const rings = new Group();
     body.add(rings);
     const orbits: SpecimenOrbit[] = [];
+    // The run's own four planes, from its id. Computed and not stored: one
+    // hash per ring is cheaper than remembering thirty runs' tilts.
+    const normals = ringNormals(spec.id);
     spec.bars.forEach((bar, i) => {
       // Length zero is a check that never appeared. Drawing a ring would claim
       // it ran briefly, so nothing is drawn at all and the gap is the fact.
       if (bar.length <= 0) return;
-      if (!RING_NORMALS[i]) return;
+      const normal = normals[i];
+      if (!normal) return;
       const color = palette.tone(bar.tone);
       const radius = ringRadius(bar.length);
       const share = bar.solid === null ? 1 : Math.min(1, Math.max(0, bar.solid));
 
       const holder = new Group();
-      orient(holder, i);
+      orient(holder, normal);
       rings.add(holder);
+      const spin = new Group();
+      holder.add(spin);
 
       const brightMaterial = new MeshBasicMaterial({
         color,
@@ -268,7 +297,7 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
         new TorusGeometry(radius, RING_TUBE, TUBE_SEGMENTS, RING_SEGMENTS, 2 * Math.PI * share),
         brightMaterial,
       );
-      holder.add(bright);
+      spin.add(bright);
       materials.push({ material: brightMaterial, base: 1 });
 
       // Only where there is a share to leave. A ring the check measured no
@@ -295,11 +324,11 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
         );
         // Picks up where the bright arc stopped.
         faint.rotation.z = 2 * Math.PI * share;
-        holder.add(faint);
+        spin.add(faint);
         materials.push({ material: faintMaterial, base: FAINT_OPACITY });
       }
 
-      orbits.push({ holder, bright, faint, running: bar.outcome === "running" });
+      orbits.push({ holder, spin, bright, faint });
     });
 
     // One satellite per finding, on the orbit outside the rings, facing the
@@ -390,7 +419,7 @@ export interface SpecimenFrame {
   /** Focus and dim, already eased by the scene. */
   focus: number;
   dim: number;
-  /** How hard the sweep is reading this specimen, 0–1. */
+  /** How hard the wash is reading this specimen, 0–1. */
   read: number;
   /**
    * Arrival, as two numbers rather than one. They are not the same curve on
@@ -402,19 +431,22 @@ export interface SpecimenFrame {
   arrivalOpacity: number;
 }
 
+/** How much brighter a star's glow is while the light is on it, as a factor. */
+const READ_GLOW = 0.6;
+
 /**
  * Draw one node's frame.
  *
- * Scale has three contributors and one output, so nothing ever pulses out of
+ * Scale has one contributor beyond arrival, so nothing ever pulses out of
  * phase with the instrument that is supposed to be driving it: focus is the
- * reader, `read` is the sweep, and `alive` is a run still executing.
+ * reader. The wash is not a scale either — a star that grew as the light
+ * passed was the strobe decision 72 removed — it is the glow swelling. A live
+ * run is not a scale: it turns.
  */
 export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): void {
   const { elapsed, reducedMotion, camera } = frame;
 
-  const alive = !reducedMotion && node.spec.live ? 0.14 * (0.5 + 0.5 * Math.sin(elapsed * 2.4)) : 0;
-  const lift = 1 + frame.read * 0.45 + alive;
-  node.body.scale.setScalar((1 + frame.focus * 0.55) * lift * frame.arrivalScale);
+  node.body.scale.setScalar((1 + frame.focus * 0.55) * frame.arrivalScale);
 
   // Opacity is the dim state and the arrival fade at once. Both are multipliers
   // on the material's own resting value, which is not always 1.
@@ -422,26 +454,30 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
   for (const { material, base } of node.materials) {
     material.opacity = base * strength;
   }
+  // The light arriving: more of the glow's own colour, and nothing else moves.
+  if (node.glow)
+    node.glow.material.opacity = GLOW_OPACITY * strength * (1 + frame.read * READ_GLOW);
 
   if (!reducedMotion) {
-    // A check still in the sandbox has no measured radius, so its ring grows
-    // and shrinks around the unmeasured one rather than sitting at a size it
-    // never reported. Both arcs move with it: the share is a proportion.
-    for (const orbit of node.orbits) {
-      if (!orbit.running) continue;
-      orbit.holder.scale.setScalar(0.82 + 0.22 * (0.5 + 0.5 * Math.sin(elapsed * 3.1)));
-    }
+    const live = node.spec.live;
+    // The satellites go round, and a live run's rings turn in their planes and
+    // precess as a group. None of it carries anything: all of it is decoration
+    // by the rule that admits the haze and the glow, and what it shows is the
+    // shape, which is entirely measurement. A live run is the only star that
+    // turns its rings, which is what makes it the one star a reader can find.
+    const turn = live ? SATELLITE_TURN_LIVE_SECONDS : SATELLITE_TURN_SECONDS;
+    node.satellites.rotation.z = (elapsed / turn) * 2 * Math.PI;
+    node.rings.rotation.y = live ? (elapsed / PRECESS_SECONDS) * 2 * Math.PI : 0;
+    node.orbits.forEach((orbit, i) => {
+      // Alternate directions, so the system is rings and not a wheel.
+      const direction = i % 2 === 0 ? 1 : -1;
+      orbit.spin.rotation.z = live ? direction * (elapsed / RING_SPIN_SECONDS) * 2 * Math.PI : 0;
+    });
 
-    // The satellites go round, and a live run's rings precess. Neither carries
-    // anything: both are decoration by the rule that admits the haze and the
-    // glow, and what they show is the shape, which is entirely measurement.
-    node.satellites.rotation.z = (elapsed / SATELLITE_TURN_SECONDS) * 2 * Math.PI;
-    node.rings.rotation.y = node.spec.live ? (elapsed / PRECESS_SECONDS) * 2 * Math.PI : 0;
-
-    // One second of expansion and fade, restarting: a pulse leaving a run that
-    // is still executing.
+    // Expansion and fade, restarting: a pulse leaving a run that is still
+    // executing. Slow, so it reads as a breath and not a beacon.
     if (node.ring) {
-      const phase = (elapsed % 1.6) / 1.6;
+      const phase = (elapsed % PULSE_SECONDS) / PULSE_SECONDS;
       node.ring.scale.setScalar(0.55 + phase * 1.35);
       const material = node.ring.material as MeshBasicMaterial;
       material.opacity = 0.3 * (1 - phase) * strength;
@@ -452,6 +488,7 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
     // the frame reduced motion actually sees.
     node.satellites.rotation.z = 0;
     node.rings.rotation.y = 0;
+    for (const orbit of node.orbits) orbit.spin.rotation.z = 0;
     if (node.ring) {
       node.ring.scale.setScalar(1);
       (node.ring.material as MeshBasicMaterial).opacity = 0.18 * strength;

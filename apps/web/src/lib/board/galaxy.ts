@@ -1,7 +1,7 @@
 /**
  * Where a run sits in the galaxy.
  *
- * Depth is time and stays a measurement: the record is five layers by recency
+ * Depth is time and stays a measurement: the record is three layers by recency
  * (decision 71), and `layerOf` says which one a run is in. What this adds is
  * the position *within* a layer, and that is **not** a measurement — it is a
  * deterministic function of the run's slot and id and means nothing at all,
@@ -22,6 +22,7 @@
  */
 
 import { LAYER_COUNT, RECORD_X, layerZ } from "./chamber-layout";
+import { uniforms } from "./hash";
 import type { Vec3 } from "./orbit";
 
 /**
@@ -114,26 +115,10 @@ export function layerOf(index: number): Place {
   return { layer: last, slot: (index - start) % (LAYER_CAPACITY[last] ?? 1) };
 }
 
-/**
- * FNV-1a over the id, which is all this needs to be: a stable, well-mixed
- * number per run. Two draws from one hash rather than two hashes, so a run id
- * that differs in one character moves in both axes at once.
- */
-function hash(id: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < id.length; i += 1) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-/** The low and high halves of the hash, each as a uniform in [-1, 1). */
+/** Two draws from the id, each as a uniform in [-1, 1). One hash, not two. */
 function draws(id: string): [number, number] {
-  const h = hash(id);
-  const a = ((h & 0xffff) / 0x10000) * 2 - 1;
-  const b = (((h >>> 16) & 0xffff) / 0x10000) * 2 - 1;
-  return [a, b];
+  const [a = 0, b = 0] = uniforms(id, 2);
+  return [a * 2 - 1, b * 2 - 1];
 }
 
 /**

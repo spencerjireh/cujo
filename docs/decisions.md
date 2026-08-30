@@ -3606,3 +3606,101 @@ and the record below do not already say. **A text label per star**, which is
 the callout, and the callout already follows the pointer. **Keeping the box
 with the stars inside it**, which is the hallway. **Turning the rings to face
 the camera**, which costs a ring's tilt its meaning.
+
+## 72. A star's tilts are its own, the read walks the stars, and the copy is a caption
+
+Decision 71 was looked at running, with a live run on the board. Four things
+were wrong, and this time they were four things.
+
+### The tilts are the run's own
+
+Four tori on four fixed tetrahedral tilts around a sphere is the Bohr atom,
+and thirty of them is thirty of the same atom. The one property 71 kept the
+tetrahedral set for — every ring the same ellipse, each on its own diagonal,
+so a tilt *is* its check and two runs compare by silhouette — was not being
+read by anyone: a reader learning which diagonal is `probes` from a galaxy
+was never going to happen, and the colour and the radius already say what a
+ring is. So a run's four ring planes are now seeded off its id (`ringNormals`
+in `orbit.ts`): four azimuths a quarter turn apart from a jittered start,
+each jittered again by less than half a quarter, a polar lean drawn between
+two bounds so no ring is ever edge-on or flat, and alternate rings leaning
+away from the reader so a system is not a stack of dishes. Every star is its
+own system and no two share a silhouette. This **reverses** the "tilt is the
+check" claim of 71; what survives is that a ring's colour, radius and arc are
+measurements, which was always the part that carried anything.
+
+Seeded and never stored, for the same reason a place in a band is (70): one
+hash per ring on every build is cheaper than remembering thirty runs' tilts,
+it holds across rebuilds, and the run page's glyph and the key's diagram
+project the same normals the scene orients by, so the star beside a title is
+the star on the board seen down the view axis. The FNV-1a hash the galaxy
+already used moves to `hash.ts` and both draw from it.
+
+### The read walks the stars
+
+The plane of 71 lit a whole layer at once and crossed the record once per
+poll — every five seconds while a run was live, which is exactly when a
+reader is watching — and every star in the layer scaled up by half as it
+passed. That is a strobe, and it got faster when the board got busier. Three
+changes, in `wash.ts`:
+
+- **It walks the record run by run** rather than lighting a depth. The
+  cursor is an index; a run's index is its age and the layers are contiguous
+  ranges of index, so oldest-first *is* back layer first, and one layer is
+  finished before the next begins. "At most two runs more than half lit, and
+  they are neighbours" and "every run of a layer peaks before any run of the
+  next" are asserted, as the layer claim of 71 was. This is what 69's cursor
+  on the chain did, without drawing the chain.
+- **It takes at least fifteen seconds** whatever the poll interval, and a
+  poll that lands while a wash is walking starts nothing. The wash still
+  begins on a read (68), so it is still honest; it is no longer the poll's
+  metronome.
+- **It is a light.** One amber dot hops from star to star along the walk,
+  on the straight line between them, and the star it is on swells its glow;
+  nothing scales. It fades in at the oldest run and out at the newest, and
+  between walks there is no light, because nothing is being read. The gates
+  stay at rest: a gate going amber per layer was three rings flashing, which
+  was the pulse this set out to remove. The haze follows the cursor's layer.
+- **It takes a second and a half per star**, so a full board walks in
+  forty-five seconds. With an object on screen the per-hop speed is what a
+  reader sees, and fifteen seconds over thirty stars darted. "Scale with run
+  count" was rejected for the plane; it is right for a light.
+
+### A live run turns
+
+A live run had five motions at low amplitude: a scale breathing at 2.4
+rad/s, a running check's ring breathing at 3.1 rad/s, a thirty-second
+precession, forty-second satellites and a pulse every 1.6 s. Together they
+read as jitter, and a reader could not find the live star. By subtraction:
+the two breaths are gone, and what is left turns. The tori of a live run
+rotate in their own planes, alternate ways, so the bright arcs circulate
+round the core; its satellites go round in ten seconds and a finished run's
+in forty; the system precesses in eight; the pulse leaves it every four. A
+finished run turns only its satellites. The one star on the board whose
+rings are moving is the one still in the sandbox.
+
+### The copy is a caption
+
+The hero carried a paragraph beside a galaxy and the key carried four
+paragraphs under the record. The hero also carried a full-width band of dark
+across its bottom half to ground the stats, which covered the front layer of
+the galaxy; the band is now a third of the frame and solid only for its last
+tenth. A ground local to the stats block was tried and read as one dark
+corner. The hero now has the eyebrow, the headline, the
+stats and one sentence: colour is the verdict, rings are checks, dots are
+findings. The key keeps its diagram, whose labels are now the caption's
+words, with one line per part, the verdicts and the severities; the paragraph
+on what a critical defect and a critical accusation each do belongs on the run
+page and the pull request, which is where a reader meets one. The empty-state
+onboarding list stays: it is the one sequence on the board.
+
+Rejected: **coplanar rings**, which are a planetary system and are legible,
+but two checks of near-equal duration draw one ring, and a ring hidden by
+another is a check that did not happen. **A wash decoupled from polling**,
+a fixed loop with no read behind it, which would make the light decoration
+by 69's own test. **Removing the sweep**, which leaves a board that never
+shows it is reading. **Dropping the arc split on the board** for one solid
+ring per check: the share is the one thing on a ring the timeline does not
+also say louder, and the board and the run page have to be the same drawing.
+**Re-randomising tilts on every rebuild**, which re-tilts every star each
+poll while a run is live. **Text labels on stars**, still the callout. **The diagram in the hero**, beside the stats: tried, and it competed with the galaxy it was a key to.
