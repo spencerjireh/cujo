@@ -6,6 +6,7 @@ import { HeroReadout } from "@/components/board/HeroReadout";
 import { Legend } from "@/components/board/Legend";
 import { ReadoutRack } from "@/components/board/ReadoutRack";
 import { Record } from "@/components/board/Record";
+import { HomeMark } from "@/components/brand/HomeMark";
 import { POLL_LIVE_MS, POLL_QUIET_MS, runsListOptions } from "@/lib/api/queries";
 import { boardMetrics } from "@/lib/board/metrics";
 import { specimensFrom } from "@/lib/board/specimen";
@@ -56,6 +57,11 @@ export function RunsView() {
         aria-label="The chamber"
         className="relative isolate overflow-hidden bg-[var(--chamber)]"
       >
+        {/* On the chamber, so it takes the pinned viewport tokens rather than
+            the page's: this surface is a screen and stays dark in a lit room.
+            Inside the section and not above it, because it is positioned
+            against the chamber and scrolls away with it. */}
+        <HomeMark tone="chamber" />
         {/* Two forms of the same record, because it is a long thin thing and a
             viewport is not always wide. Wide: the scene, with the record
             running beside the headline, which is what the camera is framed for.
