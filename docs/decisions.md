@@ -4959,35 +4959,47 @@ this* — and only then *who it is about*. 86 had that order backwards.
 **Cujo takes the author line back; the opener takes the footer.** The footer
 is the embed's last line, and the one slot outside the author line whose icon
 renders to the left of its text — bottom-left, which is exactly where a
-signature belongs. So the footer reads
-`[@login](profile) · run <id> · <sha>` with the opener's avatar beside it,
-the same avatar-from-the-numeric-id and profile-link-from-the-allowlist rules
-55 and 86 both kept, moved rather than changed. A bot keeps its avatar and
-loses the link; a run with no stored author shows the handles alone and no
-icon.
+signature belongs. So the footer reads `@login · run <id> · <sha>` with the
+opener's avatar beside it, the avatar still built from the numeric account id
+exactly as 55 and 86 built it. A bot opener is named like anybody else, and a
+run with no stored author shows the handles alone and no icon.
 
-One price is paid knowingly. Footer text renders markdown — the reason 55
-refused this slot for a name — so the login is escaped there and `some_login`
-shows its backslash. The alternative was dropping the link, and a name that
-cannot be clicked to the profile it names is worth less than one with a
-visible escape in it.
+**The footer renders no markdown at all** — not a link, not even emphasis —
+which settles two questions at once and was learned the hard way: the first
+draft of this change built `[@login](profile)` into the footer and review
+caught that Discord draws that as literal syntax. So the profile link is
+dropped rather than shown as text pretending to be a link, and the login is
+cleaned by stripping alone rather than escaping, because a backslash in a
+no-markdown slot is litter rather than defusal — `some_login` keeps its
+underscore where 55's `Opened by` field showed `some\_login`. The run's own
+handles pass the same strip, because a bidi override reorders plain text as
+happily as markdown. The card's live links remain the run's own and the pull
+request's.
 
 **The sections breathe.** Between surviving field groups the card now carries
 a blank row: a field whose name and value are a single zero-width space,
 which renders as nothing but the row it occupies. It is Cujo's own literal,
 not a derived string, so the rule that strips zero-width characters from
-untrusted text is not reached by it. The spacers are reserved in the clamp's
-budget before it runs and inserted after it — a spacer placed ahead of the
-clamp could be all the clamp leaves of a dropped section, a dangling blank
-row where a section was — and group membership is tracked by identity so a
-dropped group takes its blank rows with it. The description-to-fields gap is
-fixed by Discord and stays as tight as Discord allows.
+untrusted text is not reached by it. The spacers are budgeted in the clamp
+and inserted after it — a spacer placed ahead of the clamp could be all the
+clamp leaves of a dropped section, a dangling blank row where a section was —
+and the reserve is searched from loose to tight, taking the first layout
+where the surviving content plus the blank rows those very survivors need
+fits the total. A fixed maximum reserve would over-reserve near the limit and
+pop a real field for blank-row budget a dropped section left unused; a
+downward correction is not sound either, because a looser clamp keeps more
+groups alive and those groups need the budget back. Group membership is
+tracked by identity, so a dropped group takes its blank rows with it. The
+description-to-fields gap is fixed by Discord and stays as tight as Discord
+allows.
 
 Rejected: **keeping the opener on the author line and only adding the
 spacers**, which was the first draft of this change and still opened every
 card with a stranger's name. **An `Opened by` field instead of the footer**,
 55's original answer, which puts the name and the avatar in two different
-corners of the embed again. **Dropping the profile link from the footer**,
-which makes the placement clean but the card less useful. **Real blank lines
-inside field values as spacers**, which widen sections instead of separating
-them.
+corners of the embed again. **Keeping the profile link by any other means**
+— a trailing field just to hold it, or link syntax left in the footer to be
+drawn literally — the first spends the field budget on a link the pull
+request field already provides, the second is text pretending to be a link.
+**Real blank lines inside field values as spacers**, which widen sections
+instead of separating them.

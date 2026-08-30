@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { DiscordMessagePayload } from "../../src/clients/discord";
+import type { DiscordEmbedField, DiscordMessagePayload } from "../../src/clients/discord";
 import {
   LIMITS,
   buildPing,
   buildRunCard,
   embedLength,
   escapeMarkdown,
+  layoutSections,
   truncate,
 } from "../../src/notify/card";
 import { emptyProjection } from "../../src/review/fold";
@@ -290,41 +291,64 @@ describe("buildRunCard", () => {
     it.each(STATUSES)("puts the opener bottom-left, in the footer, on %s", (status) => {
       const embed = embedOf({ status });
       // The footer renders its icon to the left of its text on the embed's
-      // last line: avatar in front, name after, handles last.
+      // last line: avatar in front, name after, handles last. No link —
+      // footer text renders no markdown, and `[@login](url)` would draw as
+      // literal syntax rather than click.
       expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/583231?s=64");
-      expect(embed?.footer?.text).toBe(
-        "[@octocat](https://github.com/octocat) · run 11111111 · abc1234",
-      );
+      expect(embed?.footer?.text).toBe("@octocat · run 11111111 · abc1234");
+      expect(embed?.footer?.text).not.toContain("](");
     });
 
-    it("escapes the login in the footer, which renders markdown", () => {
-      // The price of the placement (decision 88): footer text is markdown, so
-      // `some_login` carries its escape where the author line never would
-      // have. Known, chosen, and better than a name nobody can render safely.
+    it("cleans the login with stripping alone, not escaping", () => {
+      // A no-markdown slot draws a backslash rather than defusing one, so an
+      // underscored login must keep its underscore; the invisible characters
+      // still go.
       const embed = embedOf({ prAuthorLogin: "some_login" });
-      expect(embed?.footer?.text).toContain("@some\\_login");
-      expect(embed?.footer?.text).not.toContain("@some_login");
+      expect(embed?.footer?.text).toContain("@some_login");
+      expect(embed?.footer?.text).not.toContain("\\");
+      const dirty = embedOf({
+        prAuthorLogin: `octo${String.fromCharCode(0x200b)}cat`,
+      });
+      expect(dirty?.footer?.text).not.toContain(String.fromCharCode(0x200b));
+    });
+
+    it("sanitizes the handles, which are strings the store handed over", () => {
+      const embed = embedOf({
+        prAuthorLogin: null,
+        prAuthorId: null,
+        headSha: `a${String.fromCharCode(0x202e)}bc1234`,
+      });
+      // A bidi override reorders plain text as happily as markdown, so the
+      // footer's handles pass the same strip as the name.
+      expect(embed?.footer?.text).not.toContain(String.fromCharCode(0x202e));
+      expect(embed?.footer?.text).toContain("run 11111111");
     });
 
     it("builds the avatar from the account id, never from the login", () => {
       const embed = embedOf({ prAuthorLogin: "../../evil", prAuthorId: 42 });
       expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/42?s=64");
-      expect(embed?.footer?.text).not.toContain("github.com/");
+      expect(embed?.footer?.text).toContain("@../../evil");
     });
 
-    it("names a bot without linking it, but still with its avatar", () => {
+    it("names a bot with its brackets drawn, and still with its avatar", () => {
       const embed = embedOf({ prAuthorLogin: "dependabot[bot]", prAuthorId: 49699333 });
-      // Only the link is withheld; the brackets are escaped, because footer
-      // text is markdown and an unescaped bracket could open a link label.
-      expect(embed?.footer?.text).toContain("@dependabot\\[bot\\]");
-      expect(embed?.footer?.text).not.toContain("](https://github.com/");
+      // No markdown in the footer, so nothing is escaped and nothing could
+      // link even if it wanted to; only the avatar carries identity beyond
+      // the name.
+      expect(embed?.footer?.text).toContain("@dependabot[bot]");
+      expect(embed?.footer?.text).not.toContain("\\");
       expect(embed?.footer?.icon_url).toContain("49699333");
     });
 
-    it("links no login the allowlist rejects, however it is spelled", () => {
-      for (const login of ["a b", "-lead", "x".repeat(40), "o/r", "a_b", "https://evil"]) {
+    it("carries no URL in the footer at all, whatever the login", () => {
+      // The login-derived profile link retired with the footer placement
+      // (decision 88): footer text renders no markdown, so the card's live
+      // links stay the run's own and the pull request's.
+      for (const login of ["octocat", "a b", "-lead", "x".repeat(40), "o/r", "https://evil"]) {
         const footer = embedOf({ prAuthorLogin: login })?.footer;
-        expect(footer?.text, login).not.toContain("github.com/");
+        expect(footer?.text, login).not.toContain("github.com");
+        expect(footer?.text, login).not.toContain("](");
+        expect(footer?.text, login).not.toContain("://");
       }
     });
 
@@ -413,6 +437,47 @@ describe("buildRunCard", () => {
         links: LINKS,
       });
       expect(payload.embeds?.[0]?.fields?.filter(isSpacer)).toHaveLength(0);
+    });
+
+    it("claim no budget a dropped section left unused", () => {
+      // Pack synthetic groups to the exact character where a fixed reserve
+      // and a corrected one differ. Three groups; the last group is a
+      // 100-character field the clamp must drop, and what survives of the
+      // second is a two-character field a fixed maximum reserve would have
+      // popped with it — needlessly, because the layout that keeps it, its
+      // one blank row included, still fits the total.
+      const field = (name: string, size: number): DiscordEmbedField => ({
+        name,
+        value: "v".repeat(Math.max(0, size - name.length)),
+      });
+      const groups: DiscordEmbedField[][] = [
+        [field("a1", 3000)],
+        [field("b1", 2), field("b2", 2995)],
+        [field("c1", 100)],
+      ];
+      // 3000 + 2 + 2995 + 100 = 6097, so the clamp must drop something.
+      const laid = layoutSections({ fields: groups.flat() }, groups);
+      const fields = laid.fields ?? [];
+      const names = fields.map((f) => f.name);
+      // The 100-character field is gone, the two-character one is not, and
+      // one blank row separates the two groups that remain: 5997 + 2 = 5999.
+      expect(names).toEqual(["a1", "\u200b", "b1", "b2"]);
+      expect(embedLength(laid)).toBeLessThanOrEqual(LIMITS.total);
+    });
+
+    it("still drop whatever no reserve can save", () => {
+      // Well past every reserve: the layout settles within the limit, with
+      // no blank row after the last surviving field.
+      const big = (name: string): DiscordEmbedField => ({
+        name,
+        value: "v".repeat(2000),
+      });
+      const groups: DiscordEmbedField[][] = [[big("a1"), big("a2")], [big("b1")], [big("c1")]];
+      const laid = layoutSections({ fields: groups.flat() }, groups);
+      expect(embedLength(laid)).toBeLessThanOrEqual(LIMITS.total);
+      const fields = laid.fields ?? [];
+      expect(fields[fields.length - 1]?.name).not.toBe("c1");
+      expect(isSpacer(fields[fields.length - 1])).toBe(false);
     });
   });
 
