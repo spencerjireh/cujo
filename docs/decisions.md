@@ -73,6 +73,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 65. [A public list row carries what the checks measured, not only the verdict](#65-a-public-list-row-carries-what-the-checks-measured-not-only-the-verdict)
 66. [The sandbox must never crash silently; sensor logs count what they lost](#66-the-sandbox-must-never-crash-silently-sensor-logs-count-what-they-lost)
 67. [The setup window is measured, because guessing at it picks the wrong fix](#67-the-setup-window-is-measured-because-guessing-at-it-picks-the-wrong-fix)
+68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
+69. [Losing the stream is not a verdict; only the watchdog ends a turn](#69-losing-the-stream-is-not-a-verdict-only-the-watchdog-ends-a-turn)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3176,3 +3178,86 @@ vocabulary plus the two functions that write `data-theme` and `localStorage`,
 pure enough for its own unit test. Only the *animation* suppression stays per
 instance, because a toggle mounted later still starts from the position the
 server rendered and must not slide from it.
+
+## 69. Losing the stream is not a verdict; only the watchdog ends a turn
+
+A run on `orders-api#18` lost its SSE stream. `Runner.consume` spent its three
+resubscribes over twenty-two seconds, injected a synthetic `turn.done`, and the
+run ended `error: "turn stream lost"`. The turn was not dead. Its sub-agents
+were still running, and the next run on the pull request could not start:
+
+```
+422 Cannot process user messages while sub agents are running
+```
+
+The first fix proposed for that 422 was to find the live turn and cancel it.
+A contract test against a real TrueForge (`trueforge.contract.test.ts`) says
+neither half of that works. Four facts, none of them what we assumed:
+
+- a *running turn* does not wedge a session at all — starting a second turn
+  supersedes it, which the neighbouring test has always shown. Running
+  **sub-agents** are what TrueForge refuses to interrupt;
+- the refused `startTurn` **cancels the turn on its way out**, so by the time
+  any heal looks, the turn reads `cancelled` and the wedge is invisible;
+- **`cancelTurn` does not release the session**. The sub-agents outlive it, and
+  the retry after a cancel is refused exactly as the first attempt was;
+- only an empty-input turn is accepted, which is what the 422 text advises.
+
+So the 422 is not a defect to route around. TrueForge is refusing to interrupt
+work in progress, correctly. The defect is upstream: Cujo abandoned a turn that
+was still working and published a verdict about it.
+
+That verdict was wrong three ways over. It claims an observation Cujo never
+made, which is the one thing decision 54 exists to forbid — the code said so
+itself, in a comment admitting the error was "indistinguishable from a turn that
+genuinely failed on its merits". It can be contradicted by reality, because the
+abandoned turn still holds `github-mcp` and can post its review afterwards. And
+it caused the 422: `error` hides a run from `listUnfinishedRuns`, so `startRun`
+stopped superseding it, so its turn was never cancelled, so the next head landed
+on a busy session. Failing fast created the bug it looked like it was avoiding.
+
+The rule now is that a failure is reported only when it is observed. When the
+resubscribes are spent, the run watches the turn through `listTurns` and folds
+the verdict it really reached from the persisted events, the same way a restart
+rebuilds one. A read that fails is not a verdict either; it is retried. The
+thirty-minute watchdog is unchanged and is now the only place a run ends without
+a terminal event — and because that *is* a decision rather than a guess, it
+cancels the turn it ends, which is the cleanup no path had before.
+
+Note this is what `docs/spec.md` already said: the `error` row has always read
+"the stream was lost and the replayed turns show no terminal event **after the
+turn timeout**". The code was failing at twenty-two seconds against a
+thirty-minute budget. This brings the two back into line rather than changing
+the contract.
+
+Chosen over / Rejected: **detecting a running turn and cancelling it**, ruled
+out by the second and third facts above — there is nothing left to detect and
+the cancel does not work; **sending empty input to unstick the session**, the
+only call TrueForge still accepts, but a remedy for a state Cujo should not
+reach, and it asks a run to wait an unbounded time on work it already abandoned;
+**a second liveness check in `startReview` before it claims a head**, which
+duplicates `Runner.start`'s job by different means — `start` is the choke point
+both the webhook and `/cujo review` pass through, and that kind of duplication
+is what put two bugs in review on PR #72; **cancelling the turn where the stream
+is given up on**, which looks like the root-cause fix but destroys evidence: a
+turn whose subscriber died may still finish and post a real review, and
+cancelling guarantees it cannot; and **keeping the synthetic terminal but
+cancelling beside it**, which leaves the false verdict in place and only tidies
+up after it.
+
+This does not reverse decision 39's rejection of *matching the 422 text*.
+Nothing here reads an error message; the turn's state is read from `listTurns`
+and the verdict from the events.
+
+Known limit: a run whose stream dies now sits `running` — the reaction on
+"eyes", the board in progress — until the turn really ends, where before it
+flipped to `error` inside a minute. That feedback was wrong whenever it fired,
+but it was faster. If thirty minutes is too long to leave a pull request author
+waiting, the lever is `CUJO_TURN_TIMEOUT_MS`, which is a real bound, and not a
+fabricated verdict at twenty-two seconds. A second limit: dropping the synthetic
+terminal from this path also drops the flag that made a stream-lost run
+ineligible for `retryTurn`, so a turn that genuinely ended in error and posted
+nothing now gets the one retry every other error already got. That is the flag
+working as intended — it existed to stop Cujo retrying its own fabrication — but
+it is a behaviour change, and the watchdog keeps the flag so a timeout still
+never doubles its own budget.
