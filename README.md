@@ -1,16 +1,25 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="brand/readme/banner-dark.svg">
-  <img alt="cujo" src="brand/readme/banner-light.svg" width="480">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/readme/banner-dark.svg">
+    <img alt="cujo" src="brand/readme/banner-light.svg" width="420">
+  </picture>
+</p>
 
-Cujo reviews pull requests by running them. It clones a PR into a throwaway
-sandbox, runs the tests on base and head, probes the changed code, boots the
-app, installs any new dependency in isolation, and posts a review that cites
-what happened. A review that would block the merge waits for a human to confirm
-it.
+<p align="center">
+  Cujo reviews pull requests by running them.<br>
+  <a href="https://youtu.be/rA7HLMxZypU">Demo video</a> &middot;
+  <a href="https://cujo.spencerjireh.com">Live board</a> &middot;
+  <a href="docs/architecture.md">Architecture</a>
+</p>
 
-Demo: [demo video](https://youtu.be/rA7HLMxZypU) of a clean run, a
-regression, and a hostile dependency. Live board: <https://cujo.spencerjireh.com>.
+It clones a PR into a throwaway sandbox, runs the tests on base and head,
+probes the changed code, boots the app, installs any new dependency in
+isolation, and posts a review that cites what happened. A review that would
+block the merge waits for a human to confirm it.
+
+<p align="center">
+  <img alt="The board. Each star is one run, colour is the verdict, rings are checks, dots are findings." src="brand/readme/screenshot-board.jpg" width="800">
+</p>
 
 ## Why
 
@@ -39,6 +48,10 @@ first, somewhere it can do no harm, and tells you what it saw.
    `cujo-guard[bot]`: a summary of what ran plus inline comments. With one, the
    review requests changes — and that one action pauses until a human answers
    `/cujo confirm` on the pull request.
+
+<p align="center">
+  <img alt="A run page. Four checks on one time axis, then the findings, worst first." src="brand/readme/screenshot-run.jpg" width="800">
+</p>
 
 No secret ever enters the sandbox. PR code and dependency names go in; JSON
 reports come out.
