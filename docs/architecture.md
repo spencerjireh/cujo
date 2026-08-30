@@ -196,10 +196,13 @@ the session refuses the new head's turn while one is pending (decision 39).
    session with that context: repo, PR number, base SHA, head SHA, changed
    files. It stays subscribed to the turn's event stream and folds what it
    sees into a run the UI can show while the checks are still going.
-3. **Into the sandbox.** The agent provisions a Daytona sandbox, clones head,
-   adds a worktree at base, seeds the decoy secret, starts the logging proxy
-   and the decoy watcher, and reads `.cujo.yml` from base if the repo has one
-   (policy comes from the target branch, never from the PR).
+3. **Into the sandbox.** The agent provisions a Daytona sandbox and runs two
+   commands. `sniff.py prepare` clones head, adds a worktree at base, and hands
+   back `.cujo.yml` from base if the repo has one (policy comes from the target
+   branch, never from the PR) together with the head's build files, so the
+   parent settles policy and infers the commands in one step rather than five
+   (decision 71). `sniff.py setup` then seeds the decoy secret and starts the
+   logging proxy and the decoy watcher.
 4. **Run the checks.** The agent spawns one subagent per check, all at once —
    nothing a check needs comes from another, and the sensors serialise
    themselves (decision 41). `tests` runs

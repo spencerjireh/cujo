@@ -76,6 +76,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
 69. [Losing the stream is not a verdict; only the watchdog ends a turn](#69-losing-the-stream-is-not-a-verdict-only-the-watchdog-ends-a-turn)
 70. [Probe scripts are captured by the sensor, not self-reported by the agent](#70-probe-scripts-are-captured-by-the-sensor-not-self-reported-by-the-agent)
+71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3294,3 +3295,240 @@ against what the sensor actually saw. The cap and scrub prevent a large
 generated file from inflating the report or leaking decoy material. The
 field is nullable and optional in the Zod schema, so older reports that
 lack it pass validation unchanged (decision 62 passthrough).
+
+## 71. The mechanical half of setup is one command, because none of it is a decision
+
+Rubric steps 2 through 4 were `git clone`, `git checkout`, `git worktree add`,
+and `cat .cujo.yml`, followed by however many reads it took to find a `test`
+command in `pyproject.toml`, `package.json`, a `Makefile` or a CI workflow.
+Every one of them was its own command and therefore its own model round trip,
+and not one depends on what the model made of the one before. They were separate
+because the rubric numbered them separately.
+
+`sniff.py prepare` does all of it and returns `cujo_yml` — the base copy — with
+`files`, the head's build files. The parent settles policy and infers the
+commands from one result. Setup becomes: fetch the tarball, `prepare`, `setup`,
+install.
+
+**It parses no YAML, and that is the floor.** Decision 46 leaves nothing under
+`sandbox/` able to import a third-party module, so `allow_hosts` would have to
+come out of a hand-rolled reader. Hand-rolling YAML to save one round trip is a
+bad trade in a file whose whole purpose is to be believed, so the raw text goes
+back and the parent still composes its own `--allow-host` list. Two commands is
+therefore the minimum without a YAML parser, and two is enough.
+
+**In Python rather than as a longer `&&` chain**, which was the obvious cheaper
+answer. Three things follow from the choice and none would from the chain.
+`sandbox/tests/` covers it — fifty cases, hermetic, cloning a repository
+built in `tmp_path` — where rubric prose is covered by nothing, which is the
+argument decision 41 already made about serialising the checks. The output is
+one JSON object with `steps[]`, so a failure names the git call that failed
+instead of arriving as a shell transcript. And it is a place to put a refusal:
+
+**And it refuses a clone URL whose host is not one Cujo reviews.** The URL is
+supposed to arrive from `apps/cujo`, which reads it from the GitHub API — but it
+reaches the sandbox in a turn message that also carries the pull request's own
+title and body, and the model composes the argv. "It comes from the API"
+describes where the value starts, not where it must have come from, so a pull
+request that talked the model into a different `--clone-url` would have this box
+clone and report on somebody else's code, under this pull request's name.
+`api.github.com` is already hardcoded in `clients/github.ts`, so naming the same
+host here narrows nothing that works today; it is a list because a GitHub
+Enterprise deployment would add to it, and that day the trusted side changes too.
+
+The host alone was not enough, which took a second pass to see: every public
+repository on GitHub shares it, so the check refused an attacker's *server* and
+allowed an attacker's *repository*. The URL now has to name the repository the
+run is for, compared against `--repo` from the same turn message, folded for
+case because GitHub resolves owners and names that way.
+
+**`prepare` refuses a clone URL carrying a credential.** `AGENTS.md` has always
+said no token, key or clone credential may reach the sandbox, and nothing
+enforced it — the rule held because private repositories are a non-goal, so no
+credential existed. That is a fact about today's callers, not a property of the
+box. The scheme check (`http`/`https` only) also refuses `ssh://`, the scp-like
+`git@host:path`, and anything starting with `-` that git would read as an
+option; a query string or fragment is refused outright, because that is where a
+signed URL puts its token and deciding which parameters are secret is a guessing
+game; the refusal never echoes the URL back, and the clone URL is redacted from
+the recorded `steps[].argv` as a second line. The SHAs are checked against
+`[0-9a-fA-F]{7,40}` before git runs, for the same reason.
+
+**It never deletes a directory it did not create.** The first version
+`rmtree`d whatever `--head` and `--base` pointed at. Those arrive on argv, argv
+is composed by the model, and the model has just finished reading a pull
+request — so "the caller would not pass `/`" is a statement about today's prompt
+and not a property of this command. A path is replaced only when it is absent,
+or when a marker this command wrote sits beside it; anything else is somebody's
+data and is refused before git runs.
+
+The marker is the second version. The first asked whether the directory held a
+`.git`, which is true of every checkout on the machine — so it enforced "never
+delete a directory that is not a git repository" while the heading above claimed
+"never delete a directory it did not create". A weaker property wearing the
+stronger one's name is worse than no property, because it is the heading people
+read, and with `--head` model-composed the gap between the two was reachable.
+The marker is a sibling and not a file inside, because `git clone` and
+`git worktree add` both want a target that does not exist yet, and it is written
+before anything is removed, so a run that dies halfway leaves a state the next
+run still recognises as its own.
+
+The alternative was requiring both paths under `/work`. It was rejected because
+the tests point at `tmp_path` and would then have needed a container to run at
+all — and a rule that can only be tested in production is the kind that stops
+being true.
+
+**It reads only real files inside the checkout.** A build file's name is the
+pull request's to choose, and so is whether that name is a symlink:
+`pyproject.toml -> /etc/shadow` would otherwise turn a manifest reader into an
+arbitrary-file reader aimed at the box the sensors run in, and hand the result
+back as JSON. Every candidate must be a non-symlink resolving under the clone
+root, and the walk does not follow directory symlinks.
+
+**The cap bounds the read and not just the output.** Reading a file whole and
+trimming afterwards means a hundred-megabyte manifest costs a hundred megabytes
+to discover it was too long, and the file is written by the pull request, which
+makes that a lever rather than a curiosity. At most four bytes per permitted
+character are read — UTF-8's worst case — plus one to tell a file that exactly
+fits from one that does not.
+
+**And the budget is spent on the escaped text, not the text.** This one was
+wrong first. Escaping is an expansion — `\x1b` is four characters for one,
+`\u202e` is six — so capping the input and calling `scrub` afterwards is a cap
+on the wrong quantity: four thousand permitted characters of right-to-left
+override leave as twenty-four thousand, and across forty files that is a
+megabyte of prompt where the documented budget is a hundred and sixty kilobytes.
+The file is chosen by the pull request, so the gap is a lever on exactly the
+thing the budget exists to protect. `scrub_head` and `scrub_tail` therefore
+escape and measure in one pass, spending the budget one whole character at a
+time: escaping everything first and slicing the result would fix the size and
+cut `\u202e` into `\u20`, which is text the file never contained. A kept
+newline still costs one, so the ordinary manifest is not charged for the
+hostile one's defence.
+
+**`.cujo.yml` is never truncated, and never in `truncated`.** This was the
+sharpest of the review findings, because the bug was assembled out of two
+correct pieces. `truncated` names what came back capped so the model can re-read
+it — from `/work/head`, which is right for a build file and is the whole point
+of reading them. Putting the base policy file in that same list pointed that
+sentence at the pull request's own copy, so a `.cujo.yml` long enough to cap
+would have let a pull request supply its own `allow_hosts`. The trust boundary
+was drawn correctly and then routed around by a list that meant something else.
+
+So policy gets its own budget, four times larger and separate, and its own
+`cujo_yml_error` field. Past the budget it is **unreadable**, not partial: half a
+policy is worse than none, because the half that did not fit may be the
+allowlist, and a reviewer that reads `test:` and misses the hosts proceeds
+confidently with the wrong permissions. Absent and unreadable stay distinguishable,
+which is decision 54's rule applied to two absences that are not the same fact.
+
+**"I could not look" is never reported as "there is nothing there."** Both
+started as silence, and both silences were load-bearing. `_read` answers None
+for a path it refuses and for a path that will not open, and collapsing that
+into a null `cujo_yml` told the rubric the repository has no policy — so a
+`.cujo.yml` that was a symlink out of the tree would have started a run with no
+`allow_hosts` and nothing said. The same shape sat in `_collect`, where a
+refused manifest vanished from `files` without appearing in `truncated` or
+`omitted`, and a repository whose only test command lived in that file reviewed
+as a repository with no test suite. Both now say so: `cujo_yml_error` covers
+unreadable as well as oversized, and `unreadable[]` names the build files that
+matched and could not be read.
+
+This is the same rule three times over — a cap that was not applied, a file that
+was not read, a comparison that was not made are all facts to report, never
+absences to imply (decision 54). The symlink guard was right and the reporting
+of it was not, which is the more interesting half: a refusal that is silent is a
+refusal an attacker can aim.
+
+`is_symlink()` is asked before `exists()`, because `exists()` follows a link and
+a dangling one would otherwise land back in "the repository has no policy" — the
+exact case the check exists for.
+
+**And reporting it was not enough: the rubric was told what to do about it.**
+The first version of that fix said to go and read the file directly, which is
+the one answer that cannot be given. A path is in `unreadable` *because* `_read`
+would not touch it — nearly always a symlink out of the checkout — so telling
+the parent to open it walks straight around the containment guard and hands the
+pull request whatever it aimed the link at. Reporting a refusal and then
+instructing the reader to undo it is worse than not reporting it, because it
+launders the refusal into permission.
+
+So the outcome is four values and not a nullable string: `read`, `absent`,
+`too_large`, `unreadable`. `too_large` is an ordinary file inside the checkout
+and the parent may open it. `unreadable` stops the run. A sentence explaining
+why the field is null is not something a rubric can branch on, and this needed
+branching.
+
+And the rubric treats an unreadable policy as **blocking**, not as a note. The
+first wording said to read it from `/work/base` "if you need it", which asks the
+parent a question it cannot answer: the part it did not get is exactly the part
+that would have changed its mind. `allow_hosts` appears in no build file, and a
+policy `test` overrides whatever was inferred, so proceeding on inference is
+proceeding with the wrong permissions and calling it a clean read.
+
+Everything else read is written by the pull request, so it goes back through the
+escape and the cap like any other untrusted string, and anything capped is named
+in `truncated` rather than silently shortened (decision 54). The cap takes the
+**head** of a file where the tail form takes the end: a command's failure is at
+the bottom of its output, and a manifest declares its dependencies at the top.
+Lock files are not read at all — hundreds of kilobytes that say nothing about how
+to run anything, and they would crowd out the files that do.
+
+The same cap-then-escape shape is live in `runner.py`'s `stdout_tail` and
+`stderr_tail`, where it predates this change and bounds every check report. It
+is a separate PR because it changes what shipped reports contain and deserves
+its own attribution; `scrub_tail` exists here ready for it.
+
+**The head commit is fetched by pull ref, which is what makes a fork
+reviewable.** `apps/cujo` sends `pr.base.repo.clone_url` and no credential, so
+for a pull request opened from a fork the head commit lives in a repository the
+sandbox never sees, and the old rubric's `git clone && git checkout <sha>` would
+have failed at the checkout with no check run at all. Nobody noticed because
+every demo pull request is a branch on the target repository. GitHub publishes
+each pull request's head on the *base* repository as `refs/pull/<n>/head`,
+publicly, so one extra fetch reaches it with no token and no second host at the
+boundary. The PR number is already in the turn message and already listed as
+permitted public metadata, so this adds no crossing.
+
+Fetched **always**, and not as a fallback for when the checkout fails. The ref
+exists for a same-repository pull request too, so one path serves both — and a
+fallback would put the fork case on the branch least likely to be exercised,
+which is the same reasoning that keeps the sensor lock uniform in decision 41.
+
+**And it refuses when the ref has moved.** `refs/pull/<n>/head` tracks the pull
+request, so between the webhook and the clone it can advance past `--head-sha`.
+Reviewing the newer commit would attach every finding to a SHA the run does not
+claim, on a page that names the old one. `prepare` stops and names both;
+`supersede` is the mechanism that already handles a new push, and refusing is
+what lets it.
+
+**A walk, not a list of root-relative names, and the omissions are counted.**
+The repository under review need not be one project at its own root: the demo
+target holds six services under `services/<name>/` and has no root manifest at
+all, so a root-only reader would return nothing and the parent would go back to
+opening files one at a time — the round trip this exists to remove. Two
+directories deep, skipping `node_modules` and its kin, shallowest first when the
+file cap bites, and `omitted` counts what the cap dropped. That count is
+load-bearing downstream: "no test suite found" skips every check and becomes the
+entire review, so it has to mean the repository has none and never that one
+capped result failed to name one. The rubric says so, and the manifest set
+covers every language the reviewer might meet rather than the ones we thought of
+first — the demo target alone is C++, Go, Node, PHP, Python and Rust.
+
+**The deploy ordering is safe in the one direction it has to be.** The tarball
+is `main`-relative and updates the moment this merges, while `apps/cujo` serves
+the old rubric until the image swaps, so the window holds a new tarball beside
+an old rubric — and the old rubric never calls `prepare`. The dangerous
+direction, an old tarball meeting a new rubric, cannot occur (`CONTRIBUTING.md`,
+"Merging deploys").
+
+Rejected: **requiring `/work`** for the checkout paths, above. **Cloning the
+fork's own repository**, which avoids the ref trick and adds a second untrusted
+host to the crossings table for nothing. **Reviewing whatever the pull ref
+points at**, which would keep the run moving and make its recorded `head_sha` a
+lie. **One longer `&&` chain**, for the three reasons above. **Teaching
+`prepare` to parse `.cujo.yml`**, which buys one round trip for a hand-written
+YAML reader in the sandbox. **Reading the lock files too**, which is where the
+resolved versions are — but detonation gets those from the manifest diff, which
+is the check that needs them. **A shallow clone**, which would be faster and
+would then not have the base commit to make a worktree from.

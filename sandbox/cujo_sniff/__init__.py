@@ -1,8 +1,11 @@
 """Cujo in-sandbox sensors and detonation.
 
-Runs inside the Daytona sandbox as the check subagents' one shared tool. Four
+Runs inside the Daytona sandbox as the check subagents' one shared tool. Five
 commands, each printing exactly one JSON object on stdout:
 
+    python3 sniff.py prepare --clone-url U --head-sha H --base-sha B --pr-number N
+        Clone the head, add the base worktree, and print the base `.cujo.yml`
+        and the head's build files, so the rest of setup is one decision.
     python3 sniff.py setup [--allow-host H ...]
         Seed the decoy secret, start the logging proxy and the decoy watcher,
         write the Python audit hook. Prints the env the checks must export.
