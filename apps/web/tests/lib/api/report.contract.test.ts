@@ -81,7 +81,9 @@ describe("the canonical report example", () => {
       blocks: [{ secret_probe: { decoy_in_egress: false } }],
     });
     // Neither one lights the alarm; only a true would.
-    expect(alarms(block(EXAMPLE, 1))).not.toContain("decoy secret left the sandbox");
+    expect(alarms(block(EXAMPLE, 1), "detonation").map((alarm) => alarm.text)).not.toContain(
+      "decoy secret left the sandbox",
+    );
   });
 
   it("opens the card for a sensor that was off, without raising a second chip", () => {
@@ -95,7 +97,7 @@ describe("the canonical report example", () => {
     // runs, so this one blind interval is true of two of the three blocks; a
     // chip on each would count one gap twice. The health strip carries it, once
     // per card, and says which run it was.
-    expect(alarms(quiet)).toEqual([]);
+    expect(alarms(quiet, "detonation")).toEqual([]);
     expect(unarmed(block(EXAMPLE, 0))).toEqual(["decoy"]);
     expect(unarmed(block(EXAMPLE, 1))).toEqual([]);
     // The audit hook being unarmed is ordinary for a check that runs no Python.
@@ -117,7 +119,7 @@ describe("the canonical report example", () => {
     const bare = block({ egress: [] }, 0);
     expect(bare.sensors).toBeNull();
     expect(unarmed(bare)).toEqual([]);
-    expect(alarms(bare)).toEqual([]);
+    expect(alarms(bare, "detonation")).toEqual([]);
     expect(needsAttention(bare)).toBe(false);
   });
 });

@@ -77,14 +77,20 @@ that is reversed after it was built or shown is noted here rather than deleted
 69. [Losing the stream is not a verdict; only the watchdog ends a turn](#69-losing-the-stream-is-not-a-verdict-only-the-watchdog-ends-a-turn)
 70. [Probe scripts are captured by the sensor, not self-reported by the agent](#70-probe-scripts-are-captured-by-the-sensor-not-self-reported-by-the-agent)
 71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
-68. [The mechanical half of setup is one command, because none of it is a decision](#68-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
 72. [A length cap is spent on the escaped text, not on the text](#72-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
-69. [A length cap is spent on the escaped text, not on the text](#69-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
 74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
 75. [The record is one field of a fixed length, and an empty one is armed](#75-the-record-is-one-field-of-a-fixed-length-and-an-empty-one-is-armed)
 76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
 77. [Detonation covers every ecosystem `MANIFESTS` recognises](#77-detonation-covers-every-ecosystem-manifests-recognises)
+78. [The Python suite runs in parallel, and a superseded run is cancelled](#78-the-python-suite-runs-in-parallel-and-a-superseded-run-is-cancelled)
+79. [Entry selectivity: drafts, labels, and docs-only advisory](#79-entry-selectivity-drafts-labels-and-docs-only-advisory)
+80. [The chamber may have air in it, and the air is two files](#80-the-chamber-may-have-air-in-it-and-the-air-is-two-files)
+81. [Depth is time; across the volume means nothing, and says so](#81-depth-is-time-across-the-volume-means-nothing-and-says-so)
+82. [The record is a galaxy, and a run is a star with orbits](#82-the-record-is-a-galaxy-and-a-run-is-a-star-with-orbits)
+83. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#83-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
+84. [A lane says how bad, not what happened; the sentence is where the sentence fits](#84-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
+85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -793,7 +799,7 @@ was a path that skipped Access: fetching `https://cujo.spencerjireh.com/`
 against the origin IP returned the operator UI with no login. Nothing leaked,
 because `access.ts` re-checks the assertion on every request (Contract 6), so
 `/api/*` answered `401` and only the empty shell rendered, which is the case
-the second gate was written for. A Hetzner Cloud firewall now accepts ports 80
+the second gate was written for. A Hetzner Cloud firewall now accepts ports 82
 and 443, TCP and the UDP used by HTTP/3, only from Cloudflare's published
 ranges. Port 22 stays open: the Coolify control plane deploys over it from
 another host (see 2), its egress address is not fixed, and narrowing it would
@@ -2999,7 +3005,7 @@ Three runs on `orders-api`, read off the public API after decision 59 landed:
 
 | run | total | claim → first check | checks | tail | sensed |
 |---|---|---|---|---|---|
-| PR 17 | 526s | **84s** | 151s | 291s | 28s |
+| PR 17 | 526s | **85s** | 151s | 291s | 28s |
 | PR 16 | 633s | **109s** | 122s | 402s | 17s |
 | PR 15 | 1452s | **156s** | 653s | 643s | 18s |
 
@@ -3013,7 +3019,7 @@ slice. The window before the first check is what is left, and it is the same
 **Nothing measured it, and the two candidate causes have opposite fixes.**
 `timings.ts` splits a check into `sandboxMs` and `modelMs`, but the parent runs
 on thread `main`, which never emits `thread.created`, so it has no stamp in the
-projection at all. If the 84 seconds is Daytona provisioning a box, the rubric
+projection at all. If the 85 seconds is Daytona provisioning a box, the rubric
 is irrelevant and the answer is upstream. If it is the parent taking a dozen
 round trips to clone a repository and read a manifest, the rubric is the whole
 answer. Acting without knowing which would have been a guess dressed as a fix.
@@ -3064,6 +3070,12 @@ happened; it closes on the first thread the rubric *named* for a check.
 time and loses the two spans whose other end is on the run record.
 
 ## 68. Nothing in the chamber exists that is not a measurement
+
+**Amended by 80**, which narrows this rule to geometry and admits one named
+decorative layer, **and by 82**, which deletes the room — the floor ticks, the
+wall ribs, the shell and the chain — and keeps the rule: one gate per layer
+that holds a run is what the occupancy strip becomes. Not reversed: everything
+below still holds of every object that carries a fact.
 
 The board drew every run as a specimen and drew the room around it out of
 nothing: the floor grid repeated at a fixed pitch, the chain ran the length of
@@ -4138,3 +4150,668 @@ PRs still get a full sandbox run but cannot block a merge. An empty changed
 file list is not docs-only (a metadata-only PR should still be judged).
 The `isDocsOnly` predicate is conservative: only well-known prose extensions
 and basenames match, so a code file cannot accidentally qualify.
+
+## 80. The chamber may have air in it, and the air is two files
+
+**Amended by 82**, which makes the sweep a plane again — a layer is one depth,
+so the objection below to a plane no longer applies — and promotes the dust to
+a star field. Still two files.
+
+**Amended by 81**, which narrows the rule once more — a specimen's depth is a
+measurement and its position across the volume is not — and reverses two of the
+choices below: phones no longer keep the flat elevation, because there is no
+longer a flat elevation, and the sweep is no longer a plane. Not reversed:
+everything here about the decorative layer, the bloom threshold, and where a
+rule with a claim in it has to live.
+
+Decision 68 made every object in the chamber a measurement, and that was the
+right rule. What it left behind was an instrument that is correct and inert.
+Materials are unlit on near-black by design, `LineBasicMaterial` ignores
+`linewidth` on every desktop driver, and on a board with no live run the only
+motion in the whole scene was a forty-four second drift of four hundredths of a
+radian — which over the seconds anybody actually looks at a page is a still
+frame. The product's central claim was a faint wireframe in a 40rem band under
+a bordered header, with a type wash over three fifths of it.
+
+The honest reading of 68 forbids the fix. Haze is not a measurement. Neither is
+a graded backdrop, a mote of dust, film grain, or a glow behind a core. Each of
+them could be moved, resized or recoloured without a fact changing, which is
+exactly the test 68 wrote down.
+
+**So the rule is narrowed rather than broken: no *geometry* exists that is not
+a measurement.** Every shape, length, position and colour still comes from a
+run or from the room's own axis. What is admitted is a layer that describes the
+medium those shapes hang in rather than the shapes themselves — and it is
+admitted as a boundary, not as a licence. The decorative layer is
+`chamber/atmosphere.ts` and `chamber/post.ts`. Neither imports `Specimen`, and
+neither may. A reader checking whether this rule is being kept looks at two
+import lists, which is a cheaper check than the one 68 left them with.
+
+The layer is a graded backdrop parented to the camera, five additive haze
+planes that brighten where the sweep passes, about two hundred motes of drifting
+dust, an additive glow sprite behind each core, and a film pass. Everything
+brightens by `multiplyScalar` from an existing token; no `--chamber-*` value
+changed, and the glow sprite is greyscale and tinted per specimen, so the light
+in the room can never introduce a hue the palette does not already spend.
+
+**The bloom threshold is where the rule actually bites.** `UnrealBloomPass`
+thresholds in linear space, where `--chamber-fg` — the colour of a check that
+passed — sits near 0.72 and `--chamber-amber` near 0.47. Set low enough to
+bloom the amber sweep, it also blooms four bone arms and washes them toward
+white: a decorative pass repainting a colour that means something. The
+threshold sits above bone. What glows is the sprite drawn to glow, the amber
+sweep, and `blocked_pending` — things that emit light, never a verdict.
+
+### The sweep reads one specimen at a time
+
+Decision 68 made the sweep the poll, which was right, and then lit every
+specimen within `SWEEP_REACH` of the plane on a linear falloff. At a reach of
+1.1 scene units against a slot spacing of 0.58 that is nearly two slots either
+side: four specimens brightening together, which reads as a glow passing over
+the record rather than as an instrument taking one reading at a time. The
+envelope is now narrow enough that at most one specimen is more than half lit at
+any point in a crossing — asserted in `tests/lib/board/sweep.test.ts` rather
+than eyeballed — and asymmetric, because a specimen the plane has not reached is
+anticipating and one it has passed has just been read.
+
+### A run arrives; it does not appear
+
+`setSpecimens` released every node and rebuilt all of them on each poll. That is
+correct and says nothing: the board's most interesting moment, a review
+starting, was drawn as a flicker — while the sweep two lines away exists to
+announce exactly that. The record is now diffed by id (`lib/board/arrival.ts`),
+a landing run eases into the front slot while the rest slide back, and a node is
+rebuilt only when `specimenSignature` says its *drawing* changed. A poll that
+returns an equal record, which is almost every poll, touches nothing.
+
+### Everything with a rule in it left the scene files
+
+`apps/web` runs vitest in node with no DOM, so nothing under
+`components/board/chamber/` can be tested at all. The easing, the layout
+constants, the sweep envelope, the record diff, the dust field and the camera
+placement are now in `src/lib/board/`, where they are, and the scene modules are
+wiring. This is why the sweep's sequencing claim and the reduced-motion
+guarantee are assertions rather than intentions: reduced motion still renders
+exactly one frame, now through the whole composed pipeline, and every new motion
+has a defined resting value at time zero.
+
+### The bar is gone and the chamber takes the window
+
+The site header held a wordmark and a second theme control the footer already
+carried, and charged the chamber the top of every page for it. It is deleted.
+The mark is absolute in the corner and scrolls away, placed by each page rather
+than by the layout — its fill is `currentColor`, so what it needs is a text
+colour, and the board's chamber is pinned dark while a run page follows the
+reader's theme. A server layout cannot know which it is rendering without being
+told, and the page telling it is simpler than a hook. The run header gains an
+"all runs" breadcrumb, because most readers arrive there from a link in a GitHub
+review and the mark scrolls off.
+
+The hero is `100svh`, the wash is a band under the readout instead of three
+fifths of the frame, and the renderer gate comes down from `lg` to `md` — phones
+keep the flat elevation, which is where a composed frame with a bloom pass in it
+is the wrong trade. The record now starts below the fold: the board says what it
+is first and lists what it has second.
+
+### The run page draws its own specimen
+
+A reader who followed a specimen from the chamber used to arrive at a page that
+described the same run in words and gave them nothing to recognise. It now draws
+one, beside the title, from the same builder — parameterised by a rig rather
+than a flag named after its caller, so "no chain to hang from and no floor to
+land on" is stated in the builder's own vocabulary. The flat SVG renders first
+and the canvas replaces it once `three` loads, because that page is usually
+reached cold from a GitHub comment. `chamber/inline.ts` imports neither the room
+nor the composer, which keeps the addons off every run page — a property one
+stray `import` from `scene.ts` would silently undo.
+
+Rejected: **letting bone bloom**, which is more luminous on a healthy board and
+makes a post pass a partial author of what "this check passed" looks like.
+**Changing the `--chamber-*` values** to get vibrancy, which would have moved
+the drawing away from the badge for the same run and invalidated the contrast
+table in `brand/brand.md`; brightness at the call site does the same work and
+leaves the tokens true. **Dropping the measurement rule entirely** and treating
+the chamber as a hero image, which is the change this one exists to avoid.
+**A third `BOXES` preset in `ChamberFallback`** for the run page's flat
+specimen, which would have drawn a chain and a rail the WebGL version does not:
+two drawings of one run have to be one drawing, so it got its own glyph with the
+same rig.
+
+## 81. Depth is time; across the volume means nothing, and says so
+
+**Amended by 82**, which keeps the rule — depth is time, position across it
+means nothing and the key says so — and replaces what it was applied to: the
+field is three layers, the shape is a star with orbits, the chain is not drawn,
+the camera stands outside because there is no mouth, and the sweep is a plane.
+Not reversed: the arm split by strength rather than hue, `sandboxMs` on a list
+row, the serializer guard, the deleted flat elevation, the reordered headline.
+
+Decision 68 said no object in the chamber exists that is not a
+measurement. Decision 80 narrowed that to geometry and admitted one named
+decorative layer, `atmosphere.ts` and `post.ts`, on the grounds that a layer
+describing the medium is not a claim about a run. Both still hold of everything
+that carries a fact. This narrows the rule once more, at the one place left
+where it was costing the drawing more than it was buying it.
+
+The record was a line: every specimen at one x and one y, spaced down the depth
+axis by `SPACING`. That is honest and it reads as a row of pins in a case — a
+corridor with a rail down the middle of it, most of a full-height frame holding
+nothing. **A specimen's depth is still time. Its height and its lateral position
+are a deterministic function of its run id and mean nothing at all.** The seam is
+one file and it is checkable the way 80's is: `scatter.ts` takes an id and a
+depth, imports `chamber-layout` and `ease`, and knows nothing else about a run.
+
+Deterministic matters as much as decorative. A field reshuffled on each poll
+would be an animation of nothing, and a reader who found a specimen once could
+never find it again; seeded off the id, a run sits where it sat.
+
+Two constraints, both tested rather than eyeballed. Nothing leaves the volume at
+any depth. And nothing crosses `minX(z)`, which rises toward the open face —
+the readout is at the left of the frame and a near specimen is the largest thing
+on screen, so the two of them have to be kept apart at the end where it matters.
+The spread itself is a cone rather than a box, because the camera moved: at the
+near end the frame is barely two units across, and a newest run at full spread is
+not scattered, it is off the side of the screen.
+
+The legend says this in words. A reader will otherwise assume a specimen sitting
+high means something, which is the failure mode a decorative axis has and a
+decorative haze does not.
+
+### The chamber is seen from inside it
+
+`MOUTH_Z` is the volume's near face and the camera stands 0.5 units behind it,
+so the box's near edges are out of frame and its rails and ribs run off the top
+and the sides toward the vanishing point. That is what fills the top of a
+100svh hero. A box 2.3 units tall viewed from beyond it could not: framed so its
+depth fits, its height only ever occupied a band across the middle, and the
+answer was never going to be a taller box — a taller empty box is still empty.
+
+The volume is 7.2 by 4.2 by 13 where it was 3.9 by 2.3 by 17, and the chamber
+draws ten runs where it drew twenty-four. Fewer, larger, further apart: ten
+objects a reader can tell apart beats twenty-four dots receding into one, and
+both the readings above and the record below still carry how many runs there
+have been.
+
+### The chain threads the record, and the sweep travels it
+
+The chain used to run overhead with a drop line per specimen. It threads them
+now, in order, which keeps decision 68's rule about it — its length is the
+record's length — by construction rather than by an end-point formula, and makes
+it the only thing left saying a scattered field is a *series*.
+
+**The sweep rides it.** A plane crossing the volume was right while one depth was
+one run; over a field it lights every run at that depth together, which is
+exactly the defect decision 80 narrowed the envelope to remove, arriving back by
+a different route. A cursor on the chain visits them in the order the board holds
+them however they are scattered, and "at most one specimen more than half lit" is
+still asserted — now against the tightest gap on a real scattered path rather
+than against an assumed slot spacing.
+
+It is also a soft additive light rather than the *edges* of a box of depth
+0.001. That is what a reader was actually seeing: an amber rectangle framing the
+scene, not light passing through it.
+
+### A specimen is a solid, and an arm carries two numbers
+
+Four arms in the plane facing the camera is a drawing of a run rather than an
+object: the camera drifts, the volume breathes, and nothing about the shape is
+ever revealed because there is nothing behind it. The arms leave the core along
+the four diagonals of a cube — the tetrahedral arrangement, every pair at
+109.47°, the widest four directions can be from each other.
+
+**And the flat drawing did not move.** Projected down the view axis those four
+land on exactly the 45° diagonals the specimen has always been drawn with. So
+the run page's glyph and the legend's diagram keep the silhouette a reader
+already knows, and all three call `projectArms` rather than laying the angles out
+again — which is what stops four independent copies of one shape drifting apart.
+That they agreed at all was luck.
+
+An arm's length is how long its check watched; its solid part is how much of that
+was the sandbox executing the pull request, and the thinner tail is the sub-agent
+deciding what to do next. Decision 68 rejected a second *hue* for that split by
+name, and strength is what it asked for instead. An arm whose check measured no
+share is drawn whole, never all-tail: null is not zero.
+
+The findings leave the drop line for six fixed slots around the core. Fixed
+rather than spread to fit, for two reasons and the second is why the first is not
+enough: slots make the cap visible, so one finding fills a sixth of the ring and
+six fill it; and even spacing cannot clear the arms — at five marks the spacing
+is 72° against arms 90° apart, and the best available offset still puts a mark
+4.5° from a check.
+
+The core is sized as a ratio of the arms. It was radius 0.042 against an
+`ARM_MAX` of 0.3 — the verdict drawn as the smallest thing in a picture that
+exists to show the verdict — and stating it as a ratio is what keeps that from
+happening again the next time the arms are resized.
+
+### A list row says how much of each check was execution
+
+`DigestCheck` was `{status, ms}`: one number for a check that measured two. The
+detail route has carried the split since `CheckTimings` landed, so the run page
+could say where a check's time went and the chamber, looking at the same run,
+could not. `sandboxMs` is that number on a list row, read off the timings the
+fold already computed rather than re-summed — `apps/web` ports `digest.ts` by
+hand, and a second implementation of the same sum is the most direct way to break
+the contract that both sides get the same answer.
+
+Null and never zero, now for three reasons rather than two: the check is still
+running, its report carried no `runs[]`, or the digest was stored before the
+field existed. That last one is permanent. `backfillDigest` re-derives a
+*missing* digest and not a stale one, so every already-folded run keeps a blob
+without the key for good; the `?? null` in the serializer is what stands between
+those rows and a response whose shape varies per run.
+
+**It also found a hole in decision 34's guard.** `serializePublicSummary` copied
+`digest.checks` through *by reference*, so a field added to `DigestCheck` reached
+the wire past every allowlist on both sides — `PUBLIC_DIGEST_FIELDS` classifies
+`RunDigest`'s three keys, one of which is `checks`, and it can see no further.
+The file says twice that a field must be written down before it can be published;
+that was true of the digest and not of a check inside it. Checks are shaped per
+field now, walked over `CHECK_NAMES`, with `PUBLIC_DIGEST_CHECK_FIELDS` and a
+`Record<keyof DigestCheck, true>` on both sides of the wire.
+
+### Nothing flat is served any more
+
+`ChamberFallback` is deleted. It drew the record as SVG for two audiences and
+was wrong for both. A phone got the chain hung down a hundred-pixel margin —
+the record is a long thin thing, and the same picture turned sideways is a column
+of dots — under a full screen of near-black held open for it. A desktop browser
+that refused a WebGL context got the horizontal form, a second drawing that had
+to track every change to the first.
+
+That cost was already real and this decision makes it unpayable: a flat elevation
+of a scattered field with a chain through it, seen from inside the volume, is not
+the same drawing however carefully it is redrawn, and two pictures that disagree
+are worse than one picture and a list. Both cases get the record itself. The
+hero collapses on a phone and on a browser that will not draw it, and holds its
+screen while a canvas is still importing — `Chamber` reports three states rather
+than a boolean, because "not yet" and "never" used to lay out identically and no
+longer do.
+
+This reverses 80's "phones keep the flat elevation" and its rejection of a third
+`BOXES` preset, which is now moot: `SpecimenGlyph` survives as its own file, and
+it was always a different job.
+
+### The board says what it does before it says how
+
+"Containment record", "executed in a sealed sandbox", "running the code, not
+reading it" — three statements about the mechanism and none about the job. The
+headline is still a count and not a slogan, which is what `brand/brand.md` asks
+for; it counts pull requests reviewed, and the sandbox moved to the sentence
+under it. The readout splits across the frame, claim at the top and readings at
+the bottom, because one block anchored to the bottom left of a full-height hero
+left the top of it holding nothing.
+
+Rejected: **free scatter on all three axes**, which abandons the claim the whole
+board rests on for a starfield. **Height as severity and lateral as repository**,
+which is the version of this that keeps every axis a measurement and was the
+first instinct — it makes the drawing a chart, and a chart of two facts already
+on every row is a worse use of a volume than a record you can walk into.
+**Keeping the chain overhead** with drop lines to a scattered field, which draws
+twenty-four lines to nowhere in particular and says less than one line through
+the runs themselves. **Turning each specimen to face the camera**, which always
+presents its widest profile and costs an arm's direction its meaning. **Redrawing
+the field flat** for phones, which at that width is a smudge. And **a minimum
+presence floor** so a clean run reads as an object anyway — a calm board is
+calm, which is the reading `brand/brand.md` asks for and the one a maintainer
+wants to be able to take at a glance.
+
+## 82. The record is a galaxy, and a run is a star with orbits
+
+Decision 81 scattered the record across a box and made a specimen a solid.
+Looking at it running, four things were wrong and they were one thing: ten runs
+spaced down a thirteen-unit corridor, inside a wireframe box with rails, is a
+hallway with objects in it. The depth was too great to read as layers and too
+sparse to read as a field; the box made the field a room; the tetrahedron was
+small and said little at any distance; and the amber sweep, a soft light nearly
+three units across, was the largest object on screen. This replaces the shape,
+the room and the field together, because they were composed together and could
+not be fixed apart.
+
+### A run is a star with four orbits
+
+The core is the star and the verdict, in its colour, sized by the worst thing
+the run found, with the additive glow behind it that the bloom pass already
+lights. Each check is a ring round it on one of four fixed tilts: its radius is
+how long the check watched, the bright arc of it is the share spent executing
+in the sandbox and the faint remainder is the agent deciding, and its colour is
+how the check ended. Findings are satellites on an orbit outside the rings, six
+fixed slots so the cap stays visible. A check that never appeared has no ring,
+as it had no arm.
+
+**The four ring planes are the four tetrahedral directions the arms used to
+leave the core along, now used as normals.** That is the one piece of the old
+shape that survives, and it survives for the reason 81 chose it: every pair is
+109.47° apart, the widest four planes can be, and each projects down the view
+axis to an ellipse with the same minor/major ratio, squashed along one of the
+four 45° diagonals. So `tests` is still upper-left and `detonation` lower-left
+in the flat glyph, two runs are still comparable by silhouette, and `orbit.ts`
+asserts it — every ring the same ellipse, each on its own diagonal — where
+`caltrop.ts` asserted the equivalent for arms. Three flat drawings and one
+solid read `projectRing`, as they read `projectArms`.
+
+A pointer picks the system and not the core. The core is a tenth of a unit
+across and a hover that had to find it would find nothing, so every node
+carries an invisible sphere the raycaster is given instead; the raycaster does
+not consult `visible`, and the sphere writes no colour and no depth.
+
+The satellites go round, and a live run's rings precess. Neither carries
+anything; both are decoration by the rule that admits the haze and the glow,
+and what they show is the shape, which is entirely measurement. Under reduced
+motion both are at rest.
+
+### Three layers of time
+
+The record is three layers by recency, 2.6 units apart, holding six, ten and
+fourteen runs — thirty, up from ten. Depth is time and nothing else, as it has
+been since 65; what changes is that a reader can count it. Equal groups rather
+than age buckets, because a layer that can be empty is a gap the drawing has to
+explain. It was five layers first, and five read as a wall: the apparent size
+of one layer against the next was too close to tell apart, and every ring in
+it was too large. Three layers a reader can name at a glance, with rings two
+thirds the size, is a galaxy with a front, a middle and a back.
+
+Within a layer a run's place is a function of its slot and its id: slots at
+equal angles round a band, wider than tall, jittered by the id by less than
+half the gap to the next slot. It still means nothing (81), and the key still
+says so. Two things are tested rather than eyeballed: no two runs in a layer
+come within one and a half rings of each other whatever their ids, and no band
+crosses the clear line for its layer, which is higher toward the front because
+a near star reaches furthest into the type.
+
+### The room is gone, and the gates remain
+
+No shell, no rails, no ribs, no floor ticks. A galaxy is not in a box, and the
+box was what made the field read as a hallway. What remains of 68's occupancy
+rule is one gate per layer — an ellipse at the band's own extent, drawn only
+while the layer holds a run — so three gates say the record is three layers
+deep and one says it is one. The dust becomes a star field: nine hundred motes at two
+sizes in a volume far larger than the record, reaching past the back layer and
+off every edge of the frame, because a galaxy does not end where the record
+does. And the lattice comes back — the wireframe volume, its rails and its
+ribs — as texture: it was the room and said something, one rib per slot; it
+says nothing now, its pitch is a fixed number, and a field of stars in the dark
+with nothing behind it reads as flat, where lines running to a vanishing point
+are the cheapest depth there is. It is still `atmosphere.ts`, still decorative,
+still two files, and that is exactly why the lattice lives there and not in
+`room.ts`.
+
+### The sweep is a plane again
+
+80 narrowed the sweep from a plane to a cursor on the chain because the record
+was a scattered field and a plane lit every run at one depth together. A layer
+*is* one depth. A plane lights one layer at a time, oldest first, which is what
+an instrument reading a record in three pages looks like, and "at most one layer
+more than half lit" is asserted against the layer spacing. The gate is the
+light — it goes amber and solid as the plane reaches it and settles as it
+passes — and the additive quad that framed the scene is deleted.
+
+### The chain is not drawn
+
+`brand/brand.md` says Cujo is a guard dog on a chain, and the chain has been in
+the chamber since 65. A line threading thirty points in three bands is a
+scribble, and there is no honest place for it in a galaxy. The mark, the name
+and the copy keep the motif; the chamber stops drawing it. This is the one
+thing here that is a loss rather than a trade, and it is written down as one.
+
+### The record rises over the chamber
+
+The hero scrolled away like a banner. The galaxy is the ground the board stands
+on, so from `md` up the section is sticky and the rack, the record and the key
+rise over it as one opaque sheet. A pinned hero never leaves the viewport — it
+is only ever covered — and intersection knows nothing about overlap, so a
+one-pixel sentinel in flow between the hero and the sheet says when the sheet
+has covered everything, and the page hands that to the chamber as a gate on
+its loop beside the two it already had.
+
+Rejected: **age buckets for the layers**, above. **Every run in the galaxy**,
+which scales the frame's cost with the record and buys nothing the stats line
+and the record below do not already say. **A text label per star**, which is
+the callout, and the callout already follows the pointer. **Keeping the box
+with the stars inside it**, which is the hallway. **Turning the rings to face
+the camera**, which costs a ring's tilt its meaning.
+
+## 83. A star's tilts are its own, the read walks the stars, and the copy is a caption
+
+Decision 82 was looked at running, with a live run on the board. Four things
+were wrong, and this time they were four things.
+
+### The tilts are the run's own
+
+Four tori on four fixed tetrahedral tilts around a sphere is the Bohr atom,
+and thirty of them is thirty of the same atom. The one property 82 kept the
+tetrahedral set for — every ring the same ellipse, each on its own diagonal,
+so a tilt *is* its check and two runs compare by silhouette — was not being
+read by anyone: a reader learning which diagonal is `probes` from a galaxy
+was never going to happen, and the colour and the radius already say what a
+ring is. So a run's four ring planes are now seeded off its id (`ringNormals`
+in `orbit.ts`): four azimuths a quarter turn apart from a jittered start,
+each jittered again by less than half a quarter, a polar lean drawn between
+two bounds so no ring is ever edge-on or flat, and alternate rings leaning
+away from the reader so a system is not a stack of dishes. Every star is its
+own system and no two share a silhouette. This **reverses** the "tilt is the
+check" claim of 82; what survives is that a ring's colour, radius and arc are
+measurements, which was always the part that carried anything.
+
+Seeded and never stored, for the same reason a place in a band is (81): one
+hash per ring on every build is cheaper than remembering thirty runs' tilts,
+it holds across rebuilds, and the run page's glyph and the key's diagram
+project the same normals the scene orients by, so the star beside a title is
+the star on the board seen down the view axis. The FNV-1a hash the galaxy
+already used moves to `hash.ts` and both draw from it.
+
+### The read walks the stars
+
+The plane of 82 lit a whole layer at once and crossed the record once per
+poll — every five seconds while a run was live, which is exactly when a
+reader is watching — and every star in the layer scaled up by half as it
+passed. That is a strobe, and it got faster when the board got busier. Three
+changes, in `wash.ts`:
+
+- **It walks the record run by run** rather than lighting a depth. The
+  cursor is an index; a run's index is its age and the layers are contiguous
+  ranges of index, so oldest-first *is* back layer first, and one layer is
+  finished before the next begins. "At most two runs more than half lit, and
+  they are neighbours" and "every run of a layer peaks before any run of the
+  next" are asserted, as the layer claim of 82 was. This is what 80's cursor
+  on the chain did, without drawing the chain.
+- **It takes at least fifteen seconds** whatever the poll interval, and a
+  poll that lands while a wash is walking starts nothing. The wash still
+  begins on a read (68), so it is still honest; it is no longer the poll's
+  metronome.
+- **It is a light.** One amber dot hops from star to star along the walk,
+  on the straight line between them, and the star it is on swells its glow;
+  nothing scales. It fades in at the oldest run and out at the newest, and
+  between walks there is no light, because nothing is being read. The gates
+  stay at rest: a gate going amber per layer was three rings flashing, which
+  was the pulse this set out to remove. The haze follows the cursor's layer.
+- **It takes a second and a half per star**, so a full board walks in
+  forty-five seconds. With an object on screen the per-hop speed is what a
+  reader sees, and fifteen seconds over thirty stars darted. "Scale with run
+  count" was rejected for the plane; it is right for a light.
+
+### A live run turns
+
+A live run had five motions at low amplitude: a scale breathing at 2.4
+rad/s, a running check's ring breathing at 3.1 rad/s, a thirty-second
+precession, forty-second satellites and a pulse every 1.6 s. Together they
+read as jitter, and a reader could not find the live star. By subtraction:
+the two breaths are gone, and what is left turns. The tori of a live run
+rotate in their own planes, alternate ways, so the bright arcs circulate
+round the core; its satellites go round in ten seconds and a finished run's
+in forty; the system precesses in eight; the pulse leaves it every four. A
+finished run turns only its satellites. The one star on the board whose
+rings are moving is the one still in the sandbox.
+
+### The copy is a caption
+
+The hero carried a paragraph beside a galaxy and the key carried four
+paragraphs under the record. The hero also carried a full-width band of dark
+across its bottom half to ground the stats, which covered the front layer of
+the galaxy; the band is now a third of the frame and solid only for its last
+tenth. A ground local to the stats block was tried and read as one dark
+corner. The hero now has the eyebrow, the headline, the
+stats and one sentence: colour is the verdict, rings are checks, dots are
+findings. The key keeps its diagram, whose labels are now the caption's
+words, with one line per part, the verdicts and the severities; the paragraph
+on what a critical defect and a critical accusation each do belongs on the run
+page and the pull request, which is where a reader meets one. The empty-state
+onboarding list stays: it is the one sequence on the board.
+
+Rejected: **coplanar rings**, which are a planetary system and are legible,
+but two checks of near-equal duration draw one ring, and a ring hidden by
+another is a check that did not happen. **A wash decoupled from polling**,
+a fixed loop with no read behind it, which would make the light decoration
+by 80's own test. **Removing the sweep**, which leaves a board that never
+shows it is reading. **Dropping the arc split on the board** for one solid
+ring per check: the share is the one thing on a ring the timeline does not
+also say louder, and the board and the run page have to be the same drawing.
+**Re-randomising tilts on every rebuild**, which re-tilts every star each
+poll while a run is live. **Text labels on stars**, still the callout. **The diagram in the hero**, beside the stats: tried, and it competed with the galaxy it was a key to.
+
+## 84. A lane says how bad, not what happened; the sentence is where the sentence fits
+
+The run page had four places where a thing was said in the wrong size for the
+box it was said in, and the same fix in each: put the short form where the eye
+sweeps and the long form where a reader stops.
+
+**A timeline lane ends with a verdict, not with a finding's title.** The title is
+a sentence a model wrote — "3 tests pass on base and fail on head" — and the lane
+ends in a twelve-rem column, so every lane worth reading ended in an ellipsis.
+Truncation is the failure mode of putting prose in a slot: it cut most often
+exactly where the run had most to say. A lane now carries how many findings the
+check produced and how bad the worst one was (`2 critical`, `1 warn`, `ok`), or,
+where the sandbox itself tripped, which alarm it was (`decoy read`,
+`unknown egress`) — `lib/verdict.ts`, from fields already on the wire. The
+alarm outranks the count deliberately: "the decoy was read" is a fact the number
+of findings does not carry, and the number is one click away.
+
+**And the lane is that click.** It is a button over the whole row, and it opens
+the check's report card, scrolls it into view and moves focus to it — the
+delivery `Record` already does when a specimen in the chamber picks a row, down
+to `focus({ preventScroll: true })` and firing once per pick rather than on every
+poll. The two sections are siblings, so the signal is state in `RunView` rather
+than a store; a nonce rides with the name so picking the same lane twice delivers
+twice.
+
+**The decision bar is one line, and only while something is outstanding.** It was
+a pinned band of three sentences on every run — including the four statuses where
+nothing is being waited on, which spent a permanent strip of the window saying
+so. What confirming and dismissing *do* is a fact about the held review, so it is
+said under that review where there is room for it; what is pinned is the state
+and the two words. A run that is over says why in the flow of the page.
+
+**A collapsed disclosure shows the thing it is a disclosure of.** Provenance shut
+was a blank box with `expand` at the right of it: a section whose whole purpose
+is to name four handles, naming none. Shut, it is now the handles on one line.
+The words `expand` and `collapse` are gone from the page — they were a fifth
+column of type on rows that had four, and a word at the right edge reads as
+though only that word is the control, which was never true. A glyph on the same
+64-unit grid as the mark says the state, and the whole row is visibly the
+trigger it always was.
+
+**Every section says what it is.** One muted line under each heading, in the
+recipe the page already used once. "Provenance" and "detonation" are Cujo's
+words, not a reader's.
+
+### The specimen is a view, not a glyph
+
+128 pixels with nothing behind it, in the header of a page largely about it. It
+is 224 now (160 under `md`), on the chamber's own ground inside a hairline
+border, sized from a `ResizeObserver` rather than a constant. Two layout bugs
+were hiding under the old size and neither survives at this one: the header row
+wrapped in reverse, so a phone got the specimen *above* the title rather than
+under it, and `items-start` under `flex-wrap-reverse` means the bottom, so the
+title block hung off the specimen's floor.
+
+The mark moved too, or rather stopped moving: `HomeMark` positions itself against
+its nearest positioned ancestor, which on the board is the full-bleed chamber and
+on a run page was the centred column — half a gutter in from where the board puts
+it. One mark in two places is two marks.
+
+Rejected: **deriving "3 failed" or "500 on GET /orders"** for a lane, which is
+what the truncated sentences were saying and what a reader wants. Nothing on the
+wire carries a test count or a status code; only the model's prose does, and
+shortening that prose here would be this page inventing a measurement.
+**A severity word alone**, dropping the count, which loses the difference between
+one advisory note and eleven. **Anchors and `href="#"`** for lane-to-report,
+which apps/web has none of and which would put a check name in the URL bar as
+though it were a route. **Keeping the pinned bar on finished runs** as a
+consistent page footer, which is a strip of window spent on "nothing to do".
+
+## 85. An observed zero is a result; an unobserved one is not
+
+The report card is what an operator reads before blocking a merge, and it was a
+dump. Four tables with no column headers, so `185.220.101.4:443 | 3.1 KB |
+unknown` asked the reader which figure was bytes and what `unknown` was unknown
+about. Cells that rendered blank for three different reasons. And a group that
+returned nothing at all when it had no rows, so the cleanest possible check —
+the one where nothing happened — expanded into empty space, and the reader had
+to know that meant clean.
+
+**A table with a live sensor behind it says `none`; a table with no sensor
+behind it says nothing.** That is the whole rule, and it comes from the block
+`sandbox/cujo_sniff/report.py` writes for exactly this purpose: `sensors` exists
+so that "not observed" and "not observable" stop looking alike. The web side had
+been parsing it and rendering it as four grey dots. Now `groupState` reads it per
+table — the proxy behind egress, the audit hook behind files read and
+subprocesses, the filesystem diff behind the change list — and a table is either
+`measured` (rows, or the word `none`), `blind` (`not measured`, and what the
+sandbox said about the sensor), or `unknown`, which behaves exactly as the page
+always has, because a report that never said cannot be made to claim either.
+
+**Coverage is a sentence, once per block.** "All four sensors were watching." /
+"Nothing tripped, but the proxy was not running, so nothing outbound was
+measured." It replaces the dotted strip rather than joining it: the strip said
+the same thing in a form that read as decoration, and the four `detail` strings
+it carried are reference, so they moved under the raw-report disclosure. This is
+a qualification of one block's own tables, not a second alarm, so decision 20's
+rule — one blind interval must not be *counted* twice — is intact. Nothing here
+is counted.
+
+**An alarm's colour comes from whether a hard rule reads it.** The four flags
+`apps/cujo/src/review/findings.ts` turns into findings are all `critical` there;
+`wrote_outside_workspace` is read by no rule, because a build that writes to
+`/tmp` is ordinary. It was rendered in the same red as the other four, which is
+the page accusing the code of something Cujo's own rules do not.
+
+The rest is discipline. Named columns, shared between the header and the rows so
+they cannot drift. `—` where a cell was blank, and `in workspace` where the
+absence of "outside workspace" was doing the work. `refused ×3` where a row the
+proxy blocked was indistinguishable from a connection that moved no data — the
+count was on the wire from `merge_egress` and this side dropped it. A command
+that wraps rather than truncates, because the tail is the answer. Evidence set
+to its own measure, narrower than the page column, since a full-width table put
+seven hundred pixels between a host and its byte count. And one disclosure
+pattern: the raw report is a Collapsible with a chevron, like the card above it
+and the provenance section below it, not a native `<details>`.
+
+**The tables collapse, and a flag decides which ones open.** A detonation report
+is a roll-up plus one block per dependency, so a card that opened everything was
+twelve tables deep and the reader scrolled past eleven of them to reach the one
+the alarms were about. `flaggedTables` maps each derived flag to the table that
+proves it — unknown egress to egress, a decoy or sensitive read to files read,
+a write in the wrong place to filesystem changes, a spawned subprocess to the
+process list — and a card opens on exactly those. Everything else is a heading
+and a count until somebody asks, which is also what makes a clean block worth
+reading: four lines and four numbers instead of four tables of rows nobody
+wanted. `spawned_subprocess` is in that map and deliberately not in `alarms`: an
+install spawns processes, so it accuses nothing, but when the sandbox sets it the
+process list is the list to read. A table with no rows is not a control and
+carries no glyph, and its heading's `0` is the whole statement — the `none` line
+under it was the same fact twice.
+
+Rejected: **plain-language headings** ("Where it called out" for egress), which
+reads better cold and then disagrees with the finding, the review comment and the
+sandbox contract, all of which say `egress`. One vocabulary end to end is worth
+more than one easier heading. **Keeping the dotted strip beside the new
+sentence**, which is the same fact twice in four centimetres. **Rendering `none`
+for a report with no health block**, which would be this page claiming an
+observation no sandbox made. **A left rule down the open card** to tie the
+evidence to its row, which at hairline weight in a view that is already all
+hairlines is one more line, not a device. **A hover ground on a table heading**,
+which is the pattern the card row and the raw report use and is wrong at four
+headings a block and three blocks a card — the chevron says it is a control
+without putting a band of colour under every second line. **Collapsing the
+blocks too**, a third level of disclosure inside the second, which buys a
+scroll and costs a reader the ability to see what a card holds.

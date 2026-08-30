@@ -1,12 +1,13 @@
 "use client";
 
 import type { RunSummary } from "@/lib/api/types";
+import { CAPACITY } from "@/lib/board/galaxy";
 import { type Specimen, specimensFrom } from "@/lib/board/specimen";
 import { focusStore, setFocusedRun, setSelectedRun, useFocusedRun } from "@/lib/board/store";
 import { SEVERITY_ORDER, STATUS_LABELS, TONE_CHAMBER_VAR } from "@/lib/board/tone";
 import { duration } from "@/lib/format";
+import { prefersReducedMotion } from "@/lib/motion";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChamberFallback } from "./ChamberFallback";
 import type { ChamberHandle } from "./chamber/scene";
 
 /**
@@ -18,45 +19,67 @@ import type { ChamberHandle } from "./chamber/scene";
  * server bundle entirely — the module touches `window` at construction, and
  * Next would otherwise trace it into the standalone output.
  *
- * The fallback is not an error state. It is what renders on the server, what
- * stays for a browser with no WebGL, and what a small viewport gets instead of
- * a renderer it would spend a frame budget on.
+ * There is no fallback drawing any more. A viewport too narrow for the scene,
+ * and a browser that will not give it a context, both get the record itself
+ * rather than a picture of it — so this component reports which of those it is
+ * in and the page decides how much of the screen to hold open.
  */
 
-/** Below this width the scene is a smear; the flat elevation says more. */
-const MIN_WIDTH = 640;
-/** How many runs the chamber draws. The record below still lists them all. */
-const CAPACITY = 24;
+/**
+ * Below this width the scene is a smear, and the record below says more.
+ *
+ * 768, and this constant and the CSS gate that hides the component have to
+ * agree — they did not once, the gate at `lg` and this at 640, so between those
+ * widths the component was hidden and the renderer would have started anyway
+ * had it ever been shown. The gate is `md`, and `md` is 768.
+ */
+const MIN_WIDTH = 768;
+
+/**
+ * What the renderer is doing. `pending` covers both "not started" and "still
+ * importing"; `unavailable` is terminal for this mount.
+ */
+export type ChamberStatus = "pending" | "live" | "unavailable";
 /** Kept clear of the frame edge, so the callout never hangs off the volume. */
 const CALLOUT_MARGIN = 16;
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
 
 export function Chamber({
   runs,
   updatedAt,
   pollMs,
-  onLive,
+  onStatus,
+  active = true,
 }: {
   runs: RunSummary[];
   /**
    * When the list query last returned. A change is a poll landing, which is
-   * what starts a sweep — the plane is the board re-reading the record, not a
+   * what starts a wash — the light is the board re-reading the record, not a
    * timer that happens to look like one.
    */
   updatedAt: number;
-  /** How long until the next one, so the sweep arrives as the read does. */
+  /** How long until the next one. The wash takes at least this long. */
   pollMs: number;
   /**
-   * True once the renderer came up. The page uses it to decide whether it may
-   * tell a reader to click a specimen: the flat elevation underneath is a
-   * picture, and inviting a click on one is an instruction that does nothing.
+   * What the renderer is doing, in the three states the page lays out
+   * differently.
+   *
+   * A boolean was enough while something was drawn either way. Nothing is now:
+   * the flat elevation is deleted, so "not yet" is a full-height frame waiting
+   * for a canvas and "never" is a full-height frame that will stay empty — and
+   * the second one should not be given a screen. `pending` and `live` both hold
+   * the hero open, so the only collapse a reader can see is on a browser that
+   * was never going to draw it.
+   *
+   * It also gates the invitation to click: only a live scene answers one.
    */
-  onLive?: (live: boolean) => void;
+  onStatus?: (status: ChamberStatus) => void;
+  /**
+   * Whether anyone can see the hero. The hero is sticky and the record slides
+   * up over it, so the frame's own intersection observer stays true under a
+   * sheet that covers it completely — intersection knows nothing about
+   * overlap. The page watches the sheet and says so here.
+   */
+  active?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -66,8 +89,11 @@ export function Chamber({
   const focused = useFocusedRun();
   // Read through a ref inside the mount-scoped effect below, which must not
   // tear down and rebuild the scene because a parent passed a new closure.
-  const onLiveRef = useRef(onLive);
-  onLiveRef.current = onLive;
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  const activeRef = useRef(active);
+  /** The mount effect's gate, so a later prop change can re-run it. */
+  const gateRef = useRef<(() => void) | null>(null);
 
   const specimens = useMemo(() => specimensFrom(runs, CAPACITY), [runs]);
   // Read once per mount rather than per render: the scene is built around the
@@ -90,9 +116,10 @@ export function Chamber({
     // a background tab: a canvas nobody is looking at should not hold a core.
     const runIfWanted = () => {
       if (reducedMotion || !handle) return;
-      if (onScreen && document.visibilityState === "visible") handle.start();
+      if (onScreen && activeRef.current && document.visibilityState === "visible") handle.start();
       else handle.stop();
     };
+    gateRef.current = runIfWanted;
 
     /**
      * Move the callout to the specimen it names, clamped inside the frame.
@@ -128,18 +155,17 @@ export function Chamber({
      * layout hides this component with CSS rather than unmounting it, so a
      * page loaded narrow and then widened would keep a frame of zero width
      * and never run the effect again — the scene would stay unbuilt for the
-     * rest of the session and the flat fallback would be all a desktop
-     * visitor ever saw.
+     * rest of the session, and a desktop visitor would meet an empty hero.
      */
     const startWhenWideEnough = () => {
       if (handle || starting || disposed) return;
       if (frame.clientWidth < MIN_WIDTH) return;
       starting = true;
       // The whole startup, import included, is inside the promise chain: a
-      // rejected `import()` is the same outcome as a refused WebGL context —
-      // no scene, and the fallback already on screen stays there. Without the
-      // terminal `.catch()` it would instead be an unhandled rejection, since
-      // the `try` below begins after the await.
+      // rejected `import()` is the same outcome as a refused WebGL context, and
+      // both have to reach `onStatus`. Without the terminal `.catch()` the
+      // first would instead be an unhandled rejection, since the `try` below
+      // begins after the await.
       void (async () => {
         const { createChamber } = await import("./chamber/scene");
         if (disposed) return;
@@ -158,8 +184,11 @@ export function Chamber({
             onAnchor: anchor,
           });
         } catch {
-          // No WebGL context, or a driver that refused one. The fallback is
-          // already on screen underneath; leaving `live` false keeps it there.
+          // No WebGL context, or a driver that refused one. There is nothing
+          // to fall back to any more, so say so: the page drops the hero to
+          // its readout rather than holding a screen open for a canvas that
+          // will never paint.
+          onStatusRef.current?.("unavailable");
           return;
         }
         handle = built;
@@ -172,13 +201,15 @@ export function Chamber({
         built.setSelection(focusStore.state.selectedId);
         built.resize(frame.clientWidth, frame.clientHeight);
         setLive(true);
-        onLiveRef.current?.(true);
+        onStatusRef.current?.("live");
         // Through the gates rather than started outright: the frame may have
         // scrolled away or the tab been hidden while the import was in
         // flight, and no observer will fire again to correct it.
         runIfWanted();
       })().catch(() => {
-        // Nothing to recover: the fallback is the design for exactly this.
+        // A rejected `import()` — an offline reader, or a chunk that 404s
+        // after a deploy. Same outcome for the page as a refused context.
+        onStatusRef.current?.("unavailable");
       });
     };
 
@@ -219,11 +250,12 @@ export function Chamber({
       resize.disconnect();
       visible.disconnect();
       document.removeEventListener("visibilitychange", runIfWanted);
+      gateRef.current = null;
       frame.removeEventListener("pointermove", onMove);
       frame.removeEventListener("pointerleave", onLeave);
       handleRef.current = null;
       handle?.dispose();
-      onLiveRef.current?.(false);
+      onStatusRef.current?.("pending");
       // The store is module state and outlives this component.
       setFocusedRun(null);
     };
@@ -234,6 +266,11 @@ export function Chamber({
   useEffect(() => {
     handleRef.current?.setSpecimens(specimens);
   }, [specimens]);
+
+  useEffect(() => {
+    activeRef.current = active;
+    gateRef.current?.();
+  }, [active]);
 
   useEffect(() => {
     handleRef.current?.setFocus(focused);
@@ -251,8 +288,8 @@ export function Chamber({
 
   // A poll landed. `updatedAt` changes on every successful fetch, including the
   // ones that return an unchanged list — which is the honest signal, because
-  // the sweep is drawing the read and not the change.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `updatedAt` is the trigger, not an input — the effect reads only `pollMs`, and the timestamp is in the list precisely so a fetch that changed nothing still starts a sweep.
+  // the wash is drawing the read and not the change.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `updatedAt` is the trigger, not an input — the effect reads only `pollMs`, and the timestamp is in the list precisely so a fetch that changed nothing still starts a wash.
   useEffect(() => {
     handleRef.current?.pulse(pollMs);
   }, [updatedAt, pollMs]);
@@ -260,17 +297,11 @@ export function Chamber({
   const label = specimens.find((spec) => spec.id === focused);
 
   return (
-    // Hidden from assistive technology as a whole, canvas and fallback alike:
-    // every specimen in here is a real, focusable link in the record below,
-    // which is the keyboard and screen-reader path to the same runs. Marked on
-    // the frame rather than on the canvas, which is focusable and may not carry
-    // `aria-hidden` itself.
+    // Hidden from assistive technology as a whole: every specimen in here is a
+    // real, focusable link in the record below, which is the keyboard and
+    // screen-reader path to the same runs. Marked on the frame rather than on
+    // the canvas, which is focusable and may not carry `aria-hidden` itself.
     <div ref={frameRef} aria-hidden="true" className="relative h-full w-full">
-      {/* Underneath the canvas, not swapped out: it is the server render, and
-          it stays visible whenever the scene never came up. */}
-      <div className={live ? "invisible absolute inset-0" : "absolute inset-0"}>
-        <ChamberFallback specimens={specimens} />
-      </div>
       <canvas
         ref={canvasRef}
         className={`absolute inset-0 h-full w-full ${live ? "" : "invisible"}`}
@@ -303,8 +334,8 @@ export function Chamber({
 
 /**
  * What the specimen is, in the order the shape reads: the pull request it is,
- * the verdict its core is drawing, how long the arms took, and what the marks
- * on its drop line are.
+ * the verdict its core is drawing, how the orbits ended, and what the
+ * satellites are.
  */
 function Callout({ spec }: { spec: Specimen }) {
   return (
@@ -327,7 +358,7 @@ function Callout({ spec }: { spec: Specimen }) {
             {spec.bars.map((bar) => (
               <li key={bar.name} className="flex items-baseline gap-1">
                 {/* A check that never appeared is the wireframe colour, the
-                    same gap the specimen draws instead of an arm. */}
+                    same gap the specimen draws instead of a ring. */}
                 <span
                   className="inline-block h-1.5 w-1.5 translate-y-px"
                   style={{

@@ -7,15 +7,19 @@ import {
   isVerdict,
   statusTone,
 } from "@/lib/board/tone";
+import { SpecimenDiagram } from "./SpecimenDiagram";
 
 /**
  * The key to the chamber.
  *
- * The hero draws every run as a shape and then says, in one sentence, that the
- * arms are checks. That is enough to make it look deliberate and not enough to
- * read it. This is the rest: one specimen at a size where its parts are
- * legible, each part named, and then the two vocabularies the whole board is
- * written in — the eight verdicts and the three severities.
+ * The hero draws every run as a star system and then says, in one sentence,
+ * that colour is the verdict, rings are checks and dots are findings. That is
+ * enough to make it look deliberate and not enough to read it. This is the
+ * rest: one specimen at a size where its parts are legible, each part named
+ * in one line, and then the two vocabularies the whole board is written in —
+ * the eight verdicts and the three severities. One line per part and not a
+ * paragraph (decision 83): a key is read while looking at the thing, and a
+ * reader who wants the reasoning has the run page.
  *
  * The lists come from `RUN_STATUSES`, `SEVERITIES` and the tone maps rather
  * than from prose, so a status added in `apps/cujo` appears here without anyone
@@ -27,26 +31,28 @@ import {
  * a reader meets those words — on a badge and in a row.
  */
 
-/** Named for what the reader is looking at, not for the field behind it. */
+/** Named as the hero's caption names them, so the two read as one sentence. */
 const PARTS = [
   {
-    label: "core",
-    text: "The verdict. Bigger when the run found something worse.",
+    label: "verdict",
+    text: "The core. Bigger the worse the finding.",
   },
   {
-    label: "arms",
-    text: "One per check — tests, probes, smoke, detonation — as long as the check watched. A missing arm is a check that never appeared.",
+    label: "checks",
+    // The bright arc is the part of the check that was the sandbox executing
+    // the pull request; the rest was the agent deciding what to do next.
+    text: "One ring each, as wide as the check took; bright where the sandbox ran, faint where the agent decided. No ring, no check.",
   },
   {
-    label: "marks",
-    // The cap is part of the contract, not an implementation detail to leave
-    // out: a key that promises one mark per finding is wrong on every run that
-    // found more than six, which is exactly the runs worth reading.
-    text: "One per finding, strung on the drop line, worst nearest the core — up to six, past which they stop being countable. The record below carries the number.",
+    label: "findings",
+    // The cap is part of the contract: a key that promises one satellite per
+    // finding is wrong on every run that found more than six.
+    text: "One satellite each, worst first, six at most.",
   },
   {
-    label: "the chain",
-    text: "Every run hangs off it, newest at the open face. Depth is time.",
+    label: "layers",
+    // Depth is a measurement and the other two axes are not (decisions 81, 82).
+    text: "Depth is time, newest in front. Where a star sits within its layer means nothing.",
   },
 ];
 
@@ -119,115 +125,11 @@ export function Legend() {
               </li>
             ))}
           </ul>
-          {/* Which critical is which decides who answers, and the two answers
-              are opposite. Anything mechanical blocks at once and nobody is
-              asked; an accusation of bad faith is held until a maintainer
-              confirms it, which is what the gate exists for (agent/SKILL.md,
-              "Which tool"). Named as a category rather than by one example:
-              `tests.base_pass_head_fail` is the familiar case and not the only
-              one — a contradicted probe and an endpoint that stopped answering
-              take the same path. */}
           <p className="mt-4 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            A critical <em>defect</em> — anything the run demonstrated mechanically, from a test
-            that fails only on the head to an endpoint that stopped answering — blocks the merge at
-            once. A critical <em>accusation</em>, that code or a dependency acted in bad faith, is
-            held until a maintainer confirms it on the pull request.
-          </p>
-          <p className="mt-3 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            The amber plane crossing the chamber is the board re-reading the API: every five seconds
-            while a run is live, every thirty when it is quiet.
+            The amber light walking the stars is the board re-reading the API, oldest run first.
           </p>
         </div>
       </div>
     </section>
-  );
-}
-
-/**
- * One specimen, drawn large, with its parts led out to labels.
- *
- * Deliberately not one of the real ones: this is a diagram of the vocabulary,
- * and picking a run to be the example would make it a claim about that run.
- * The arms are four different lengths and one of them errored, so every case
- * the key names is visible in the same picture.
- */
-function SpecimenDiagram() {
-  const cx = 104;
-  const cy = 118;
-  const chainY = 30;
-  /** Where every leader ends and every label begins. */
-  const gutter = 196;
-  const axis = Math.SQRT1_2;
-  const arms: [dx: number, dy: number, reach: number, stroke: string][] = [
-    [-1, -1, 54, "var(--chamber-fg-muted)"],
-    [1, -1, 34, "var(--chamber-fg-muted)"],
-    [1, 1, 52, "var(--chamber-critical)"],
-    [-1, 1, 20, "var(--chamber-fg-muted)"],
-  ];
-  /** The bottom-right arm's tip, which is what the `arms` leader points at. */
-  const armX = cx + 52 * axis;
-  const armY = cy + 52 * axis;
-  /** Three marks, worst nearest the core, walking back up the drop line. */
-  const marks: [y: number, fill: string][] = [
-    [54, "var(--chamber-info)"],
-    [70, "var(--chamber-amber)"],
-    [86, "var(--chamber-critical)"],
-  ];
-
-  return (
-    <svg viewBox="0 0 300 190" className="h-auto w-full" aria-hidden="true" focusable="false">
-      <title>A specimen with its parts named</title>
-      {/* The chain, and the drop line that hangs the specimen off it. It stops
-          before the labels rather than running the width of the frame: every
-          leader would otherwise have to cross it. */}
-      <line
-        x1="18"
-        y1={chainY}
-        x2="158"
-        y2={chainY}
-        stroke="var(--chamber-fg-muted)"
-        strokeOpacity="0.4"
-      />
-      <line x1={cx} y1={chainY} x2={cx} y2={cy} stroke="var(--chamber-line)" strokeWidth="1.5" />
-      {marks.map(([y, fill]) => (
-        <rect key={fill} x={cx - 3.5} y={y} width="7" height="7" fill={fill} />
-      ))}
-      {arms.map(([dx, dy, reach, stroke]) => (
-        <line
-          key={`${dx},${dy}`}
-          x1={cx}
-          y1={cy}
-          x2={cx + dx * reach * axis}
-          y2={cy + dy * reach * axis}
-          stroke={stroke}
-          strokeWidth="3"
-          strokeLinecap="round"
-        />
-      ))}
-      <circle cx={cx} cy={cy} r="8.5" fill="var(--chamber-critical)" />
-
-      {/* Leaders. Hairlines in the wireframe colour, so they read as callouts
-          on a drawing and not as more of the specimen. */}
-      <g stroke="var(--chamber-line)" strokeWidth="1">
-        <line x1="162" y1={chainY} x2={gutter} y2={chainY} />
-        <line x1={cx + 9} y1="74" x2={gutter} y2="74" />
-        <line x1={cx + 14} y1={cy} x2={gutter} y2={cy} />
-        <line x1={armX + 5} y1={armY} x2={gutter} y2={armY} />
-      </g>
-      <g fill="var(--chamber-fg-muted)" fontFamily="var(--font-mono)" fontSize="11">
-        <text x="202" y={chainY + 4}>
-          chain
-        </text>
-        <text x="202" y="78">
-          marks
-        </text>
-        <text x="202" y={cy + 4}>
-          core
-        </text>
-        <text x="202" y={armY + 4}>
-          arms
-        </text>
-      </g>
-    </svg>
   );
 }

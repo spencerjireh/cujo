@@ -9,19 +9,25 @@ import {
 import type {
   CheckState,
   CheckTimings,
+  DigestCheck,
   Finding,
   ReviewTool,
   Run,
   RunDigest,
   RunSummary,
+  SetupTimings,
   UsageTotals,
 } from "@/lib/api/types";
 import { describe, expect, it } from "vitest";
 import {
+  PUBLIC_DIGEST_CHECK_FIELDS,
   PUBLIC_RUN_FIELDS,
   PUBLIC_SUMMARY_FIELDS,
 } from "../../../../cujo/src/http/public/serialize";
-import type { CheckTimings as CujoCheckTimings } from "../../../../cujo/src/review/timings";
+import type {
+  CheckTimings as CujoCheckTimings,
+  SetupTimings as CujoSetupTimings,
+} from "../../../../cujo/src/review/timings";
 import { CHECK_NAMES as CUJO_CHECK_NAMES } from "../../../../cujo/src/review/types";
 import type {
   CheckState as CujoCheckState,
@@ -279,16 +285,40 @@ describe("the public wire shape tracks apps/cujo", () => {
    */
   it("type-checks a digest as apps/cujo emits it", () => {
     const digest: RunDigest = {
-      checks: { tests: { status: "done", ms: 41_230 }, detonation: { status: "error", ms: null } },
+      checks: {
+        tests: { status: "done", ms: 41_230, sandboxMs: 30_100 },
+        detonation: { status: "error", ms: null, sandboxMs: null },
+      },
       findings: { critical: 1, warn: 2, info: 0 },
       durationMs: 132_400,
     };
     const asCujo: CujoRunDigest = digest;
     expect(asCujo.checks.tests?.ms).toBe(41_230);
+    // The execution share, published per check on a list row since decision 70.
+    // Read through the assignment above rather than off `digest`, so the
+    // assertion is about the field cujo's type declares and not this mirror's.
+    expect(asCujo.checks.tests?.sandboxMs).toBe(30_100);
+    expect(asCujo.checks.detonation?.sandboxMs).toBeNull();
     // A run claimed but never folded carries no digest at all, which every
     // reader has to tell apart from four checks that reported nothing.
     const unfolded: RunSummary = { ...summaryBase, digest: null };
     expect(unfolded.digest).toBeNull();
+  });
+
+  /**
+   * And the same one level down, against the list `apps/cujo` actually
+   * publishes from. The assignment above catches a *renamed* key; this catches
+   * a key the serializer emits that this mirror has never heard of — which is
+   * how `sandboxMs` could have arrived, since `digest.checks` used to be copied
+   * through by reference past every guard on both sides.
+   */
+  it("types every field of a digest check that the list route publishes", () => {
+    const CHECK_KEYS: Record<keyof DigestCheck, true> = {
+      status: true,
+      ms: true,
+      sandboxMs: true,
+    };
+    expect(Object.keys(CHECK_KEYS).sort()).toEqual([...PUBLIC_DIGEST_CHECK_FIELDS].sort());
   });
 
   it("never publishes a field that names a person or the state of the gate", () => {
@@ -391,5 +421,102 @@ describe("the public wire shape tracks apps/cujo", () => {
       expect(PUBLIC_RUN_FIELDS).toContain(field);
       expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
     }
+  });
+
+  /**
+   * Every published field is typed here, and every typed field is published.
+   *
+   * The tests above name fields one at a time, which catches a field somebody
+   * thought about and misses the one nobody did — `setup` was published by
+   * decision 67 and went five releases without a key in `types.ts`, on a green
+   * build, because no assertion here was about the *set*.
+   *
+   * `apps/cujo` has the mirror of this guard already: `serialize.test.ts` makes
+   * a new key of `Projection` a red build until it is classified as published
+   * or withheld. This is the other half — a field it decides to publish is a
+   * red build here until `apps/web` decides what to do with it. A field the UI
+   * deliberately does not render is still typed; that is a rendering decision,
+   * and it belongs in a component rather than in a hole in the wire shape.
+   *
+   * `Record<keyof T, true>` is what makes the compiler do the work: a key added
+   * to `Run` stops the literal compiling until it is listed, and a key the
+   * serializer adds fails the comparison until it reaches the interface.
+   */
+  const DETAIL_KEYS: Record<Exclude<keyof Run, "digest">, true> = {
+    id: true,
+    repo: true,
+    pr_number: true,
+    head_sha: true,
+    status: true,
+    created_at: true,
+    updated_at: true,
+    pr_title: true,
+    pr_author_login: true,
+    pr_author_id: true,
+    session_id: true,
+    turn_ids: true,
+    external_resume: true,
+    delivery_id: true,
+    checks: true,
+    findings: true,
+    hard_rule_hits: true,
+    review: true,
+    gated_review: true,
+    error: true,
+    summary: true,
+    usage: true,
+    model: true,
+    rubric_sha256: true,
+    setup: true,
+  };
+
+  const SUMMARY_KEYS: Record<keyof RunSummary, true> = {
+    id: true,
+    repo: true,
+    pr_number: true,
+    head_sha: true,
+    status: true,
+    created_at: true,
+    updated_at: true,
+    pr_title: true,
+    digest: true,
+  };
+
+  /**
+   * `digest` is the one exclusion, and it is not a hole. `Run extends
+   * RunSummary` because a `run` frame on the stream reuses the interface, so
+   * the detail shape inherits the key — but `serializePublicRun` never emits
+   * it, which the test above asserts directly. Excluding it here says the same
+   * thing a third way rather than leaving the set unstated.
+   */
+  it("types every field the detail route publishes, and publishes every one it types", () => {
+    expect(Object.keys(DETAIL_KEYS).sort()).toEqual([...PUBLIC_RUN_FIELDS].sort());
+  });
+
+  it("types every field a list row publishes, and publishes every one it types", () => {
+    expect(Object.keys(SUMMARY_KEYS).sort()).toEqual([...PUBLIC_SUMMARY_FIELDS].sort());
+  });
+
+  /**
+   * The hand-written-mirror guard for the setup window, the same one `usage`
+   * and `timings` get above. Four stamps and a count; `ms` is optional because
+   * `settleSetup` fills it only when both its ends are usable.
+   */
+  it("type-checks the setup window as apps/cujo emits it", () => {
+    const setup: SetupTimings = {
+      turnCreatedAt: "2026-08-28T10:00:00.000Z",
+      sandboxCreatedAt: "2026-08-28T10:00:40.000Z",
+      agentStartedAt: "2026-08-28T10:00:45.000Z",
+      firstCheckAt: "2026-08-28T10:01:40.000Z",
+      messages: 6,
+      ms: 55_000,
+    };
+    const asCujo: CujoSetupTimings = setup;
+    expect(asCujo.ms).toBe(55_000);
+
+    // Null is a fact and not a gap: `sandbox.created` is session-scoped, so a
+    // second run on the same pull request never sees one.
+    const rerun: SetupTimings = { ...setup, sandboxCreatedAt: null };
+    expect(rerun.sandboxCreatedAt).toBeNull();
   });
 });

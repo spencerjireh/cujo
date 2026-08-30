@@ -47,7 +47,16 @@ export function deriveDigest(projection: Projection): RunDigest {
 
   const checks: Partial<Record<CheckName, DigestCheck>> = {};
   for (const [name, check] of named) {
-    checks[name] = { status: check.status, ms: checkMs(check) };
+    checks[name] = {
+      status: check.status,
+      ms: checkMs(check),
+      // Read off the timings the fold already computed rather than re-summed
+      // from `report.runs[]` here. This module's contract is that two callers
+      // get the same answer from the same projection, and a second
+      // implementation of `sandboxMs` is the most direct way to break it —
+      // `apps/web` ports this file, and it has no reports to sum anyway.
+      sandboxMs: check.timings?.sandboxMs ?? null,
+    };
   }
 
   const findings = { ...NO_FINDINGS };

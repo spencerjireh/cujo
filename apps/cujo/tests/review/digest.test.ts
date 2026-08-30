@@ -48,8 +48,8 @@ describe("deriveDigest", () => {
       }),
     );
     expect(digest.checks).toEqual({
-      tests: { status: "done", ms: 30_000 },
-      detonation: { status: "done", ms: 60_000 },
+      tests: { status: "done", ms: 30_000, sandboxMs: null },
+      detonation: { status: "done", ms: 60_000, sandboxMs: null },
     });
     // The checks run concurrently in one sandbox, so the run's wall clock is
     // the envelope (T0 to T90) and not the sum of the two lanes.
@@ -86,7 +86,7 @@ describe("deriveDigest", () => {
         ],
       }),
     );
-    expect(digest.checks.probes).toEqual({ status: "running", ms: null });
+    expect(digest.checks.probes).toEqual({ status: "running", ms: null, sandboxMs: null });
     // Not 30_000. A partial envelope would read as a run that finished fast.
     expect(digest.durationMs).toBeNull();
   });
@@ -107,8 +107,8 @@ describe("deriveDigest", () => {
         ],
       }),
     );
-    expect(digest.checks.tests).toEqual({ status: "running", ms: null });
-    expect(digest.checks.probes).toEqual({ status: "done", ms: null });
+    expect(digest.checks.tests).toEqual({ status: "running", ms: null, sandboxMs: null });
+    expect(digest.checks.probes).toEqual({ status: "done", ms: null, sandboxMs: null });
     expect(digest.durationMs).toBeNull();
   });
 
@@ -135,14 +135,52 @@ describe("deriveDigest", () => {
     const digest = deriveDigest(
       projection({ checks: [check({ title: "detonation", status: "error", startedAt: T0 })] }),
     );
-    expect(digest.checks.detonation).toEqual({ status: "error", ms: null });
+    expect(digest.checks.detonation).toEqual({ status: "error", ms: null, sandboxMs: null });
     expect(digest.durationMs).toBeNull();
   });
 
   it("degrades to null on a projection written before the stamps existed", () => {
     const digest = deriveDigest(projection({ checks: [check({ title: "tests" })] }));
-    expect(digest.checks.tests).toEqual({ status: "done", ms: null });
+    expect(digest.checks.tests).toEqual({ status: "done", ms: null, sandboxMs: null });
     expect(digest.durationMs).toBeNull();
+  });
+
+  /**
+   * The half of a check that was the sandbox executing the pull request, taken
+   * off the timings the fold already computed rather than re-summed from the
+   * report here. A second implementation of the same sum is the most direct way
+   * to break this module's contract that two callers get the same answer.
+   */
+  it("carries how much of a check was the sandbox executing", () => {
+    const digest = deriveDigest(
+      projection({
+        checks: [
+          check({
+            title: "tests",
+            startedAt: T0,
+            endedAt: T30,
+            timings: { wallMs: 30_000, sandboxMs: 21_000, modelMs: 9_000 },
+          }),
+        ],
+      }),
+    );
+    expect(digest.checks.tests).toEqual({ status: "done", ms: 30_000, sandboxMs: 21_000 });
+  });
+
+  /**
+   * Null and not zero, for the same reason `ms` is: a check whose report
+   * carried no `runs[]` did not measure zero sandbox time, it measured none.
+   * Zero would say the suite ran instantly.
+   */
+  it("has no sandbox share for a check that measured none", () => {
+    const digest = deriveDigest(
+      projection({
+        checks: [
+          check({ title: "tests", startedAt: T0, endedAt: T30, timings: { wallMs: 30_000 } }),
+        ],
+      }),
+    );
+    expect(digest.checks.tests?.sandboxMs).toBeNull();
   });
 
   it("counts every severity the product emits, zero included", () => {
