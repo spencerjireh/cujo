@@ -6,6 +6,7 @@ import { avatarUrl, duration, prUrl, profileUrl, shortSha } from "@/lib/format";
 import Image from "next/image";
 import Link from "next/link";
 import { RunSpecimen } from "./RunSpecimen";
+import { RunSummary } from "./RunSummary";
 
 const AVATAR = 20;
 
@@ -146,7 +147,7 @@ export function RunHeader({ run }: { run: Run }) {
               the handles beside it, so a sentence set below the whole row left
               a hole the height of a specimen next to it; here it fills the
               column the object stands against, which is what it is for. */}
-          {run.summary ? <p className="mt-4 max-w-[68ch] text-sm">{run.summary}</p> : null}
+          {run.summary ? <RunSummary summary={run.summary} /> : null}
         </div>
         {/* Last in the source, so at full width it stands to the right of the
             title block and on a narrow column it lands under the words rather

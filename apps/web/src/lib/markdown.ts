@@ -41,8 +41,16 @@ const ALLOWED_TAGS = [
 
 const ALLOWED_ATTR = ["href", "title"];
 
-export function toHtml(markdown: string): string {
-  return marked.parse(markdown, { async: false, gfm: true, breaks: false });
+/**
+ * Whether a single newline is a line break.
+ *
+ * False for a review body, which is markdown and means what markdown means: two
+ * lines wrapped in a source file are one paragraph. True for the run summary,
+ * which the rubric asks for as two lines — the verdict and the counts — and
+ * where joining them into one paragraph would lose the only structure it has.
+ */
+export function toHtml(markdown: string, breaks = false): string {
+  return marked.parse(markdown, { async: false, gfm: true, breaks });
 }
 
 export function sanitize(html: string): string {
@@ -56,6 +64,6 @@ export function sanitize(html: string): string {
   });
 }
 
-export function renderMarkdown(markdown: string): string {
-  return sanitize(toHtml(markdown));
+export function renderMarkdown(markdown: string, breaks = false): string {
+  return sanitize(toHtml(markdown, breaks));
 }
