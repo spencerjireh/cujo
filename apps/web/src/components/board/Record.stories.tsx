@@ -24,7 +24,7 @@ export const OnlyLive: Story = {
  * Sixty rows, to check the sensor strip and the duration column still scan at
  * length rather than turning into texture — and that the field stops at its
  * ceiling of twelve and a half rows, scrolls inside itself, and keeps the
- * column header pinned while it does (decision 74).
+ * column header pinned while it does (decision 75).
  */
 export const Many: Story = {
   args: {

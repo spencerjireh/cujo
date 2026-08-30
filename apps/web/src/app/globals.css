@@ -121,6 +121,30 @@
   color: var(--fg-muted);
   padding-left: 0.75rem;
 }
+.cujo-prose details {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+}
+.cujo-prose summary {
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.cujo-prose details[open] summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+}
+/* The first child after <summary> is flush against it without this, because
+   the sibling rule at the top of this block never sees across the summary. */
+.cujo-prose details > *:not(summary) + * {
+  margin-top: 0.75em;
+}
 .cujo-prose table {
   border-collapse: collapse;
   display: block;
