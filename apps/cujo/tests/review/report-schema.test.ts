@@ -187,20 +187,79 @@ describe("the envelope roll-up", () => {
   it("does not extend the leniency to a runs[] entry", () => {
     // The point of the split. A runs[] block is copied verbatim from
     // `sniff.py`, so a key missing there means the producer moved — which is
-    // the failure this file exists to catch. The problem names `runs.0` and
-    // not the key: `runs[]` is a union, and `validateReport` takes one issue
-    // rather than both branches at once.
+    // the failure this file exists to catch.
     const withoutDerived = runEntry();
     const { spawned_subprocess: _s, ...shortDerived } = withoutDerived.derived;
     withoutDerived.derived = shortDerived;
     const derivedResult = validateReport(report({ runs: [withoutDerived] }));
     expect(derivedResult.ok).toBe(false);
-    expect(derivedResult.ok === false && derivedResult.problem).toContain("runs.0");
+    expect(derivedResult.ok === false && derivedResult.problem).toContain(
+      "runs.0.derived.spawned_subprocess",
+    );
 
     const withoutTruncated = runEntry();
     const { stdout_tail: _t, ...shortTruncated } = withoutTruncated.truncated;
     withoutTruncated.truncated = shortTruncated;
     expect(validateReport(report({ runs: [withoutTruncated] })).ok).toBe(false);
+  });
+});
+
+/**
+ * What the warn actually says, which is the whole value of raising one. A union
+ * failure names no field on its own: `runs[]` is a union, and zod reports one
+ * `invalid_union` whose message is "Invalid input" and whose path stops at the
+ * entry. Every case here is a report production sent.
+ */
+describe("naming the field a runs[] entry got wrong", () => {
+  /** Run 1fe11b28 (orders-api#19), `tests`: entries trimmed to the fields the
+   * sub-agent thought mattered, which is the one thing the rubric forbids. */
+  const trimmed = () => {
+    const { files_read: _f, fs_changes: _c, ...rest } = runEntry();
+    return rest;
+  };
+
+  it("names the missing field rather than the entry", () => {
+    const result = validateReport(report({ runs: [trimmed()] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("runs.0.files_read");
+    expect(result.ok === false && result.problem).not.toContain("Invalid input");
+  });
+
+  it("counts what it did not name", () => {
+    // Six entries, two fields each: the reader has to be able to tell a
+    // systemic trim from one slip, and the named field alone cannot.
+    const result = validateReport(report({ runs: [trimmed(), trimmed(), trimmed()] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toBe("runs.0.files_read: Required (+5 more)");
+  });
+
+  it("says nothing about a count when there is one problem", () => {
+    const result = validateReport(report({ schema_version: "1" }));
+    expect(result.ok === false && result.problem).not.toContain("more)");
+  });
+
+  it("reads a detonate entry against the detonate branch", () => {
+    // Run 1fe11b28 again, `detonation`: `fs_changes` was not an array. Read
+    // against `CommandRun` the answer would be "no argv, no exit", which is
+    // true of every detonate entry and tells a reader nothing.
+    const entry = detonateEntry();
+    entry.fs_changes = {};
+    const result = validateReport(report({ check: "detonation", runs: [entry] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("runs.0.fs_changes");
+    expect(result.ok === false && result.problem).not.toContain("argv");
+  });
+
+  it("names the path and never the value, through a union too", () => {
+    // The same rule as the envelope case below, on the branch this walks into:
+    // nothing in the schema is an enum or a literal, so a branch message is
+    // `Required` or a pair of type names. Asserted, not assumed.
+    const entry = runEntry();
+    entry.stdout_tail = { evil: "</script><!-- pwned -->" };
+    const result = validateReport(report({ runs: [entry] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.problem).toContain("runs.0.stdout_tail");
+    expect(result.ok === false && result.problem).not.toContain("pwned");
   });
 });
 

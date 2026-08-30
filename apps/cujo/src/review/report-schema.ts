@@ -285,20 +285,53 @@ export type ReportProblem = { ok: true } | { ok: false; problem: string };
 const PROBLEM_MAX = 200;
 
 /**
+ * The issues behind a union failure, from the branch that got furthest.
+ *
+ * `runs[]` is a union, and zod reports a failed union as one `invalid_union`
+ * whose message is the literal string "Invalid input" and whose path stops at
+ * the entry. That was every diagnostic a `report_invalid` warn carried on the
+ * two worst reports production has produced: `runs.0: Invalid input`, where
+ * what had actually happened was six run entries each missing `files_read` and
+ * `fs_changes` — a sub-agent trimming entries it was told to copy whole.
+ *
+ * The branch with the fewest issues is the one the entry was trying to be, and
+ * that heuristic is not a guess about models: a trimmed `sniff.py run` fails
+ * `CommandRun` on two fields and `DependencyRun` on five, and a `detonate`
+ * entry with one bad field fails its own branch on one and the other on three.
+ * Branch issues already carry the full path, so nothing needs re-rooting.
+ */
+function flatten(issue: z.ZodIssue): z.ZodIssue[] {
+  if (issue.code !== z.ZodIssueCode.invalid_union) return [issue];
+  const branches = issue.unionErrors.map((error) => error.issues.flatMap(flatten));
+  let best: z.ZodIssue[] = [];
+  for (const branch of branches) {
+    if (branch.length > 0 && (best.length === 0 || branch.length < best.length)) best = branch;
+  }
+  // A union that failed with no issue under it should not exist; if it does,
+  // the useless parent still beats saying nothing.
+  return best.length > 0 ? best : [issue];
+}
+
+/**
  * The first thing wrong with this report, in a phrase, or `ok`.
  *
  * One issue and not all of them: this string ends up in a finding's `evidence`
  * on a public page and in a Discord card, and a wall of zod paths tells a reader
  * less than the first concrete thing that did not match. Zod orders issues by
- * path, so the first is also the outermost, which is the one worth naming.
+ * path, so the first is also the outermost, which is the one worth naming. It is
+ * the first issue *from the branch a union failure was reaching for*, though —
+ * a collapsed `invalid_union` names no field at all, which is one issue and no
+ * diagnostic. The count that follows it is what says whether the named field is
+ * the whole story or one of twelve.
  *
  * **The path is quoted; the value never is.** Every string in a report is
  * written by the code under review (Contract 2), and the sandbox escapes those
  * on the way out. A zod message that echoed a received value would be a second
  * route for that text into a review body and a browser, one that did not pass
  * through the escaping — so the message is capped and the value stays out of it.
- * `z.union` also reports both branches at once, which is unreadable; taking one
- * issue is what keeps that legible.
+ * Walking into a union does not widen that: nothing in this file is an enum or a
+ * literal, so every message a branch can produce is `Required` or "Expected x,
+ * received y" over type names. There is a test on the union path, not a promise.
  *
  * A `null` report — the sub-agent's message held no JSON at all — is not this
  * function's business. That is `check_missing`, reported separately.
@@ -306,9 +339,13 @@ const PROBLEM_MAX = 200;
 export function validateReport(report: unknown): ReportProblem {
   const result = Report.safeParse(report);
   if (result.success) return { ok: true };
-  const issue = result.error.issues[0];
+  const issues = result.error.issues.flatMap(flatten);
+  const issue = issues[0];
   if (!issue) return { ok: false, problem: "did not match the report schema" };
   const path = issue.path.join(".");
-  const problem = path ? `${path}: ${issue.message}` : issue.message;
-  return { ok: false, problem: problem.slice(0, PROBLEM_MAX) };
+  const named = path ? `${path}: ${issue.message}` : issue.message;
+  // The suffix is measured before the cap, never after it: a count clipped off
+  // the end is the one part of this string a reader cannot reconstruct.
+  const more = issues.length > 1 ? ` (+${issues.length - 1} more)` : "";
+  return { ok: false, problem: named.slice(0, PROBLEM_MAX - more.length) + more };
 }

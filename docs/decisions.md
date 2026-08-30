@@ -5000,6 +5000,31 @@ evidence. So it needs a decision of its own rather than a fix. Cujo's `Finding`
 type has no `next` field either, so a hard-rule finding cannot yet name an
 action even internally.
 
+**And the warns that are left have to be readable.** Leniency and legibility are
+one subject here: dropping the roll-up warns promotes what remains from noise
+nobody triaged to the only thing this rule says, and two of those were
+`runs.0: Invalid input`. `runs[]` is a union, zod reports a failed union as one
+issue whose message is that literal string and whose path stops at the entry,
+and `validateReport` took issue zero. What it was hiding, on
+spencerjireh/orders-api #19, was six run entries each missing `files_read` and
+`fs_changes` — a sub-agent trimming entries the rubric tells it to copy whole,
+which is the run-level strictness working exactly as intended and saying so in a
+way no operator could act on. `validateReport` now walks into the branch with
+the fewest issues, which is the branch the entry was reaching for, and appends
+the count of what it did not name. The safety rule is unchanged and now tested
+on that path: nothing in the schema is an enum or a literal, so every message a
+branch can produce is `Required` or a pair of type names, never a received
+value.
+
+The standing hazard behind the wrong shapes is a name. `truncated` means two
+different things in one rubric — `prepare` prints a list of build files it
+capped, a check report prints an object of named booleans — and sub-agents
+inherit the same instructions, so both are in front of them. Renaming the
+`prepare` field is what decision 54 forbids, so the rubric contrasts the two
+instead, in both places. Every remaining warn on the runs behind this entry is a
+`truncated` that came back as a bare boolean, which is what a model does with a
+word it has seen mean two things.
+
 Rejected: **making the run-level blocks lenient too**, which is decision 62
 reversed — a renamed field in `sniff.py` would then fail nothing, which is the
 silence that entry exists to break. **Accepting a non-object roll-up**, which
