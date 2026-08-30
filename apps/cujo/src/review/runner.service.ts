@@ -532,7 +532,16 @@ export class Runner {
     const s = this.state(runId);
     const interval = this.options.pollIntervalMs ?? 15_000;
     const turnId = this.currentTurnId(runId);
-    while (turnId && !timedOut() && !s.superseded) {
+    if (!turnId) {
+      // Nothing to wait on, and the watchdog dies with this call -- returning
+      // here would leave the run `running` with nobody left to end it, which is
+      // the one failure the synthetic terminal did exist to prevent. Saying so
+      // is not a guess: the absence of a turn is observed, and `rehydrate`
+      // already reports it the same way.
+      this.fail(runId, "run lost before its turn started");
+      return this.refold(runId);
+    }
+    while (!timedOut() && !s.superseded) {
       await sleep(interval);
       if (timedOut() || s.superseded) break;
       const run = this.store.getRun(runId);
@@ -562,8 +571,7 @@ export class Runner {
         // forward from there. The turn being watched is this run's by
         // definition -- it is the one it was streaming -- so name it, rather
         // than depend on it having been recorded before the stream broke.
-        const own = new Set([...run.turnIds, ...s.subscribedTurnIds]);
-        if (turnId) own.add(turnId);
+        const own = new Set([...run.turnIds, ...s.subscribedTurnIds, turnId]);
         const { events, turnIds } = Runner.selectRunEvents(
           { ...run, turnIds: [...own] },
           items,

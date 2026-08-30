@@ -705,6 +705,16 @@ describe("Runner.consume", () => {
       expect(cancelTurn).toHaveBeenCalledWith("s");
     });
 
+    it("ends a run that has no turn to watch, rather than leaving it running", async () => {
+      // The watchdog is cleared when `consume` returns, so a path that waits on
+      // nothing would strand the run at `running` with nobody left to end it --
+      // the one failure the synthetic terminal was there to prevent.
+      const { store, r, runner } = lost({ listTurns: vi.fn(), listEvents: vi.fn() });
+      await runner.consume(r.id, streamOf([reviewCall("c1")], 0));
+      expect(store.runs.getRun(r.id)?.status).toBe("error");
+      expect(store.runs.getProjection(r.id)?.error).toBe("run lost before its turn started");
+    });
+
     it("survives a session it cannot read, rather than calling that a failure", async () => {
       const { store, r, runner, opening } = lost(
         {
