@@ -147,7 +147,6 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   const kit = createSpecimenKit(palette, {
     dropAbove: CHAIN_Y - RECORD_Y,
     tetherY: FLOOR_Y - RECORD_Y,
-    marks: true,
     ring: true,
     glow: true,
   });

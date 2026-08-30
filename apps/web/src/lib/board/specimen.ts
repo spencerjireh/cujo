@@ -1,12 +1,14 @@
 /**
  * A run, as a shape.
  *
- * Each specimen in the chamber is four bars around a core. The core is the
- * verdict; each bar is one check, its length the time that check watched and
- * its tone how the check ended. So the silhouette of a run is its evidence: a
- * clean sweep is a balanced cross, a run whose detonation errored is lopsided
- * and red on one arm, a run with a check that never appeared is missing an arm
- * entirely.
+ * Each specimen in the chamber is four arms around a core, leaving it on the
+ * four diagonals of a cube (`caltrop.ts`). The core is the verdict; each arm is
+ * one check, its length the time that check watched, its solid part the share
+ * of that spent in the sandbox, and its tone how the check ended. So the
+ * silhouette of a run is its evidence: a clean sweep is balanced, a run whose
+ * detonation errored is lopsided and red on one arm, a run with a check that
+ * never appeared is missing an arm entirely, and a run the agent spent longer
+ * thinking about than running is mostly hollow.
  *
  * Pure and DOM-free, so the shape is unit-tested without a renderer. `scene.ts`
  * turns what this returns into geometry and nothing else.
@@ -19,6 +21,7 @@ import {
   type Severity,
   isLive,
 } from "@/lib/api/types";
+import { MARK_SLOTS } from "./caltrop";
 import {
   type FindingCounts,
   OUTCOME_TONE,
@@ -42,9 +45,20 @@ export interface SpecimenBar {
    * arm": the check never appeared, and a stub would claim it ran briefly.
    */
   length: number;
+  /**
+   * How much of the arm was the sandbox executing the pull request, 0 to 1,
+   * drawn as the solid part of it. The rest is the sub-agent deciding what to
+   * do next — the same split the run page's timeline draws as a lane.
+   *
+   * Null means the check measured no share, which is not zero: a zero would
+   * draw an arm that was all model on a check that ran a test suite. An arm
+   * with a null share is drawn undivided, exactly as `ChecksTimeline` draws a
+   * lane for a check with no `timings`.
+   */
+  solid: number | null;
 }
 
-/** One finding, as a mark on the drop line. Worst nearest the core. */
+/** One finding, as a mark on the ring around the core. Worst first. */
 export interface SpecimenMark {
   severity: Severity;
   tone: Tone;
@@ -70,7 +84,7 @@ export interface Specimen {
   findingTotal: number;
   /** The worst one, or null when the run is clean. Decides `coreScale`. */
   worst: Severity | null;
-  /** The findings as drawable marks, worst first, capped at `MARK_CAP`. */
+  /** The findings as drawable marks, worst first, capped at `MARK_SLOTS`. */
   marks: SpecimenMark[];
   /**
    * How much bigger the core is drawn than a clean run's. Size and not only
@@ -86,15 +100,18 @@ export interface Specimen {
 const MIN_LENGTH = 0.18;
 
 /**
- * How many finding marks a drop line holds before it stops being countable.
+ * How many finding marks a specimen holds before it stops being countable.
  *
- * Past six the marks merge into a dashed line and the eye reads "several"
- * rather than a number — at which point drawing more is claiming a precision
- * the drawing has lost. `findingTotal` carries the real count for the callout
- * and the record row, and `coreScale` still grows with the worst severity, so
- * nothing is hidden by the cap.
+ * Past six the marks merge and the eye reads "several" rather than a number —
+ * at which point drawing more is claiming a precision the drawing has lost.
+ * `findingTotal` carries the real count for the callout and the record row, and
+ * `coreScale` still grows with the worst severity, so nothing is hidden by it.
+ *
+ * The number lives with the ring it fills (`caltrop.ts`) rather than here: the
+ * cap and the number of slots around the core are one fact, and two constants
+ * would let a mark be produced with nowhere to sit.
  */
-const MARK_CAP = 6;
+const MARK_CAP = MARK_SLOTS;
 
 /** No findings, which is the shape a run with no digest also reports. */
 const NO_FINDINGS: FindingCounts = { critical: 0, warn: 0, info: 0 };
@@ -147,18 +164,41 @@ export function armScale(runs: RunSummary[]): number | null {
   return sorted[Math.min(rank, sorted.length) - 1] ?? null;
 }
 
+/**
+ * The fraction of a check that was the sandbox, or null when it measured none.
+ *
+ * Guarded on both numbers rather than on `sandboxMs` alone: a share of a
+ * duration nobody measured has no meaning, and the ratio is clamped because a
+ * sandbox that reported longer than the thread it ran in is a broken
+ * measurement, not an arm that overflows its own length.
+ */
+function solidShare(check: { ms: number | null; sandboxMs: number | null } | undefined) {
+  const ms = check?.ms;
+  const sandboxMs = check?.sandboxMs;
+  if (typeof ms !== "number" || ms <= 0) return null;
+  if (typeof sandboxMs !== "number" || sandboxMs < 0) return null;
+  return Math.min(1, sandboxMs / ms);
+}
+
 function barsFor(run: RunSummary, scale: number | null): SpecimenBar[] {
   const checks = checksOf(run);
   return CHECK_NAMES.map((name) => {
     const check = checks[name];
     const outcome = checkOutcome(check);
     const tone = OUTCOME_TONE[outcome];
-    if (outcome === "absent") return { name, outcome, tone, length: 0 };
+    if (outcome === "absent") return { name, outcome, tone, length: 0, solid: null };
+    const solid = solidShare(check);
     const ms = check?.ms;
     if (typeof ms !== "number" || scale === null || scale <= 0) {
-      return { name, outcome, tone, length: UNKNOWN_LENGTH };
+      return { name, outcome, tone, length: UNKNOWN_LENGTH, solid };
     }
-    return { name, outcome, tone, length: Math.min(1, Math.max(MIN_LENGTH, ms / scale)) };
+    return {
+      name,
+      outcome,
+      tone,
+      length: Math.min(1, Math.max(MIN_LENGTH, ms / scale)),
+      solid,
+    };
   });
 }
 
@@ -216,7 +256,13 @@ export function specimensFrom(runs: RunSummary[], limit: number): Specimen[] {
  * being rebuilt.
  */
 export function specimenSignature(spec: Specimen): string {
-  const bars = spec.bars.map((bar) => `${bar.name}:${bar.outcome}:${bar.length.toFixed(3)}`);
+  // `solid` is in the string because it is drawn: an arm whose sandbox share
+  // changed is a different arm, and a poll that only learned the share would
+  // otherwise leave the old geometry standing.
+  const bars = spec.bars.map(
+    (bar) =>
+      `${bar.name}:${bar.outcome}:${bar.length.toFixed(3)}:${bar.solid === null ? "whole" : bar.solid.toFixed(3)}`,
+  );
   const marks = spec.marks.map((mark) => mark.severity);
   return [
     spec.status,

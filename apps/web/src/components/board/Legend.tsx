@@ -1,4 +1,5 @@
 import { RUN_STATUSES, SEVERITIES } from "@/lib/api/types";
+import { markRing, projectArms } from "@/lib/board/caltrop";
 import {
   SEVERITY_TONE,
   STATUS_LEGEND,
@@ -35,14 +36,17 @@ const PARTS = [
   },
   {
     label: "arms",
-    text: "One per check — tests, probes, smoke, detonation — as long as the check watched. A missing arm is a check that never appeared.",
+    // Two numbers, not one. The solid part is the half of the check that was
+    // the sandbox executing the pull request; the rest was the agent deciding
+    // what to do next, which is the same split the run page draws as a lane.
+    text: "One per check — tests, probes, smoke, detonation — as long as the check watched, solid for the part that was the sandbox running the code. A missing arm is a check that never appeared.",
   },
   {
     label: "marks",
     // The cap is part of the contract, not an implementation detail to leave
     // out: a key that promises one mark per finding is wrong on every run that
     // found more than six, which is exactly the runs worth reading.
-    text: "One per finding, strung on the drop line, worst nearest the core — up to six, past which they stop being countable. The record below carries the number.",
+    text: "One per finding, on the ring around the core, worst first — six slots, past which they stop being countable. The record below carries the number.",
   },
   {
     label: "the chain",
@@ -157,22 +161,32 @@ function SpecimenDiagram() {
   const chainY = 30;
   /** Where every leader ends and every label begins. */
   const gutter = 196;
-  const axis = Math.SQRT1_2;
-  const arms: [dx: number, dy: number, reach: number, stroke: string][] = [
-    [-1, -1, 54, "var(--chamber-fg-muted)"],
-    [1, -1, 34, "var(--chamber-fg-muted)"],
-    [1, 1, 52, "var(--chamber-critical)"],
-    [-1, 1, 20, "var(--chamber-fg-muted)"],
+  const core = 9;
+  /**
+   * Four reaches and four sandbox shares, chosen so every case the key names is
+   * visible in one picture: a long check that was almost all execution, a short
+   * one that was mostly the agent thinking, one that errored, and one that
+   * measured no share at all and is therefore drawn whole.
+   */
+  const arms: [reach: number, share: number | null, stroke: string][] = [
+    [54, 0.8, "var(--chamber-fg-muted)"],
+    [34, 0.25, "var(--chamber-fg-muted)"],
+    [52, 0.65, "var(--chamber-critical)"],
+    [20, null, "var(--chamber-fg-muted)"],
   ];
+  // Projected from the scene's own four directions rather than laid out again
+  // here, so the diagram cannot drift from the object it is a key to.
+  const projected = projectArms(1);
   /** The bottom-right arm's tip, which is what the `arms` leader points at. */
-  const armX = cx + 52 * axis;
-  const armY = cy + 52 * axis;
-  /** Three marks, worst nearest the core, walking back up the drop line. */
-  const marks: [y: number, fill: string][] = [
-    [54, "var(--chamber-info)"],
-    [70, "var(--chamber-amber)"],
-    [86, "var(--chamber-critical)"],
-  ];
+  const armX = cx + (projected[2]?.x ?? 0) * 52;
+  const armY = cy + (projected[2]?.y ?? 0) * 52;
+  /** Three findings, worst first around the ring. */
+  const marks = ["var(--chamber-critical)", "var(--chamber-amber)", "var(--chamber-info)"];
+  const markSize = 3.5;
+  const ring = markRing(marks.length);
+  /** Where the `marks` leader points: the first slot on the ring. */
+  const markRadius = core + markSize * 1.4;
+  const markY = cy - Math.sin(ring[0] ?? 0) * markRadius;
 
   return (
     <svg viewBox="0 0 300 190" className="h-auto w-full" aria-hidden="true" focusable="false">
@@ -189,39 +203,70 @@ function SpecimenDiagram() {
         strokeOpacity="0.4"
       />
       <line x1={cx} y1={chainY} x2={cx} y2={cy} stroke="var(--chamber-line)" strokeWidth="1.5" />
-      {marks.map(([y, fill]) => (
-        <rect key={fill} x={cx - 3.5} y={y} width="7" height="7" fill={fill} />
-      ))}
-      {arms.map(([dx, dy, reach, stroke]) => (
-        <line
-          key={`${dx},${dy}`}
-          x1={cx}
-          y1={cy}
-          x2={cx + dx * reach * axis}
-          y2={cy + dy * reach * axis}
-          stroke={stroke}
-          strokeWidth="3"
-          strokeLinecap="round"
-        />
-      ))}
-      <circle cx={cx} cy={cy} r="8.5" fill="var(--chamber-critical)" />
+      {arms.map(([reach, share, stroke], i) => {
+        const arm = projected[i];
+        if (!arm) return null;
+        const split = share ?? 1;
+        return (
+          <g key={stroke + String(reach)}>
+            {/* Solid: the sandbox executing the pull request. */}
+            <line
+              x1={cx}
+              y1={cy}
+              x2={cx + arm.x * reach * split}
+              y2={cy + arm.y * reach * split}
+              stroke={stroke}
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
+            {/* Hollow: what was left, which was the agent deciding what to do
+                next. Same hue, less of it — never a second colour. */}
+            {split < 1 ? (
+              <line
+                x1={cx + arm.x * reach * split}
+                y1={cy + arm.y * reach * split}
+                x2={cx + arm.x * reach}
+                y2={cy + arm.y * reach}
+                stroke={stroke}
+                strokeWidth="1.5"
+                strokeOpacity="0.34"
+                strokeLinecap="round"
+              />
+            ) : null}
+          </g>
+        );
+      })}
+      {marks.map((fill, i) => {
+        const angle = ring[i] ?? 0;
+        return (
+          <rect
+            key={fill}
+            x={cx + Math.cos(angle) * markRadius - markSize}
+            y={cy - Math.sin(angle) * markRadius - markSize}
+            width={markSize * 2}
+            height={markSize * 2}
+            fill={fill}
+          />
+        );
+      })}
+      <circle cx={cx} cy={cy} r={core} fill="var(--chamber-critical)" />
 
       {/* Leaders. Hairlines in the wireframe colour, so they read as callouts
           on a drawing and not as more of the specimen. */}
       <g stroke="var(--chamber-line)" strokeWidth="1">
         <line x1="162" y1={chainY} x2={gutter} y2={chainY} />
-        <line x1={cx + 9} y1="74" x2={gutter} y2="74" />
-        <line x1={cx + 14} y1={cy} x2={gutter} y2={cy} />
+        <line x1={cx + markRadius + 6} y1={markY} x2={gutter} y2={markY} />
+        <line x1={cx + core + 6} y1={cy + 26} x2={gutter} y2={cy + 26} />
         <line x1={armX + 5} y1={armY} x2={gutter} y2={armY} />
       </g>
       <g fill="var(--chamber-fg-muted)" fontFamily="var(--font-mono)" fontSize="11">
         <text x="202" y={chainY + 4}>
           chain
         </text>
-        <text x="202" y="78">
+        <text x="202" y={markY + 4}>
           marks
         </text>
-        <text x="202" y={cy + 4}>
+        <text x="202" y={cy + 30}>
           core
         </text>
         <text x="202" y={armY + 4}>

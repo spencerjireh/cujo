@@ -135,6 +135,57 @@ describe("specimensFrom", () => {
     expect(byName.get("tests")?.tone).toBe("bone");
   });
 
+  /**
+   * The second number an arm carries (decision 70). Length is how long the
+   * check watched; the solid part is how much of that was the sandbox actually
+   * executing the pull request, which is the same split `ChecksTimeline` draws
+   * as a lane on the run page.
+   */
+  it("splits an arm at the share of the check that was the sandbox", () => {
+    const [spec] = specimensFrom(
+      [
+        row({
+          id: "a",
+          status: "clean",
+          digest: digest({
+            tests: mark("done", 40_000, 30_000),
+            // No share measured: the arm is drawn whole, never all-model. A
+            // zero here would say a check that ran a suite ran nothing.
+            probes: mark("done", 20_000),
+          }),
+        }),
+      ],
+      10,
+    );
+    const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
+    expect(byName.get("tests")?.solid).toBeCloseTo(0.75, 10);
+    expect(byName.get("probes")?.solid).toBeNull();
+    // A check that never appeared has no arm, so it has no share of one.
+    expect(byName.get("smoke")?.solid).toBeNull();
+  });
+
+  it("refuses a share of a duration nobody measured, and one that overflows", () => {
+    const [spec] = specimensFrom(
+      [
+        row({
+          id: "a",
+          status: "running",
+          digest: digest({
+            // Still running: no length to take a share of.
+            tests: mark("running", null, 9_000),
+            // A sandbox that reported longer than the thread it ran in is a
+            // broken measurement, not an arm that overflows its own length.
+            probes: mark("done", 10_000, 90_000),
+          }),
+        }),
+      ],
+      10,
+    );
+    const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
+    expect(byName.get("tests")?.solid).toBeNull();
+    expect(byName.get("probes")?.solid).toBe(1);
+  });
+
   it("orders newest first and trims to the chamber's capacity", () => {
     const runs = Array.from({ length: 8 }, (_, i) => row({ id: `r${i}`, status: "clean" }));
     const specs = specimensFrom(runs, 3);
@@ -270,6 +321,22 @@ describe("specimenSignature", () => {
     const pending = one({ id: "a", status: "blocked_pending" });
     const posted = one({ id: "a", status: "blocked_posted" });
     expect(specimenSignature(pending)).not.toBe(specimenSignature(posted));
+  });
+
+  /**
+   * A poll that learns only where a check's time went still changes the
+   * drawing: the arm's solid part moves. Left out of the signature, the old
+   * geometry would stand and the specimen would keep a division it no longer
+   * has.
+   */
+  it("changes when only the sandbox share of a check changes", () => {
+    const whole = one({ id: "a", status: "clean", digest: digest({ tests: mark("done", 4_000) }) });
+    const split = one({
+      id: "a",
+      status: "clean",
+      digest: digest({ tests: mark("done", 4_000, 3_000) }),
+    });
+    expect(specimenSignature(whole)).not.toBe(specimenSignature(split));
   });
 
   it("changes when the findings do", () => {
