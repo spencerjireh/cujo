@@ -75,6 +75,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 67. [The setup window is measured, because guessing at it picks the wrong fix](#67-the-setup-window-is-measured-because-guessing-at-it-picks-the-wrong-fix)
 68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement)
 69. [Losing the stream is not a verdict; only the watchdog ends a turn](#69-losing-the-stream-is-not-a-verdict-only-the-watchdog-ends-a-turn)
+70. [Probe scripts are captured by the sensor, not self-reported by the agent](#70-probe-scripts-are-captured-by-the-sensor-not-self-reported-by-the-agent)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2977,6 +2978,7 @@ the hard rules can read. None of the three changes alters a report's shape in
 a way that breaks an older consumer, because `truncated` uses `.passthrough()`
 (decision 62).
 
+
 ## 67. The setup window is measured, because guessing at it picks the wrong fix
 
 Three runs on `orders-api`, read off the public API after decision 59 landed:
@@ -3179,6 +3181,7 @@ pure enough for its own unit test. Only the *animation* suppression stays per
 instance, because a toggle mounted later still starts from the position the
 server rendered and must not slide from it.
 
+
 ## 69. Losing the stream is not a verdict; only the watchdog ends a turn
 
 A run on `orders-api#18` lost its SSE stream. `Runner.consume` spent its three
@@ -3261,3 +3264,33 @@ nothing now gets the one retry every other error already got. That is the flag
 working as intended — it existed to stop Cujo retrying its own fabrication — but
 it is a behaviour change, and the watchdog keeps the flag so a timeout still
 never doubles its own budget.
+
+
+## 70. Probe scripts are captured by the sensor, not self-reported by the agent
+
+**Status:** active — introduced with `script_content` in `run_sensed`.
+
+**Context.** The rubric asks the agent to include `{script, expectation,
+outcome}` for every probe it runs, and the agent does include them in its
+review text. But this is self-reported: the agent could hallucinate a script
+or omit an inconvenient one, and the trusted side has no way to verify
+because by the time the review is written the sandbox is gone.
+
+**Decision.** `run_sensed` captures the script file *before* the subprocess
+starts. When `argv[0]` resolves to a known interpreter name (`python3`,
+`node`, `bash`, `sh`, and versioned Python names) and the first positional
+argument is a readable file, the file is read, scrubbed through `scrub()`,
+and capped at `MAX_SCRIPT_CHARS` (8 000 characters). The result is stored
+as `script_content` (string or `null`) on the per-run dict alongside `argv`.
+`truncated.script_content` is true when the cap cut the file short.
+
+`null` means no script was identified — either the command was not an
+interpreter invocation (e.g. `npm test`) or the argument was not a file
+(e.g. `python3 -m pytest`). It does *not* mean the capture failed.
+
+**Consequences.** Probe transparency no longer depends on agent honesty.
+The trusted side and the review reader can diff the agent's claimed script
+against what the sensor actually saw. The cap and scrub prevent a large
+generated file from inflating the report or leaking decoy material. The
+field is nullable and optional in the Zod schema, so older reports that
+lack it pass validation unchanged (decision 62 passthrough).

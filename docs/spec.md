@@ -528,6 +528,22 @@ not lower.
 `false` means another sensed command overlapped this one, so rows in this report
 may belong to it.
 
+#### `script_content` — what the sensor captured before execution
+
+When `argv[0]` is a known interpreter (`python3`, `node`, `bash`, `sh`, and
+versioned Python names) and the first positional argument is a readable file,
+`run_sensed` reads and scrubs that file before the subprocess starts. The result
+sits beside `argv` on the per-run dict as `script_content`, a string or `null`.
+`null` means the command was not a script invocation — a bare `python3 -m
+pytest` carries no file — not that the capture failed.
+
+This closes a trust gap: the rubric asks the agent to self-report
+`{script, expectation, outcome}` for probes, but that is voluntary and
+unvalidated. `script_content` is written by the sensor from the file as it
+existed at the moment the command was about to run, scrubbed through `scrub()`
+and capped at `MAX_SCRIPT_CHARS` (8 000). `truncated.script_content` is `true`
+when the cap cut the file short (decision 70).
+
 ## Contract 3 — findings and the hard rules
 
 The parent turns the check reports into a list of findings. Each finding:
