@@ -16,6 +16,14 @@ export const Detonation: Story = { args: { checks: detonationChecks } };
 /** Checks that ran but returned no parseable report. */
 export const NoReports: Story = { args: { checks: cleanChecks } };
 
+/**
+ * What a timeline lane does to this section: the card it names opens, scrolls
+ * itself into view and takes the keyboard.
+ */
+export const PickedFromTheTimeline: Story = {
+  args: { checks: cleanChecks, picked: { check: "smoke", nonce: 1 } },
+};
+
 export const CheckErrored: Story = {
   args: {
     checks: [

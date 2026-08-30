@@ -46,7 +46,10 @@ export function RunLedger({ usage }: { usage?: UsageTotals | null }) {
 
   return (
     <section aria-label="What this run cost">
-      <h2 className="mb-3 text-lg">Cost</h2>
+      <h2 className="mb-1 text-lg">Cost</h2>
+      <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+        What the run spent to reach the verdict. Context for it, never an argument for it.
+      </p>
       <div className="flex h-2 w-full gap-px overflow-hidden" aria-hidden="true">
         {counts.map((slice) =>
           slice.value > 0 ? (

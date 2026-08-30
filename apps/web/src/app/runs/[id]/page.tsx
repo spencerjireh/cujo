@@ -26,15 +26,23 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      {/* The column the layout used to impose on every page. It stayed with the
-          pages that want it when the board took the full window. `relative`
-          because the mark is positioned against it: on this page the mark sits
-          on `--bg` and follows the reader's theme, which is the other half of
-          the reason it is placed per page rather than by the layout. */}
-      <div className="relative mx-auto max-w-5xl px-4 py-8">
+      {/* Two boxes, and the mark is on the outer one. The column the layout
+          used to impose is the inner box — it stayed with the pages that want
+          it when the board took the full window — but `HomeMark` positions
+          itself against its nearest positioned ancestor, and against a centred
+          `max-w-5xl` that is half a gutter in from the window on a wide screen.
+          The board's mark sits in the window's own corner, because there it is
+          inside the full-bleed chamber. One mark in two places is two marks, so
+          the positioned box here is the full width and the column sits inside
+          it. It still carries the page's own text colour: the mark follows the
+          reader's theme here and never on the board, which is why it is placed
+          per page rather than by the layout. */}
+      <div className="relative">
         <HomeMark />
-        <div className="pt-10">
-          <RunView id={id} />
+        <div className="mx-auto max-w-5xl px-4 py-8">
+          <div className="pt-10">
+            <RunView id={id} />
+          </div>
         </div>
       </div>
     </HydrationBoundary>
