@@ -42,6 +42,7 @@ import { verdictOf } from "./verdict";
  */
 const KEPT = new Set([
   "turn.created",
+  "sandbox.created",
   "model.message",
   "thread.created",
   "thread.done",

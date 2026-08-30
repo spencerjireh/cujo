@@ -6,15 +6,36 @@ import { fold, parseReport, parseReview, pendingApproval } from "../../src/revie
 type Ev = TrueForgeApi.SessionEvent;
 const at = "2026-08-27T00:00:00Z";
 
-const turnCreated = (turnId: string, input?: TrueForgeApi.TurnInputItem[]): Ev => ({
+const turnCreated = (
+  turnId: string,
+  input?: TrueForgeApi.TurnInputItem[],
+  createdAt: string = at,
+): Ev => ({
   type: "turn.created",
   id: `tc-${turnId}`,
-  createdAt: at,
+  createdAt,
   threadId: null,
   turnId,
   previousTurnId: null,
   state: { status: "running" },
   ...(input ? { input } : {}),
+});
+
+const sandboxCreated = (createdAt: string): Ev => ({
+  type: "sandbox.created",
+  id: "sbx",
+  createdAt,
+  threadId: null,
+  sandboxId: "sb-1",
+});
+
+/** A parent turn with no tool call: one round trip, and nothing else. */
+const mainMessage = (id: string, createdAt: string): Ev => ({
+  type: "model.message",
+  id,
+  createdAt,
+  threadId: "main",
+  content: "",
 });
 
 const turnDone = (state: TrueForgeApi.TurnDoneEventState = doneState()): Ev => ({
@@ -850,5 +871,98 @@ describe("parseReport", () => {
     expect(parseReport('{"a":1}')).toEqual({ a: 1 });
     expect(parseReport("nothing here")).toBeNull();
     expect(parseReport('Report:\n```\n{"b": 2}\n```\n')).toEqual({ b: 2 });
+  });
+});
+
+describe("the setup window", () => {
+  const claim = "2026-08-27T00:00:00.000Z";
+  const boxed = "2026-08-27T00:00:10.000Z";
+  const spoke = "2026-08-27T00:00:15.000Z";
+  const spawn = "2026-08-27T00:01:15.000Z";
+
+  it("stamps each end of the window from the event that marks it", () => {
+    const p = fold([
+      turnCreated("t1", undefined, claim),
+      sandboxCreated(boxed),
+      mainMessage("m1", spoke),
+      threadCreated("sub-1", "tests", spawn),
+    ]);
+    expect(p.setup).toEqual({
+      turnCreatedAt: claim,
+      sandboxCreatedAt: boxed,
+      agentStartedAt: spoke,
+      firstCheckAt: spawn,
+      messages: 1,
+      ms: 60_000,
+    });
+  });
+
+  it("leaves the sandbox stamp null when the session already had one", () => {
+    // A second run on the same pull request. `hydrate` scopes a fold to this
+    // run's own turns, so the first run's `sandbox.created` is not in the
+    // stream — the sandbox was already there, which is why a re-run is faster.
+    const p = fold([
+      turnCreated("t2", undefined, claim),
+      mainMessage("m1", spoke),
+      threadCreated("sub-1", "tests", spawn),
+    ]);
+    expect(p.setup.sandboxCreatedAt).toBeNull();
+    expect(p.setup.ms).toBe(60_000);
+  });
+
+  it("counts the parent's round trips, and stops at the first check", () => {
+    const p = fold([
+      turnCreated("t1", undefined, claim),
+      mainMessage("m1", spoke),
+      mainMessage("m2", spoke),
+      mainMessage("m3", spoke),
+      threadCreated("sub-1", "tests", spawn),
+      // Everything after the spawn is the review being written, not setup.
+      mainMessage("m4", spawn),
+      mainMessage("m5", spawn),
+    ]);
+    expect(p.setup.messages).toBe(3);
+  });
+
+  it("counts a replayed message once", () => {
+    // `hydrate` replaces a streamed event with its persisted copy by id, so one
+    // id reaching the fold twice is a shape this has to survive.
+    const p = fold([
+      turnCreated("t1", undefined, claim),
+      mainMessage("m1", spoke),
+      mainMessage("m1", spoke),
+    ]);
+    expect(p.setup.messages).toBe(1);
+  });
+
+  it("closes the window on a named check and not on any other thread", () => {
+    const p = fold([
+      turnCreated("t1", undefined, claim),
+      mainMessage("m1", spoke),
+      // A helper the rubric never named. Setup is not over, so the parent's
+      // next message is still a setup round trip.
+      threadCreated("sub-0", "scratch", spoke),
+      mainMessage("m2", spoke),
+      threadCreated("sub-1", "probes", spawn),
+    ]);
+    expect(p.setup.firstCheckAt).toBe(spawn);
+    expect(p.setup.messages).toBe(2);
+  });
+
+  it("keeps the first turn's stamp when an approval resume starts another", () => {
+    const later = "2026-08-27T01:00:00.000Z";
+    const p = fold([
+      turnCreated("t1", undefined, claim),
+      threadCreated("sub-1", "tests", spawn),
+      turnDone(),
+      turnCreated("t2", undefined, later),
+    ]);
+    expect(p.setup.turnCreatedAt).toBe(claim);
+  });
+
+  it("omits the span when no check ever started", () => {
+    const p = fold([turnCreated("t1", undefined, claim), mainMessage("m1", spoke)]);
+    expect(p.setup.firstCheckAt).toBeNull();
+    expect(p.setup.ms).toBeUndefined();
   });
 });

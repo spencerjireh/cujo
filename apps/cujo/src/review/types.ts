@@ -3,9 +3,9 @@
  * TrueForge events; TrueForge stays the source of truth (decision 18).
  */
 
-import type { CheckTimings } from "./timings";
+import type { CheckTimings, SetupTimings } from "./timings";
 
-export type { CheckTimings };
+export type { CheckTimings, SetupTimings };
 
 export type RunStatus =
   | "running"
@@ -212,6 +212,15 @@ export interface Projection {
    * reads zero for most of a run and then fills in at the end.
    */
   usage: UsageTotals;
+  /**
+   * Where the run went before the first check existed (see `SetupTimings`).
+   *
+   * Required here and defaulted by `emptyProjection`, like `usage` — but read
+   * defensively everywhere, because `getProjection` parses a stored blob
+   * straight into this type and a projection written before this field existed
+   * rehydrates without it, whatever the compiler believes.
+   */
+  setup: SetupTimings;
 }
 
 export interface RunRecord {
