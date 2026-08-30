@@ -3860,3 +3860,65 @@ untranslated in the list beside it. Third: the rubric rewrite reaches only
 sessions created after it deploys, and no test asserts on the rubric's review
 prose, so a regression there is still visible only in a posted review — the same
 hazard decision 36 named, now one layer smaller.
+
+
+## 75. The record is one field of a fixed length, and an empty one is armed
+
+The record grew and shrank with what it held. Two runs left it sitting against
+whatever followed, which decision 68's ghost rules already half-answered; sixty
+pushed the key off the bottom of the page; and none pushed it as hard as an
+empty board, which swapped the table out for a bordered block of a different
+shape and height. Three different objects for one instrument, and the page moved
+under a reader every time the record changed size.
+
+It is now one field with a floor and a ceiling, both measured in its own rows.
+The floor is five rows, held by ruled lines under a short record and by the
+empty block's own height. The ceiling is twelve and a half, and the scrollport
+is the table's own so the column header stays pinned to the top of it. The half
+row is the affordance: a whole number would sit flush against the edge and read
+as the end of the record, and a row cut through the middle says there is more
+without a control that says so in words.
+
+The header rule under a pinned header is an inset shadow and not a border.
+`border-collapse` hands a collapsed border to the row, and the row is not the
+element that sticks, so a border there scrolls away and leaves the header
+floating on the rows.
+
+**Whether the port is a tab stop is measured, not counted.** It takes
+`role="region"`, a label and a stop only when it actually clips something, and
+the row count does not know that. The ceiling is `min(…, 70vh)`, so a short
+viewport clips at eight rows; and this is the same port the seven columns
+overflow sideways in, which a phone does at any row count including zero.
+Counting rows left both of those scrollable and unreachable from a keyboard —
+the sideways one had been unreachable since the record was first drawn. So a
+`ResizeObserver` watches the port and its children, and the effect re-measures
+when the rows or the filter change what is in it.
+
+**An empty record is the record, not a message where the record was.** The
+column header stays, the ruled lines stay at the same rhythm, and the copy sits
+on its own ground in the middle of them the way a label plate covers the part of
+a chart it annotates. A reader learns the columns before there is anything in
+them, and nothing on the page moves when the first run lands. The block is a
+sibling of the table and not a cell spanning it, because a cell is as wide as
+the table and the table is wider than a phone — the copy would have needed a
+sideways scroll to be read.
+
+The empty board carries one action, a link to the App's public page, and the
+filtered empty carries the undo instead. They are different states and the
+second is not an invitation: telling somebody to install the App because they
+clicked "Live" answers a question they did not ask. Each filter names its own
+absence — "Nothing is running", not "No run matches this filter", which makes a
+reader look back up at the chips to work out which one they picked.
+
+The install link targets `github.com/apps/cujo-guard` and not
+`/installations/new`, which bounces an anonymous reader through a login before
+they have decided anything. It is the one place the board hardcodes the App's
+slug, and renaming the App breaks it.
+
+Rejected: **a "show all" control below twelve rows**, which keeps one scroll
+surface but answers a record that is merely long with a click, and then grows
+the page exactly as before. **A centred card for the empty state**, which is
+cleaner as a standalone screen and is a different shape from the thing it
+replaces. **Drawing the ruled lines through the copy**, which is the rhythm at
+the cost of the sentence.
+||||||| d09fff6
