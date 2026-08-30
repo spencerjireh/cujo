@@ -3718,6 +3718,16 @@ The header rule under a pinned header is an inset shadow and not a border.
 element that sticks, so a border there scrolls away and leaves the header
 floating on the rows.
 
+**Whether the port is a tab stop is measured, not counted.** It takes
+`role="region"`, a label and a stop only when it actually clips something, and
+the row count does not know that. The ceiling is `min(…, 70vh)`, so a short
+viewport clips at eight rows; and this is the same port the seven columns
+overflow sideways in, which a phone does at any row count including zero.
+Counting rows left both of those scrollable and unreachable from a keyboard —
+the sideways one had been unreachable since the record was first drawn. So a
+`ResizeObserver` watches the port and its children, and the effect re-measures
+when the rows or the filter change what is in it.
+
 **An empty record is the record, not a message where the record was.** The
 column header stays, the ruled lines stay at the same rhythm, and the copy sits
 on its own ground in the middle of them the way a label plate covers the part of

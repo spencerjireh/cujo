@@ -284,9 +284,42 @@ export function Record({ runs }: { runs: RunSummary[] }) {
   // No ruled lines under an empty record: the empty block draws its own, at
   // the same rhythm and for the whole of the five rows it stands in.
   const ghosts = rows.length === 0 ? 0 : Math.max(0, MIN_ROWS - rows.length);
-  // A tab stop that scrolls nothing is a tab stop nobody wanted, so the region
-  // only becomes focusable once there is something below the fold to reach.
-  const scrollable = rows.length > MAX_ROWS;
+
+  /**
+   * Whether the scrollport clips anything, on either axis.
+   *
+   * A tab stop that scrolls nothing is a tab stop nobody wanted, so the region
+   * takes its role and its stop only when there is something out of view to
+   * reach. But the row count does not decide that. The ceiling is
+   * `min(…, 70vh)`, so a short viewport clips well under twelve rows; and this
+   * is the same scrollport the seven columns overflow sideways in, which a
+   * phone does at any row count at all. Counting rows would have left both of
+   * those clipped and unreachable from a keyboard.
+   *
+   * So it is measured. The observer watches the port for a viewport resize and
+   * its children for content that reflows inside it, and the effect re-runs
+   * when the rows or the filter change the content outright. A sub-pixel
+   * difference is rounding rather than clipped content, hence the 1px floor.
+   */
+  const scrollport = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rows.length` and `filter` are triggers, not inputs — the effect reads neither, and they are in the list precisely so content the observer cannot see change gets re-measured.
+  useEffect(() => {
+    const node = scrollport.current;
+    if (!node) return;
+    const measure = () =>
+      setClipped(
+        node.scrollHeight - node.clientHeight > 1 || node.scrollWidth - node.clientWidth > 1,
+      );
+    measure();
+    // jsdom has no ResizeObserver. The measurement above still runs, so a test
+    // that stubs the layout gets the state it set up; nothing else is missed.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    for (const child of node.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [rows.length, filter]);
 
   return (
     <section aria-label="Every run" className="px-4 py-10 md:px-6">
@@ -320,11 +353,12 @@ export function Record({ runs }: { runs: RunSummary[] }) {
           ceiling and the column header belong to the field and not to a branch
           inside it. */}
       <div
+        ref={scrollport}
         className="overflow-auto"
         style={{ maxHeight: MAX_HEIGHT }}
         // Only a scrollport a keyboard can actually move gets the role and the
-        // stop; below the cap this is a plain wrapper.
-        {...(scrollable
+        // stop; while nothing is clipped this is a plain wrapper.
+        {...(clipped
           ? { tabIndex: 0, role: "region" as const, "aria-label": "The record, scrollable" }
           : {})}
       >
