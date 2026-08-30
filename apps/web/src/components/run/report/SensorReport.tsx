@@ -1,8 +1,10 @@
 "use client";
 
 import { type SensorBlock, alarms } from "@/lib/api/report";
-import { bytes } from "@/lib/format";
+import { bytes, describeExit } from "@/lib/format";
 import { coverageLine, flaggedTables, groupState, sensorDetail } from "@/lib/report/coverage";
+import { isArtifact, isSensitive, relativize } from "@/lib/report/paths";
+import { useMemo, useState } from "react";
 import { Blank, EvidenceTable, Row } from "./EvidenceTable";
 
 /**
@@ -94,12 +96,83 @@ function CommandHeader({ block }: { block: SensorBlock }) {
       <code className="truncate font-mono text-xs">{argv.join(" ")}</code>
       <span className="flex gap-3 font-mono text-xs text-fg-muted">
         {exit !== null ? (
-          <span className={exit !== 0 ? "text-sev-high" : ""}>exit {exit}</span>
+          <span className={exit !== 0 ? "text-sev-high" : ""}>{describeExit(exit)}</span>
         ) : null}
         {duration_s !== null ? <span>{duration_s}s</span> : null}
       </span>
     </div>
   );
+}
+
+/** One row of a path table: the entry, and its path with the shared base off. */
+interface PathRow<T> {
+  entry: T;
+  rel: string;
+}
+
+/**
+ * The rows of a table of paths, read the way a PR author reads them.
+ *
+ * The base every path shares is taken off and said once above the table.
+ * Bytecode and tool caches are the bulk of most lists and never the reason a
+ * row is worth reading, so they are kept out of the rows and behind one
+ * trailing count until asked for. The toggle is local: it is a reading aid,
+ * not a fact about the run, so nothing else needs to know.
+ */
+function usePathRows<T extends { path: string }>(entries: T[]) {
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const folded = useMemo(() => {
+    const { base, rel } = relativize(entries.map((entry) => entry.path));
+    const rows: PathRow<T>[] = [];
+    const artifacts: PathRow<T>[] = [];
+    entries.forEach((entry, i) => {
+      (isArtifact(entry.path) ? artifacts : rows).push({ entry, rel: rel[i] ?? entry.path });
+    });
+    return { base, rows, artifacts };
+  }, [entries]);
+  return {
+    base: folded.base,
+    items: artifactsOpen ? [...folded.rows, ...folded.artifacts] : folded.rows,
+    artifacts: folded.artifacts.length,
+    artifactsOpen,
+    toggleArtifacts: () => setArtifactsOpen((open) => !open),
+  };
+}
+
+/**
+ * The trailing row that stands for the folded artifacts. A real button, so it
+ * is in the Tab order and answers Enter and Space like the table headings do.
+ */
+function ArtifactsRow({
+  cols,
+  count,
+  open,
+  onToggle,
+}: {
+  cols: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  if (count === 0) return null;
+  return (
+    <Row cols={cols}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="min-w-0 text-left text-fg-muted underline decoration-line underline-offset-2 hover:text-fg"
+      >
+        {open ? "hide " : ""}
+        {count} build {count === 1 ? "artifact" : "artifacts"}
+      </button>
+    </Row>
+  );
+}
+
+/** Red when the report said so, or when the sandbox's own list would have. */
+function pathTone(path: string, flagged?: boolean): string {
+  return flagged || isSensitive(path) ? "text-sev-high" : "";
 }
 
 /** Said where the script is, because a script that was cut is not a short script. */
@@ -129,7 +202,9 @@ function ScriptContent({ block }: { block: SensorBlock }) {
 const EGRESS = "grid-cols-[1fr_4.5rem] sm:grid-cols-[1fr_6rem_6rem]";
 const FILES = "grid-cols-[1fr_5.5rem]";
 const CHANGES = "grid-cols-[1fr_5rem] sm:grid-cols-[1fr_5rem_9rem]";
-const PROCS = "grid-cols-[1fr_3rem]";
+// Wide enough on the right for `exit -15 (SIGTERM, expected)`, the longest
+// thing `describeExit` says; on a phone the cell wraps instead.
+const PROCS = "grid-cols-[1fr_5rem] sm:grid-cols-[1fr_12rem]";
 
 // `wrap-anywhere` and not `break-all`: a path with no spaces in it still has to
 // break somewhere, but a word beside it must not, and `break-all` was splitting
@@ -152,6 +227,8 @@ export function SensorReport({
   // Which tables this block's own flags point at. Those open with the card;
   // the rest are a heading and a count until somebody asks.
   const flagged = flaggedTables(block);
+  const reads = usePathRows(block.files_read);
+  const changes = usePathRows(block.fs_changes);
   return (
     // From the second block on, a rule and a caption. A detonation report is a
     // roll-up plus one block per dependency, and they used to stack with
@@ -210,19 +287,27 @@ export function SensorReport({
 
       <EvidenceTable
         title="Files read"
-        items={block.files_read}
+        items={reads.items}
+        count={block.files_read.length}
+        base={reads.base}
         cols={FILES}
         heads={[{ label: "path" }, { label: "sensitive?" }]}
         state={groupState(block, "audit")}
         detail={sensorDetail(block, "audit")}
         cut={block.truncated?.files_read}
         defaultOpen={flagged.has("files_read")}
+        footer={
+          <ArtifactsRow
+            cols={FILES}
+            count={reads.artifacts}
+            open={reads.artifactsOpen}
+            onToggle={reads.toggleArtifacts}
+          />
+        }
       >
-        {(entry) => (
+        {({ entry, rel }) => (
           <Row key={entry.path} cols={FILES}>
-            <span className={`${PATH} ${entry.sensitive ? "text-sev-critical" : ""}`}>
-              {entry.path}
-            </span>
+            <span className={`${PATH} ${pathTone(entry.path, entry.sensitive)}`}>{rel}</span>
             <span className="text-right text-sev-critical">
               {entry.sensitive ? "sensitive" : <Blank />}
             </span>
@@ -232,7 +317,9 @@ export function SensorReport({
 
       <EvidenceTable
         title="Filesystem changes"
-        items={block.fs_changes}
+        items={changes.items}
+        count={block.fs_changes.length}
+        base={changes.base}
         cols={CHANGES}
         heads={[
           { label: "path" },
@@ -246,11 +333,19 @@ export function SensorReport({
         note={
           block.truncated?.hashes ? "some files compared by timestamp and size only" : undefined
         }
+        footer={
+          <ArtifactsRow
+            cols={CHANGES}
+            count={changes.artifacts}
+            open={changes.artifactsOpen}
+            onToggle={changes.toggleArtifacts}
+          />
+        }
       >
-        {(entry) => (
+        {({ entry, rel }) => (
           <Row key={entry.path} cols={CHANGES}>
-            <span className={`${PATH} ${entry.sensitive ? "text-sev-critical" : ""}`}>
-              {entry.path}
+            <span className={`${PATH} ${pathTone(entry.path, entry.sensitive)}`}>
+              {rel}
               {entry.in_workspace === false ? (
                 <span className="text-sev-high sm:hidden"> · outside workspace</span>
               ) : null}
@@ -292,7 +387,7 @@ export function SensorReport({
               {entry.argv.join(" ")}
             </span>
             <span className={`text-right ${entry.exit ? "text-sev-high" : "text-fg-muted"}`}>
-              {entry.exit === undefined ? <Blank /> : entry.exit}
+              {entry.exit === undefined ? <Blank /> : describeExit(entry.exit)}
             </span>
           </Row>
         )}

@@ -1,5 +1,5 @@
 import type { CheckState, Finding } from "@/lib/api/types";
-import { checkVerdict, reportAlarm } from "@/lib/verdict";
+import { checkVerdict, notRunReason, reportAlarm } from "@/lib/verdict";
 import { describe, expect, it } from "vitest";
 
 function check(over: Partial<CheckState> = {}): CheckState {
@@ -142,5 +142,20 @@ describe("checkVerdict", () => {
 
   it("is ok when a check ran clean", () => {
     expect(checkVerdict(check(), [], null)).toEqual({ text: "ok", tone: "text-sev-info" });
+  });
+});
+
+describe("notRunReason", () => {
+  it("is skipped when the check never appeared", () => {
+    expect(notRunReason(undefined)).toBe("skipped");
+  });
+
+  it("repeats the check's own error when it has one", () => {
+    expect(notRunReason(check({ status: "error", error: "sandbox lost" }))).toBe("sandbox lost");
+  });
+
+  it("is skipped when the check carries no error text", () => {
+    expect(notRunReason(check({ status: "error", error: null }))).toBe("skipped");
+    expect(notRunReason(check({ error: "" }))).toBe("skipped");
   });
 });

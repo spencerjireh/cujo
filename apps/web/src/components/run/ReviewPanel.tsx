@@ -1,8 +1,57 @@
 "use client";
 
-import type { DraftedReview } from "@/lib/api/types";
+import { CHECK_NAMES, type CheckState, type DraftedReview, type Finding } from "@/lib/api/types";
+import { duration } from "@/lib/format";
 import { renderMarkdown } from "@/lib/markdown";
-import { useEffect, useState } from "react";
+import { checkVerdict, reportAlarm } from "@/lib/verdict";
+import { useEffect, useMemo, useState } from "react";
+
+/**
+ * What ran, in one row per check, above the review body.
+ *
+ * The body is the model's prose about the pull request, and a reader who has
+ * come from GitHub has already read it there. What they have not seen is the
+ * table it rests on: which of the four checks ran, what each concluded and how
+ * long it took. The verdict text is the timeline's own (`checkVerdict`), so
+ * the two cannot disagree; a check that never appeared says "not run", which
+ * is a fact about the run and not a failure of it.
+ */
+function WhatRan({ checks, findings }: { checks: CheckState[]; findings: Finding[] }) {
+  const byName = new Map(checks.filter((check) => check.isCheck).map((c) => [c.title, c]));
+  // Hoisted the way the timeline hoists it: a live run re-renders on every
+  // frame and `reportAlarm` walks the whole report.
+  const alarms = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const check of checks) {
+      if (!check.isCheck) continue;
+      const tripped = reportAlarm(check.report, check.title);
+      if (tripped) out.set(check.title, tripped);
+    }
+    return out;
+  }, [checks]);
+
+  return (
+    <table className="mb-4 w-full max-w-[68ch] border-collapse font-mono text-xs">
+      <caption className="mb-1 text-left text-fg-muted">What ran</caption>
+      <tbody>
+        {CHECK_NAMES.map((name) => {
+          const check = byName.get(name);
+          const verdict = checkVerdict(check, findings, alarms.get(name) ?? null);
+          const took = duration(check?.startedAt, check?.endedAt);
+          return (
+            <tr key={name} className="border-t border-line">
+              <th scope="row" className="py-1.5 pr-3 text-left font-normal text-fg-muted">
+                {name}
+              </th>
+              <td className={`py-1.5 pr-3 ${verdict.tone}`}>{verdict.text}</td>
+              <td className="py-1.5 text-right text-fg-muted">{took ?? ""}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
 
 /**
  * The review as it will appear on GitHub. `composed_body` is what `github-mcp`
@@ -24,9 +73,14 @@ export function ReviewPanel({
   review,
   posted,
   advisoryStands = false,
+  checks = [],
+  findings = [],
 }: {
   review: DraftedReview;
   posted: boolean;
+  /** The run's checks and findings, for the table of what ran above the body. */
+  checks?: CheckState[];
+  findings?: Finding[];
   /**
    * Whether an advisory review is already on the pull request. Only read while
    * this one is held, where it changes what dismissing means: on the malice
@@ -70,6 +124,8 @@ export function ReviewPanel({
         </span>
       </h2>
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">{stakes}</p>
+
+      <WhatRan checks={checks} findings={findings} />
 
       {html === null ? (
         <p className="max-w-[68ch] whitespace-pre-wrap text-sm">{markdown}</p>

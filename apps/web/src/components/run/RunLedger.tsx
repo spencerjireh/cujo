@@ -14,6 +14,12 @@ import { compactCount, usd } from "@/lib/format";
  * numbers beside it, never a big figure with a caption. Cache reads dominate by
  * an order of magnitude on a long run, which is the interesting part and the
  * part a row of four equal-weight numbers would hide.
+ *
+ * It lives inside the operator details fold now and not as a section of its
+ * own (decision 89): a token count is context for an operator, and a PR author
+ * reading down the page met it before they met who produced the verdict. The
+ * labels say what the numbers are — "model input", "messages to the model" —
+ * because on a public page a bare "input" is a number nobody can read.
  */
 
 interface Slice {
@@ -28,10 +34,10 @@ interface Slice {
  * strength rather than competing with the ones that were paid for in full.
  */
 const SLICES: Slice[] = [
-  { key: "inputTokens", label: "input", className: "bg-fg" },
-  { key: "outputTokens", label: "output", className: "bg-accent-fill" },
-  { key: "cacheReadTokens", label: "cache read", className: "bg-fg-muted opacity-60" },
-  { key: "cacheWriteTokens", label: "cache write", className: "bg-fg-muted opacity-30" },
+  { key: "inputTokens", label: "model input, tokens", className: "bg-fg" },
+  { key: "outputTokens", label: "model output, tokens", className: "bg-accent-fill" },
+  { key: "cacheReadTokens", label: "read from cache", className: "bg-fg-muted opacity-60" },
+  { key: "cacheWriteTokens", label: "written to cache", className: "bg-fg-muted opacity-30" },
 ];
 
 export function RunLedger({ usage }: { usage?: UsageTotals | null }) {
@@ -45,8 +51,8 @@ export function RunLedger({ usage }: { usage?: UsageTotals | null }) {
   if (total === 0) return null;
 
   return (
-    <section aria-label="What this run cost">
-      <h2 className="mb-1 text-lg">Cost</h2>
+    <div aria-label="What this run cost" className="border-line border-t pt-4">
+      <h3 className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-fg">Cost</h3>
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
         What the run spent to reach the verdict. Context for it, never an argument for it.
       </p>
@@ -72,15 +78,15 @@ export function RunLedger({ usage }: { usage?: UsageTotals | null }) {
           </div>
         ))}
       </dl>
-      <p className="mt-4 font-mono text-xs text-fg-muted">
-        {usage.messages} {usage.messages === 1 ? "message" : "messages"}
+      <p className="mt-4 mb-4 font-mono text-xs text-fg-muted">
+        {usage.messages} {usage.messages === 1 ? "message" : "messages"} to the model
         {typeof usage.reasoningTokens === "number"
-          ? ` · ${compactCount(usage.reasoningTokens)} reasoning`
+          ? ` · ${compactCount(usage.reasoningTokens)} tokens spent reasoning`
           : ""}
         {/* The provider's own estimate, said to be one. Cujo does not price
             anything and must not look as though it did. */}
         {typeof usage.costUsd === "number" ? ` · ${usd(usage.costUsd)} estimated` : ""}
       </p>
-    </section>
+    </div>
   );
 }
