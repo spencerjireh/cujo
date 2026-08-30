@@ -71,9 +71,17 @@ export function compactCount(value: number): string {
  * A cost, at the precision the number deserves. TrueForge's estimates land in
  * fractions of a cent, and `$0.00` beside a real figure is the same misreading
  * `compactCount` avoids — so anything under a cent gets four places.
+ *
+ * Four places is not enough on its own. A provider that priced a short call at
+ * three hundredths of a cent rounds to `$0.0000`, which says free about a
+ * number that is not — the exact failure the extra places were added to avoid,
+ * moved two decimals down. Below what four places can show, the answer is a
+ * bound rather than a rounding. Zero itself still prints as zero: an estimate
+ * of nothing is a reading, not a value too small to draw.
  */
 export function usd(value: number): string {
   if (!Number.isFinite(value)) return "—";
+  if (value > 0 && value < 0.0001) return "<$0.0001";
   return value > 0 && value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
 }
 
