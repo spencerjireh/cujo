@@ -39,6 +39,10 @@ function CostLine({ usage }: { usage?: UsageTotals | null }) {
 /**
  * One line over a report of many probes: how many, how many passed, and how
  * long the slowest and quickest took. Passed means the command exited zero.
+ *
+ * Counted over the blocks that ran a command, not over every block: a report
+ * with a roll-up envelope carries one commandless block above its `runs[]`,
+ * and counting it said "3 probes" over two commands.
  */
 function probeSummary(blocks: SensorBlock[]): string {
   const commands = blocks.flatMap((block) => (block.command ? [block.command] : []));
@@ -46,8 +50,8 @@ function probeSummary(blocks: SensorBlock[]): string {
   const durations = commands.flatMap((command) =>
     command.duration_s !== null ? [command.duration_s] : [],
   );
-  const noun = blocks.length === 1 ? "probe" : "probes";
-  let line = `${blocks.length} ${noun}, ${passed} passed`;
+  const noun = commands.length === 1 ? "probe" : "probes";
+  let line = `${commands.length} ${noun}, ${passed} passed`;
   if (durations.length > 0) {
     const min = Math.min(...durations);
     const max = Math.max(...durations);
