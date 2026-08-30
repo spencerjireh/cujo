@@ -82,6 +82,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 69. [A length cap is spent on the escaped text, not on the text](#69-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
 74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
+75. [The record is one field of a fixed length, and an empty one is armed](#75-the-record-is-one-field-of-a-fixed-length-and-an-empty-one-is-armed)
+76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -3921,4 +3923,36 @@ the page exactly as before. **A centred card for the empty state**, which is
 cleaner as a standalone screen and is a different shape from the thing it
 replaces. **Drawing the ruled lines through the copy**, which is the rhythm at
 the cost of the sentence.
-||||||| d09fff6
+
+## 76. Interpreter and index coverage is additive, not exhaustive
+
+**Status:** active — expanded `INTERPRETER_NAMES`, `KNOWN_INDEX_HOSTS`, and
+noise filters in `policy.py`.
+
+**Context.** The sandbox sensors (fsdiff, decoy, proxy) are fully
+language-agnostic at the OS level: a filesystem write or a network connection
+is detected regardless of which runtime made it. Two narrower mechanisms are
+language-aware: `INTERPRETER_NAMES` controls whether `capture_script` reads
+the script file before execution (`script_content`), and `KNOWN_INDEX_HOSTS`
+controls whether an egress connection to a package registry is classified as
+`egress_to_unknown_host`. Both are frozensets checked by membership only.
+
+**Decision.** These lists are expanded to cover every interpreter runtime
+Daytona natively supports (Ruby, Perl, Deno, Bun, tsx, ts-node) and the
+RubyGems registry. The noise filters gain entries for Go vendored deps
+(`/vendor/`), Ruby gem cache (`/.gem/`), and `.gem` suffixes. No interpreter
+for `go` or `java` is added because those compile rather than interpret — there
+is no script file to capture.
+
+Adding a name to any of these lists cannot change sensing behaviour. It can
+only improve report quality: `script_content` is populated instead of `null`,
+an egress connection is correctly classified, or a noise read is filtered
+from `files_read`. Missing a name means the safe default applies
+(`script_content: null`, `egress_to_unknown_host: true`, read left in the
+list), not a failure.
+
+**Consequences.** Script capture works for Ruby, Perl, Deno, Bun, and tsx
+scripts. Ruby installs via Bundler no longer produce false
+`egress_to_unknown_host` warnings for connections to `rubygems.org`. Go
+vendored dependency reads and Ruby gem cache reads no longer clutter
+`files_read`. No existing behaviour changes for Python or Node repos.

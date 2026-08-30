@@ -182,8 +182,12 @@ _CONSUMES_NEXT = frozenset(
         "-e",
         "--require",
         "--loader",
+        "-r",
+        "-M",
     }
 )
+_CONSUMES_NEXT_PERL = _CONSUMES_NEXT | frozenset({"-I"})
+_SUBCOMMAND_RUNTIMES = frozenset({"deno", "bun"})
 
 
 def capture_script(argv: list[str], cwd: Path) -> tuple[str | None, bool]:
@@ -199,7 +203,10 @@ def capture_script(argv: list[str], cwd: Path) -> tuple[str | None, bool]:
     interpreter = Path(argv[0]).name
     if interpreter not in INTERPRETER_NAMES:
         return None, False
+    consumes = _CONSUMES_NEXT_PERL if interpreter == "perl" else _CONSUMES_NEXT
     i = 1
+    if interpreter in _SUBCOMMAND_RUNTIMES and argv[i] == "run":
+        i = 2
     while i < len(argv):
         arg = argv[i]
         if arg == "--":
@@ -207,7 +214,7 @@ def capture_script(argv: list[str], cwd: Path) -> tuple[str | None, bool]:
             break
         if arg in _TERMINATES_SCRIPT:
             return None, False
-        if arg in _CONSUMES_NEXT:
+        if arg in consumes:
             i += 2
             continue
         if not arg.startswith("-"):
