@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publicRunId, runUrl } from "../../src/review/links";
+import { publicRunId, pullRequestUrl, runUrl } from "../../src/review/links";
 
 const LINKS = { publicBaseUrl: "https://cujo.example.com" };
 
@@ -39,5 +39,30 @@ describe("publicRunId", () => {
     // The whole reason this is an id: github-mcp owns the hostname, so nothing
     // the agent read in the pull request can choose where the link points.
     expect(publicRunId(PUBLIC_RUN)).not.toContain("://");
+  });
+});
+
+describe("pullRequestUrl", () => {
+  it("builds the link from the repo and the number", () => {
+    expect(pullRequestUrl({ repo: "o/r", prNumber: 7 })).toBe("https://github.com/o/r/pull/7");
+  });
+
+  it("builds nothing for a repo that is not owner/name", () => {
+    // A live link is the one place a hostile string chooses where a reader
+    // goes, so the shape is enforced here rather than assumed of the store
+    // (rule 7's philosophy, applied to the structural link; decision 86).
+    for (const repo of [
+      "not a repo",
+      "o/r/extra",
+      "o/",
+      "/r",
+      "-lead/r",
+      "o/r?pull",
+      "o/r#x",
+      "o/r two",
+      "https://evil.example/o/r",
+    ]) {
+      expect(pullRequestUrl({ repo, prNumber: 7 }), repo).toBeNull();
+    }
   });
 });

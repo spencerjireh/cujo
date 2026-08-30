@@ -11,7 +11,8 @@
  */
 
 import type { DiscordEmbed, DiscordEmbedField, DiscordMessagePayload } from "../clients/discord";
-import { type UiLinks, runUrl } from "../review/links";
+import { checkMs } from "../review/digest";
+import { type UiLinks, pullRequestUrl, runUrl } from "../review/links";
 import { CHECK_NAMES } from "../review/types";
 import type { Finding, Projection, RunRecord, RunStatus } from "../review/types";
 
@@ -30,12 +31,16 @@ export const LIMITS = {
 } as const;
 
 /**
- * The two parties a card names (decision 55).
+ * Who a card names, and where (decision 86, reversing 55's allocation).
  *
- * Cujo takes the author line, which is a fixed string and a fixed URL, both
- * ours. The person who opened the pull request takes an `Opened by` field and
- * the footer icon, because a field value cannot carry an image and the footer
- * icon is the only slot left once the author line is spent.
+ * The person who opened the pull request takes the author line — the one slot
+ * on an embed that renders an icon in front of text, which is exactly the
+ * affordance a channel needs on the variable party. Cujo was already named
+ * twice above it: the app badge on the message header and its avatar. The Cujo
+ * mark moves into the freed footer icon, so Cujo is still inside the embed and
+ * no longer duplicated forty pixels beneath the header. An `Opened by` field
+ * is gone rather than kept beside the line: one embed does not name the same
+ * person twice.
  *
  * The mark is served from the repository over `raw.githubusercontent.com`
  * rather than from `apps/web`: Discord's media proxy has to fetch it
@@ -59,8 +64,8 @@ const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 /**
  * Built from the numeric account id, never from the login: an avatar is a URL
- * and a login is a string somebody else chose. `s=64` because the footer icon
- * renders around 20px and the extra pixels cost nothing.
+ * and a login is a string somebody else chose. `s=64` because the author
+ * line renders it around 24px and the extra pixels cost nothing.
  */
 function avatarUrl(authorId: number | null): string | undefined {
   return authorId === null ? undefined : `https://avatars.githubusercontent.com/u/${authorId}?s=64`;
@@ -123,6 +128,25 @@ function clean(input: string, max: number): string {
 }
 
 /**
+ * `escapeMarkdown` without the escape pass, for the one string on a payload
+ * that renders no markdown: `author.name`. A backslash there defuses nothing —
+ * Discord draws it — so `some_login` would read as `some\_login`. Everything
+ * else still applies: invisible characters removed, addresses defanged, and
+ * newlines and tabs folded to single spaces, because the author line is one
+ * line whatever it contains.
+ */
+export function plainText(input: string, max: number): string {
+  return truncate(
+    input
+      .replace(STRIP, "")
+      .replace(/\r\n?|\n|\t/g, " ")
+      .replace(DEFANG_SCHEME, "$1[:]//")
+      .replace(DEFANG_HOST, "www[.]"),
+    max,
+  );
+}
+
+/**
  * The brand severity ramp, dark values, from `brand/tokens.css` (decision 36).
  * A Discord embed carries one colour and is read on a dark client, so the dark
  * column is the only one that applies.
@@ -160,23 +184,60 @@ const DESCRIPTION: Record<RunStatus, string> = {
   superseded: "Replaced by a newer commit on this PR.",
 };
 
-const CHECK_MARK = { done: "✅", error: "❌", running: "⏳" } as const;
+/**
+ * A duration the digest also computes, in the few characters a field row has.
+ * The words are deliberately plain — `41s`, `1.2s`, `2m03s` — because a
+ * compact notation is a second vocabulary to learn and this field already has
+ * one (the status words).
+ */
+function formatMs(ms: number | null): string {
+  if (ms === null) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, "")}s`;
+  // Rounded once, as a whole, and only then split: flooring the minutes and
+  // rounding the remainder independently renders 119.6s as `1m60s`, a
+  // duration nobody ran for.
+  const whole = Math.round(seconds);
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}m${String(whole % 60).padStart(2, "0")}s`;
+}
 
 /**
+ * What each check measured, not a verdict. A tick here always meant "the
+ * thread finished", and under a `Critical (3)` heading everybody read it as
+ * "passed" — the last surface still showing a bare glyph (decision 86, on
+ * decision 65's precedent for the list row). So each check carries its
+ * terminal state in words, the criticals attributed to it through
+ * `Finding.check`, and how long it watched. `0 critical` rather than nothing:
+ * an absent count next to a `done` would read as a pass again, which is the
+ * reading this exists to prevent.
+ *
  * Only threads the folder matched to a check name are rendered, so the names
  * come from the fixed CHECK_NAMES allowlist rather than a model-chosen thread
- * title. The text is escaped anyway.
+ * title. The text is escaped anyway, because the finding attribution is not
+ * from that allowlist.
  */
 function checksField(projection: Projection): DiscordEmbedField | null {
   const checks = projection.checks.filter((c) => c.isCheck);
   if (checks.length === 0) return null;
   const parts = CHECK_NAMES.map((name) => {
     const check = checks.find((c) => c.title === name);
-    return `${name} ${check ? CHECK_MARK[check.status] : "—"}`;
+    if (!check) return `${name} —`;
+    const critical = projection.findings.filter(
+      (f) => f.check === name && f.severity === "critical",
+    ).length;
+    return [`${name} ${check.status}`, `${critical} critical`, formatMs(checkMs(check))].join(", ");
   });
   return { name: "Checks", value: clean(parts.join(" · "), LIMITS.fieldValue) };
 }
 
+/**
+ * Counts by severity. Inline, so it completes the identity row beside `Head`
+ * and `Pull request` rather than standing alone further down: with `Opened by`
+ * gone (decision 86), this is what keeps that row from holding one orphaned
+ * field.
+ */
 function countsField(findings: Finding[]): DiscordEmbedField | null {
   const parts: string[] = [];
   for (const severity of ["critical", "warn", "info"] as const) {
@@ -184,22 +245,57 @@ function countsField(findings: Finding[]): DiscordEmbedField | null {
     if (n > 0) parts.push(`${n} ${severity}`);
   }
   if (parts.length === 0) return null;
-  return { name: "Findings", value: parts.join(" · ") };
+  return { name: "Findings", value: parts.join(" · "), inline: true };
 }
 
 const MAX_CRITICAL_SHOWN = 3;
 const MAX_EVIDENCE = 160;
 
+/**
+ * Critical findings grouped for display, so one fact reported by three checks
+ * costs one line rather than three. A group is the finding's whole displayed
+ * identity — title, anchor, evidence, after cleaning — because findings that
+ * differ in any of those are different facts however similar. The check names
+ * that produced a group are the checks that saw it.
+ *
+ * Display-level only (decision 86): the fold still records one finding per
+ * check, because what the review *recorded* is the evidence trail and what the
+ * card *shows* is a summary of it. The heading keeps the raw count, so three
+ * lines are still three findings and a reader can see the repetition for the
+ * noise it is.
+ */
 function criticalField(findings: Finding[]): DiscordEmbedField | null {
   const critical = findings.filter((f) => f.severity === "critical");
   if (critical.length === 0) return null;
-  const lines = critical.slice(0, MAX_CRITICAL_SHOWN).map((f) => {
-    const where = f.path ? ` \`${clean(f.path, 120)}${f.line ? `:${f.line}` : ""}\`` : "";
-    const evidence = f.evidence ? `\n  ${clean(f.evidence, MAX_EVIDENCE)}` : "";
-    return `• ${clean(f.title, 180)}${where}${evidence}`;
+
+  const groups = new Map<
+    string,
+    { title: string; where: string; evidence: string; checks: string[]; count: number }
+  >();
+  for (const f of critical) {
+    const title = clean(f.title, 180);
+    const path = f.path ? clean(f.path, 120) : "";
+    const where = path ? ` \`${path}${f.line ? `:${f.line}` : ""}\`` : "";
+    const evidence = f.evidence ? clean(f.evidence, MAX_EVIDENCE) : "";
+    const key = `${title}\u0000${where}\u0000${evidence}`;
+    const check = clean(f.check, 60);
+    const group = groups.get(key);
+    if (group) {
+      group.count += 1;
+      if (!group.checks.includes(check)) group.checks.push(check);
+    } else {
+      groups.set(key, { title, where, evidence, checks: [check], count: 1 });
+    }
+  }
+
+  const shown = [...groups.values()].slice(0, MAX_CRITICAL_SHOWN);
+  const lines = shown.map((g) => {
+    const who = g.checks.length > 1 ? ` — ${g.checks.join(", ")}` : "";
+    return `• ${g.title}${g.where}${who}${g.evidence ? `\n  ${g.evidence}` : ""}`;
   });
-  if (critical.length > MAX_CRITICAL_SHOWN) {
-    lines.push(`+${critical.length - MAX_CRITICAL_SHOWN} more in Cujo`);
+  const findingsShown = shown.reduce((n, g) => n + g.count, 0);
+  if (critical.length > findingsShown) {
+    lines.push(`+${critical.length - findingsShown} more in Cujo`);
   }
   return {
     name: `Critical (${critical.length})`,
@@ -213,19 +309,32 @@ function textField(name: string, text: string | null): DiscordEmbedField | null 
 }
 
 /**
- * Who opened the pull request. Null for a run recorded before the author was
- * stored, or one whose PR read never completed, in which case the card is
- * exactly the shape it had before this field existed.
+ * The author line: the pull request's opener when the run records one, Cujo
+ * when it does not (decision 86). Null for a run recorded before the author
+ * was stored, or one whose PR read never completed, in which case the line is
+ * exactly what it was before the opener took it.
  *
- * The link is assembled rather than escaped: `clean` defangs `://`, which is
- * the whole point of it, so the login goes through the escape pass and the URL
- * is concatenated after — and only for a login the allowlist above accepts.
+ * The profile link is assembled rather than escaped, and only for a login the
+ * allowlist below accepts: `clean` defangs `://`, which is the whole point of
+ * it. The name goes through `plainText`, because the author line renders no
+ * markdown and a backslash there is only litter. The avatar is still built
+ * from the numeric account id, never the login, so a bot opener
+ * (`dependabot[bot]`) keeps its icon while losing the link its login cannot
+ * have.
  */
-function openedByField(login: string | null): DiscordEmbedField | null {
-  if (!login) return null;
-  const name = clean(login, 120);
-  const value = LOGIN.test(login) ? `[@${name}](https://github.com/${login})` : `@${name}`;
-  return { name: "Opened by", value: truncate(value, LIMITS.fieldValue), inline: true };
+function authorLine(login: string | null, authorId: number | null): DiscordEmbed["author"] {
+  if (!login) {
+    // The fixed party, as before 76: name and mark together, and no footer
+    // icon, which would repeat the mark one line below itself.
+    return { name: truncate(CUJO_NAME, LIMITS.author), icon_url: CUJO_ICON_URL };
+  }
+  const icon = avatarUrl(authorId);
+  const url = LOGIN.test(login) ? `https://github.com/${login}` : undefined;
+  return {
+    name: plainText(`@${login}`, LIMITS.author),
+    ...(icon ? { icon_url: icon } : {}),
+    ...(url ? { url } : {}),
+  };
 }
 
 /** Everything Discord counts against the 6000-character embed budget. */
@@ -263,6 +372,19 @@ export interface CardInput {
 }
 
 /**
+ * `repo #n — <pr title>`, or `repo #n` when the run never recorded one. The
+ * one shape both a card and a ping title take: the ping sits directly under
+ * the card in the channel, and two spellings of the same run would read as
+ * two runs.
+ */
+function runTitle(run: RunRecord): string {
+  const heading = escapeMarkdown(`${run.repo} #${run.prNumber}`);
+  return run.prTitle
+    ? truncate(`${heading} — ${escapeMarkdown(run.prTitle)}`, LIMITS.title)
+    : truncate(heading, LIMITS.title);
+}
+
+/**
  * One embed per run, edited in place as the run's status moves. The `running`
  * card carries only immutable facts, because the card is rewritten on a status
  * change and any progress count would freeze and then lie.
@@ -273,10 +395,7 @@ export interface CardInput {
 export function buildRunCard(input: CardInput): DiscordMessagePayload {
   const { run, projection, links } = input;
   const status = run.status;
-  const heading = escapeMarkdown(`${run.repo} #${run.prNumber}`);
-  const title = run.prTitle
-    ? truncate(`${heading} — ${escapeMarkdown(run.prTitle)}`, LIMITS.title)
-    : truncate(heading, LIMITS.title);
+  const title = runTitle(run);
 
   let description = DESCRIPTION[status];
   if ((status === "blocked_posted" || status === "denied") && run.approver) {
@@ -286,24 +405,28 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
         : ` Decided by ${clean(run.approver, 120)}.`;
   }
 
+  const prUrl = pullRequestUrl(run);
   const fields: DiscordEmbedField[] = [
     { name: "Head", value: `\`${run.headSha.slice(0, 7)}\``, inline: true },
+    // Structural, not derived: the repo was validated when the channel was
+    // bound and shape-checked in `pullRequestUrl`, so the field is omitted
+    // rather than risked when the stored repo is not `owner/name`. On a
+    // private run, whose title points nowhere (decision 57), this is the
+    // card's only live link.
+    ...(prUrl ? [{ name: "Pull request", value: prUrl, inline: true }] : []),
   ];
-  // Second, so it renders inline beside Head and sits above everything the
-  // clamp can drop. On every status, `running` and `superseded` included: who
-  // opened the pull request cannot change under the card, so the reason those
-  // two carry nothing else does not apply to it.
-  const openedBy = openedByField(run.prAuthorLogin);
-  if (openedBy) fields.push(openedBy);
   // A superseded run describes a commit nobody is looking at any more, so it
   // shows no findings: acting on them would mean acting on a stale review.
   if (status !== "running" && status !== "superseded") {
+    // Inline and adjacent to Head and Pull request, because Discord only
+    // shares a row between neighbouring inline fields, and first in the
+    // clamp's drop order: the identity row is what every status must keep.
+    const counts = countsField(projection.findings);
+    if (counts) fields.push(counts);
     const critical = criticalField(projection.findings);
     if (critical) fields.push(critical);
     const checks = checksField(projection);
     if (checks) fields.push(checks);
-    const counts = countsField(projection.findings);
-    if (counts) fields.push(counts);
     const error = textField("Error", projection.error);
     if (error) fields.push(error);
     const summary = status === "clean" ? textField("Summary", projection.summary) : null;
@@ -322,16 +445,15 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
     ...(url ? { url } : {}),
     description: truncate(description, LIMITS.description),
     color: COLOR[status],
-    // Both fixed strings. The line is deliberately unlinked: the title already
-    // points at the run, and a second link to the same place is noise.
-    author: { name: truncate(CUJO_NAME, LIMITS.author), icon_url: CUJO_ICON_URL },
+    author: authorLine(run.prAuthorLogin, run.prAuthorId),
     fields,
     footer: {
       text: truncate(footer, LIMITS.footer),
-      // Built from the account id, so nothing derived from a login is in it.
-      // Absent with the field above, rather than falling back to the mark,
-      // which would put the same icon on one card twice.
-      icon_url: avatarUrl(run.prAuthorId),
+      // The Cujo mark while the opener holds the author line (decision 86),
+      // so Cujo stays inside the embed without being named twice above it.
+      // Absent on the fallback, where the author line already carries it: the
+      // same icon twice on one card reads as a bug.
+      ...(run.prAuthorLogin ? { icon_url: CUJO_ICON_URL } : {}),
     },
     timestamp: run.updatedAt,
   });
@@ -341,6 +463,8 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
 
 export interface PingInput {
   run: RunRecord;
+  /** The ping's description counts criticals, so it reads the same fold. */
+  projection: Projection;
   links: UiLinks;
   /** Null pings the channel without mentioning anyone. */
   roleId: string | null;
@@ -348,40 +472,72 @@ export interface PingInput {
 
 /**
  * A Discord edit notifies nobody, so the one moment that needs a human — a run
- * waiting on approval — gets its own message. Every part of `content` is
- * structural: the repo was validated when the channel was bound, the number is
- * a number, and the link is ours. Nothing untrusted reaches it.
+ * waiting on approval — gets its own message, and its own card (decision 86):
+ * a slim embed in the run's colour, sitting directly under the run card in the
+ * channel and carrying only the pull request, the critical count and the fact
+ * that a person is blocked. Anything it repeated from the card above it would
+ * be noise.
  *
- * A private run has no page (decision 57), so its ping names the pull request
- * and carries no link. That is where the answer is anyway: the decision is
- * `/cujo confirm` on the pull request, not a button on a board.
+ * `content` stays structural (rule 8): the repo was validated when the channel
+ * was bound, the number is a number, and the link is ours — wrapped in angle
+ * brackets so Discord does not unfurl it beside the embed Cujo just built. The
+ * embed is not structural: its title carries the pull request's title, which
+ * is stranger-authored text on a payload for the first time, so it goes
+ * through the same escaping, truncation and clamping as the run card's.
  *
- * Once the run leaves `blocked_pending` this same message is edited to say so,
- * so nobody chases a link to a run that can no longer be decided.
+ * A private run has no page (decision 57), so its ping renders with the title
+ * unlinked — the same rule the card applies. That is where the answer is
+ * anyway: the decision is `/cujo confirm` on the pull request, not a button
+ * on a board.
+ *
+ * Once the run leaves `blocked_pending` this same message is edited in place:
+ * the embed is recoloured to the outcome and the content says resolved, so
+ * nobody chases a link to a run that can no longer be decided.
  */
 export function buildPing(input: PingInput): DiscordMessagePayload {
-  const { run, links, roleId } = input;
+  const { run, projection, links, roleId } = input;
+  const blocked = run.status === "blocked_pending";
   // Escaped the same way the embed heading is: a repo name may hold `_`, which
   // Discord reads as emphasis. Not `clean`, and not applied to the whole
   // string, because `escapeMarkdown` also defangs URLs — running it over the
   // finished content would break Cujo's own link.
   const where = escapeMarkdown(`${run.repo} #${run.prNumber}`);
   const link = runUrl(links, run);
-  // A trailing space before an absent link would be invisible here and visible
-  // in Discord, so the suffix is built rather than interpolated.
-  const suffix = link ? ` ${link}` : "";
-  if (run.status !== "blocked_pending") {
-    return {
-      content: truncate(`Resolved (${run.status}) — ${where}.${suffix}`, LIMITS.content),
-      allowed_mentions: { parse: [] },
-    };
-  }
-  const mention = roleId ? `<@&${roleId}> ` : "";
+  // Angle brackets rather than a bare URL: the brackets keep the link
+  // clickable and stop Discord previewing the site beneath the embed, which
+  // was a grey box saying nothing for every run that has ever been posted.
+  // The suffix is built rather than interpolated so no trailing space is
+  // left when there is no link.
+  const suffix = link ? ` <${link}>` : "";
+  const mention = blocked && roleId ? `<@&${roleId}> ` : "";
+  const content = truncate(
+    blocked
+      ? `${mention}Cujo is blocked on ${where} and needs a human.${suffix}`
+      : `Resolved (${run.status}) — ${where}.${suffix}`,
+    LIMITS.content,
+  );
+
+  const critical = projection.findings.filter((f) => f.severity === "critical").length;
+  const counted =
+    critical === 0
+      ? "No critical finding recorded."
+      : critical === 1
+        ? "1 critical finding."
+        : `${critical} critical findings.`;
+  const description = blocked
+    ? `**Blocked — waiting for a human.** ${counted}`
+    : `Resolved — ${DESCRIPTION[run.status]}`;
+
+  const embed = clamp({
+    title: runTitle(run),
+    ...(link ? { url: link } : {}),
+    description: truncate(description, LIMITS.description),
+    color: COLOR[run.status],
+  });
+
   return {
-    content: truncate(
-      `${mention}Cujo is blocked on ${where} and needs a human.${suffix}`,
-      LIMITS.content,
-    ),
-    allowed_mentions: roleId ? { parse: [], roles: [roleId] } : { parse: [] },
+    content,
+    embeds: [embed],
+    allowed_mentions: blocked && roleId ? { parse: [], roles: [roleId] } : { parse: [] },
   };
 }

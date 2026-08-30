@@ -182,6 +182,12 @@ export class DiscordNotifier {
       }
     }
 
+    // Both builders read the fold: the card renders it, and the ping's
+    // description counts its criticals. Null only for a run never folded,
+    // which has nothing to post and nothing to edit.
+    const projection = store.runs.getProjection(runId);
+    if (!projection) return;
+
     let messageId = row?.messageId ?? null;
     let pingMessageId = row?.pingMessageId ?? null;
     let pingResolved = row?.pingResolved ?? false;
@@ -197,8 +203,6 @@ export class DiscordNotifier {
     };
 
     if (row?.lastNotifiedStatus !== run.status || !messageId) {
-      const projection = store.runs.getProjection(runId);
-      if (!projection) return;
       const card = buildRunCard({ run, projection, links });
       messageId = await this.upsert(channelId, messageId, card);
       write();
@@ -211,7 +215,7 @@ export class DiscordNotifier {
       // mid-run would otherwise send that server's role id into the old
       // channel, where it mentions nobody.
       const roleId = mapping?.channelId === channelId ? (mapping.notifyRoleId ?? null) : null;
-      const ping = buildPing({ run, links, roleId });
+      const ping = buildPing({ run, projection, links, roleId });
       pingMessageId = (await this.retrying(() => this.deps.client.createMessage(channelId, ping)))
         .id;
       pingResolved = false;
@@ -223,7 +227,7 @@ export class DiscordNotifier {
     // can still make. Edit it rather than leave a dead link in the channel.
     const ping = pingMessageId;
     if (ping && !pingResolved) {
-      const resolved = buildPing({ run, links, roleId: null });
+      const resolved = buildPing({ run, projection, links, roleId: null });
       await this.retrying(() => this.deps.client.editMessage(channelId, ping, resolved));
       pingResolved = true;
       write();

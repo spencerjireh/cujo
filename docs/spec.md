@@ -1106,7 +1106,11 @@ the process, not only at the edge:
   `{ok: false, error: "cujo is unreachable"}`, rather than letting the failed
   fetch surface as an unhandled `500` that says nothing (decision 37). It also
   forwards `Cf-Ray`, so a line from the UI and a line from this process share
-  one correlation id.
+  one correlation id. The run page serves `generateMetadata` from the same
+  anonymous read, so a run link pasted anywhere unfurls as that run rather
+  than as the site's front page — disclosing nothing the same caller cannot
+  already read from the same URL (decision 86, on 65's argument). A private
+  run 404s and inherits the site default, and the page stays `noindex`.
 - A path the board does not serve renders the board's own 404 and not the
   framework's, so a link left over from the deleted operator plane — `/login`
   before any other — lands on a Cujo page with a way back rather than on a
@@ -1163,25 +1167,46 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 
 | Status | Colour | The card says | Fields |
 |--------|--------|---------------|--------|
-| `running` | blurple | Review running. | `Head`, `Opened by`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
-| `clean` | green | No critical finding; the advisory review posted. | `Checks`, `Findings` (counts by severity), `Summary`. |
-| `blocked_pending` | yellow | Blocked, waiting for a human. | Up to three critical findings with their anchor and a clipped line of evidence, then `Checks`. Also sends the ping below. |
-| `blocked_unattended` | red | The blocking review posted. A correctness finding: nobody was asked. | Critical findings, `Checks`. |
-| `blocked_posted` | red | The blocking review posted, and who decided. | Critical findings, `Checks`. |
-| `denied` | grey | The block was rejected; nothing was posted. | Critical findings, `Checks`. |
-| `error` | orange | The run ended in error. | `Error`. |
-| `superseded` | dark grey | Replaced by a newer commit. | `Head` and `Opened by` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
+| `running` | amber (`--sev-medium`) | Review running. | `Head`, `Pull request`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
+| `clean` | grey (`--fg-muted`) | No critical finding; the advisory review posted. | Identity row, `Checks`, `Summary`. |
+| `blocked_pending` | brand amber (`--accent`) | Blocked, waiting for a human. | Identity row with `Findings`, then up to three *distinct* critical findings — grouped by title and evidence, naming the checks that saw each — then `Checks`. Also posts the ping below. |
+| `blocked_unattended` | red (`--sev-critical`) | The blocking review posted. A correctness finding: nobody was asked. | Grouped critical findings, `Checks`. |
+| `blocked_posted` | red (`--sev-critical`) | The blocking review posted, and who decided. | Grouped critical findings, `Checks`. |
+| `denied` | grey (`--sev-low`) | The block was rejected; nothing was posted. | Grouped critical findings, `Checks`. |
+| `error` | blue (`--sev-info`) | The run ended in error. | `Error`. Red, never: red means the pull request is dangerous, and an infrastructure failure is a status, not a verdict. |
+| `superseded` | near-black (`--line`) | Replaced by a newer commit. | `Head` and `Pull request` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
 
-**The card names both parties** (decision 55). Cujo takes the embed's author
-line — a fixed name and its own mark, served from this repository so Discord's
-media proxy can fetch it anonymously. The person who opened the pull request
-takes an `Opened by` field beside `Head` and the footer icon, because a field
-value cannot carry an image and the footer is the only image slot left. Both
-are on every status, including `running` and `superseded`: who opened a pull
-request cannot change under the card, so the rule that keeps those two sparse
-does not reach it. A run recorded before the author was stored, or one whose
-account has since been deleted, shows neither the field nor the icon and is
-otherwise exactly the card above.
+The colour column is the brand severity ramp, dark values (decision 36); an
+embed carries one colour and is read on a dark client.
+
+**The author line is the opener's** (decision 86, reversing 55's allocation).
+An embed's author line is the one slot that renders an icon in front of text,
+and it goes to the variable party: the person who opened the pull request,
+avatar built from the numeric account id, profile linked only for a login the
+allowlist in rule 7 accepts, name stripped of invisible characters but never
+escaped — the line renders no markdown, so a backslash there is litter. Cujo
+was already named twice above it, by the app badge and its avatar on the
+message header, so the Cujo mark moves into the freed footer icon and the
+`Opened by` field is gone rather than kept beside the line. With the field
+gone, `Head` shares its inline row with `Pull request` (the card's link to
+`https://github.com/<repo>/pull/<n>`, structural, shape-checked in code, and a
+private run's only live link) and the `Findings` counts. The line is on every
+status, including
+`running` and `superseded`: who opened a pull request cannot change under the
+card, so the rule that keeps those two sparse does not reach it — and because
+the clamp only drops fields, the author line is the one identity the
+6000-character budget can never take. A run recorded before the author was
+stored, or one whose account has since been deleted, shows Cujo in the author
+line as before, with no footer icon.
+
+**A check says what it measured, not a tick** (decision 86, on 65's precedent
+for the list row). The `Checks` field carries, per check, its terminal state
+in words, the criticals attributed to it, and how long it watched —
+`tests done, 1 critical, 41s` — with `0 critical` written out rather than
+implied by an absence, because an absent count next to a `done` would read as
+a pass again. Critical findings group by title and evidence for display, so
+one fact reported by three checks costs one line naming all three; the fold
+still records each finding, and the heading keeps the raw count.
 
 Two runs get no card at all: a run whose repo has no binding, and an `error`
 run with no turn. The second is the "lost before its turn started" case, which
@@ -1189,11 +1214,19 @@ a webhook redelivery re-claims under a fresh run id (Contract 6) — a card for
 it would sit in the channel beside the real one.
 
 **The ping.** A Discord edit notifies nobody, so the one moment that needs a
-person cannot be an edit. On `blocked_pending` Cujo posts a second, short
-message that mentions `notify_role_id` and links to the run, and edits that
-message to "resolved" once the run leaves `blocked_pending`. With no role
-configured it still posts, without a mention: a new message is what raises the
-channel's unread mark, which is the entire point.
+person cannot be an edit. On `blocked_pending` Cujo posts a second message
+that mentions `notify_role_id`, and that message carries its own card
+(decision 86): a slim amber embed titled `repo #n — <pr title>` — linking the
+run when it has a page — saying the critical count and that a human is
+blocked, with no fields, because it sits directly under the run card and
+anything it repeated from the card above it would be noise. The mention stays
+in `content`, because a mention only pings from there, and Cujo's own link is
+wrapped in angle brackets so Discord does not unfurl the site beneath the
+embed Cujo just built. With no role configured it still posts, without a
+mention: a new message is what raises the channel's unread mark, which is the
+entire point. Once the run leaves `blocked_pending` that same message is
+edited in place: the embed is recoloured to the outcome and the content says
+resolved.
 
 Both ping steps are deduped on their own durable marker rather than on the
 run's status, because the card is written first and a matching status would
@@ -1221,8 +1254,12 @@ request. So, without exception:
    bare web address and an `<https://…>` autolink and a backslash stops
    neither. So the scheme and the bare `www.` form are defanged —
    `http[:]//example.com` — before the escape pass, which keeps the address
-   readable as evidence and unclickable. The only real URL on a card is the
-   run's own link.
+   readable as evidence and unclickable. The only real URLs on a card are the
+   run's own link and the pull request's, both structural (rule 8's argument:
+   the repo was validated when the channel was bound, and the number is a
+   number) — and the pull request's is shape-checked `owner/name` in code
+   before it is built, with the field omitted when the check fails, for the
+   same reason rule 7's login check exists: enforced, not assumed.
 4. Control characters and the zero-width and bidi ranges are **removed**, not
    escaped. A bidi override can render "not critical" as "critical"; escaping
    does not stop that, only deletion does.
@@ -1234,15 +1271,22 @@ request. So, without exception:
    400 that loses the card for the whole run, since every later edit then has
    no message id to edit.
 7. No derived string reaches an embed URL field unless it passed a strict
-   allowlist first (decision 55). There are exactly two, both about the pull
-   request's author: the avatar is built from the numeric account id, and the
-   profile link only from a login matching
+   allowlist first (decision 55; the slots moved with decision 86, the
+   allowlists did not). There are exactly two, both about the pull request's
+   author: the avatar is built from the numeric account id and sits in the
+   author line, and the profile link only from a login matching
    `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`. GitHub cannot issue a login outside
    that set, so the check should never fire; it is there so the rule is
    enforced by code rather than assumed. A bot login (`dependabot[bot]`) fails
-   it by design and is named without a link.
+   it by design and is named — still with its avatar, which is built from the
+   id — but without a link.
 8. The ping's `content` is structural only — the repo (validated when the
-   channel was bound), the PR number, and Cujo's own link.
+   channel was bound), the PR number, and Cujo's own link, wrapped in angle
+   brackets so Discord does not unfurl it beside the embed. The ping's embed
+   is not structural: its title carries the pull request's title, which is
+   stranger-authored text on this payload for the first time, so it passes
+   through the same escaping, truncation and clamping as any card string
+   (amended by decision 86; before it, the whole ping was plain text).
 
 **Delivery is at-least-once, and never blocks a run.** A failed send is logged
 and dropped; nothing about a run's status, review, or approval depends on

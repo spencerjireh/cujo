@@ -91,6 +91,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 83. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#83-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption)
 84. [A lane says how bad, not what happened; the sentence is where the sentence fits](#84-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
 85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not)
+86. [The alert gets its own card, and the opener takes the author line](#86-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2321,6 +2322,11 @@ sequencing exists because a `main`-relative URL is read by a container that has
 not deployed yet, and it buys nothing once every field is additive.
 
 ## 55. A card names both parties, and a login reaches a URL only through an allowlist
+
+**Reversed by 86.** The allocation below gave the author line to Cujo and the
+person a field plus the footer icon; 86 gives the author line to the person
+and the footer icon to the Cujo mark, on this decision's own premise. The two
+URL allowlists in the second half stand unchanged.
 
 A Discord card said `spencerjireh/orders-api #7 — Add refund endpoint` and
 nothing else identified either side of it. Cujo appeared only as the bot avatar
@@ -4815,3 +4821,86 @@ headings a block and three blocks a card — the chevron says it is a control
 without putting a band of colour under every second line. **Collapsing the
 blocks too**, a third level of disclosure inside the second, which buys a
 scroll and costs a reader the ability to see what a card holds.
+
+## 86. The alert gets its own card, and the opener takes the author line
+
+The message that exists to fetch a human was the least informative thing in
+the channel. A blocked run posted a sentence and a bare run URL, which Discord
+unfurled into a grey box rendering the site's front page — the same two lines
+for every run that has ever been posted. The card above it had the same
+disease from the other side: the person who opened the pull request had their
+avatar at the bottom of the embed and their name in the middle of it, four
+ticks under a `Critical (3)` heading read as "everything passed" when they
+meant "the threads finished", and the three criticals were one decoy-secret
+read reported once per phase. And nothing on the card reached GitHub.
+
+**Decision 55's allocation is reversed, on its own premise.** 55 gave the
+author line to Cujo because the alternative "spends the only avatar
+affordance on an identity already visible in the message header" — and that
+redundancy is exactly what the screenshot showed: `APP cujo` with its avatar
+directly above an author line saying `Cujo` with the same mark. The variable
+party is the one that needs the affordance; the fixed one is already named
+twice. So the opener takes the author line — name stripped but never escaped
+(the line renders no markdown, so a backslash is litter), avatar still built
+from the numeric account id, profile link still only for a login the rule 7
+allowlist accepts, so a bot opener keeps its icon and loses the link. The Cujo
+mark moves into the freed footer icon, and the `Opened by` field is deleted
+rather than kept beside the line: one embed does not name the same person
+twice. `clamp` only pops fields, which now has a stated consequence rather
+than a discovered one — the author line is the one identity the 6000-character
+budget can never drop.
+
+**The ping gets its own card, and rule 8 is amended rather than quietly
+broken.** A slim embed in the run's amber, titled `repo #n — <pr title>`,
+saying the critical count and that a human is blocked, with no fields: it sits
+directly under the run card, and anything it repeated from the card above it
+would be noise. The role mention stays in `content`, because a mention only
+pings from there, and the run URL is wrapped in angle brackets so Discord
+unfurls nothing beside the embed Cujo just built. The embed's title is
+stranger-authored text on a ping payload for the first time, so it passes
+through the same escaping, truncation and clamping as any card string — that
+is the amendment: rule 8's "structural only" now bounds `content` and the two
+URLs, not the whole message. A private run's ping renders with the title
+unlinked, which is the same rule its card applies (decision 57). Once the run
+leaves `blocked_pending` the same message is edited: the embed is recoloured
+to the outcome and the content says resolved, so the message that raised the
+channel's unread mark is the one that clears it.
+
+**A check says what it measured, not a tick.** Decision 65 settled this for
+the public list row; the card was the last surface showing a bare glyph, and
+it showed it under a `Critical` heading. Each check now carries its terminal
+state in words, the criticals attributed to it through `Finding.check`, and
+how long it watched — `tests done, 1 critical, 41s` — and `0 critical` is
+written out rather than implied by an absence, because an absent count next
+to a `done` would read as a pass again. Critical findings group by title and
+evidence for display, so one fact across three checks costs one line naming
+all three; the fold still records each finding, because what the review
+*recorded* is the evidence trail and what the card *shows* is a summary of
+it. Whether the fold should emit one finding carrying three checks remains
+open and is not decided here.
+
+**The card links the pull request**, beside `Head` on the identity row that
+the deleted field freed up (`Head`, `Pull request`, `Findings`). Structural,
+not derived: the repo was validated when the channel was bound and the number
+is a number — rule 8's own argument — and the repo is shape-checked
+`owner/name` in code before the link is built, the field omitted when the
+check fails, for the same reason rule 7's login check exists. On a private
+run it is the card's only live link.
+
+**A run link previews as the run.** `generateMetadata` on the run page, built
+only from fields the public serializer already serves the same anonymous
+caller: decision 65's argument, applied to the preview, disclosing nothing
+new. A private run 404s and inherits the site default, which is the correct
+answer for it, and `robots: noindex` is restated on the page because Open
+Graph is about previews, not discoverability.
+
+Rejected: **`flags: 4` to suppress the unfurl**, which suppresses every embed
+on the message including the ping's own new one, for a wire change angle
+brackets do not need. **Reusing `buildRunCard` for the ping**, which shows the
+same embed twice for every blocked run. **Fixing the metadata and leaving the
+ping as text**, which leaves a private run's alert a bare sentence dependent
+on Discord's proxy reaching `apps/web`. **A thumbnail for the opener**, rejected
+by 55 and still: a large image on every card, squeezing the fields on a narrow
+client. **Keeping both the author line and the field**, which names one person
+twice. **Deduping criticals in the fold**, which changes what the review
+records rather than what the card shows.
