@@ -85,10 +85,26 @@ const SecretProbe = z
   })
   .passthrough();
 
+/**
+ * One sensor's health.
+ *
+ * `armed` is required and `detail` is not, and the asymmetry is the point.
+ * `armed` is what `unarmedSensors` rules on; `detail` is prose for a human
+ * ("port 8899", "793 rows"). Every `runs[]` entry carries both, verbatim from
+ * `sniff.py` — but the envelope's `sensors` is a roll-up the sub-agent writes
+ * by hand, and asking a model to transcribe four prose strings it has already
+ * quoted below adds nothing a reader or a rule can use.
+ *
+ * Requiring it was a real finding on the first production run after this
+ * shipped: every roll-up carried `{"armed": true}` and no `detail`, so the
+ * validator warned on a report that was correct in every way that matters. A
+ * warn that fires on every review is one nobody reads, which costs more than
+ * the check was ever worth.
+ */
 const SensorHealth = z
   .object({
     armed: z.boolean(),
-    detail: z.string(),
+    detail: z.string().optional(),
   })
   .passthrough();
 
