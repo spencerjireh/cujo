@@ -203,16 +203,19 @@ booleans, true if true in any run>}, ...}` plus the fields below.
 Cujo checks that envelope against a schema and records a `warn` when it does not
 hold, so the report is worth getting right. The envelope must carry `check`,
 `runs[]` and `derived`, and should also carry `schema_version`, `sensors` and
-`truncated` — the same roll-up over every run. A roll-up you do send must be an
-object carrying the keys `sniff.py` printed, each one a boolean: omitting the
-block entirely is better than sending `{}` or a block short a key, because an
-absent roll-up claims nothing while a partial one claims a shape it is not.
+`truncated` — the same roll-up over every run. The three are not one shape.
+`derived` and `truncated` are objects of named booleans: send every key
+`sniff.py` printed. `truncated` may be left out, and leaving it out is better
+than sending `{}` or a block short a key, because an absent roll-up claims
+nothing while a partial one claims a shape it is not. `derived` is the one you
+may not leave out.
 **A report's `truncated` is never a list and never a single boolean.** `prepare`
 prints a `truncated` too and that one *is* a list, of build files it capped —
 one word for two shapes, and the one you want here is the object of named
-booleans `sniff.py` printed in each run. Copy it; do not summarise it. In
-the `sensors` roll-up only `armed` matters; you do not need to copy each
-sensor's `detail` prose up from the runs below. Copy each `runs[]` entry from what
+booleans `sniff.py` printed in each run. Copy it; do not summarise it. `sensors`
+is the odd one: each named sensor there is an object and not a boolean, and only
+its `armed` matters — you do not need to copy each sensor's `detail` prose up
+from the runs below. Copy each `runs[]` entry from what
 `sniff.py` printed, verbatim and whole: a `run` entry carries `schema_version`,
 `argv`, `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail` and
 the sensor block, and a `detonate` entry carries `dependency`, `source` and
