@@ -735,6 +735,26 @@ describe("Runner.consume", () => {
       expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
     });
 
+    it("keeps the watchdog's verdict when it fires part-way through a replay", async () => {
+      // The read crosses an await and the watchdog can fire inside it. A
+      // wholesale assignment would drop the terminal event the watchdog had
+      // just appended, put the fold back to `running`, and strand the run with
+      // its timer already spent.
+      const listEvents = vi.fn(async () => {
+        await new Promise((res) => setTimeout(res, 220));
+        return [{ turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") }];
+      });
+      const { store, r, runner, opening } = lost(
+        { listTurns: vi.fn(async () => [{ id: "t1", state: { status: "done" } }]), listEvents },
+        120,
+      );
+      await runner.consume(r.id, opening);
+      // The watchdog's verdict, not the replay's silence -- and specifically
+      // not the "could not be followed" backstop, which would mean the
+      // synthetic terminal had been lost.
+      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    });
+
     it("ends a run that has no turn to watch, rather than leaving it running", async () => {
       // The watchdog is cleared when `consume` returns, so a path that waits on
       // nothing would strand the run at `running` with nobody left to end it --
