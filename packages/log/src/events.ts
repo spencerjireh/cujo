@@ -82,6 +82,7 @@ export const EVENT_NAMES = [
   "run.stream.recovered",
   "run.hydrate.failed",
   "run.rehydrated",
+  "run.rehydrate.expired",
   "run.rehydrate.failed",
   "run.poll.failed",
   "run.poll.adopted",

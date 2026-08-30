@@ -9,7 +9,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * What the dwell decides for itself (decision 99).
+ * What the dwell decides for itself (decision 102).
  *
  * The swap between the readings and the key is an opacity change over two
  * cells that stay mounted, so jsdom cannot see it happen — but `aria-hidden`
