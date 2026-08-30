@@ -1012,6 +1012,12 @@ projection of the TrueForge session (decision 18): the fields below are all
 `apps/cujo` stores, and everything else the UI shows is rebuilt from
 `listTurnEvents` on demand.
 
+Events from TrueForge are validated at the boundary before they enter the
+fold (decision 105). The schema is shallow — only the fields `fold.ts` and
+`runner.service.ts` read — and lenient: `.passthrough()` on every object,
+`safeParse` with a `run.event.invalid` warning on mismatch, never a rejection.
+The same additive-only principle as the report validator (decision 62).
+
 A run spans more than one TrueForge turn. `tool.approval_required` ends the
 turn it arrives in, and the resume (Contract 4) is a new turn whose
 `turn.created` carries `previous_turn_id`. So a run holds an ordered list of

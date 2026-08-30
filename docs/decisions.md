@@ -110,6 +110,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 102. [The key waits for a stay](#102-the-key-waits-for-a-stay)
 103. [The verdict card stops linking out](#103-the-verdict-card-stops-linking-out)
 104. [Supersede, do not delete, on re-review](#104-supersede-do-not-delete-on-re-review)
+105. [SessionEvents are validated at the boundary](#105-sessionevents-are-validated-at-the-boundary)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5392,7 +5393,6 @@ it is short, and the evidence is the reason it is on that line. **Telling the
 model to write shorter blocks** instead of rendering them shorter, which is
 decision 74 reversed — a rule a model applies is a rule that fails silently.
 
-<<<<<<< HEAD
 ## 98. The board carries the manual, and it is the one thing indexed
 
 **Status:** active — `/docs` in `apps/web`, `robots.ts` amended.
@@ -5693,3 +5693,44 @@ answers only the reader's 404 and does not preserve the run's data for board
 history or model comparison. **Dismissing the old review** (option 3): related
 to decision 52 and solves a different problem — stale blocking reviews on newer
 heads — rather than the evidence reachability one.
+
+## 105. SessionEvents are validated at the boundary
+
+**Status: active.** Closes #90.
+
+`fold` turns TrueForge `SessionEvent`s into a run's verdict, and nothing
+checked their shape at runtime. The SDK's TypeScript types are compile-time
+only; if an upgrade renamed or dropped a field, `fold` would silently read
+past it, and a run could resolve `clean` because evidence went missing — the
+same failure mode `report-schema.ts` exists to prevent (decisions 61-62), one
+layer up.
+
+**Shallow schema of accessed fields.** The Zod schema validates only the
+structural fields `fold.ts` and `runner.service.ts` actually read: the `type`
+discriminant, `id`, `createdAt`, and the specific payload fields each branch
+destructures. Every object carries `.passthrough()` so a newer SDK's additions
+survive without a false rejection — the same rule decision 54 applies to check
+reports.
+
+**Validated at the boundary, not at every consumer.** Events enter through two
+paths: the live SSE stream (via `push`) and persisted replay (via `rehydrate`
+and `replayTurn`). Validation happens at those three call sites. Everything
+downstream — `fold`, `refold`, `reportChecks` — trusts what has already been
+checked.
+
+**Warn, never reject.** `safeParse`, and an event that fails is logged as
+`run.event.invalid` with a diagnostic and kept in the fold. Never dropped,
+never fatal. This matches decision 62 exactly: the validator may only *add*
+a finding's worth of signal, never gate the rules.
+
+**CI type-assignability test.** A compile-time guard asserts that the SDK's
+`SessionEvent` type is assignable to the schema's inferred type. If the SDK
+drops a field the schema declares, `tsc --noEmit` fails — catching drift at
+build time rather than runtime.
+
+Rejected: **validating at every consumer** (six-plus call sites), which
+multiplies maintenance for no safety gain when the boundary is already
+covered. **Full SDK surface validation**, which would reject events carrying
+new fields from a newer SDK — exactly what `.passthrough()` exists to prevent.
+**Dropping invalid events**, which fails toward `clean` the same way the
+original problem does.
