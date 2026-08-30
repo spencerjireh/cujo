@@ -1,4 +1,4 @@
-import { SATELLITE_ORBIT, projectRing, satelliteRing } from "@/lib/board/orbit";
+import { SATELLITE_ORBIT, projectRing, ringNormals, satelliteRing } from "@/lib/board/orbit";
 import type { Specimen } from "@/lib/board/specimen";
 import { TONE_CHAMBER_VAR } from "@/lib/board/tone";
 
@@ -8,8 +8,9 @@ import { TONE_CHAMBER_VAR } from "@/lib/board/tone";
  *
  * It is the same rig the inline WebGL scene uses (`chamber/inline.ts`), and
  * everything about the shape is the same object, projected — `projectRing` is
- * the scene's own four ring planes seen down the view axis, so this is a
- * drawing *of* the system rather than a second drawing that resembles it.
+ * the run's own four ring planes (`ringNormals`, seeded off its id) seen down
+ * the view axis, so this is a drawing *of* the system rather than a second
+ * drawing that resembles it, and it is the star the board draws for this run.
  *
  * It is what a reader sees first on every run page, and all a reader sees when
  * there is no WebGL.
@@ -29,6 +30,7 @@ export function SpecimenGlyph({ specimen }: { specimen: Specimen }) {
   const core = 6.4 * specimen.coreScale;
   const satellite = 2.5;
   const orbit = RING_MAX_PX * SATELLITE_ORBIT;
+  const normals = ringNormals(specimen.id);
 
   return (
     <svg
@@ -42,7 +44,7 @@ export function SpecimenGlyph({ specimen }: { specimen: Specimen }) {
       {specimen.bars.map((bar, i) => {
         if (bar.length <= 0) return null;
         const radius = RING_MIN_PX + bar.length * (RING_MAX_PX - RING_MIN_PX);
-        const ring = projectRing(i, radius, bar.solid);
+        const ring = projectRing(i, radius, bar.solid, undefined, normals);
         const stroke = `var(${TONE_CHAMBER_VAR[bar.tone]})`;
         return (
           <g key={bar.name} fill="none" strokeLinecap="round" strokeLinejoin="round">

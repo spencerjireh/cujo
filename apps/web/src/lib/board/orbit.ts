@@ -7,16 +7,16 @@
  * bright arc of it the share spent executing in the sandbox, its colour how
  * the check ended; findings are satellites on an orbit outside the rings.
  *
- * The four ring planes are the four tetrahedral directions the arms used to
- * leave the core along, now used as normals. Every pair is 109.47° apart, the
- * widest four planes can be from each other, and — the property that matters
- * for the flat drawings — each projects down the view axis to an ellipse with
- * the same minor/major ratio, `1/sqrt(3)`, squashed along one of the four 45°
- * diagonals. So `tests` still sits upper-left and `detonation` lower-left in
- * the run page's glyph, and the four rings are always distinguishable by their
- * orientation alone. One fixed orientation for every run, never turned to face
- * the camera: a ring's tilt *is* its check, and two runs are comparable by
- * silhouette only while that holds.
+ * The ring planes are the run's own (decision 72). Four tilts seeded off the
+ * run's id: four azimuths a quarter turn apart from a jittered start, and a
+ * polar lean bounded so no ring is ever seen edge-on or flat. Four fixed
+ * tetrahedral planes were the Bohr atom, and thirty of them were thirty of
+ * the same atom; a system whose planes are its own reads as a system, and no
+ * two runs share a silhouette. What a tilt *is* has changed: it says nothing
+ * about which check the ring is. Colour and radius say that, and the run
+ * page's timeline names them. The flat drawings project the same normals the
+ * scene orients by, so the glyph beside a title is the star on the board seen
+ * down the view axis.
  *
  * Pure and DOM-free, like every other module here, because
  * `components/board/chamber/` cannot be tested at all — `apps/web` runs vitest
@@ -24,6 +24,7 @@
  */
 
 import { CHECK_NAMES, type CheckName } from "@/lib/api/types";
+import { uniforms } from "./hash";
 
 export interface Vec3 {
   x: number;
@@ -40,12 +41,8 @@ export interface Point2 {
 const D = 1 / Math.sqrt(3);
 
 /**
- * One ring normal per check, in `CHECK_NAMES` order — `tests`, `probes`,
- * `smoke`, `detonation`.
- *
- * The signs put each ring's projected minor axis on the diagonal the check's
- * arm used to lie along, so the quadrant a reader learned still belongs to the
- * same check.
+ * The tetrahedral set, which is what a flat drawing falls back to when it has
+ * no run to seed from. In `CHECK_NAMES` order.
  */
 export const RING_NORMALS: readonly Vec3[] = [
   { x: -D, y: D, z: D },
@@ -54,8 +51,39 @@ export const RING_NORMALS: readonly Vec3[] = [
   { x: -D, y: -D, z: -D },
 ];
 
-/** Minor over major of every projected ring: `|n.z|`, the same for all four. */
-export const PROJECTED_SQUASH = D;
+/**
+ * How far a ring's normal may lean off the view axis, as `|n.z|`.
+ *
+ * Toward 1 the ring is a circle facing the reader and has no tilt to show;
+ * toward 0 it is a line. Both bounds are tested.
+ */
+export const TILT_MIN_Z = 0.5;
+export const TILT_MAX_Z = 0.96;
+/** How far each ring's azimuth may stray from its quarter of the turn. */
+export const AZIMUTH_JITTER = Math.PI / 6;
+
+/**
+ * The four ring normals for a run, seeded off its id. `CHECK_NAMES` order.
+ *
+ * Azimuths are a quarter turn apart from a jittered start, each jittered
+ * again by less than half a quarter, so no two planes of one run are close.
+ * The polar lean is drawn per ring between the two bounds. Nine draws, one
+ * hash each: cheap enough to do on every build and never stored.
+ */
+export function ringNormals(id: string): Vec3[] {
+  const draw = uniforms(id, 1 + CHECK_NAMES.length * 2);
+  const base = (draw[0] ?? 0) * 2 * Math.PI;
+  return CHECK_NAMES.map((_, i) => {
+    const jitter = ((draw[1 + i * 2] ?? 0.5) * 2 - 1) * AZIMUTH_JITTER;
+    const azimuth = base + (i * Math.PI) / 2 + jitter;
+    const z = TILT_MIN_Z + (draw[2 + i * 2] ?? 0.5) * (TILT_MAX_Z - TILT_MIN_Z);
+    const lean = Math.sqrt(1 - z * z);
+    // Every other ring leans away from the reader, so a system is not a stack
+    // of dishes all facing one way.
+    const sign = i % 2 === 0 ? 1 : -1;
+    return { x: Math.cos(azimuth) * lean, y: Math.sin(azimuth) * lean, z: z * sign };
+  });
+}
 
 /** How many satellites a run draws before it stops being countable. */
 export const SATELLITE_SLOTS = 6;
@@ -121,6 +149,8 @@ export interface ProjectedRing {
  * `share` is 0–1 of the ring that is bright, or null for a ring drawn whole —
  * a check that measured no share is not one that measured none. The two arcs
  * share their meeting point, so drawn end to end they close without a gap.
+ * `normals` is the run's own set from `ringNormals`; a drawing with no run to
+ * seed from gets the tetrahedral set.
  *
  * `y` is flipped here and only here: the scene's y runs up and SVG's runs
  * down, and putting the flip in the projection means no caller has to
@@ -131,8 +161,9 @@ export function projectRing(
   radius: number,
   share: number | null,
   steps = RING_STEPS,
+  normals: readonly Vec3[] = RING_NORMALS,
 ): ProjectedRing {
-  const normal = RING_NORMALS[index];
+  const normal = normals[index];
   const name = CHECK_NAMES[index];
   if (!normal || !name) throw new RangeError(`no ring at index ${index}`);
   const lit = share === null ? 1 : Math.min(1, Math.max(0, share));

@@ -1,21 +1,21 @@
 /**
- * The chamber: a galaxy of the run history, five layers deep.
+ * The chamber: a galaxy of the run history, three layers deep.
  *
  * Imperative and framework-free on purpose. React owns when this exists and
  * what data it holds; this file owns the renderer, the camera, the pointer and
  * the loop, and composes four modules that own everything else — the gates,
  * the specimens, the air, and the passes the frame is drawn through.
  *
- * The rules, from decision 68 as amended by 69, 70 and 71:
+ * The rules, from decision 68 as amended by 69, 70, 71 and 72:
  *
  * - **No geometry exists that is not a measurement.** A gate is drawn only for
- *   a layer that holds a run, and the sweep is the board re-reading the API.
+ *   a layer that holds a run, and the wash is the board re-reading the API.
  *   Anything that could be moved, resized or recoloured without a fact changing
  *   does not belong in `room.ts` or `specimens.ts`.
  * - **The exception is air, and it is one file.** `atmosphere.ts` and `post.ts`
  *   are decorative and carry no data. That is the whole of decision 69, and it
  *   is stated as a boundary so a reader can check it by looking at two imports.
- * - **Depth is time, in five layers.** The newest runs are nearest; each layer
+ * - **Depth is time, in three layers.** The newest runs are nearest; each layer
  *   behind holds older ones. Where a run sits within its layer is a function
  *   of its id and means nothing (decision 70).
  * - **Every specimen is drawn from its own digest.** Ring radii are check
@@ -30,18 +30,30 @@
 
 import { arrivalCurve, diffRecord, slideProgress } from "@/lib/board/arrival";
 import { PITCH_LIMIT, YAW_LIMIT, cameraDrift, cameraPlacement } from "@/lib/board/chamber-camera";
-import { LAYER_COUNT, sparseness } from "@/lib/board/chamber-layout";
+import { LAYER_COUNT, layerZ, sparseness } from "@/lib/board/chamber-layout";
 import { approach, clamp } from "@/lib/board/ease";
 import { layerOf, placeAt } from "@/lib/board/galaxy";
 import { type Specimen, specimenSignature } from "@/lib/board/specimen";
 import {
-  SWEEP_MAX_SECONDS,
-  SWEEP_MIN_SECONDS,
+  WASH_MIN_SECONDS,
+  lightOpacity,
   readStrength,
-  sweepPhase,
-  sweepZ,
-} from "@/lib/board/sweep";
-import { Fog, Group, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3 } from "three";
+  washCursor,
+  washSeconds as washDuration,
+  washPhase,
+} from "@/lib/board/wash";
+import {
+  AdditiveBlending,
+  Fog,
+  Group,
+  PerspectiveCamera,
+  Raycaster,
+  Scene,
+  Sprite,
+  SpriteMaterial,
+  Vector2,
+  Vector3,
+} from "three";
 import { WebGLRenderer } from "three";
 import { createAtmosphere } from "./atmosphere";
 import { readPalette } from "./palette";
@@ -53,6 +65,7 @@ import {
   createSpecimenKit,
   snapSpecimen,
 } from "./specimens";
+import { radialTexture } from "./textures";
 
 /** The lens. Wider than the 30° it was: a full-height frame wants some drama. */
 const FOV = 36;
@@ -62,6 +75,9 @@ const FOCUS_RATE = 0.0008;
 const SLIDE_SECONDS = 0.9;
 /** How long a new run takes to ease into the front slot. */
 const ARRIVE_SECONDS = 1.1;
+/** The reading light: its size in scene units, and how bright at full. */
+const LIGHT_SCALE = 0.16;
+const LIGHT_OPACITY = 0.85;
 
 export interface ChamberHandle {
   /** Replace the record. Cheap enough to call on every poll. */
@@ -71,8 +87,11 @@ export interface ChamberHandle {
   /** Hold one run lit because it was picked, which outlives the pointer. */
   setSelection(id: string | null): void;
   /**
-   * A poll landed. Starts one sweep back to front over `intervalMs`, so the
-   * plane's position is how far the board is from reading the record again.
+   * A poll landed. Starts one walk of the light over the record, oldest run
+   * to newest, taking `intervalMs`, fifteen seconds, or a second and a half
+   * per run, whichever is longest. A poll that lands while a walk is under
+   * way starts nothing: the light is ambient, and one that restarted every
+   * five seconds was a strobe.
    */
   pulse(intervalMs: number): void;
   /** Pointer position over the hero, normalised to −1…1. Null when it leaves. */
@@ -140,6 +159,24 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   const post = createPost({ renderer, scene, camera });
 
   const kit = createSpecimenKit(palette, { ring: true, glow: true });
+
+  // The reading light: one amber dot that hops from star to star as the
+  // board re-reads the record. Amber, which brand.md puts on exactly the sweep
+  // and the verdict waiting on a person; additive, so it is light and not
+  // paint; fogged, so it recedes with the star it is on.
+  const lightMaterial = new SpriteMaterial({
+    map: radialTexture(),
+    color: palette.amber,
+    transparent: true,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    opacity: 0,
+    fog: true,
+  });
+  const light = new Sprite(lightMaterial);
+  light.scale.setScalar(LIGHT_SCALE);
+  light.visible = false;
+  scene.add(light);
 
   const specimens = new Group();
   scene.add(specimens);
@@ -415,14 +452,15 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
   let frame = 0;
   let startedAt = 0;
   let lastElapsed = 0;
-  /** Elapsed seconds at which the current sweep began. Negative means none yet. */
-  let sweepFrom = -1;
-  let sweepSeconds = SWEEP_MIN_SECONDS;
+  /** Elapsed seconds at which the current wash began. Negative means none yet. */
+  let washFrom = -1;
+  let washSeconds = WASH_MIN_SECONDS;
   let elapsedNow = 0;
 
   function pulse(intervalMs: number): void {
-    sweepSeconds = clamp(intervalMs / 1000, SWEEP_MIN_SECONDS, SWEEP_MAX_SECONDS);
-    sweepFrom = elapsedNow;
+    if (washPhase(elapsedNow, washFrom, washSeconds) !== null) return;
+    washSeconds = washDuration(intervalMs, nodes.length);
+    washFrom = elapsedNow;
   }
 
   function draw(elapsed: number, dt: number): void {
@@ -445,13 +483,17 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     camera.position.set(placement.x, placement.y, placement.z);
     camera.lookAt(placement.aimX, placement.aimY, placement.aimZ);
 
-    // The sweep is the poll. It leaves the back layer when data lands and
-    // reaches the front as the next request is due, so a busy board sweeps
-    // every five seconds and a quiet one crawls once every thirty.
-    const phase = options.reducedMotion ? null : sweepPhase(elapsed, sweepFrom, sweepSeconds);
-    const plane = phase === null ? null : sweepZ(phase);
-    room.setSweep(plane);
-    atmosphere.setSweep(plane);
+    // The wash is the poll. It starts on the oldest run when data lands and
+    // walks the record to the newest, one star at a time.
+    const phase =
+      options.reducedMotion || nodes.length === 0
+        ? null
+        : washPhase(elapsed, washFrom, washSeconds);
+    const cursor = phase === null ? null : washCursor(phase, nodes.length);
+    // The haze follows the layer the cursor is in, and rests between washes.
+    const cursorLayer =
+      cursor === null ? null : layerOf(clamp(Math.round(cursor), 0, nodes.length - 1)).layer;
+    atmosphere.setSweep(cursorLayer === null ? null : layerZ(cursorLayer));
     atmosphere.update(elapsed, options.reducedMotion);
 
     const lit = litId();
@@ -486,9 +528,10 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
         ? target.dim
         : approach(node.dimAmount, target.dim, FOCUS_RATE, dt);
 
-      // Read against the run's own depth: the plane lights a layer at a time,
-      // and a run sliding between two layers is lit for wherever it is.
-      const read = plane === null ? 0 : readStrength(plane, node.group.position.z);
+      // Read against the run's own slot, part way between two while it slides,
+      // so a run moving back a layer is lit for wherever it is on the walk.
+      const slot = node.slotFrom + (node.slotTo - node.slotFrom) * t;
+      const read = cursor === null ? 0 : readStrength(cursor, slot);
       applySpecimenFrame(node, {
         elapsed,
         reducedMotion: options.reducedMotion,
@@ -502,8 +545,35 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
       if (lit === node.spec.id) anchorOn(node);
     }
     if (lit === null || !nodes.some((node) => node.spec.id === lit)) anchorOn(null);
+    placeLight(cursor);
 
     post.render(dt);
+  }
+
+  /**
+   * Put the light where the cursor is: on a star while the cursor is at an
+   * integer, and on the straight line to the next star between two. The
+   * nodes are in index order, so the cursor indexes them directly, and a
+   * star mid-slide is read where it is now rather than where it is going.
+   */
+  function placeLight(cursor: number | null): void {
+    const last = nodes.length - 1;
+    if (cursor === null || last < 0) {
+      light.visible = false;
+      return;
+    }
+    const at = clamp(cursor, 0, last);
+    const lower = Math.floor(at);
+    const upper = Math.min(last, lower + 1);
+    const from = nodes[lower]?.group.position;
+    const to = nodes[upper]?.group.position;
+    if (!from || !to) {
+      light.visible = false;
+      return;
+    }
+    light.position.copy(from).lerp(to, at - lower);
+    lightMaterial.opacity = LIGHT_OPACITY * lightOpacity(cursor, nodes.length);
+    light.visible = lightMaterial.opacity > 0;
   }
 
   const anchorPoint = new Vector3();
@@ -562,13 +632,13 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     if (frame === 0) return;
     cancelAnimationFrame(frame);
     frame = 0;
-    // So a paused-then-resumed loop does not jump the sweep forward by however
-    // long the tab was in the background. The sweep is dropped with it: the
+    // So a paused-then-resumed loop does not jump the wash forward by however
+    // long the tab was in the background. The wash is dropped with it: the
     // poll it was drawing did not happen while the tab was hidden.
     startedAt = 0;
     lastElapsed = 0;
     elapsedNow = 0;
-    sweepFrom = -1;
+    washFrom = -1;
   }
 
   function resize(width: number, height: number): void {
@@ -596,6 +666,8 @@ export function createChamber(options: ChamberOptions): ChamberHandle {
     canvas.removeEventListener("pointerleave", onPointerLeave);
     clearNodes();
     kit.dispose();
+    lightMaterial.map?.dispose();
+    lightMaterial.dispose();
     room.dispose();
     atmosphere.dispose();
     post.dispose();

@@ -53,11 +53,11 @@ export function Chamber({
   runs: RunSummary[];
   /**
    * When the list query last returned. A change is a poll landing, which is
-   * what starts a sweep — the plane is the board re-reading the record, not a
+   * what starts a wash — the light is the board re-reading the record, not a
    * timer that happens to look like one.
    */
   updatedAt: number;
-  /** How long until the next one, so the sweep arrives as the read does. */
+  /** How long until the next one. The wash takes at least this long. */
   pollMs: number;
   /**
    * What the renderer is doing, in the three states the page lays out
@@ -288,8 +288,8 @@ export function Chamber({
 
   // A poll landed. `updatedAt` changes on every successful fetch, including the
   // ones that return an unchanged list — which is the honest signal, because
-  // the sweep is drawing the read and not the change.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `updatedAt` is the trigger, not an input — the effect reads only `pollMs`, and the timestamp is in the list precisely so a fetch that changed nothing still starts a sweep.
+  // the wash is drawing the read and not the change.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `updatedAt` is the trigger, not an input — the effect reads only `pollMs`, and the timestamp is in the list precisely so a fetch that changed nothing still starts a wash.
   useEffect(() => {
     handleRef.current?.pulse(pollMs);
   }, [updatedAt, pollMs]);

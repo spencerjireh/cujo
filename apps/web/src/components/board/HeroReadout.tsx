@@ -61,11 +61,15 @@ export function HeroLead({ metrics }: { metrics: BoardMetrics }) {
           </>
         )}
       </h1>
-      <p className="mt-5 max-w-md font-mono text-sm leading-relaxed text-[var(--chamber-fg-muted)]">
-        {empty
-          ? "The chamber is empty and the instrument is on. Every verdict it draws comes from running the code, not reading it."
-          : "Cujo clones each head into a disposable sandbox and runs the tests, probes it, boots it, and detonates its dependencies. Every verdict below came from executing the code, not reading it."}
-      </p>
+      {/* One line, and only while there is nothing to read. With a record on
+          screen the headline says what this is and the drawing says the rest;
+          a paragraph beside a galaxy was read by nobody (decision 72). */}
+      {empty ? (
+        <p className="mt-5 max-w-md font-mono text-sm leading-relaxed text-[var(--chamber-fg-muted)]">
+          The chamber is empty and the instrument is on. Every verdict it draws comes from running
+          the code, not reading it.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -131,9 +135,11 @@ export function HeroStats({
           <Stat label="last run" value={<RelativeTime iso={metrics.newestAt} />} />
         ) : null}
       </dl>
+      {/* One sentence, which is all a reader needs to decode the drawing; the
+          key below the record carries the rest (decision 72). */}
       <p className="mt-6 max-w-md font-mono text-xs leading-relaxed text-[var(--chamber-fg-muted)]">
-        Each star is one run: four orbits, one per check, as wide as the check took.
-        {interactive ? " Click one to find its run in the record below." : null}
+        Each star is one run. Colour is the verdict, rings are checks, dots are findings.
+        {interactive ? " Click one to find its run below." : null}
       </p>
     </div>
   );

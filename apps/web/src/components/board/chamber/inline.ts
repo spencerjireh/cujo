@@ -47,10 +47,9 @@ const MARGIN = 1.12;
  */
 const TURN_SECONDS = 26;
 /**
- * A fixed tilt off the vertical, so the axis of rotation is not one the four
- * ring planes are symmetric about. Spun about a symmetry axis the system
- * repeats itself every third of a turn and reads as a wobble; tilted, every
- * ring opens and closes in its own time.
+ * A fixed tilt off the vertical, so the turn shows the rings' depth and not
+ * only their outline: spun about the view axis a system is a flat drawing
+ * rotating; tilted, every ring opens and closes in its own time.
  */
 const TILT = 0.42;
 

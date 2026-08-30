@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * browser. There is no aggregate endpoint and the page does not want one — the
  * whole list arrives in a single response.
  *
- * That poll is also what drives the chamber's sweep: the plane crossing the
+ * That poll is also what drives the chamber's wash: the light walking the
  * galaxy is the board re-reading the record, so it is handed the same interval
  * `runsListOptions` is using rather than a duration of its own.
  */
@@ -109,16 +109,17 @@ export function RunsView() {
         </div>
         {/* A ground for the type, at both ends of the frame now that the
             readout is at both ends of it. The bottom band is the deeper of the
-            two, because the stats sit over the front of the galaxy; the top
-            one only has to carry a headline over the star field, which is
-            fainter. */}
+            two, because the stats sit over the front of the galaxy; it is
+            shallower than it was (decision 72) — solid only for the last
+            tenth and gone by a third of the way up — because at half the
+            frame it covered the front layer. */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-[var(--chamber)]/90 via-[var(--chamber)]/45 to-transparent"
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[var(--chamber)] from-25% via-[var(--chamber)]/80 to-transparent"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[38%] bg-gradient-to-t from-[var(--chamber)] from-10% via-[var(--chamber)]/55 via-45% to-transparent"
         />
         {/* `pointer-events-none` on both this and the wash above, because they
             are painted after the canvas and span it: whichever of them the
