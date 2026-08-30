@@ -79,6 +79,14 @@ export const MIGRATIONS: readonly string[] = [
   //     created the session. Two statements, one column each, as above.
   "ALTER TABLE runs ADD COLUMN model TEXT",
   "ALTER TABLE runs ADD COLUMN rubric_sha256 TEXT",
+  // 9 — a re-triggered review (`/cujo review`) supersedes the old run instead
+  //     of deleting it (decision 104), so the posted review's evidence footer
+  //     stays reachable. The UNIQUE constraint moves from all rows to only
+  //     non-terminal ones: a head may have many superseded or error runs, but
+  //     at most one that is still active.
+  `DROP INDEX IF EXISTS runs_head;
+   CREATE UNIQUE INDEX runs_head ON runs (repo, pr_number, head_sha)
+     WHERE status NOT IN ('superseded', 'error', 'clean', 'blocked_unattended', 'blocked_posted', 'denied');`,
 ];
 
 export const SCHEMA = `
@@ -116,9 +124,11 @@ export const SCHEMA = `
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at DESC);
-  -- One run per PR head (Contract 5): a duplicate webhook delivery cannot
-  -- claim a second run for the same SHA.
-  CREATE UNIQUE INDEX IF NOT EXISTS runs_head ON runs (repo, pr_number, head_sha);
+  -- One active run per PR head (Contract 5): a duplicate webhook delivery
+  -- cannot claim a second run for the same SHA. Terminal runs are excluded
+  -- so a superseded run's evidence page stays reachable (decision 104).
+  CREATE UNIQUE INDEX IF NOT EXISTS runs_head ON runs (repo, pr_number, head_sha)
+    WHERE status NOT IN ('superseded', 'error', 'clean', 'blocked_unattended', 'blocked_posted', 'denied');
   CREATE TABLE IF NOT EXISTS run_projections (
     run_id TEXT PRIMARY KEY REFERENCES runs (id),
     projection TEXT NOT NULL

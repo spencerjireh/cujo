@@ -256,7 +256,9 @@ describe("webhook", () => {
     const secondId = await done;
     expect(secondId).not.toBe(firstId);
     expect(runner.start).toHaveBeenCalledOnce();
-    expect(store.runs.getRun(firstId)).toBeNull();
+    // The old error run survives (decision 104): the partial unique index
+    // excludes terminal statuses, so the redelivery inserts beside it.
+    expect(store.runs.getRun(firstId)).toMatchObject({ status: "error" });
   });
 
   /**
@@ -776,7 +778,11 @@ describe("the webhook logs every branch it takes", () => {
   });
 
   it("records a duplicate delivery against the run that already owns the head", async () => {
-    const { app, logged, nextSettled } = build();
+    const github = {
+      alreadyReviewed: vi.fn(async () => false),
+      pullRequest: vi.fn(async () => prOf("abc1234def")),
+    } as unknown as GitHubReader;
+    const { app, logged, nextSettled } = build({ github });
     const first = nextSettled();
     await app.fetch(post(prBody()));
     await first;

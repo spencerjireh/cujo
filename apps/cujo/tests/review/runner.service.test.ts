@@ -501,7 +501,8 @@ describe("Runner.supersede", () => {
     await runner.supersede(b.id);
     expect(cancelTurn).toHaveBeenCalledTimes(1);
     expect(store.runs.getRun(a.id)?.status).toBe("superseded");
-    expect(store.runs.getRun(b.id)?.status).toBe("superseded");
+    // Cancel failed: the partial index still protects the head (decision 104).
+    expect(store.runs.getRun(b.id)?.status).toBe("running");
   });
 });
 
@@ -1038,16 +1039,16 @@ describe("Runner.supersede reports whether the turn is confirmed stopped", () =>
     expect(await runner.supersede(r.id)).toBe(true);
   });
 
-  it("says no when the harness refuses, even though it still supersedes", async () => {
-    // The failure this exists for: `supersede` swallows the error on purpose —
-    // an unreachable harness is not worth failing a supersession over — so the
-    // caller has to be told rather than left to infer it from a resolved call.
+  it("says no when the harness refuses, and leaves the run protected", async () => {
+    // Cancel failed: the status stays `running` so the partial unique index
+    // continues protecting the head (decision 104). The caller is told
+    // explicitly rather than left to infer it from a resolved call.
     const { store, r, runner } = superseding(async () => {
       throw new Error("harness unreachable");
     });
     store.runs.updateRun(r.id, { turnIds: ["t1"] });
     expect(await runner.supersede(r.id)).toBe(false);
-    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+    expect(store.runs.getRun(r.id)?.status).toBe("running");
   });
 
   it("says yes for a run that never had a turn to cancel", async () => {

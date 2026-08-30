@@ -190,12 +190,11 @@ async function main(): Promise<void> {
           };
         }
       }
-      // By id, and never "whatever owns this head now". Two concurrent
-      // `/cujo review` commands both snapshot this same run and both wait on
-      // its supersession; a delete that re-queried by head would have the
-      // slower one delete the *replacement* the faster one just created, and
-      // that replacement's `startRun` would carry on against a deleted row.
-      store.runs.deleteRun(existing.id);
+      // Supersede rather than delete (decision 104): the old run's posted
+      // review stays on the PR with an evidence footer that still resolves.
+      // The partial unique index on runs_head excludes terminal statuses,
+      // so the superseded row does not block the replacement's insert.
+      store.runs.updateRun(existing.id, { status: "superseded" });
     }
     const { run, created } = store.runs.createRun({
       repo: input.repo,

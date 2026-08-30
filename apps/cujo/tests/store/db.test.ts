@@ -29,11 +29,14 @@ describe("the migration ladder", () => {
     expect(MIGRATIONS[5]).toBe("DROP TABLE IF EXISTS discord_guild_repos");
     expect(MIGRATIONS[6]).toBe("ALTER TABLE runs ADD COLUMN model TEXT");
     expect(MIGRATIONS[7]).toBe("ALTER TABLE runs ADD COLUMN rubric_sha256 TEXT");
+    expect(MIGRATIONS[8]).toContain("DROP INDEX IF EXISTS runs_head");
+    expect(MIGRATIONS[8]).toContain("CREATE UNIQUE INDEX runs_head");
+    expect(MIGRATIONS[8]).toContain("WHERE status NOT IN");
   });
 
   it("has no gaps, since index i takes user_version i to i + 1", () => {
     expect(MIGRATIONS.every((statement) => typeof statement === "string" && statement.length > 0));
-    expect(MIGRATIONS).toHaveLength(8);
+    expect(MIGRATIONS).toHaveLength(9);
   });
 
   /**
