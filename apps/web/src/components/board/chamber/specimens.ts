@@ -8,10 +8,10 @@
  * is here and both callers use it.
  *
  * What separates the two is a rig, not a flag named after the caller. The board
- * passes a chain to hang from and a floor to land on; the run page passes
- * neither, and the lines that reference a room are simply not drawn. That is
- * the whole seam: `build()` returns a detached `Group`, and whoever asked for
- * it decides what to add it to.
+ * passes a floor to land on; the run page passes none, and the tether and the
+ * shadow under it are simply not drawn. That is the whole seam: `build()`
+ * returns a detached `Group`, and whoever asked for it decides what to add it
+ * to.
  *
  * Every rule about what a specimen *means* lives in `@/lib/board/specimen` and
  * `@/lib/board/caltrop`, which are pure and tested. This module only turns that
@@ -27,7 +27,6 @@ import {
   BufferAttribute,
   BufferGeometry,
   type Camera,
-  CanvasTexture,
   Group,
   LineBasicMaterial,
   LineSegments,
@@ -42,6 +41,7 @@ import {
   Vector3,
 } from "three";
 import type { ChamberPalette } from "./palette";
+import { radialTexture } from "./textures";
 
 /** How much of its colour a specimen keeps while another one is lit. */
 export const DIMMED = 0.45;
@@ -61,7 +61,7 @@ const HOLLOW_THICKNESS = ARM_THICKNESS * 0.5;
 const HOLLOW_OPACITY = 0.34;
 
 /** One finding, as a cube on the ring around the core. */
-const MARK_SIZE = ARM_MAX * 0.075;
+const MARK_SIZE = ARM_MAX * 0.055;
 
 /** `setFromUnitVectors` needs the axis a box's length runs along. */
 const X_AXIS = new Vector3(1, 0, 0);
@@ -72,8 +72,6 @@ const X_AXIS = new Vector3(1, 0, 0);
  * them all to nothing and the builder draws a bare shape.
  */
 export interface SpecimenRig {
-  /** Local height of the drop line above the core. 0 draws none. */
-  dropAbove: number;
   /** Local y of the floor under the core. Null draws no tether and no shadow. */
   tetherY: number | null;
   /** The expanding ring a live run carries. */
@@ -147,39 +145,6 @@ export interface SpecimenKit {
   dispose(): void;
 }
 
-/**
- * A soft radial dot, as a texture.
- *
- * Greyscale on purpose: it is tinted per specimen by the verdict's own colour,
- * so the glow can never introduce a hue the palette does not already spend. It
- * is drawn once and shared by every node.
- */
-function glowTexture(): Texture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext("2d");
-  if (context) {
-    const gradient = context.createRadialGradient(
-      size / 2,
-      size / 2,
-      0,
-      size / 2,
-      size / 2,
-      size / 2,
-    );
-    gradient.addColorStop(0, "rgba(255,255,255,1)");
-    gradient.addColorStop(0.35, "rgba(255,255,255,0.34)");
-    gradient.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, size, size);
-  }
-  const texture = new CanvasTexture(canvas);
-  texture.needsUpdate = true;
-  return texture;
-}
-
 function lineGeometry(points: number[]): BufferGeometry {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(new Float32Array(points), 3));
@@ -214,7 +179,10 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
   const hollowGeometry = new BoxGeometry(1, HOLLOW_THICKNESS, HOLLOW_THICKNESS);
   const coreGeometry = new OctahedronGeometry(CORE_RADIUS, 0);
   const markGeometry = new BoxGeometry(MARK_SIZE, MARK_SIZE, MARK_SIZE);
-  const ringGeometry = new RingGeometry(CORE_RADIUS * 1.5, CORE_RADIUS * 1.75, 28);
+  // Thin, and sized against the arms rather than the core: a thick ring at
+  // arm's length reads as a reticle drawn around the specimen, where a
+  // hairline that expands and fades reads as something the run is emitting.
+  const ringGeometry = new RingGeometry(ARM_MAX * 0.3, ARM_MAX * 0.315, 40);
   const shadowGeometry = new PlaneGeometry(CORE_RADIUS * 2.2, CORE_RADIUS * 2.2);
   const tetherMaterial = new LineBasicMaterial({ color: palette.line, fog: true });
   // Built lazily and only where it is wanted: the texture needs a canvas, and a
@@ -225,13 +193,6 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
     const group = new Group();
     const materials: ToneMaterial[] = [];
     const toneColor = palette.tone(spec.tone);
-
-    // Hangs off the chain, so the line above is load-bearing rather than
-    // decorative. On the group and not the body: focus scales the body, and a
-    // drop line that grew with it would overshoot the chain it hangs from.
-    if (rig.dropAbove > 0) {
-      group.add(new LineSegments(lineGeometry([0, rig.dropAbove, 0, 0, 0, 0]), tetherMaterial));
-    }
 
     // The tether to the floor, and the shadow it lands on. Together they are
     // the strongest depth cue available without a light in the room, and both
@@ -259,7 +220,7 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
     // spending a hue the palette has not already spent.
     let glowSprite: Sprite | null = null;
     if (rig.glow) {
-      if (!glow) glow = glowTexture();
+      if (!glow) glow = radialTexture();
       const material = new SpriteMaterial({
         map: glow,
         color: toneColor,
@@ -270,7 +231,7 @@ export function createSpecimenKit(palette: ChamberPalette, rig: SpecimenRig): Sp
         fog: true,
       });
       glowSprite = new Sprite(material);
-      glowSprite.scale.setScalar(CORE_RADIUS * 5 * spec.coreScale);
+      glowSprite.scale.setScalar(CORE_RADIUS * 3.4 * spec.coreScale);
       body.add(glowSprite);
       materials.push({ material, base: 0.4 });
     }
@@ -474,16 +435,19 @@ export function applySpecimenFrame(node: SpecimenNode, frame: SpecimenFrame): vo
     // is still executing.
     if (node.ring) {
       const phase = (elapsed % 1.6) / 1.6;
-      node.ring.scale.setScalar(0.7 + phase * 1.9);
+      node.ring.scale.setScalar(0.55 + phase * 1.35);
       const material = node.ring.material as MeshBasicMaterial;
-      material.opacity = 0.5 * (1 - phase) * strength;
+      // Faint. It is a pulse leaving a run that is still executing, and at the
+      // near end of the record a heavier one reads as a reticle drawn around
+      // the specimen rather than as something the specimen is emitting.
+      material.opacity = 0.3 * (1 - phase) * strength;
       node.ring.lookAt(camera.position);
     }
   } else if (node.ring) {
     // A defined resting value rather than whatever the last frame left: this is
     // the frame reduced motion actually sees.
     node.ring.scale.setScalar(1);
-    (node.ring.material as MeshBasicMaterial).opacity = 0.25 * strength;
+    (node.ring.material as MeshBasicMaterial).opacity = 0.18 * strength;
   }
 }
 

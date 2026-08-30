@@ -14,19 +14,24 @@ import { clamp } from "./ease";
 /**
  * Where the camera stands with a full record, before any swing.
  *
- * Lower and closer than it was, because the frame is. It used to look down into
- * the volume from 1.28 across a 40rem band; at a full viewport that same pose
- * leaves the top third of the screen as empty sky above a box only 2.3 units
- * tall. Standing nearer the record's own height puts the volume across the
- * frame instead of at the bottom of it.
+ * **Inside the mouth of the chamber.** `MOUTH_Z` is the volume's near face at
+ * 4.5 and this stands at 3.4, so the near edges of the box are behind the
+ * camera and run off the top and sides of the frame toward the vanishing point.
+ * That is what turns the chamber from a box seen from outside into a space the
+ * reader is standing in — and it is what fills the top of a full-height frame,
+ * which a 2.3-unit-tall box viewed from beyond it never could.
+ *
+ * The nearest specimen sits at `FRONT_Z`, which leaves nearly four units
+ * between the camera and it: far enough that the newest run is an object rather
+ * than a wall, close enough that it is plainly the nearest thing in the room.
  */
-const HOME = { x: -1.5, y: 0.82, z: 4.7 } as const;
+const HOME = { x: -0.95, y: 0.4, z: 4.0 } as const;
 /**
  * Where it points: down the record rather than at the middle of the box, and
  * far enough down it that the recession stays in the right half of the frame
  * rather than climbing into the headline.
  */
-const AIM = { x: RECORD_X - 0.2, y: 0.02, z: -4.8 } as const;
+const AIM = { x: RECORD_X + 0.15, y: 0.0, z: -5.4 } as const;
 
 /** How far the camera may be swung by a drag. A peek, not an orbit. */
 export const YAW_LIMIT = 0.26;

@@ -33,8 +33,17 @@ import type { ChamberHandle } from "./chamber/scene";
  * shown. The gate is now `md`, and `md` is 768.
  */
 const MIN_WIDTH = 768;
-/** How many runs the chamber draws. The record below still lists them all. */
-const CAPACITY = 24;
+/**
+ * How many runs the chamber draws. The record below still lists them all.
+ *
+ * Ten, down from twenty-four. A specimen is a solid now and the arms are two
+ * thirds longer, so the same volume holds fewer of them before they overlap
+ * into a thicket — and ten large objects a reader can tell apart is a better
+ * drawing of a record than twenty-four dots that recede into one. What is lost
+ * is the impression that a great many runs have happened, and the stats line
+ * above and the record below both carry that number anyway.
+ */
+const CAPACITY = 10;
 /** Kept clear of the frame edge, so the callout never hangs off the volume. */
 const CALLOUT_MARGIN = 16;
 

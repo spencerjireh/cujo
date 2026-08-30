@@ -50,7 +50,11 @@ const PARTS = [
   },
   {
     label: "the chain",
-    text: "Every run hangs off it, newest at the open face. Depth is time.",
+    // Depth is a measurement and the other two axes are not, which a reader
+    // will assume otherwise — a specimen sitting high looks like it means
+    // something. Saying so is the whole reason this line is longer than the
+    // others (decision 70).
+    text: "It threads every run in order, newest nearest. Depth is time; how high or how far across a run sits is not a measurement of anything.",
   },
 ];
 
@@ -138,8 +142,8 @@ export function Legend() {
             held until a maintainer confirms it on the pull request.
           </p>
           <p className="mt-3 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            The amber plane crossing the chamber is the board re-reading the API: every five seconds
-            while a run is live, every thirty when it is quiet.
+            The amber light running down the chain is the board re-reading the API: every five
+            seconds while a run is live, every thirty when it is quiet. It reads one run at a time.
           </p>
         </div>
       </div>

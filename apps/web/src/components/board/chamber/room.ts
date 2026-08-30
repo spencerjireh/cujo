@@ -1,12 +1,13 @@
 /**
  * The room the record hangs in: the shell, the ruler, the occupancy ticks, the
- * chain, and the plane that sweeps through it.
+ * chain, and the light that reads along it.
  *
  * Every object in here is a measurement (decision 68). The floor ticks say
  * which slots hold a run, the wall ribs are the axis those slots sit on, the
- * chain ends where the record ends, and the sweep is the board re-reading the
- * API. Nothing decorative belongs in this file — that is `atmosphere.ts`, and
- * keeping the two apart is what makes decision 69's claim checkable.
+ * chain threads the record in order and so is exactly as long as the record is,
+ * and the sweep is the board re-reading the API. Nothing decorative belongs in
+ * this file — that is `atmosphere.ts`, and keeping the two apart is what makes
+ * decision 69's claim checkable.
  *
  * Drawn with `Line2` rather than `LineSegments`. `LineBasicMaterial` ignores
  * `linewidth` on every desktop driver, so the room was a one-pixel wireframe
@@ -16,36 +17,63 @@
  * still read as a room.
  */
 
+import type { Vec3 } from "@/lib/board/caltrop";
+import type { ChainPath } from "@/lib/board/chain";
 import {
   CEILING_Y,
   CHAMBER_BOX,
   FLOOR_Y,
-  FRONT_Z,
+  MOUTH_Z,
   RECORD_X,
-  chainEndZ,
+  SHELL_Z,
   slotCount,
   slotZ,
 } from "@/lib/board/chamber-layout";
-import { Group } from "three";
+import {
+  AdditiveBlending,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  type Texture,
+} from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { ChamberPalette } from "./palette";
+import { radialTexture } from "./textures";
 
 /**
  * Widths in CSS pixels. `LineMaterial.resolution` is fed the same numbers
  * `renderer.setSize` gets rather than the drawing-buffer size, so a hairline is
  * a hairline at any device-pixel ratio instead of thinning on a retina display.
  */
-const WIDTH = { shell: 1.4, rule: 1, tick: 1.6, chain: 2, sweep: 1.6 } as const;
+const WIDTH = { shell: 1.4, rule: 1, tick: 1.6, chain: 2 } as const;
+
+/**
+ * How wide the sweep's light is, in scene units.
+ *
+ * It is a soft light travelling the chain now, not a plane crossing the volume.
+ * A plane was right while the record was a line — one depth was one run — and
+ * over a scattered field it lights everything at that depth together, which is
+ * the one thing the sweep's envelope exists to prevent. It was also drawn as
+ * the *edges* of a box of depth 0.001, so what a reader actually saw was an
+ * amber rectangle framing the scene rather than light passing through it.
+ */
+const SWEEP_SIZE = 2.8;
+const SWEEP_OPACITY = 0.5;
 
 export interface Room {
   /** Added to the scene by the composer. */
   group: Group;
-  /** The occupancy ticks and the chain's length, both facts about the record. */
-  setRecordLength(count: number): void;
-  /** Where the plane is, or null to hide it. */
-  setSweep(z: number | null): void;
+  /**
+   * The chain through the record, and the occupancy ticks under it. Takes the
+   * path rather than a count: the chain threads the specimens now, so its shape
+   * is the record's own and not something this file can derive.
+   */
+  setRecord(path: ChainPath): void;
+  /** Where the reading head is, or null to hide it, and where to face. */
+  setSweep(at: Vec3 | null, faceTo: Vec3): void;
   /** CSS pixels. Every `LineMaterial` needs this to compute its width. */
   setResolution(width: number, height: number): void;
   dispose(): void;
@@ -96,17 +124,22 @@ function boxEdges(
  *
  * The ribs are the reason for the rest: with only a floor, a drift of four
  * hundredths of a radian changes nothing you can see, and the box stays a flat
- * rectangle with lines in it.
+ * rectangle with lines in it. They matter more now than they did — the camera
+ * stands inside the mouth, so these are what run off the edges of the frame and
+ * tell a reader they are in a space rather than looking at a picture of one.
  */
 function railsAndRibs(): number[] {
   const points: number[] = [];
   const halfW = CHAMBER_BOX.width / 2;
   const count = slotCount();
-  const front = slotZ(0) + 0.4;
+  const front = MOUTH_Z;
   const back = slotZ(count - 1);
   for (let i = -2; i <= 2; i += 1) {
     const x = RECORD_X + (i / 2) * halfW;
     points.push(x, FLOOR_Y, back, x, FLOOR_Y, front);
+    // A matching rail overhead. The camera is inside the volume now, so the
+    // ceiling is in frame and an empty one reads as the room having no top.
+    points.push(x, CEILING_Y, back, x, CEILING_Y, front);
   }
   for (let i = 0; i < count; i += 1) {
     const z = slotZ(i);
@@ -143,15 +176,7 @@ export function createRoom(palette: ChamberPalette): Room {
   const chainColor = palette.line.clone().multiplyScalar(2.4);
 
   const shell = segments(
-    boxEdges(
-      CHAMBER_BOX.width,
-      CHAMBER_BOX.height,
-      CHAMBER_BOX.depth,
-      RECORD_X,
-      0,
-      // `SHELL_Z` is the box's centre; the helper takes a centre, so this is it.
-      FRONT_Z - CHAMBER_BOX.depth / 2 + 0.6,
-    ),
+    boxEdges(CHAMBER_BOX.width, CHAMBER_BOX.height, CHAMBER_BOX.depth, RECORD_X, 0, SHELL_Z),
     material(shellColor, WIDTH.shell),
   );
   group.add(shell);
@@ -161,14 +186,23 @@ export function createRoom(palette: ChamberPalette): Room {
 
   const tickMaterial = material(tickColor, WIDTH.tick);
   const chainMaterial = material(chainColor, WIDTH.chain);
-  // The scan plane, drawn as a rectangle of lines rather than a filled quad: it
-  // reads as a measurement passing through, not as a wall.
-  const sweepMaterial = material(palette.amber, WIDTH.sweep, 0.42);
 
-  const sweep = segments(
-    boxEdges(CHAMBER_BOX.width * 0.96, CHAMBER_BOX.height * 0.96, 0.001, RECORD_X, 0, 0),
-    sweepMaterial,
-  );
+  // The reading head: a soft additive light, tinted amber, that rides the chain
+  // and faces the camera. Additive, so it adds light to what it passes rather
+  // than painting over it — a specimen it is reading keeps its own verdict
+  // colour underneath.
+  const sweepTexture: Texture = radialTexture();
+  const sweepMaterial = new MeshBasicMaterial({
+    map: sweepTexture,
+    color: palette.amber,
+    transparent: true,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    opacity: SWEEP_OPACITY,
+    fog: true,
+  });
+  const sweepGeometry = new PlaneGeometry(SWEEP_SIZE, SWEEP_SIZE);
+  const sweep = new Mesh(sweepGeometry, sweepMaterial);
   sweep.visible = false;
   group.add(sweep);
 
@@ -185,35 +219,50 @@ export function createRoom(palette: ChamberPalette): Room {
     chain = null;
   }
 
-  function setRecordLength(count: number): void {
+  function setRecord(path: ChainPath): void {
     clearRecord();
+    const count = path.points.length;
 
     // One tick per occupied slot, and none at all on an empty board: the floor
-    // says where the record is, so with no record it says nothing.
+    // says where the record is, so with no record it says nothing. Drawn across
+    // the volume at the run's own depth, which is the axis that still carries a
+    // measurement now that the other two do not.
     if (count > 0) {
       const points: number[] = [];
       const half = CHAMBER_BOX.width / 2;
-      for (let i = 0; i < count; i += 1) {
-        points.push(RECORD_X - half, FLOOR_Y, slotZ(i), RECORD_X + half, FLOOR_Y, slotZ(i));
+      for (const point of path.points) {
+        points.push(RECORD_X - half, FLOOR_Y, point.z, RECORD_X + half, FLOOR_Y, point.z);
       }
       ticks = segments(points, tickMaterial);
       group.add(ticks);
     }
 
     // Cujo is a guard dog on a chain (brand/brand.md), and the chain is what
-    // makes a row of specimens a record instead of a scatter. Its length is the
-    // record's length — `chainEndZ` holds the empty-board exception.
-    const CHAIN_Y_LOCAL = CHAMBER_BOX.height / 2 - 0.22;
-    chain = segments(
-      [RECORD_X, CHAIN_Y_LOCAL, FRONT_Z + 0.6, RECORD_X, CHAIN_Y_LOCAL, chainEndZ(count)],
-      chainMaterial,
-    );
-    group.add(chain);
+    // makes a scattered field a *record* rather than a scatter. It threads the
+    // specimens in order, so its length is the record's length — decision 68's
+    // rule about it, kept by construction rather than by an end-point formula.
+    //
+    // Nothing is drawn for a record of one: a chain needs two runs to join.
+    if (count > 1) {
+      const points: number[] = [];
+      for (let i = 1; i < count; i += 1) {
+        const a = path.points[i - 1];
+        const b = path.points[i];
+        if (!a || !b) continue;
+        points.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      }
+      chain = segments(points, chainMaterial);
+      group.add(chain);
+    }
   }
 
-  function setSweep(z: number | null): void {
-    sweep.visible = z !== null;
-    if (z !== null) sweep.position.z = z;
+  function setSweep(at: Vec3 | null, faceTo: Vec3): void {
+    sweep.visible = at !== null;
+    if (at === null) return;
+    sweep.position.set(at.x, at.y, at.z);
+    // Billboarded, so the light is a disc from wherever the reader is standing
+    // rather than an edge-on sliver when the chain runs toward the camera.
+    sweep.lookAt(faceTo.x, faceTo.y, faceTo.z);
   }
 
   function setResolution(width: number, height: number): void {
@@ -222,14 +271,18 @@ export function createRoom(palette: ChamberPalette): Room {
 
   function dispose(): void {
     clearRecord();
-    for (const object of [shell, rails, sweep]) {
+    for (const object of [shell, rails]) {
       group.remove(object);
       object.geometry.dispose();
     }
+    group.remove(sweep);
+    sweepGeometry.dispose();
+    sweepMaterial.dispose();
+    sweepTexture.dispose();
     for (const made of materials) made.dispose();
     materials.length = 0;
     group.removeFromParent();
   }
 
-  return { group, setRecordLength, setSweep, setResolution, dispose };
+  return { group, setRecord, setSweep, setResolution, dispose };
 }

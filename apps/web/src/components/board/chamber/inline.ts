@@ -53,9 +53,8 @@ export function createInlineSpecimen(options: {
   camera.position.set(0, 0, inlineDistance(FOV, INLINE_RADIUS, MARGIN));
   camera.lookAt(0, 0, 0);
 
-  // No chain to hang from and no floor to land on, so the drop line, the
-  // tether and the shadow are not drawn. Everything else about the shape is the
-  // same object the chamber builds.
+  // No floor to land on, so the tether and the shadow under it are not drawn.
+  // Everything else about the shape is the same object the chamber builds.
   //
   // No glow either, which is the one place this rig differs for a reason that
   // is not about the room. The sprite is drawn to be bloomed, and there is no
@@ -63,7 +62,6 @@ export function createInlineSpecimen(options: {
   // light coming off it, and it would make the canvas disagree with the flat
   // drawing underneath it. Two drawings of one run have to be one drawing.
   const kit = createSpecimenKit(palette, {
-    dropAbove: 0,
     tetherY: null,
     ring: true,
     glow: false,
