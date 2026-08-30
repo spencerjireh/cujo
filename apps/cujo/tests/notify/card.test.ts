@@ -272,57 +272,66 @@ describe("buildRunCard", () => {
     expect(names).toEqual(["Head", "Pull request"]);
   });
 
-  describe("the author line and the footer icon", () => {
+  describe("who the card names, and where", () => {
     const embedOf = (patch: Partial<RunRecord> = {}) =>
       buildRunCard({ run: run(patch), projection: projection(), links: LINKS }).embeds?.[0];
 
-    it.each(STATUSES)("puts the opener's avatar in front of their name on %s", (status) => {
-      // The author line is the one slot that renders an icon in front of text,
-      // and since decision 86 it goes to the variable party: Cujo is already
-      // named by the app badge directly above it.
+    it.each(STATUSES)("names Cujo first, in the author line, on %s", (status) => {
+      // Decision 88, reversing 86's allocation: the first line of every card
+      // is the fixed party, the one a channel reads before anything else.
       const embed = embedOf({ status });
-      expect(embed?.author?.name).toBe("@octocat");
-      expect(embed?.author?.icon_url).toBe("https://avatars.githubusercontent.com/u/583231?s=64");
-      expect(embed?.author?.url).toBe("https://github.com/octocat");
-      // The Cujo mark moved into the freed footer icon.
-      expect(embed?.footer?.icon_url).toContain("avatar-64.png");
+      expect(embed?.author?.name).toBe("Cujo");
+      expect(embed?.author?.icon_url).toContain("avatar-64.png");
+      // The title right beneath already points at the run; a second link to
+      // the same place is noise.
+      expect(embed?.author?.url).toBeUndefined();
     });
 
-    it("renders an underscored login without the backslash escaping would add", () => {
-      // The author line renders no markdown, so `escapeMarkdown` there would
-      // be litter rather than defusal (decision 86).
+    it.each(STATUSES)("puts the opener bottom-left, in the footer, on %s", (status) => {
+      const embed = embedOf({ status });
+      // The footer renders its icon to the left of its text on the embed's
+      // last line: avatar in front, name after, handles last.
+      expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/583231?s=64");
+      expect(embed?.footer?.text).toBe(
+        "[@octocat](https://github.com/octocat) · run 11111111 · abc1234",
+      );
+    });
+
+    it("escapes the login in the footer, which renders markdown", () => {
+      // The price of the placement (decision 88): footer text is markdown, so
+      // `some_login` carries its escape where the author line never would
+      // have. Known, chosen, and better than a name nobody can render safely.
       const embed = embedOf({ prAuthorLogin: "some_login" });
-      expect(embed?.author?.name).toBe("@some_login");
+      expect(embed?.footer?.text).toContain("@some\\_login");
+      expect(embed?.footer?.text).not.toContain("@some_login");
     });
 
     it("builds the avatar from the account id, never from the login", () => {
       const embed = embedOf({ prAuthorLogin: "../../evil", prAuthorId: 42 });
-      expect(embed?.author?.icon_url).toBe("https://avatars.githubusercontent.com/u/42?s=64");
-      expect(embed?.author?.url).toBeUndefined();
+      expect(embed?.footer?.icon_url).toBe("https://avatars.githubusercontent.com/u/42?s=64");
+      expect(embed?.footer?.text).not.toContain("github.com/");
     });
 
     it("names a bot without linking it, but still with its avatar", () => {
       const embed = embedOf({ prAuthorLogin: "dependabot[bot]", prAuthorId: 49699333 });
-      // No markdown is rendered on the author line, so the brackets are not
-      // escaped either; only the link is withheld.
-      expect(embed?.author?.name).toBe("@dependabot[bot]");
-      expect(embed?.author?.url).toBeUndefined();
-      expect(embed?.author?.icon_url).toContain("49699333");
+      // Only the link is withheld; the brackets are escaped, because footer
+      // text is markdown and an unescaped bracket could open a link label.
+      expect(embed?.footer?.text).toContain("@dependabot\\[bot\\]");
+      expect(embed?.footer?.text).not.toContain("](https://github.com/");
+      expect(embed?.footer?.icon_url).toContain("49699333");
     });
 
     it("links no login the allowlist rejects, however it is spelled", () => {
       for (const login of ["a b", "-lead", "x".repeat(40), "o/r", "a_b", "https://evil"]) {
-        const author = embedOf({ prAuthorLogin: login })?.author;
-        expect(author?.url, login).toBeUndefined();
+        const footer = embedOf({ prAuthorLogin: login })?.footer;
+        expect(footer?.text, login).not.toContain("github.com/");
       }
     });
 
-    it("falls back to Cujo's line when the author was never stored", () => {
+    it("leaves only the handles when the author was never stored", () => {
       const embed = embedOf({ prAuthorLogin: null, prAuthorId: null });
-      expect(embed?.fields?.map((f) => f.name)).not.toContain("Opened by");
       expect(embed?.author?.name).toBe("Cujo");
-      expect(embed?.author?.icon_url).toContain("avatar-64.png");
-      // The mark is on the author line already; a footer icon would repeat it.
+      expect(embed?.footer?.text).toBe("run 11111111 · abc1234");
       expect(embed?.footer?.icon_url).toBeUndefined();
     });
 
@@ -331,7 +340,79 @@ describe("buildRunCard", () => {
       // then rejects — and a 400 loses the card for the whole run.
       const embed = embedOf();
       const withoutAuthor = { ...embed, author: undefined };
-      expect(embedLength(embed ?? {})).toBe(embedLength(withoutAuthor) + "@octocat".length);
+      expect(embedLength(embed ?? {})).toBe(embedLength(withoutAuthor) + "Cujo".length);
+    });
+  });
+
+  describe("the spacer rows", () => {
+    const isSpacer = (field: { name: string } | undefined) => field?.name === "\u200b";
+
+    it("separate every surviving section on a full card", () => {
+      const payload = buildRunCard({
+        run: run({ status: "clean", prTitle: null }),
+        projection: projection({
+          status: "clean",
+          summary: "all good",
+          checks: [
+            {
+              threadId: "t",
+              title: "tests",
+              isCheck: true,
+              status: "done",
+              report: {},
+              error: null,
+              startedAt: null,
+              endedAt: null,
+            },
+          ],
+          findings: [finding({ severity: "critical", path: "a.py", line: 3 })],
+        }),
+        links: LINKS,
+      });
+      const fields = payload.embeds?.[0]?.fields ?? [];
+      // Identity row, Critical, Checks, Summary — three blank rows between
+      // four groups, and none before the first or after the last.
+      const names = fields.map((f) => (isSpacer(f) ? "<spacer>" : f.name));
+      expect(names).toEqual([
+        "Head",
+        "Pull request",
+        "Findings",
+        "<spacer>",
+        "Critical (1)",
+        "<spacer>",
+        "Checks",
+        "<spacer>",
+        "Summary",
+      ]);
+      expectWithinDiscordLimits(payload);
+    });
+
+    it("never dangle: a section the clamp drops takes its spacers with it", () => {
+      const findings = Array.from({ length: 200 }, (_, i) =>
+        finding({ severity: "critical", title: `f${i} ${"x".repeat(1000)}` }),
+      );
+      const payload = buildRunCard({
+        run: run({ status: "blocked_pending", prTitle: "z".repeat(5_000) }),
+        projection: projection({ status: "blocked_pending", findings }),
+        links: LINKS,
+      });
+      const fields = payload.embeds?.[0]?.fields ?? [];
+      expectWithinDiscordLimits(payload);
+      // No trailing spacer, and never two beside each other: whatever the
+      // clamp kept reads as sections, not as gaps where sections were.
+      expect(isSpacer(fields[fields.length - 1])).toBe(false);
+      for (let i = 1; i < fields.length; i += 1) {
+        expect(isSpacer(fields[i - 1]) && isSpacer(fields[i])).toBe(false);
+      }
+    });
+
+    it("are absent when there is nothing to separate", () => {
+      const payload = buildRunCard({
+        run: run({ status: "running", prTitle: null }),
+        projection: projection({ status: "running" }),
+        links: LINKS,
+      });
+      expect(payload.embeds?.[0]?.fields?.filter(isSpacer)).toHaveLength(0);
     });
   });
 
