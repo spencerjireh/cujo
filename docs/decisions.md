@@ -104,6 +104,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 96. [The envelope roll-up is the model's work, so the schema reads it leniently](#96-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
 97. [The template tires the reader, not the model](#97-the-template-tires-the-reader-not-the-model)
 98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed)
+99. [The watchdog bounds the run, not the current process](#99-the-watchdog-bounds-the-run-not-the-current-process)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5381,6 +5382,7 @@ it is short, and the evidence is the reason it is on that line. **Telling the
 model to write shorter blocks** instead of rendering them shorter, which is
 decision 74 reversed — a rule a model applies is a rule that fails silently.
 
+<<<<<<< HEAD
 ## 98. The board carries the manual, and it is the one thing indexed
 
 **Status:** active — `/docs` in `apps/web`, `robots.ts` amended.
@@ -5463,3 +5465,39 @@ sanitized agent markdown arriving as bare tags — restyling the manual must not
 restyle what the agent wrote on a pull request. **Indexing the whole board
 while we were there**, which is decision 34's argument thrown away for the
 convenience of one fewer line.
+
+## 99. The watchdog bounds the run, not the current process
+
+The turn watchdog (`runner.service.ts:consume`) bounds how long Cujo waits for a
+terminal event. Before this entry, the timer was armed from "now" — a fresh
+`setTimeout(callback, turnTimeoutMs)` on every call to `consume`. On restart,
+`rehydrate` calls `follow` → `consume`, granting a fresh full window. A run
+unlucky enough to be in flight when someone merges — which deploys immediately
+(decision 35) — earned another 30 minutes on every redeploy, indefinitely.
+
+The watchdog now bounds the *turn*, not the process's attention span. `rehydrate`
+finds the latest `turn.created` event in the replayed stream and computes
+`remaining = turnTimeoutMs - (Date.now() - turnStart)`, passing the remainder as
+`budgetMs` to `follow` → `consume`. If the budget is already spent,
+`fireWatchdog` runs immediately — the same synthetic terminal and best-effort
+cancel, without a timer. Falls back to `run.createdAt` when no `turn.created`
+event is found.
+
+The anchor is the turn's own start, not `run.createdAt`, because a run that went
+through preparation, waited for approval, and then resumed should not charge
+that earlier time against the resumed turn's budget. A fresh turn after approval
+deserves a fresh window — only within the same turn does a restart inherit the
+elapsed time.
+
+`start`, `approve`, and `pollForNewTurn` keep the default full budget: those are
+genuinely fresh turns from this process's perspective. Only the rehydrate path
+inherits the active turn's elapsed time, since that is the one place a
+pre-existing turn's clock was being restarted from zero.
+
+Rejected: **using `run.createdAt` as the sole anchor**, which includes
+preparation and approval wait time and would prematurely expire a resumed turn
+after a long approval wait. **Using `updatedAt`**, which moves on every `refold`
+(including the `refold` inside `rehydrate` itself) and would re-arm the same bug
+one level up. **Using `setup.turnCreatedAt`** from the projection, which is more
+precise but requires `refold` to have run first and introduces a dependency on
+fold output for a decision that logically belongs to the runner.
