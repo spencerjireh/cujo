@@ -31,13 +31,30 @@ def stand_in() -> Iterator[int]:
     so this test process is deliberately *not* a stand-in for a sensor: writing
     its own pid into a pid file is exactly the forgery that check exists to
     refuse. Anything asserting the healthy path has to look like the real thing.
+
+    The child announces itself before the pid is handed over. Between `Popen`
+    returning and the child reaching `execve`, `/proc/<pid>/cmdline` still holds
+    *this* process's argv, which does not say `cujo_sniff` -- so a health check
+    that wins that race reads a live daemon as dead. It stays hidden on macOS,
+    where there is no procfs and `daemon_alive` stops at the pid, and it is rare
+    on an idle machine; it appeared on a loaded CI runner once the suite began
+    running four tests at once. One line of output proves the exec happened,
+    because nothing is printed until it has.
     """
     proc = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(120)", "cujo_sniff"],
-        stdout=subprocess.DEVNULL,
+        [
+            sys.executable,
+            "-c",
+            "import time; print('up', flush=True); time.sleep(120)",
+            "cujo_sniff",
+        ],
+        stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        text=True,
     )
     try:
+        assert proc.stdout is not None
+        assert proc.stdout.readline() == "up\n", "the stand-in never reached exec"
         yield proc.pid
     finally:
         proc.kill()
