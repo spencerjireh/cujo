@@ -506,6 +506,18 @@ export class Runner {
     }
     if (!projection) projection = this.refold(runId);
     if (await this.retryTurn(runId, projection)) return;
+    if (projection.status === "running") {
+      // Nothing follows this method. The stream is done with, the watchdog was
+      // cleared in the `finally` above, and only `blocked_pending` starts a
+      // poller -- so a run still `running` here can never reach a verdict by
+      // any path. Three separate defects have landed in this state during this
+      // change alone, so the invariant is enforced where it is owned rather
+      // than argued about at each call site. Saying the turn could not be
+      // followed is the honest report: it is what was observed.
+      this.state(runId).log.error("run.stream.lost", { attempts: this.retryDelaysMs.length });
+      this.fail(runId, "turn could not be followed to its end");
+      projection = this.refold(runId);
+    }
     if (projection.status === "blocked_pending") this.startPolling(runId);
     else if (this.isTerminal(projection.status)) {
       this.stopPolling(runId);
@@ -597,6 +609,10 @@ export class Runner {
    */
   private async replayTurn(runId: string, run: RunRecord, turnId: string): Promise<Projection> {
     const s = this.state(runId);
+    // What the run held before the read. Anything that appears while it is in
+    // flight was appended by something else -- the watchdog's synthetic
+    // terminal, above all -- and must survive the replacement below.
+    const beforeIds = new Set(s.events.map((e) => e.id));
     try {
       const items = await this.harness.listEvents(run.sessionId);
       // `selectRunEvents` seeds ownership from `run.turnIds` and chains forward
@@ -612,7 +628,13 @@ export class Runner {
       // Never trade events in hand for none: a session that answers with
       // nothing this run owns leaves the stream's own fold standing.
       if (events.length > 0) {
-        s.events = events;
+        // The read crossed an await, and the watchdog can fire inside it. A
+        // wholesale assignment would drop the synthetic terminal it appended,
+        // and the fold would go back to `running` with the timer already spent
+        // -- a run nothing can finish. Keep whatever arrived meanwhile.
+        const replayed = new Set(events.map((e) => e.id));
+        const appended = s.events.filter((e) => !beforeIds.has(e.id) && !replayed.has(e.id));
+        s.events = [...events, ...appended];
         s.subscribedTurnIds = new Set([...s.subscribedTurnIds, ...turnIds]);
       }
     } catch (error) {
