@@ -139,11 +139,14 @@ export function safeText(value: string): string {
   );
 }
 
+/** One line, for the places where a newline would end a row or a list item. */
+function oneLine(value: string): string {
+  return value.replace(/\s*\n\s*/g, " ").trim();
+}
+
 /** Safe inside a table cell, where a newline ends the row and `|` ends the cell. */
 function cell(value: string): string {
-  return safeText(value)
-    .replace(/\|/g, "\\|")
-    .replace(/\s*\n\s*/g, " ");
+  return oneLine(safeText(value).replace(/\|/g, "\\|"));
 }
 
 function isSeverity(value: unknown): value is Severity {
@@ -355,7 +358,22 @@ function fold(summary: string, body: string): string {
   return `<details>\n<summary>${summary}</summary>\n\n${body}\n\n</details>`;
 }
 
-/** One finding, as it reads in the body. */
+/**
+ * One finding, as it reads in the body.
+ *
+ * Two forms, chosen by what the finding carries rather than by its severity
+ * (decision 97). A finding with judgment on it gets the full block, and the
+ * evidence sits *below* the sentence that explains it: instrument output in the
+ * most prominent position charges the reader for parsing it before they know
+ * why it matters, and a reader who trusts the sentence never has to. A finding
+ * with no `detail` and no `next` — which by the rubric is most `warn` and every
+ * `info` — is one line, so a review of four findings is not four identical
+ * blocks at four identical lengths.
+ *
+ * Keyed on the fields and not on `warn`/`info`, because a `warn` may carry a
+ * `next` and then has an argument to make, while a `critical` carries both by
+ * rule and so never collapses.
+ */
 function findingBlock(finding: Prepared, unanchored: ReadonlySet<string>): string {
   const meta = [`\`${finding.check}\``];
   if (finding.path && finding.line) {
@@ -364,26 +382,41 @@ function findingBlock(finding: Prepared, unanchored: ReadonlySet<string>): strin
   }
   if (finding.held) meta.push("held");
 
-  const blocks = [`**${finding.title}** · ${meta.join(" · ")}`];
-  if (finding.evidence) blocks.push(quote(finding.evidence));
+  const head = `**${finding.title}** · ${meta.join(" · ")}`;
+
+  // One line only when it fits on one: evidence spanning lines is a transcript,
+  // and running its rows together with a space would lose what the rows meant.
+  if (!finding.detail && !finding.next && !finding.evidence.includes("\n")) {
+    return finding.evidence === "" ? head : `${head} — ${finding.evidence}`;
+  }
+
+  const blocks = [head];
   if (finding.detail) blocks.push(finding.detail);
   if (finding.next) blocks.push(`Next: ${finding.next}`);
+  if (finding.evidence) blocks.push(quote(finding.evidence));
   return blocks.join("\n\n");
 }
 
+/**
+ * What ran and what did not, one line per check (decision 97).
+ *
+ * The notes used to stack into a single sentence of parentheticals, which is
+ * the shape the rubric warns about — "a caveat in a parenthesis is a caveat
+ * nobody reads" — reproduced by the renderer over every check at once.
+ */
 function coverageSection(coverage: Coverage): string {
   const ran = list(coverage.ran).map((entry) => {
-    const note = entry.note ? ` (${safeText(entry.note)})` : "";
-    return `${safeText(entry.check)}${note}`;
+    const note = entry.note ? ` — ${oneLine(safeText(entry.note))}` : "";
+    return `- ${safeText(entry.check)}${note}`;
   });
   const skipped = list(coverage.skipped).map(
-    (entry) => `${safeText(entry.check)} — ${safeText(entry.reason)}`,
+    (entry) => `- ${safeText(entry.check)} — ${oneLine(safeText(entry.reason))}`,
   );
-  const lines = [`Ran: ${ran.length > 0 ? `${ran.join(", ")}.` : "nothing."}`];
+  const lines = [ran.length > 0 ? `Ran:\n${ran.join("\n")}` : "Ran: nothing."];
   // Named rather than omitted when empty: "not run: nothing" is a claim worth
   // making, and an absent line reads as an unanswered question.
-  lines.push(`Not run: ${skipped.length > 0 ? `${skipped.join("; ")}.` : "nothing."}`);
-  return `### Coverage\n\n${lines.join("\n")}`;
+  lines.push(skipped.length > 0 ? `Not run:\n${skipped.join("\n")}` : "Not run: nothing.");
+  return `### Coverage\n\n${lines.join("\n\n")}`;
 }
 
 function egressSection(input: readonly EgressHost[]): string {
