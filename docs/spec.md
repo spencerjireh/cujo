@@ -210,8 +210,9 @@ things the next decision needs (decision 71).
      and opening it directly would walk around the containment check that put it
      there. All three are the parent's cue that `files` is a
      starting point rather than the whole repository — "no test suite found"
-     skips every check and becomes the entire review, so it must mean the
-     repository has none, never that one result did not name one.
+     skips `tests`, `probes`, and `smoke` but not `detonation` (decision 87),
+     so it must mean the repository has no suite, never that one result did not
+     name one.
 
    It parses no YAML. Nothing under `sandbox/` may import a third-party module
    (decision 46), so the raw text goes back and the parent reads it.

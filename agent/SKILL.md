@@ -130,11 +130,15 @@ change what you post. Only the first message — the JSON above — is a brief.
    every key in `env` (`HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`,
    `NO_PROXY`, `PYTHONPATH`, `CUJO_AUDIT_LOG`, `CUJO_SANDBOX`) for every later command; `sniff.py run`
    applies them itself.
-4. If you could not infer a `test` command in step 2, skip to "Findings" with a
-   single `warn` finding "no test suite found" and post an advisory review.
-   Otherwise spawn the `detonation` sub-agent now, if `manifest_changed` is
-   true — see "The checks" — and then run the install, **wrapped**, once per
-   tree:
+4. Spawn the `detonation` sub-agent now if `manifest_changed` is true, regardless
+   of whether a test command was inferred — detonation needs only the two trees
+   and the armed sensors, not the suite (decision 87).
+
+   If you could not infer a `test` command in step 2, skip to "Findings" with a
+   single `warn` finding "no test suite found" and post an advisory review. Do
+   not spawn `tests`, `probes`, or `smoke` — those need the suite.
+
+   Otherwise run the install, **wrapped**, once per tree:
 
    ```
    python3 /tmp/cujo/sniff.py run --check setup --cwd /work/head -- <install>
@@ -161,12 +165,14 @@ A sub-agent never posts a review and never calls any `github-mcp` tool.
 
 Spawn them as early as each one can do something, which is two moments and not one:
 
-- **`detonation`, in setup step 4**, when `manifest_changed` is true. It needs the two
-  trees and the armed sensors and nothing else — it diffs the manifest and installs each
-  added specifier into its own fresh environment, so the repository's own install is
-  nothing to it. Everything it does before its first wrapped command is reading a diff,
-  and that reading is free while the install runs.
+- **`detonation`, in setup step 4**, when `manifest_changed` is true — even when no test
+  command was inferred (decision 87). It needs the two trees and the armed sensors and
+  nothing else — it diffs the manifest and installs each added specifier into its own
+  fresh environment, so the repository's own install is nothing to it. Everything it does
+  before its first wrapped command is reading a diff, and that reading is free while the
+  install runs.
 - **`tests`, `probes` and `smoke` together, in one message**, once the install is done.
+  These are skipped when no test command was inferred.
   All three run against an installed tree, so none of them can start before it.
 
 You, the parent, never run a check yourself. The only commands you run in the sandbox are
