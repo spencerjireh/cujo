@@ -2,7 +2,7 @@
 
 import { needsAttention, parseReport } from "@/lib/api/report";
 import type { CheckState } from "@/lib/api/types";
-import { duration } from "@/lib/format";
+import { compactCount, duration, usd } from "@/lib/format";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { useEffect, useRef, useState } from "react";
 import { RawJson } from "./report/RawJson";
@@ -36,6 +36,14 @@ function CheckReport({ check }: { check: CheckState }) {
             <span className="text-sev-critical">error</span>
           ) : parsed.kind === "empty" ? (
             <span>no report</span>
+          ) : null}
+          {/* What this one check cost, beside how long it took. Hidden on a
+              narrow screen, where the row already carries four things. */}
+          {check.usage ? (
+            <span className="hidden sm:inline">
+              {compactCount(check.usage.inputTokens + check.usage.outputTokens)} tok
+              {typeof check.usage.costUsd === "number" ? ` · ${usd(check.usage.costUsd)}` : ""}
+            </span>
           ) : null}
           {duration(check.startedAt, check.endedAt) ?? ""}
           <span aria-hidden="true">{open ? "collapse" : "expand"}</span>
