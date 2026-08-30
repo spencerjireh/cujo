@@ -16,7 +16,7 @@ import { compactCount, usd } from "@/lib/format";
  * part a row of four equal-weight numbers would hide.
  *
  * It lives inside the operator details fold now and not as a section of its
- * own (decision 89): a token count is context for an operator, and a PR author
+ * own (decision 91): a token count is context for an operator, and a PR author
  * reading down the page met it before they met who produced the verdict. The
  * labels say what the numbers are — "model input", "messages to the model" —
  * because on a public page a bare "input" is a number nobody can read.

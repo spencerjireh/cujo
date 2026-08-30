@@ -39,7 +39,7 @@ import { SpecimenGlyph } from "./SpecimenGlyph";
  * ground, as a window onto the instrument; on a light page that was a black
  * square in the header, the one thing on the page that did not follow the
  * reader's theme, and a specimen on its own is not the chamber. So the drawing
- * takes the page's tokens instead (decision 93): the same severity colours as
+ * takes the page's tokens instead (decision 95): the same severity colours as
  * the badge beside it, inverting with it.
  *
  * Two sizes, because the header wraps: at full width it stands beside the

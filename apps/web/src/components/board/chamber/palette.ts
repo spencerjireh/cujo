@@ -14,7 +14,7 @@
  * Two grounds. The board's chamber is pinned dark in both themes (brand.md,
  * "The instrument viewport"), so it reads the `--chamber-*` ramp, which does
  * not move when the reader's theme does. The run page's specimen sits on the
- * page itself (decision 93), so it reads the page's own tokens — the severity
+ * page itself (decision 95), so it reads the page's own tokens — the severity
  * ramp, `--bg`, `--fg` — which are what the badge beside it is drawn in, and
  * which invert with the theme. A palette read on the page ground is stale the
  * moment the theme changes; the caller reads it again.

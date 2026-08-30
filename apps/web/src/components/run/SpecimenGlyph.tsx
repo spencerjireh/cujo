@@ -18,7 +18,7 @@ import { TONE_CHAMBER_VAR, TONE_PAGE_VAR } from "@/lib/board/tone";
  * `ground` says which tokens colour it. On the chamber's ground the tones are
  * the dark ramp the board pins in both themes; on the page's ground they are
  * the page's own severity tokens, which invert with the reader's theme. The
- * run page draws on the page (decision 93); everything else keeps the default.
+ * run page draws on the page (decision 95); everything else keeps the default.
  * Custom properties rather than resolved colours, so a theme change repaints
  * this drawing for free, which the canvas beside it cannot say.
  */

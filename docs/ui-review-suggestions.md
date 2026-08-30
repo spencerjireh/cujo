@@ -4,7 +4,7 @@ The write-up issue #96 cites, with a status per item. The observations were
 made against the board as of `92090fd`, reading it as a first-time user would:
 a developer arriving from a GitHub review, or a maintainer checking why a pull
 request was blocked. Statuses refer to the branch that closes the issue;
-decisions 86 to 90 in `decisions.md` carry the reasoning for the load-bearing
+decisions 88 to 92 in `decisions.md` carry the reasoning for the load-bearing
 ones.
 
 Status words: **done** (as proposed), **done, differently** (the concern is
@@ -16,8 +16,8 @@ answered by another design, said why), **deferred** (with the reason).
 
 | Observation | Status |
 | --- | --- |
-| No legend in the chamber; colour semantics undefined on the page | **Done, differently.** Hovering a star, or a record row, swaps the hero's readings for the key: the diagram and its four part lines (decision 87), and the star's own callout names each ring in the ring's colour with what it measures (decision 93). A permanent corner legend was rejected as a fourth block of type on a frame with three. A running run is green, so the one star doing something is findable (decision 92). |
-| First-visit tooltip that dismisses on interaction | **Deferred.** Rejected in decision 87: remembered in local storage, so a second machine gets it again and an accidental dismiss is permanent. |
+| No legend in the chamber; colour semantics undefined on the page | **Done, differently.** Hovering a star, or a record row, swaps the hero's readings for the key: the diagram and its four part lines (decision 89), and the star's own callout names each ring in the ring's colour with what it measures (decision 95). A permanent corner legend was rejected as a fourth block of type on a frame with three. A running run is green, so the one star doing something is findable (decision 94). |
+| First-visit tooltip that dismisses on interaction | **Deferred.** Rejected in decision 89: remembered in local storage, so a second machine gets it again and an accidental dismiss is permanent. |
 
 ### Hero stats
 
@@ -40,8 +40,8 @@ answered by another design, said why), **deferred** (with the reason).
 | "THE RECORD" is jargon | **Done, differently.** Title kept (the instrument vocabulary is the product's voice); a plain subtitle added: "Every pull request Cujo has reviewed, newest first. Click a row for the run." |
 | Checks column has no legend or tooltip | **Done.** Each square is a keyboard-reachable tooltip naming the check, how it ended and how long it took. |
 | Found column has no legend | **Done.** Counts spelled out beside the bar in their tones (`2c 1w 1i`). |
-| Checks and Found are related but disconnected; unify into one Results column | **Done.** One "Results" cell: squares, bar, counts, and a disclosure that opens a row with all four checks and their sandbox share (decision 86). The prose form ("4 checks — 8 findings: ...") was rejected as less scannable. |
-| Same PR at two commits has no relationship | **Done.** The newest run per pull request is marked `latest`; older ones `superseded` and dimmed. Derived on the client from repo, number and `created_at` (decision 90). |
+| Checks and Found are related but disconnected; unify into one Results column | **Done.** One "Results" cell: squares, bar, counts, and a disclosure that opens a row with all four checks and their sandbox share (decision 88). The prose form ("4 checks — 8 findings: ...") was rejected as less scannable. |
+| Same PR at two commits has no relationship | **Done.** The newest run per pull request is marked `latest`; older ones `superseded` and dimmed. Derived on the client from repo, number and `created_at` (decision 92). |
 | Head SHA is opaque as to current or stale | **Done** by the same mark. |
 | (Added in review) Only the first cell is a link | **Done.** The whole row is one stretched link; controls in the results cell sit above it. |
 
@@ -51,7 +51,7 @@ answered by another design, said why), **deferred** (with the reason).
 
 | Observation | Status |
 | --- | --- |
-| Verdict buried in prose; extract into a structured card | **Done.** Verdict card: status badge, severity chips with `0 critical` said outright, link to the review on GitHub. The prose summary stays beneath it (decision 89). |
+| Verdict buried in prose; extract into a structured card | **Done.** Verdict card: status badge, severity chips with `0 critical` said outright, link to the review on GitHub. The prose summary stays beneath it (decision 91). |
 | Operator metadata mixed with user-facing metadata | **Done.** Model and rubric leave the header; the collapsed block is titled "Operator details" and now also holds the cost ledger. |
 
 ### Checks timeline
@@ -66,7 +66,7 @@ answered by another design, said why), **deferred** (with the reason).
 
 | Observation | Status |
 | --- | --- |
-| Group by check with collapsible sections | **Done.** Groups in check order, all closed until asked (decision 91); the trigger row carries the counts. |
+| Group by check with collapsible sections | **Done.** Groups in check order, all closed until asked (decision 93); the trigger row carries the counts. |
 | Severity filter chips | **Done.** All / Critical / Warn / Info; group headers keep their full counts and say "(n shown)". |
 
 ### Review panel
@@ -91,7 +91,7 @@ answered by another design, said why), **deferred** (with the reason).
 
 | Theme | Status |
 | --- | --- |
-| Progressive disclosure (glance / scan / investigate) | **Done** by the above: verdict card (glance), grouped findings, timeline and what-ran table (scan), reports and operator details folded (investigate). Since decision 91 nothing at the investigate level opens on its own; a timeline pick opens its card. |
+| Progressive disclosure (glance / scan / investigate) | **Done** by the above: verdict card (glance), grouped findings, timeline and what-ran table (scan), reports and operator details folded (investigate). Since decision 93 nothing at the investigate level opens on its own; a timeline pick opens its card. |
 | Audience segmentation | **Done** by the operator fold. |
 | Accessibility: badge contrast, sensor dot target size | **Partly.** The record's squares are now buttons with a 2×12 px visual and a tooltip; their hit target is the button, and a larger invisible target is a follow-up. Contrast was not re-measured on this branch. |
 

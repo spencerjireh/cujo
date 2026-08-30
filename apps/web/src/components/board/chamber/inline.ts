@@ -82,7 +82,7 @@ export function createInlineSpecimen(options: {
 }): InlineSpecimenHandle {
   const { canvas, reducedMotion } = options;
   // The page's own tokens, not the chamber's ramp: this specimen sits on
-  // `--bg` and follows the reader's theme (decision 93), so its rings are the
+  // `--bg` and follows the reader's theme (decision 95), so its rings are the
   // same colour as the badge beside them in either theme.
   let palette = readPalette("page");
 

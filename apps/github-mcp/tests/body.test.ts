@@ -13,7 +13,7 @@ const RUN = "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e";
 describe("appendRunFooter", () => {
   it("builds the link from the configured base and the run id", () => {
     expect(appendRunFooter("**What ran**\n\n212 tests.", BASE, RUN)).toBe(
-      `**What ran**\n\n212 tests.\n\n---\n\nFull evidence: ${BASE}/runs/${RUN}\n`,
+      `**What ran**\n\n212 tests.\n\n---\n\n**[View the full evidence →](${BASE}/runs/${RUN})**\n`,
     );
   });
 
@@ -49,13 +49,22 @@ describe("appendRunFooter", () => {
   it("cannot be made to point at another host", () => {
     // Whatever the id, the host is the one this process was configured with.
     const out = appendRunFooter("Results.", BASE, RUN);
-    expect(out).toContain(`Full evidence: ${BASE}/runs/`);
+    expect(out).toContain(`](${BASE}/runs/`);
     expect(out).not.toContain("evil");
+  });
+
+  it("puts the URL in the link target and nowhere else", () => {
+    // The label is a literal here and the target is `runUrl`'s, so a reader
+    // sees words rather than a UUID — and there is exactly one URL in the
+    // footer to check, not one rendered and one linked that could differ.
+    const out = appendRunFooter("Results.", BASE, RUN);
+    expect(out).toContain(`**[View the full evidence →](${BASE}/runs/${RUN})**`);
+    expect(out.match(/https:\/\//g)).toHaveLength(1);
   });
 
   it("does not add a blank line to a body that already ends in one", () => {
     expect(appendRunFooter("Results.\n\n\n", BASE, RUN)).toBe(
-      `Results.\n\n---\n\nFull evidence: ${BASE}/runs/${RUN}\n`,
+      `Results.\n\n---\n\n**[View the full evidence →](${BASE}/runs/${RUN})**\n`,
     );
   });
 
@@ -66,8 +75,8 @@ describe("appendRunFooter", () => {
     const composed =
       "**Advisory** — no findings above info\n\nFine.\n\n<details>\n<summary>x</summary>\n\ny\n\n</details>";
     const out = appendRunFooter(composed, BASE, RUN);
-    expect(out.indexOf("Full evidence")).toBeGreaterThan(out.indexOf("</details>"));
-    expect(out.endsWith(`Full evidence: ${BASE}/runs/${RUN}\n`)).toBe(true);
+    expect(out.indexOf("View the full evidence")).toBeGreaterThan(out.indexOf("</details>"));
+    expect(out.endsWith(`**[View the full evidence →](${BASE}/runs/${RUN})**\n`)).toBe(true);
   });
 });
 
@@ -90,7 +99,7 @@ describe("runUrl", () => {
   });
 
   it("agrees with the footer, which is the reason it exists", () => {
-    expect(appendRunFooter("Body.", BASE, RUN)).toContain(`Full evidence: ${runUrl(BASE, RUN)}`);
+    expect(appendRunFooter("Body.", BASE, RUN)).toContain(`](${runUrl(BASE, RUN)})`);
   });
 });
 
@@ -120,8 +129,10 @@ describe("appendConfirmPrompt", () => {
     // postReview composes appendRunFooter(appendConfirmPrompt(...)), because
     // decision 36 requires the link to be the last thing in the body.
     const out = appendRunFooter(appendConfirmPrompt("Results.", true), BASE, RUN);
-    expect(out.indexOf("Full evidence")).toBeGreaterThan(out.indexOf("supply-chain pattern"));
-    expect(out.endsWith(`Full evidence: ${BASE}/runs/${RUN}\n`)).toBe(true);
+    expect(out.indexOf("View the full evidence")).toBeGreaterThan(
+      out.indexOf("supply-chain pattern"),
+    );
+    expect(out.endsWith(`**[View the full evidence →](${BASE}/runs/${RUN})**\n`)).toBe(true);
   });
 });
 
