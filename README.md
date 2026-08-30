@@ -9,6 +9,9 @@ app, installs any new dependency in isolation, and posts a review that cites
 what happened. A review that would block the merge waits for a human to confirm
 it.
 
+Demo: [demo video](https://youtu.be/rA7HLMxZypU) of a clean run, a
+regression, and a hostile dependency. Live board: <https://cujo.spencerjireh.com>.
+
 ## Why
 
 A diff shows what changed. It does not show what happens. A reviewer that only
@@ -70,7 +73,7 @@ TrueForge console on 8790, `cujo` on 8080, `github-mcp` on 8081 — and points
 Engine `>= 28.0`.) The deploy uses `docker-compose.yml` alone. `make help`
 lists the other targets.
 
-Nothing is behind a credential; there is none (decision 57). `cujo` dispatches
+Nothing is behind a credential; there is none ([decision 57](docs/decisions.md#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)). `cujo` dispatches
 on `Host`: `cujo-ingress.localhost:8080/webhook` is the receiver, and the read
 API answers on the internal name, where anything outside `/public` is 404.
 
@@ -105,29 +108,41 @@ replay, chaining, cancel, the approval gate, resume, the fold of real events.
 ## Qodo Code Review Evidence
 
 Qodo reviews every pull request automatically. It reads
-[`best_practices.md`](best_practices.md) — a mirror of the Standards section in
-[`CONTRIBUTING.md`](CONTRIBUTING.md) — so the bot checks the same rules a human
-reviewer would. Every Qodo comment must be applied or answered with a one-line
-reason and resolved before merge.
+[`best_practices.md`](best_practices.md), a mirror of the Standards section in
+[`CONTRIBUTING.md`](CONTRIBUTING.md), so the bot checks the same rules a human
+reviewer would. Every Qodo comment is applied or answered with a one-line
+reason and resolved before merge, and nothing merges with an open thread.
 
-Across the project's history:
+Counted from the GitHub API on 2026-08-31.
 
-- **105** merged PRs, all 105 reviewed by Qodo (100% coverage from PR #1).
-- **94** PRs received findings — **376** inline review threads in total.
-- **11** PRs received a clean review with no material issues.
-- Every finding was addressed with a code fix or a design-decision citation,
-  and every thread resolved before merge.
+- **106** merged pull requests, every one reviewed by Qodo.
+- **93** received findings, **380** inline review threads in total, and **13**
+  came back clean.
+- **23** drew two or more review passes after fixes were pushed.
+
+Two pull requests to read.
+
+[PR #70 — the board opens on the chamber, not a table](https://github.com/spencerjireh/cujo/pull/70)
+shows the follow-up loop against final code. Qodo reviewed it five times. The
+first pass raised five bugs in the WebGL chamber, among them startup without a
+`.catch()`, an activity cap that could overflow, an inert sort control, and
+lost initial focus. The fix commit drew a second pass with five more, among
+them a floor-grid resource leak and a delayed startup that bypassed the
+visibility check. The last pass, at 15:47 UTC, ran against the final commit,
+at 15:44 UTC, and closed on one test-coverage note. Fifteen threads, all
+resolved before merge.
 
 [PR #49 — answer @cujo-guard in its own session, with no way to write](https://github.com/spencerjireh/cujo/pull/49)
-is a representative example. The PR adds the conversational feature: when
+shows what the review is for. The PR adds the conversational feature. When
 someone mentions `@cujo-guard` on a pull request, Cujo replies in a read-only
-session that can reference the run but never approve or dismiss it. Qodo raised
-14 findings across security (the conversation payload leaked context that
-should not cross the trust boundary), correctness (the reply could target a
-stale PR head; a failed turn still posted an answer), and reliability (the
-timeout left a consumer active; a rate-limiter map could grow without bound).
-Every thread received a reply — a code fix, a design-decision citation, or a
-one-line reason — and was resolved before merge.
+session that can reference the run but never approve or dismiss it. Qodo
+raised 14 findings across security (the conversation payload leaked context
+that should not cross the trust boundary), correctness (the reply could target
+a stale PR head, and a failed turn still posted an answer), and reliability
+(the timeout left a consumer active, and a rate-limiter map could grow without
+bound). Each got a code fix, a design-decision citation, or a one-line reason,
+and the final commit on the branch applies its last finding, the dead-turn
+reply.
 
 ## License
 
