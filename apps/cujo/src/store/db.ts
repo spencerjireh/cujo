@@ -168,6 +168,20 @@ export const SCHEMA = `
     run_id TEXT PRIMARY KEY REFERENCES runs (id),
     digest TEXT NOT NULL
   );
+  -- The one comment a run may post on its pull request (decision 109). A
+  -- reaction is an idempotent POST and a comment is not, and \`rehydrate\`
+  -- re-folds a run's whole history on every restart, so without a row here a
+  -- redeploy would post the comment again. A new table rather than a column on
+  -- \`runs\`, because \`CREATE TABLE IF NOT EXISTS\` reaches a deployed database
+  -- on open and a column needs the migration ladder for no gain (decision 25).
+  --
+  -- Keyed on the run and not on (run, kind): a run gets one comment at most,
+  -- and a primary key is a better place to say so than every caller.
+  CREATE TABLE IF NOT EXISTS run_announcements (
+    run_id TEXT PRIMARY KEY REFERENCES runs (id),
+    kind TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
   -- Resume turns Cujo itself sent, so a restart still tells them apart
   -- from a resume an operator sent through the harness console.
   CREATE TABLE IF NOT EXISTS run_cujo_turns (

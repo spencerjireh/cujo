@@ -137,6 +137,10 @@ export const EVENT_NAMES = [
   "review.stale.skipped",
   "review.stale.dismissed",
   "review.stale.dismiss.failed",
+  // The one comment a run may post when the agent said nothing (109, 110).
+  "review.announce.posted",
+  "review.announce.skipped",
+  "review.announce.failed",
   "mcp.request.failed",
   // apps/web's route handlers.
   "proxy.rejected",

@@ -243,9 +243,38 @@ export class RunStore {
     this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM run_digests WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM run_cujo_turns WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM run_announcements WHERE run_id = ?").run(id);
     this.notifications.deleteRunMessages(id);
     this.db.prepare("DELETE FROM run_pr_meta WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM runs WHERE id = ?").run(id);
+  }
+
+  /**
+   * Take this run's one comment slot, or find it already taken.
+   *
+   * True means this caller won and owes the pull request a comment. The write
+   * comes first and the GitHub call second: a crash between them costs a comment
+   * nobody reads, and the other order costs a second copy on every restart.
+   *
+   * `INSERT OR IGNORE` rather than a read then a write, so two callers racing on
+   * one run cannot both win — the primary key arbitrates, which is the same
+   * thing `runs_head` does for a head.
+   */
+  claimAnnouncement(runId: string, kind: string): boolean {
+    const result = this.db
+      .prepare(
+        "INSERT OR IGNORE INTO run_announcements (run_id, kind, created_at) VALUES (?, ?, ?)",
+      )
+      .run(runId, kind, new Date().toISOString());
+    return Number(result.changes) === 1;
+  }
+
+  /** What this run already said on its pull request, or null. */
+  announcementOf(runId: string): string | null {
+    const row = this.db.prepare("SELECT kind FROM run_announcements WHERE run_id = ?").get(runId) as
+      | { kind: string }
+      | undefined;
+    return row?.kind ?? null;
   }
 
   addCujoTurn(runId: string, turnId: string): void {

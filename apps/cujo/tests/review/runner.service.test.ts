@@ -701,6 +701,102 @@ describe("Runner.hydrate", () => {
   });
 });
 
+/**
+ * What a timed-out run tells the pull request (decision 109).
+ *
+ * The run keeps `status: "error"` — Cujo did fall over — and the change is that
+ * the author stops seeing nothing. Runs `b5724912`, `c7bf0e13` and `ced0c934`
+ * each gave a pull request half an hour of silence with completed reports in
+ * hand.
+ */
+describe("Runner, on a turn that timed out", () => {
+  /** Opens the turn and then stops yielding, so only the watchdog can end it. */
+  async function* hangsAfterOpening(): AsyncIterable<StreamEvent> {
+    yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  function timingOut(createComment = vi.fn(async () => 7)) {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    // The whole turn as the session holds it: `tests` reported, nothing else
+    // did, and no review tool was ever called.
+    const whole = [turnCreated("t1", null, "2026-08-27T10:00:01Z"), ...checkReported("tests")];
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        // A stream that opens and then hangs, so only the watchdog ends it.
+        subscribe: async () => hangsAfterOpening(),
+        listEvents: vi.fn(async () => whole.map((event) => ({ turnId: "t1", event }))),
+        listTurns: vi.fn(async () => [{ id: "t1", state: { status: "running" } }]),
+        cancelTurn: vi.fn(async () => {}),
+      } as unknown as Harness,
+      { turnTimeoutMs: 5, retryDelaysMs: [0], pollIntervalMs: 1, links: { publicBaseUrl: "" } },
+      undefined,
+      { createComment } as unknown as never,
+    );
+    return { store, r, runner, createComment };
+  }
+
+  it("posts what the turn did measure, instead of nothing", async () => {
+    const { store, r, runner, createComment } = timingOut();
+    await runner.start(r, "review it");
+    await vi.waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
+    expect(createComment).toHaveBeenCalledWith(
+      "o/r",
+      1,
+      expect.stringContaining("did not finish this review"),
+    );
+    expect(createComment).toHaveBeenCalledWith(
+      "o/r",
+      1,
+      expect.stringContaining("`tests` reported"),
+    );
+    // The run is still an error. The comment does not soften that.
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
+    expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+  });
+
+  it("records the comment, so a restart does not post a second one", async () => {
+    const { store, r, runner, createComment } = timingOut();
+    await runner.start(r, "review it");
+    await vi.waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
+    expect(store.runs.announcementOf(r.id)).toBe("turn_timeout");
+    // The claim is what stops it, so the second attempt never reaches GitHub.
+    expect(store.runs.claimAnnouncement(r.id, "turn_timeout")).toBe(false);
+  });
+
+  it("says nothing when the read back finds a review the stream had not", async () => {
+    // Then the author already has the review, and a comment saying the run did
+    // not finish would contradict the thing sitting above it.
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const createComment = vi.fn(async () => 7);
+    const whole = [
+      turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      ...checkReported("tests"),
+      reviewCall("c1"),
+    ];
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => hangsAfterOpening(),
+        listEvents: vi.fn(async () => whole.map((event) => ({ turnId: "t1", event }))),
+        listTurns: vi.fn(async () => [{ id: "t1", state: { status: "running" } }]),
+        cancelTurn: vi.fn(async () => {}),
+      } as unknown as Harness,
+      { turnTimeoutMs: 5, retryDelaysMs: [0], pollIntervalMs: 1 },
+      undefined,
+      { createComment } as unknown as never,
+    );
+    await runner.start(r, "review it");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(createComment).not.toHaveBeenCalled();
+  });
+});
+
 describe("Runner.consume", () => {
   it("resubscribes after a dropped stream and finishes the turn", async () => {
     const store = new Store(":memory:");
