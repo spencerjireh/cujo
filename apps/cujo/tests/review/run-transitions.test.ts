@@ -130,7 +130,13 @@ function build(events: Ev[], level: Level = "info") {
 
 describe("run.status.changed", () => {
   it("reports the transition, and carries the delivery that started the run", async () => {
-    const { runner, run, logged } = build([turnCreated("t1"), reviewCall("c1"), turnDone("t1")]);
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", at),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
     await runner.start(run, "review it");
     const [line] = logged("run.status.changed");
     expect(line).toMatchObject({
@@ -238,7 +244,13 @@ describe("a turn start is announced once", () => {
     // turn_id — two events per start, and on a failure a run.turn.started
     // immediately followed by run.turn.start.failed, describing a turn that
     // never was.
-    const { runner, run, logged } = build([turnCreated("t1"), reviewCall("c1"), turnDone("t1")]);
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", at),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
     await runner.start(run, "review it");
     expect(logged("run.turn.started")).toHaveLength(1);
     expect(logged("run.turn.started")[0]).toMatchObject({ turn_id: "t1" });
@@ -938,7 +950,13 @@ describe("run.status.changed carries error_message", () => {
   });
 
   it("omits error_message when the run ends cleanly", async () => {
-    const { runner, run, logged } = build([turnCreated("t1"), reviewCall("c1"), turnDone("t1")]);
+    const { runner, run, logged } = build([
+      turnCreated("t1"),
+      threadCreated("sub-1", "tests"),
+      threadDone("sub-1", at),
+      reviewCall("c1"),
+      turnDone("t1"),
+    ]);
     await runner.start(run, "review it");
     const changed = logged("run.status.changed");
     const cleanLine = changed.find((l) => l.to === "clean");

@@ -14,6 +14,7 @@ export const RUN_STATUSES = [
   "blocked_posted",
   "denied",
   "error",
+  "unproven",
   "superseded",
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];

@@ -19,6 +19,22 @@ const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
 export type Db = DatabaseSyncType;
 
 /**
+ * The statuses a finished run can hold, as a SQL list.
+ *
+ * Interpolated rather than spelled out at each site, because it was spelled out
+ * three times and `listUnfinishedRuns` is right about what that costs: the type
+ * system cannot check a SQL string, so a status missing from one of them is
+ * silent, and the partial index below would treat a finished run as active and
+ * refuse the next run on that head.
+ *
+ * The historical migrations keep their own literal. Migration 9's text is what
+ * a deployed database already ran, and editing it would make the ladder a lie
+ * about what was applied.
+ */
+export const TERMINAL_STATUSES_SQL =
+  "('superseded', 'error', 'clean', 'unproven', 'blocked_unattended', 'blocked_posted', 'denied')";
+
+/**
  * Ordered, append-only. Index `i` takes the database from `user_version` `i`
  * to `i + 1`, and each runs inside the transaction that bumps the version, so
  * a container killed mid-migration comes back either before or after it, never
@@ -87,6 +103,15 @@ export const MIGRATIONS: readonly string[] = [
   `DROP INDEX IF EXISTS runs_head;
    CREATE UNIQUE INDEX runs_head ON runs (repo, pr_number, head_sha)
      WHERE status NOT IN ('superseded', 'error', 'clean', 'blocked_unattended', 'blocked_posted', 'denied');`,
+  // 10 — `unproven` joins the terminal statuses (decision 107). A run that
+  //      posted a review while no check reported is finished, so the partial
+  //      index has to exclude it or the next run on that head is refused as a
+  //      duplicate of an active one. Last, like 6, and for the same reason:
+  //      `migrate()` walks `user_version` forward, so a database already at 9
+  //      would never see this if it were inserted above.
+  `DROP INDEX IF EXISTS runs_head;
+   CREATE UNIQUE INDEX runs_head ON runs (repo, pr_number, head_sha)
+     WHERE status NOT IN ${TERMINAL_STATUSES_SQL};`,
 ];
 
 export const SCHEMA = `
@@ -128,7 +153,7 @@ export const SCHEMA = `
   -- cannot claim a second run for the same SHA. Terminal runs are excluded
   -- so a superseded run's evidence page stays reachable (decision 104).
   CREATE UNIQUE INDEX IF NOT EXISTS runs_head ON runs (repo, pr_number, head_sha)
-    WHERE status NOT IN ('superseded', 'error', 'clean', 'blocked_unattended', 'blocked_posted', 'denied');
+    WHERE status NOT IN ${TERMINAL_STATUSES_SQL};
   CREATE TABLE IF NOT EXISTS run_projections (
     run_id TEXT PRIMARY KEY REFERENCES runs (id),
     projection TEXT NOT NULL

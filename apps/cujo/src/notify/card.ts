@@ -174,7 +174,10 @@ const COLOR: Record<RunStatus, number> = {
   blocked_unattended: 0xff5c45, // --sev-critical
   blocked_posted: 0xff5c45, // --sev-critical
   denied: 0x958d82, // --sev-low
+  // Both say Cujo reached no verdict rather than anything about the pull
+  // request, which is what --sev-info is for. The words tell them apart.
   error: 0x66b0f0, // --sev-info
+  unproven: 0x66b0f0, // --sev-info
   superseded: 0x2c2924, // --line
 };
 
@@ -187,6 +190,7 @@ const DESCRIPTION: Record<RunStatus, string> = {
   blocked_posted: "Blocking review posted as REQUEST_CHANGES.",
   denied: "The block was rejected. Nothing was posted.",
   error: "The run ended in error.",
+  unproven: "The review posted with no evidence: not one check returned a report.",
   superseded: "Replaced by a newer commit on this PR.",
 };
 

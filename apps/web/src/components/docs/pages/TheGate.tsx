@@ -22,6 +22,7 @@ const REACTION: Partial<Record<(typeof RUN_STATUSES)[number], string>> = {
   blocked_posted: "thumbs down",
   denied: "thumbs up",
   error: "confused",
+  unproven: "confused",
   superseded: "nothing",
 };
 
