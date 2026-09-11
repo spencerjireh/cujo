@@ -117,6 +117,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review)
 110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
 111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
+112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -6065,3 +6066,60 @@ the model already decides every other command. **Passing a shell string**, which
 would make `argv` a shell injection surface for text read out of a pull request.
 **Narrowing the workspace with `--cwd`**, covered above — the defect that would
 have shipped if the two ideas had stayed one.
+
+## 112. `sniff.py` assembles the envelope, because asking a model to did not work
+
+`report_invalid` fired on `319e3f8a` with `runs.0.schema_version: Required (+31
+more)`. There was no producer-and-consumer drift to find: `sniff.py` emits
+`runs[].schema_version`, the validator requires it, `report.example.json` carries
+it, and `sandbox/tests/test_contract.py` asserts it at both levels. The sub-agent
+in between was rebuilding each `runs[]` entry out of the fields it judged
+interesting — against a rubric that already said, in bold, never to trim an entry.
+
+That was the fourth shape of the same failure. Decision 96 records fourteen
+`report_invalid` warns across three models in five runs, each a different partial
+reading of one sentence, and the fix then was to make the validator more lenient.
+Leniency has a floor: `runs[]` entries are copied verbatim, so a key missing there
+means the producer moved, which is the thing the validator exists to catch. The
+instruction could not get stricter and the schema could not get looser.
+
+So the instruction goes away. Every `run` and `detonate` records its own entry
+under the check's name, and `sniff.py report --check <name>` prints the whole
+envelope: `check`, `schema_version`, every entry in the order it ran and whole,
+and the `derived` / `sensors` / `truncated` roll-up computed over them. The
+sub-agent copies one blob. Copying one blob is something a model does reliably and
+copying thirty-odd fields per entry is not, which is the entire argument.
+
+**The roll-up is now computed rather than asked for, and the rules are
+asymmetric.** Each `derived` and `truncated` key is an OR across entries, because
+something that happened in one command happened. A sensor counts as armed only if
+it was armed for *every* entry, and carries the detail from the first entry it was
+not — a sensor blind for one command leaves that command's clean rows worth less
+than they look, and naming the window it was blind in is what a reader needs.
+
+**`--extra` is the model's half and it cannot reach the sensors' half.** The
+per-check fields the sensors know nothing about still come from the sub-agent —
+`base`, `head` and `base_pass_head_fail` for `tests`, `probes[]`, `endpoints[]` and
+`log_tail`. They are spread *under* the envelope's own keys, so a model that sends
+`derived` or `runs` in `--extra` is ignored rather than believed. The whole point
+is that those stopped being the model's to write.
+
+Still standard library only, so decision 46 holds: `json`, `pathlib`, and a file
+per check. Append-only, one object per line, and a half-written line from a killed
+command is skipped rather than taken as the end of the file.
+
+This does not relax the validator. A report that fails the schema is still read by
+the hard rules field by field, and `report_invalid` is still a `warn` that says
+the evidence is not the shape it claims (62). What changes is that there is far
+less left for a model to get wrong — and decision 110 now tells the pull request
+author when one of these trips, which it did not before.
+
+Session pinning (16) means only a new pull request reports this way. The command
+exists for every sandbox immediately, because `sandbox/` is fetched from `main`
+(19, 46), so an old session simply does not call it.
+
+Rejected: **making the envelope's `schema_version` required**, which punishes a
+session pinned to the old wording for a field that wording never named — the
+reason 54 left it optional. **A second validator pass that repairs a trimmed
+entry**, which would invent fields nobody measured. **Teaching the rubric harder**,
+which is what the previous three attempts were.

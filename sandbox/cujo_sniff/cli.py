@@ -21,7 +21,8 @@ from cujo_sniff.detonate import cmd_detonate
 from cujo_sniff.jsonl import file_size
 from cujo_sniff.policy import DEFAULT_PROXY_PORT, SCHEMA_VERSION
 from cujo_sniff.prepare import cmd_prepare
-from cujo_sniff.report import health
+from cujo_sniff.report import health, rollup
+from cujo_sniff.reports import read_runs, record_run
 from cujo_sniff.runner import run_sensed, sensor_env
 from cujo_sniff.sensors.decoy import restore_decoy, seed_decoy, watch_decoy, watched_backend
 from cujo_sniff.sensors.proxy import serve_proxy
@@ -113,7 +114,51 @@ def cmd_run(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     # produce, so the two are separate and the default is what it always was.
     roots = [Path(root).resolve() for root in args.workspace_root] or [cwd]
     report = run_sensed(ctx, args.cmd, check=args.check, workspace_roots=roots, cwd=cwd)
+    # Recorded before it is printed, so `sniff.py report` can assemble the
+    # envelope from what actually ran instead of asking a model to retype it
+    # (decision 112). Still printed in full: a sub-agent reads stdout to decide
+    # what to do next, and the report command is for the handing back.
+    record_run(ctx, args.check, report)
     return {"check": args.check, **report}
+
+
+def cmd_report(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
+    """Print this check's whole envelope, assembled from the runs it recorded.
+
+    One command whose entire output a sub-agent copies verbatim, in place of the
+    thirty-odd fields per entry it was asked to copy by hand and did not
+    (decision 112). `runs.0.schema_version: Required (+31 more)` was a model
+    rebuilding each entry out of the fields it judged interesting.
+
+    `--extra` carries the per-check fields the rubric adds and the sensors know
+    nothing about: `base`, `head` and `base_pass_head_fail` for `tests`,
+    `probes[]` for `probes`, `endpoints[]` and `log_tail` for `smoke`. It is
+    spread *under* the envelope's own keys, so nothing passed there can overwrite
+    `check`, `runs`, `derived`, `sensors` or `truncated` -- the point of this
+    command is that those are no longer the model's to write.
+    """
+    entries = read_runs(ctx, args.check)
+    if not entries:
+        raise SystemExit(
+            f"report: no runs recorded for check {args.check!r}; "
+            "every command has to go through `sniff.py run` or `sniff.py detonate`"
+        )
+    extra: dict[str, Any] = {}
+    if args.extra:
+        try:
+            parsed = json.loads(args.extra)
+        except ValueError as err:
+            raise SystemExit(f"report: --extra is not JSON: {err}") from err
+        if not isinstance(parsed, dict):
+            raise SystemExit("report: --extra has to be a JSON object")
+        extra = parsed
+    return {
+        **extra,
+        "schema_version": SCHEMA_VERSION,
+        "check": args.check,
+        "runs": entries,
+        **rollup(entries),
+    }
 
 
 def cmd_teardown(ctx: Context, _args: argparse.Namespace) -> dict[str, Any]:
@@ -165,6 +210,13 @@ def build_parser() -> argparse.ArgumentParser:
     det.add_argument("--dependency", required=True)
     det.add_argument("--source", choices=["pypi", "npm", "go", "gem", "auto"], default="auto")
     det.set_defaults(func=cmd_detonate)
+
+    rep = sub.add_parser("report", help="print this check's assembled envelope")
+    rep.add_argument("--check", required=True)
+    # The per-check fields the sensors know nothing about. Merged under the
+    # envelope's own keys, never over them.
+    rep.add_argument("--extra", metavar="JSON", help="per-check fields, as a JSON object")
+    rep.set_defaults(func=cmd_report)
 
     down = sub.add_parser("teardown", help="stop the sensor daemons")
     down.set_defaults(func=cmd_teardown)

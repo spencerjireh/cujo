@@ -388,6 +388,17 @@ so no report is folded from it and it is never evidence.
 
 ### The report
 
+**The sub-agent does not assemble the envelope — `sniff.py report --check <name>`
+does** (decision 112). Every `run` and `detonate` records its own entry, and that
+command prints the whole envelope: `check`, `schema_version`, every `runs[]` entry
+in order and whole, and the `derived` / `sensors` / `truncated` roll-up computed
+over them. The sub-agent passes the per-check fields in `--extra` and copies the
+output verbatim. `--extra` is spread *under* the envelope's own keys, so nothing
+the model sends can overwrite the sensors' half. `runs.0.schema_version: Required
+(+31 more)` was what the previous arrangement produced — a model rebuilding each
+entry out of the fields it judged interesting, against a rubric that already said
+not to.
+
 **[`docs/contracts/report.example.json`](contracts/report.example.json) is the
 shape.** One complete example carrying every field at once, and the normative
 one: this section says what the fields mean and that file says what they are.
