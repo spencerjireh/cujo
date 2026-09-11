@@ -270,6 +270,147 @@ def test_run_accepts_more_than_one_workspace_root(cli: Cli, home_dir: Path) -> N
         cli(["teardown"])
 
 
+def test_report_assembles_the_envelope_from_the_runs_it_recorded(cli: Cli, home_dir: Path) -> None:
+    """Decision 112: the model copies one blob, not thirty-odd fields per entry.
+
+    `runs.0.schema_version: Required (+31 more)` was a sub-agent rebuilding each
+    entry out of the fields it judged interesting, against a rubric that already
+    said never to trim one. Assembling it here removes the asking.
+    """
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        for i in range(2):
+            cli(
+                [
+                    "run",
+                    "--check",
+                    "tests",
+                    "--cwd",
+                    str(home_dir),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    f"print({i})",
+                ]
+            )
+        envelope = cli(
+            [
+                "report",
+                "--check",
+                "tests",
+                "--extra",
+                json.dumps({"base": "abc", "head": "def", "base_pass_head_fail": []}),
+            ]
+        )
+
+        assert envelope["schema_version"] == SCHEMA_VERSION
+        assert envelope["check"] == "tests"
+        # Both runs, in the order they ran, and each one whole.
+        assert len(envelope["runs"]) == 2
+        assert [json.loads(r["stdout_tail"].strip()) for r in envelope["runs"]] == [0, 1]
+        for entry in envelope["runs"]:
+            # The fields the validator requires of every entry, none of which a
+            # model now has to remember.
+            for key in (
+                "schema_version",
+                "argv",
+                "exit",
+                "duration_s",
+                "window_exclusive",
+                "stdout_tail",
+                "stderr_tail",
+                "egress",
+                "files_read",
+                "fs_changes",
+                "subprocesses",
+                "secret_probe",
+                "sensors",
+                "truncated",
+                "derived",
+            ):
+                assert key in entry, key
+            assert entry["schema_version"] == SCHEMA_VERSION
+
+        # The roll-up, computed rather than asked for.
+        assert set(envelope["derived"]) == {
+            "egress_to_unknown_host",
+            "wrote_outside_workspace",
+            "wrote_sensitive",
+            "spawned_subprocess",
+        }
+        assert envelope["sensors"]["proxy"]["armed"] is True
+        # And the per-check fields the sensors know nothing about.
+        assert envelope["base"] == "abc"
+        assert envelope["base_pass_head_fail"] == []
+    finally:
+        cli(["teardown"])
+
+
+def test_report_refuses_to_let_extra_overwrite_the_envelope(cli: Cli, home_dir: Path) -> None:
+    """`--extra` is the model's half and it may not reach the sensors' half."""
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        cli(
+            ["run", "--check", "probes", "--cwd", str(home_dir), "--", sys.executable, "-c", "pass"]
+        )
+        envelope = cli(
+            [
+                "report",
+                "--check",
+                "probes",
+                "--extra",
+                json.dumps(
+                    {
+                        "check": "tests",
+                        "runs": [],
+                        "derived": {"wrote_sensitive": True},
+                        "schema_version": 999,
+                    }
+                ),
+            ]
+        )
+        assert envelope["check"] == "probes"
+        assert len(envelope["runs"]) == 1
+        assert envelope["derived"]["wrote_sensitive"] is False
+        assert envelope["schema_version"] == SCHEMA_VERSION
+    finally:
+        cli(["teardown"])
+
+
+def test_report_without_any_run_says_so(cli: Cli) -> None:
+    """Silence here would be a report claiming a check that never ran anything."""
+    proc = cli.raw(["report", "--check", "smoke"])
+    assert proc.returncode != 0
+    assert "no runs recorded" in proc.stderr
+
+
+def test_report_keeps_each_check_to_its_own_runs(cli: Cli, home_dir: Path) -> None:
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        for check in ("tests", "smoke"):
+            cli(
+                [
+                    "run",
+                    "--check",
+                    check,
+                    "--cwd",
+                    str(home_dir),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    f"print({check!r})",
+                ]
+            )
+        tests = cli(["report", "--check", "tests"])
+        smoke = cli(["report", "--check", "smoke"])
+        assert len(tests["runs"]) == 1
+        assert len(smoke["runs"]) == 1
+        assert "tests" in tests["runs"][0]["stdout_tail"]
+        assert "smoke" in smoke["runs"][0]["stdout_tail"]
+    finally:
+        cli(["teardown"])
+
+
 def test_run_without_a_command_is_an_error(cli: Cli) -> None:
     proc = cli.raw(["run", "--check", "tests"])
     assert proc.returncode != 0

@@ -228,34 +228,32 @@ block (`egress[]`, `files_read[]`, `fs_changes[]`, `subprocesses[]`,
 `derived{...}`). Only a wrapped command is
 sensed: one that merely carries the exported environment produces no report and no
 evidence. The sensors serve one wrapped command at a time, so a second `run` waits for
-the first to finish; that wait is expected and is not a hang. The sub-agent ends its
-final message with exactly one fenced ```json block and no prose after it: `{"check":
-<name>, "runs": [<every run or detonate report, in order>], "derived": {<the sensor
-booleans, true if true in any run>}, ...}` plus the fields below.
+the first to finish; that wait is expected and is not a hang.
 
-Cujo checks that envelope against a schema and records a `warn` when it does not
-hold, so the report is worth getting right. The envelope must carry `check`,
-`runs[]` and `derived`, and should also carry `schema_version`, `sensors` and
-`truncated` — the same roll-up over every run. The three are not one shape.
-`derived` and `truncated` are objects of named booleans: send every key
-`sniff.py` printed. `truncated` may be left out, and leaving it out is better
-than sending `{}` or a block short a key, because an absent roll-up claims
-nothing while a partial one claims a shape it is not. `derived` is the one you
-may not leave out.
-**A report's `truncated` is never a list and never a single boolean.** `prepare`
-prints a `truncated` too and that one *is* a list, of build files it capped —
-one word for two shapes, and the one you want here is the object of named
-booleans `sniff.py` printed in each run. Copy it; do not summarise it. `sensors`
-is the odd one: each named sensor there is an object and not a boolean, and only
-its `armed` matters — you do not need to copy each sensor's `detail` prose up
-from the runs below. Copy each `runs[]` entry from what
-`sniff.py` printed, verbatim and whole: a `run` entry carries `schema_version`,
-`argv`, `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail` and
-the sensor block, and a `detonate` entry carries `dependency`, `source` and
-`install_ok` in place of `argv` and `exit`. Never trim an entry to the fields you
-think matter. Extra fields are always allowed and never cause a rejection, and a
-report that fails the check is still read by the hard rules — the `warn` says the
-evidence is not the shape it claims, never that anything in it is ignored.
+**You do not assemble the report. One command does.** Every `run` and `detonate`
+records its own entry, so when the check is finished ask for the whole envelope
+and copy what it prints:
+
+```
+python3 /tmp/cujo/sniff.py report --check <name> --extra '<json>'
+```
+
+`--extra` is a JSON object holding only the per-check fields below — the ones the
+sensors know nothing about. Everything else is filled in for you: `check`,
+`schema_version`, every `runs[]` entry in the order it ran and whole, and the
+`derived`, `sensors` and `truncated` roll-up over all of them. Nothing in
+`--extra` can overwrite any of those.
+
+The sub-agent ends its final message with exactly one fenced ```json block, no
+prose after it, holding **that command's output verbatim**. Do not rebuild it, do
+not reorder it, do not trim an entry to the fields you think matter, and do not
+retype a roll-up — the whole reason this command exists is that copying one blob
+is something a model does reliably and copying thirty fields per entry is not.
+
+Cujo still checks the envelope against a schema and records a `warn` when it does
+not hold. A report that fails the check is still read by the hard rules: the
+`warn` says the evidence is not the shape it claims, never that anything in it is
+ignored.
 
 - `tests`: wrap the test command on `/work/base` and on `/work/head`. Add `base` and
   `head` (map of test id to `pass|fail|skip`) and `base_pass_head_fail` (list of test ids).
