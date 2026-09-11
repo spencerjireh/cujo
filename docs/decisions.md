@@ -122,6 +122,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 114. [`sandbox-mcp` cannot carry the hardening the other services do](#114-sandbox-mcp-cannot-carry-the-hardening-the-other-services-do)
 115. [`provisioned_ms` replaces the `sandbox.created` event](#115-provisioned_ms-replaces-the-sandboxcreated-event)
 116. [Egress is enforced outside the sandbox, and its allowlist is a crossing](#116-egress-is-enforced-outside-the-sandbox-and-its-allowlist-is-a-crossing)
+117. [The sandbox image is ours, which reverses 46](#117-the-sandbox-image-is-ours-which-reverses-46)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -1723,6 +1724,10 @@ late delivery for an older head would otherwise be the newest row. Two systems
 with no shared transaction cannot do better than that.
 
 ## 46. The sensors are a package, delivered as a source archive
+
+**Reversed in part by 117.** The sandbox image is ours now, so the sensors ship
+in a layer, there is an install step, and the stdlib-only rule is a default rather
+than a constraint. What holds is that state lives outside the code directory.
 
 `sandbox/sniff.py` had grown to a thousand lines holding five sensors, four
 subcommands, two daemons, and the tables that decide what counts as malicious.
@@ -6296,3 +6301,67 @@ Rejected: **keeping the proxy as the control and hardening it**, which leaves th
 boundary enforced from inside. **An allowlist of CIDRs**, which is a network policy
 a repository should not be writing. **Resolving the allowlist once at boot**, which
 would pin a CDN's addresses for the life of the deployment.
+
+## 117. The sandbox image is ours, which reverses 46
+
+**Reverses decision 46 in part.** That entry chose to fetch `sandbox/` into the
+box from a source archive at run time, stdlib-only and imported from
+`sys.path[0]`, and it was right for the situation it was in: the image belonged to
+the sandbox provider, there was no install step, and `SandboxProviderManifest` has
+no image field at all, so the image was not ours to change. Every constraint in
+that entry traces back to that one fact.
+
+Decision 113 changed the fact. `sandbox/Dockerfile` builds the image a review runs
+in, so the sensors ship in a layer and the rest of 46 falls away with them:
+
+- **No runtime fetch.** `COPY sniff.py /opt/cujo/sniff.py` and
+  `COPY cujo_sniff /opt/cujo/cujo_sniff` put them there as siblings, which is the
+  property 46 arranged with `tar --strip-components=1` and a `mv`. The rubric's
+  first step is now a sentence rather than an `&&` chain, and the failure mode it
+  guarded against — a half-extracted fetch leaving a module deleted upstream
+  importable — cannot happen to a layer.
+- **`CUJO_SNIFF_TARBALL_URL` is gone**, and with it `tarballUrl()` in `config.ts`.
+  That validator existed because the rubric interpolated the value into a
+  double-quoted shell word, so a `"` or a `$` in it changed the command rather than
+  the URL. No interpolation, no shell word, nothing to validate. Three tests in
+  `config.test.ts` went with it.
+- **`specFingerprint` is now a digest of the rubric as written.** It used to change
+  with the substituted URL, because two deploys pointing at different sensor code
+  were two different rubrics. Nothing is substituted now, and the sensor code's
+  version is the image's — which this deliberately does not try to capture, because
+  an image digest in the rubric's fingerprint would mean every image rebuild
+  re-pinned every session (16).
+- **There is an install step, so `pytest` is in the image.** This is the other half
+  of decision 111: the `tests` check had never once run against the demo
+  repository, first because the install did not reach the service directories and
+  then because there was no `pytest` to run. A repository's own install is still
+  what *should* provide its test runner; this is what stops a repository with none
+  from producing no evidence at all.
+
+**The stdlib-only rule becomes a default rather than a constraint.** A third-party
+import under `sandbox/` is now possible. It stays discouraged, and the reason
+changed: it is no longer that it cannot work, it is that every package in that
+image is something a pull request's code can reach. So adding one needs a reason
+in the pull request, the way an unpinned dependency does. `CONTRIBUTING.md` and
+`best_practices.md` both say so, in step.
+
+What 46 got right and this keeps: state lives outside the code. `Context.from_env`
+derives `code_dir` from `__file__`, so moving the package to `/opt/cujo` needed no
+Python change at all, and the state directory stays at `/tmp/cujo-state` for the
+reason `context.py` gives — state that outlives the code it was written by has to
+sit outside it. A read-only code directory makes that argument stronger rather
+than weaker.
+
+The image runs as a non-root user. Root in the box would have made every
+`wrote_sensitive` reading weaker than it looks, because everything is writable to
+root and the decoy is supposed to be a file somebody chose to read. `tini` is PID 1,
+because the box is entered with `exec` and lives for a whole review: without an
+init, a suite that abandons a child leaves a zombie whose row would appear in a
+later check's `subprocesses`.
+
+Rejected: **pinning the archive to a commit** instead, which is what 19 and 46 both
+left open and which solves the wrong half — it makes the fetch reproducible and
+still leaves the image somebody else's. **Installing the repository's own
+dependencies into the image**, which would mean the image knows what it is about to
+review. **`apt`-installing every language a target might use**, which is an image
+that grows forever to cover a case a `.cujo.yml` could state.

@@ -116,7 +116,6 @@ services:
       # 502 on every pull request. Set them once you know yours accepts them.
       CUJO_MODEL_TEMPERATURE: ${CUJO_MODEL_TEMPERATURE:-}
       CUJO_MODEL_MAX_TOKENS: ${CUJO_MODEL_MAX_TOKENS:-}
-      CUJO_SNIFF_TARBALL_URL: ${CUJO_SNIFF_TARBALL_URL:-https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main}
       # Optional Discord notifications (spec Contract 7). Unset means the
       # service runs without them; the repo-to-channel map lives in the store.
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
@@ -215,7 +214,10 @@ services:
       # because a typo that silently ran a different isolation model is the one
       # failure this service must not have.
       CUJO_SANDBOX_RUNTIME: ${CUJO_SANDBOX_RUNTIME:-local}
-      CUJO_SANDBOX_IMAGE: ${CUJO_SANDBOX_IMAGE:-}
+      # Built from sandbox/Dockerfile (decision 117). It ships `sniff.py` and
+      # `cujo_sniff/` at /opt/cujo plus a Python and a Node toolchain, so there
+      # is no runtime fetch and no tarball URL any more.
+      CUJO_SANDBOX_IMAGE: ${CUJO_SANDBOX_IMAGE:-cujo-sandbox:latest}
       CUJO_SANDBOX_GATEWAY_IMAGE: ${CUJO_SANDBOX_GATEWAY_IMAGE:-cujo-sandbox-gateway:latest}
       # gVisor. Empty falls back to Docker's default runtime, with a warning on
       # every create: a host that has not been provisioned yet still runs

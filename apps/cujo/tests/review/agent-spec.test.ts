@@ -169,15 +169,16 @@ describe("buildTurnMessage", () => {
 });
 
 describe("buildAgentSpec", () => {
-  const config = { model: "p/m", sniffTarballUrl: "https://x/src.tar.gz" } as Config;
+  const config = { model: "p/m" } as Config;
 
-  it("injects the sensor URL into the rubric and gates the accusation alone", () => {
-    const spec = buildAgentSpec(
-      config,
-      "fetch {{CUJO_SNIFF_TARBALL_URL}} then {{CUJO_SNIFF_TARBALL_URL}}",
-    );
+  it("passes the rubric through unchanged and gates the accusation alone", () => {
+    // Nothing is interpolated any more. The sensor URL was the only placeholder
+    // and it went with the tarball (decision 117), so a rubric reaches a session
+    // as written — which is also what makes `specFingerprint` a digest of the
+    // file rather than of the file plus a deploy's configuration.
+    const spec = buildAgentSpec(config, "run /opt/cujo/sniff.py twice");
     expect(spec.model).toEqual({ name: "p/m" });
-    expect(spec.instructions).toBe("fetch https://x/src.tar.gz then https://x/src.tar.gz");
+    expect(spec.instructions).toBe("run /opt/cujo/sniff.py twice");
     // The one line that decides what a human is asked about. `post_blocking_review`
     // is absent on purpose: blocking a merge on a broken test is mechanical and
     // reversible, and asking about it is ceremony (decision 42). `sandbox-mcp`
@@ -226,52 +227,30 @@ describe("buildAgentSpec", () => {
     expect(serialized).not.toContain("discordBotToken");
   });
 
-  it("loads the real rubric, which carries the sensor URL placeholder", () => {
+  it("loads the real rubric, which carries no placeholder at all", () => {
     const rubric = loadRubric();
-    expect(rubric).toContain("{{CUJO_SNIFF_TARBALL_URL}}");
-    expect(buildAgentSpec(config, rubric).instructions).not.toContain("{{CUJO_SNIFF_TARBALL_URL}}");
+    // The fetch and its URL are gone with decision 117: the sensors ship in the
+    // sandbox image, so there is nothing left to substitute. A `{{…}}` appearing
+    // here again would be a placeholder nothing fills.
+    expect(rubric).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    expect(buildAgentSpec(config, rubric).instructions).toBe(rubric);
   });
 
-  it("extracts the archive so sniff.py and cujo_sniff land as siblings", () => {
-    // Nothing in CI fetches the URL, so the shape of the fetch is only ever
-    // checked here. `--strip-components=1` drops the archive's top directory,
-    // whose name depends on the branch, and the move puts the whole of
-    // sandbox/ in one place -- which is what makes sys.path[0] find the
-    // package with no install (decision 46).
+  it("names the sensors where the image actually puts them", () => {
+    // The one thing that can silently break a whole review: a path in the rubric
+    // that the image does not have. `sandbox/Dockerfile` copies them to
+    // /opt/cujo, and nothing checks the two agree except this.
     const rubric = loadRubric();
-    expect(rubric).toContain('curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz');
-    expect(rubric).toContain("--strip-components=1");
-    expect(rubric).toContain("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo");
-  });
-
-  it("delivers the sensors from one archive or not at all", () => {
-    // A retry within a turn must not mix two fetches. Staging is cleared
-    // first, every step is chained so a failure stops delivery, and the
-    // destination is replaced rather than merged into -- otherwise a module
-    // deleted upstream survives in /tmp/cujo and gets imported.
-    const block = loadRubric()
-      .split("```")
-      .find((part) => part.includes("{{CUJO_SNIFF_TARBALL_URL}}"));
-    expect(block).toBeDefined();
-    const chain = (block ?? "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    expect(chain[0]).toBe("rm -rf /tmp/cujo-src /tmp/cujo-src.tgz &&");
-    // Quoted, so a URL with `&` between query parameters is one word rather
-    // than a truncated fetch and a stray background job.
-    expect(chain[1]).toBe('curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&');
-    expect(chain.at(-2)).toBe("rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo &&");
-    // The sensors' own test suite is part of the repository, not of what runs
-    // in the sandbox: it is shipped by the archive and dropped on arrival.
-    expect(chain.at(-1)).toBe("rm -rf /tmp/cujo/tests");
-    // No unchained step: every line but the last ends in `&&`.
-    for (const line of chain.slice(0, -1)) expect(line.endsWith("&&")).toBe(true);
+    expect(rubric).toContain("/opt/cujo/sniff.py");
+    expect(rubric).not.toContain("/tmp/cujo/sniff.py");
+    // And the tarball machinery is gone rather than merely unused.
+    expect(rubric).not.toContain("tar -xzf");
+    expect(rubric).not.toContain("cujo-src");
   });
 });
 
 describe("buildConverseSpec", () => {
-  const config = { model: "p/m", sniffTarballUrl: "https://x/src.tgz" } as Config;
+  const config = { model: "p/m" } as Config;
 
   it("gives the conversation agent no review tools at all", () => {
     // Structural, not prose. The message it reads was written by whoever could
@@ -312,7 +291,7 @@ describe("buildConverseSpec", () => {
 
   it("loads its own rubric, not the reviewer's", () => {
     const converse = loadRubric("CONVERSE.md");
-    expect(converse).toContain("{{CUJO_SNIFF_TARBALL_URL}}");
+    expect(converse).toContain("/opt/cujo/sniff.py");
     expect(converse).not.toContain("post_gated_review");
     // The rule the design turns on: a second user message is untrusted too.
     expect(converse).toContain("untrusted");
@@ -335,7 +314,6 @@ describe("specFingerprint", () => {
   const config = {
     model: "openrouter/some-model",
     modelReasoningEffort: "",
-    sniffTarballUrl: "https://example.test/a.tgz",
   } as unknown as Config;
 
   it("is a sha256 of the instructions, and stable", () => {
@@ -350,13 +328,15 @@ describe("specFingerprint", () => {
     );
   });
 
-  it("changes when the substituted tarball URL changes", () => {
-    // The digest is of the string a session would actually be handed, so two
-    // deploys pointing at different sensor code are two different rubrics.
-    const other = { ...config, sniffTarballUrl: "https://example.test/b.tgz" } as unknown as Config;
-    const rubric = "fetch {{CUJO_SNIFF_TARBALL_URL}} and run it";
-    expect(specFingerprint(buildAgentSpec(config, rubric))).not.toBe(
-      specFingerprint(buildAgentSpec(other, rubric)),
+  it("is the digest of the rubric as written, with nothing substituted into it", () => {
+    // It used to change with the tarball URL, because the URL was interpolated
+    // and two deploys pointing at different sensor code were two rubrics. There
+    // is no substitution left (decision 117), so the fingerprint is now exactly a
+    // digest of the file — and the sensor code's version is the image's, which
+    // this deliberately does not try to capture.
+    const rubric = "run /opt/cujo/sniff.py and report";
+    expect(specFingerprint(buildAgentSpec(config, rubric))).toBe(
+      specFingerprint(buildAgentSpec({ ...config } as unknown as Config, rubric)),
     );
   });
 
@@ -370,7 +350,6 @@ describe("the runtime config both specs run under", () => {
   const config = {
     model: "m",
     modelReasoningEffort: "",
-    sniffTarballUrl: "https://example.test/a.tgz",
     compactionThresholdTokens: 200_000,
   } as unknown as Config;
 
@@ -407,7 +386,6 @@ describe("modelRef, through the specs", () => {
     modelReasoningEffort: "",
     modelTemperature: null,
     modelMaxTokens: null,
-    sniffTarballUrl: "https://example.test/a.tgz",
     compactionThresholdTokens: 200_000,
   } as unknown as Config;
 

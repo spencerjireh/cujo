@@ -114,10 +114,12 @@ entry point and `cujo_sniff/` as the package behind it. Report shapes live in
 - Commit subjects use Conventional Commits (`type(scope): summary`, imperative,
   no trailing period); explain the why in the body. See `CONTRIBUTING.md`.
 - Run Python with `uv` everywhere except what runs in the sandbox (`sniff.py`
-  and `cujo_sniff/`), which uses the sandbox's own `python3`; `sandbox/tests/`
-  runs here under `uv` like any other test. There is no install step in the
-  sandbox, so nothing under `sandbox/` may import a third-party module
-  (decision 46).
+  and `cujo_sniff/`), which uses the image's own `python3`; `sandbox/tests/`
+  runs here under `uv` like any other test. The sandbox image is ours and has an
+  install step (decision 117, reversing 46), so `sandbox/` may import a
+  third-party module -- but it is stdlib-only by default, because every package in
+  that image is something a pull request's code can reach. Adding one needs a
+  reason in the PR.
 - Never install `evil-package` outside the Daytona sandbox; it is an intentional
   malicious sample.
 - `*.pem` and `.env` are gitignored; real values live in the Coolify deploy.

@@ -63,6 +63,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -f apps/${{ matrix.service }}/Dockerfile -t cujo-${{ matrix.service }}:ci .
 
+  # The two images that are not a workspace app: the sandbox a review runs in,
+  # and the gateway that filters its egress (decisions 116, 117).
+  sandbox-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build -f sandbox/Dockerfile -t cujo-sandbox:ci sandbox
+      - run: docker build -t cujo-sandbox-gateway:ci apps/sandbox-mcp/gateway
+
   # Harness contract tests: a real TrueForge server and github-mcp from the
   # compose file, a stub model provider in the test process.
   contract:
