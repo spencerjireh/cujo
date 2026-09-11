@@ -22,6 +22,18 @@ export type RunStatus =
   | "blocked_posted"
   | "denied"
   | "error"
+  /**
+   * A review posted and not one check produced a report, so the run proved
+   * nothing about the pull request (decision 107). Distinct from `clean`, which
+   * the fold reached for this case until then, and distinct from `error`,
+   * because Cujo did not fall over — it ran, posted, and had no evidence to
+   * post. The two are opposite claims and a list view shows only the status.
+   *
+   * Terminal. `TERMINAL_STATUSES_SQL` in `store/db.ts` has to name it or the
+   * partial index treats the run as active and refuses the next run on that
+   * head.
+   */
+  | "unproven"
   /** A newer head on the same PR replaced this run before it finished. */
   | "superseded";
 

@@ -462,6 +462,14 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           // broken registration, exactly as the no-review case below does.
           p.status = "error";
           p.error = "the agent drafted a gated review but no approval was requested";
+        } else if (p.review && !p.checks.some((c) => c.isCheck && c.report !== null)) {
+          // Posted a review with no evidence behind it. Above `clean` and below
+          // every contradiction rung, so it can never mask one: a run that
+          // under-gated or blocked still says so, and only a run with nothing
+          // left to say lands here. Coverage is not a finding, because every
+          // operational rule is a `warn` and no `warn` moves the status — which
+          // is why `check_missing` firing four times still folded `clean`.
+          p.status = "unproven";
         } else if (p.review) {
           p.status = "clean";
         } else {

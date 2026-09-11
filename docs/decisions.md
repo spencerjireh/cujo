@@ -112,6 +112,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 104. [Supersede, do not delete, on re-review](#104-supersede-do-not-delete-on-re-review)
 105. [SessionEvents are validated at the boundary](#105-sessionevents-are-validated-at-the-boundary)
 106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
+107. [A run that proved nothing is `unproven`, not `clean`](#107-a-run-that-proved-nothing-is-unproven-not-clean)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5777,3 +5778,66 @@ image what the title and description already say. **A separate
 `twitter-image`**, when Next falls back to `opengraph-image` and one asset
 with one test is enough. **A transparent ground**, which vanishes on a
 light-theme client and takes the wordmark with it.
+
+## 107. A run that proved nothing is `unproven`, not `clean`
+
+`fold` reached `clean` whenever a review posted and no earlier rung fired, and
+coverage was never part of that decision. So run `b30239c8` ran zero checks,
+posted an advisory carrying four warnings, and sat on the public board as
+`clean`. The review body was honest about what had not happened; the status
+beside it was not, and a list view shows only the status.
+
+Nothing was going to fix that from the findings side. Every operational rule —
+`check_missing`, `sensor_unarmed`, `report_invalid` — is a `warn` by design (62,
+96), and the only rung above `clean` that reads findings at all filters on
+`critical`. A `warn` cannot move a status and should not be able to: a sub-agent
+that mis-formats one roll-up must not be able to change a verdict. So coverage
+enters as a status of its own rather than as a finding.
+
+`unproven` is set when a review posted and not one check returned a report. It
+sits immediately above `clean` in the ladder and below every contradiction rung,
+which is what stops it masking anything: a run that under-gated an accusation,
+or blocked a merge, or posted an advisory over a critical, still says that
+instead. Only a run with nothing else to say lands here.
+
+It is not `error`. Cujo did not fall over — it ran, it posted, and it had
+nothing to show. Those are opposite claims about where to look next, which is
+the same argument that keeps `error` blue rather than red: a status that
+describes Cujo must not read as a verdict on the pull request. `unproven` takes
+the same blue and the same 😕, and the *word* carries the distinction on every
+surface the colour appears on.
+
+A check that **reported** is the test, not a check that existed. Run `0c644064`
+lost all three sub-agents to a provider fault in under 1.6 seconds; three
+threads were created and `report` was null on every one. That is an unproven run,
+and reading thread count instead would have called it covered.
+
+The one case that stays `clean` is the one 87 allows: no test suite was
+inferred, so the three suite checks are inapplicable rather than missing and
+`detonation` ran alone. Its report is evidence like any other, so the predicate
+asks only whether any check reported and never which — the same reason
+`missingCheckFindings` suppresses itself there.
+
+**Terminal, and three places had to be told.** The status vocabulary was spelled
+out as a SQL string literal in three places, and `listUnfinishedRuns` already
+carried a comment saying what that costs: the type system cannot check a SQL
+string, so a status missing from one of them is silent. The specific failure
+here would be the partial unique index `runs_head` treating a finished run as
+active and refusing the next run on that head — a re-review that never starts,
+with nothing logged. So the list is one exported constant now,
+`TERMINAL_STATUSES_SQL`, interpolated at each site, and migration 10 rebuilds
+the index from it. Migration 9 keeps its own literal, because that is the text a
+deployed database already ran and editing it would make the ladder a lie about
+what was applied (the rule `CONTRIBUTING.md` states and `tests/store/db.test.ts`
+enforces).
+
+Everything else fell out of the compiler. `Record<RunStatus, …>` in the card
+colour, the card description, the reaction map, the board's tone, label and
+legend maps, and the manual's status sentence all stopped building until the new
+status was answered for, which is the property those maps exist to have (98).
+
+Rejected: **folding coverage into `error`**, which needs no schema change and
+spends the distinction the change exists to draw. **Keeping `clean` and adding a
+coverage field to the projection**, which is cheaper and leaves a list view
+reading `clean`, which is exactly where the problem was. **Making the
+operational rules `critical`**, which would let a formatting warn block a merge.

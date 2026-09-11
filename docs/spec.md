@@ -1047,7 +1047,8 @@ Status moves on events from the session's turn streams, with one exception
 | Status | Set when |
 |--------|----------|
 | `running` | The run was claimed; the first turn is being started. |
-| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted. |
+| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted, and at least one check returned a report. |
+| `unproven` | `turn.done` on a posted review with **no check report at all** (decision 107). The review is real and the evidence behind it is absent, which `clean` claimed the opposite of. Not `error`: Cujo ran and posted, it just had nothing to show. Terminal, so `TERMINAL_STATUSES_SQL` names it and the partial index excludes it. The one exception is decision 87's: when no suite was inferred and `detonation` reported alone, that is `clean`. |
 | `blocked_unattended` | `turn.done` on an ungated `post_blocking_review`: Cujo blocked the merge on its own authority, for a correctness critical, and no human was asked. `approver` is null and stays null. |
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
@@ -1227,6 +1228,7 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 | `blocked_posted` | red (`--sev-critical`) | The blocking review posted, and who decided. | Grouped critical findings, `Checks`. |
 | `denied` | grey (`--sev-low`) | The block was rejected; nothing was posted. | Grouped critical findings, `Checks`. |
 | `error` | blue (`--sev-info`) | The run ended in error. | `Error`. Red, never: red means the pull request is dangerous, and an infrastructure failure is a status, not a verdict. |
+| `unproven` | blue (`--sev-info`) | The review posted with no evidence: not one check returned a report. | `Checks`, `Summary`. The same blue as `error` for the same reason — both describe Cujo rather than the pull request — and the words tell them apart. |
 | `superseded` | near-black (`--line`) | Replaced by a newer commit. | `Head` and `Pull request` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
 
 The colour column is the brand severity ramp, dark values (decision 36); an
@@ -1621,7 +1623,8 @@ log.
 | `blocked_unattended` | 👎 | The blocking review posted. Shared with `blocked_posted` on purpose: the reactions describe what happened to the pull request, and a REQUEST_CHANGES is on it either way. |
 | `blocked_posted` | 👎 | The blocking review posted. |
 | `denied` | 👍 | A human cleared the pull request to proceed. |
-| `error` | 😕 | Cujo broke. Shared with no other state. |
+| `error` | 😕 | Cujo broke. |
+| `unproven` | 😕 | The review posted and no check reported. Shared with `error` on purpose, and with nothing else: on the pull request this pair means "do not read a verdict into this", and which of the two it was is on the board. |
 | `superseded` | *nothing* | Not this run's pull request to describe any more. |
 
 A `/cujo` command gets its own acknowledgement, on the command comment and not

@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { deriveDigest } from "../review/digest";
 import type { Projection, RunDigest, RunRecord, RunStatus } from "../review/types";
-import type { Db } from "./db";
+import { type Db, TERMINAL_STATUSES_SQL } from "./db";
 import type { NotificationStore } from "./notifications";
 
 interface RunRow {
@@ -228,7 +228,7 @@ export class RunStore {
     if (Number(result.changes) === 0) {
       const existing = this.db
         .prepare(
-          `${RUN_SELECT} WHERE runs.repo = ? AND runs.pr_number = ? AND runs.head_sha = ? AND runs.status NOT IN ('superseded', 'error', 'clean', 'blocked_unattended', 'blocked_posted', 'denied')`,
+          `${RUN_SELECT} WHERE runs.repo = ? AND runs.pr_number = ? AND runs.head_sha = ? AND runs.status NOT IN ${TERMINAL_STATUSES_SQL}`,
         )
         .get(input.repo, input.prNumber, input.headSha) as RunRow | undefined;
       if (!existing) throw new Error("insert ignored but no active run found");

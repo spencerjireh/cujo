@@ -81,8 +81,15 @@ const BY_STATUS: Record<RunStatus, readonly Reaction[] | null> = {
   blocked_posted: ["-1"],
   /** A human rejected the block, so the pull request is clear to proceed. */
   denied: ["+1"],
-  /** Cujo broke. Shared with no other status, so it always means just this. */
+  /**
+   * Cujo reached no verdict. Shared by the two statuses that mean that and no
+   * others — `error` because it fell over, `unproven` because it ran and had
+   * nothing to show — so on the pull request this set always means "do not read
+   * a verdict into this". Which of the two it was is on the board, and sharing
+   * one set costs no call because `PrReactor` keys its cache on the set.
+   */
   error: ["confused"],
+  unproven: ["confused"],
   /** Not this run's pull request to describe any more. See the header. */
   superseded: null,
 };

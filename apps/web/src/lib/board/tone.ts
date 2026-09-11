@@ -34,6 +34,10 @@ const STATUS_TONE: Record<RunStatus, Tone> = {
   denied: "inert",
   // Cujo fell over, which is not a claim about the pull request.
   error: "info",
+  // Nor is this one: the review posted and proved nothing, so the same tone as
+  // `error` and never `clean`'s. The distinction the status exists to draw is
+  // carried by the label, which is on every surface the colour is.
+  unproven: "info",
   superseded: "inert",
 };
 
@@ -124,6 +128,7 @@ export const STATUS_LABELS: Record<RunStatus, string> = {
   blocked_posted: "blocked",
   denied: "denied",
   error: "error",
+  unproven: "unproven",
   superseded: "superseded",
 };
 

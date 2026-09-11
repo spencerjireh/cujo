@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Store } from "../../src/store";
-import { MIGRATIONS, SCHEMA } from "../../src/store/db";
+import { MIGRATIONS, SCHEMA, TERMINAL_STATUSES_SQL } from "../../src/store/db";
 
 // Through the runtime, not an import: vitest's transformer does not know
 // node:sqlite, which is why `src/store/db.ts` reaches for it the same way.
@@ -32,11 +32,17 @@ describe("the migration ladder", () => {
     expect(MIGRATIONS[8]).toContain("DROP INDEX IF EXISTS runs_head");
     expect(MIGRATIONS[8]).toContain("CREATE UNIQUE INDEX runs_head");
     expect(MIGRATIONS[8]).toContain("WHERE status NOT IN");
+    // 9 keeps its own literal list rather than the shared constant, because
+    // that is the text a deployed database already ran.
+    expect(MIGRATIONS[8]).not.toContain("unproven");
+    expect(MIGRATIONS[9]).toContain("DROP INDEX IF EXISTS runs_head");
+    expect(MIGRATIONS[9]).toContain("CREATE UNIQUE INDEX runs_head");
+    expect(MIGRATIONS[9]).toContain("unproven");
   });
 
   it("has no gaps, since index i takes user_version i to i + 1", () => {
     expect(MIGRATIONS.every((statement) => typeof statement === "string" && statement.length > 0));
-    expect(MIGRATIONS).toHaveLength(9);
+    expect(MIGRATIONS).toHaveLength(10);
   });
 
   /**
@@ -97,6 +103,19 @@ describe("the migration ladder", () => {
    */
   it("drops the guild-authorization table, and tolerates a database that never had it", () => {
     expect(MIGRATIONS[5]).toMatch(/^DROP TABLE IF EXISTS /);
+  });
+
+  /**
+   * `unproven` is terminal (decision 107), and the partial index is the place
+   * that has to know. A status missing from the list is silent — nothing fails
+   * to compile and nothing throws; the next run on the same head is simply
+   * refused as a duplicate of one that is actually finished.
+   */
+  it("rebuilds the head index so a terminal unproven run stops blocking the head", () => {
+    expect(TERMINAL_STATUSES_SQL).toContain("'unproven'");
+    expect(MIGRATIONS[9]).toContain(TERMINAL_STATUSES_SQL);
+    // And the fresh-database schema says the same thing, or the two diverge.
+    expect(SCHEMA).toContain(TERMINAL_STATUSES_SQL);
   });
 
   it("has an empty schema statement for the table it dropped", () => {
