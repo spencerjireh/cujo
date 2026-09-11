@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Harness, sandboxAutoStopMinutes } from "../../src/clients/trueforge";
+import { Harness } from "../../src/clients/trueforge";
 import type { Config } from "../../src/config";
 
 function harness(
@@ -13,6 +13,7 @@ function harness(
   const config = {
     trueforgeBaseUrl: "http://server",
     githubMcpUrl: "http://github-mcp",
+    sandboxMcpUrl: "http://sandbox-mcp",
     turnTimeoutMs: 30 * 60 * 1000,
     bootstrap: {
       modelProvider: {
@@ -53,9 +54,14 @@ describe("Harness.bootstrap", () => {
   });
 
   it("retries a failure after github-mcp until the whole bootstrap succeeds", async () => {
+    // The failure is injected at the *last* step, which is the model provider
+    // now that no sandbox provider is registered (decision 113). The property
+    // under test is unchanged and is the reason this test exists: a retry
+    // re-applies the whole bootstrap rather than resuming at the step that
+    // failed, so the two MCP registrations happen twice.
     let calls = 0;
     const { h, settings } = harness({
-      sandbox: async () => {
+      provider: async () => {
         calls += 1;
         if (calls === 1) throw new Error("transient");
         return {};
@@ -65,8 +71,9 @@ describe("Harness.bootstrap", () => {
     await h.bootstrapUntilReady(sleep);
     expect(h.ready).toBe(true);
     expect(sleep).toHaveBeenCalledTimes(1);
-    expect(settings.mcpServers.createOrUpdate).toHaveBeenCalledTimes(2);
-    expect(settings.sandboxProviders.createOrUpdate).toHaveBeenCalledTimes(2);
+    // Two servers, applied twice.
+    expect(settings.mcpServers.createOrUpdate).toHaveBeenCalledTimes(4);
+    expect(settings.modelProviders.createOrUpdate).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -99,14 +106,33 @@ describe("model provider registration", () => {
   });
 });
 
-describe("sandbox lifetime", () => {
-  it("stops an idle sandbox only after a whole turn could have run", async () => {
-    expect(sandboxAutoStopMinutes(30 * 60 * 1000)).toBe(45);
-    expect(sandboxAutoStopMinutes(90_000)).toBe(17);
+describe("the sandbox", () => {
+  /**
+   * This suite used to pin `type: "daytona"` and an idle-stop interval derived
+   * from the turn budget. Both are gone with the provider (decision 113): the
+   * harness provisions nothing, so there is nothing here to keep alive.
+   *
+   * What replaces the assertion is the absence of one. A sandbox provider
+   * registered by accident would be a second sandbox nobody uses, billed, and
+   * holding whatever the last run left in it.
+   */
+  it("registers no sandbox provider at all, even with a key in the environment", async () => {
+    // The fixture's config still carries `daytonaApiKey`, which is the point:
+    // a key left in a deployment's environment must not bring the provider back.
     const { h, settings } = harness({});
     await h.bootstrap();
-    expect(settings.sandboxProviders.createOrUpdate).toHaveBeenCalledWith({
-      manifest: expect.objectContaining({ type: "daytona", autoStopIntervalInMinutes: 45 }),
+    expect(settings.sandboxProviders.createOrUpdate).not.toHaveBeenCalled();
+  });
+
+  it("registers sandbox-mcp instead, as a remote MCP server", async () => {
+    const { h, settings } = harness({});
+    await h.bootstrap();
+    expect(settings.mcpServers.createOrUpdate).toHaveBeenCalledWith({
+      manifest: expect.objectContaining({
+        name: "sandbox-mcp",
+        type: "remote",
+        url: "http://sandbox-mcp",
+      }),
     });
   });
 });

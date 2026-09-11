@@ -19,11 +19,6 @@ export const OPERATOR_DENY_REASON = "Rejected by a Cujo operator. Post nothing a
 export const STALE_DENY_REASON =
   "Superseded: a newer commit replaced the review this block belongs to. Post nothing and end your turn.";
 
-/** Minutes of idle before Daytona stops a sandbox: the turn timeout plus slack. */
-export function sandboxAutoStopMinutes(turnTimeoutMs: number): number {
-  return Math.ceil(turnTimeoutMs / 60_000) + 15;
-}
-
 /**
  * The only client of the TrueForge server (decision 17). Thin: it names the
  * calls apps/cujo makes so the rest of the code never touches the SDK shapes.
@@ -73,6 +68,19 @@ export class Harness {
       }),
     );
 
+    await step("mcp-server sandbox-mcp", () =>
+      this.client.settings.mcpServers.createOrUpdate({
+        manifest: {
+          name: "sandbox-mcp",
+          type: "remote",
+          url: this.config.sandboxMcpUrl,
+          description:
+            "Provisions a disposable sandbox and runs commands in it. " +
+            "Egress is denied by default and enforced outside the sandbox.",
+        },
+      }),
+    );
+
     const provider = this.config.bootstrap.modelProvider;
     if (provider) {
       await step(`model-provider ${provider.name}`, () =>
@@ -103,25 +111,15 @@ export class Harness {
       );
     }
 
-    const daytonaApiKey = this.config.bootstrap.daytonaApiKey;
-    if (daytonaApiKey) {
-      await step("sandbox-provider daytona", () =>
-        this.client.settings.sandboxProviders.createOrUpdate({
-          manifest: {
-            type: "daytona",
-            auth: { apiKey: daytonaApiKey },
-            // Idle stop must outlast a whole turn, or a long review loses its
-            // sandbox mid-run; the sandbox is idle only after the turn ends.
-            autoStopIntervalInMinutes: sandboxAutoStopMinutes(this.config.turnTimeoutMs),
-            autoArchiveIntervalInMinutes: 60,
-            autoDeleteIntervalInMinutes: 24 * 60,
-            execTimeoutMs: 20 * 60 * 1000,
-          },
-        }),
-      );
-    }
-    // Only a complete bootstrap counts: a turn on an unregistered model or
-    // sandbox provider fails just as surely as one without github-mcp.
+    // No sandbox provider is registered any more (decision 113). The harness's
+    // manifest types its provider as the string literal `"daytona"` — not a
+    // union, with a wire serializer that rejects anything else, one vendor baked
+    // into `auth`, no image field at all, and one provider per tenant. Cujo
+    // reaches its own runtime through `sandbox-mcp` above instead, and
+    // `agent-spec.ts` turns the harness's own sandbox off.
+    //
+    // Only a complete bootstrap counts: a turn on an unregistered model fails
+    // just as surely as one without github-mcp.
     this.ready = true;
     return applied;
   }

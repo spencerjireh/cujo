@@ -32,7 +32,7 @@ clean: ## Stop the local stack and delete its volumes (drops the database)
 	$(COMPOSE) down -v
 
 test-int-up: ## Start the TrueForge server and github-mcp for the contract tests
-	$(COMPOSE_INT) up -d --build --wait server github-mcp
+	$(COMPOSE_INT) up -d --build --wait server github-mcp sandbox-mcp
 
 test-int: test-int-up ## Run the harness contract tests against that stack
 	cd apps/cujo && TRUEFORGE_BASE_URL=http://127.0.0.1:8790 pnpm test:int

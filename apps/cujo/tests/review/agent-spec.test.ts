@@ -180,12 +180,16 @@ describe("buildAgentSpec", () => {
     expect(spec.instructions).toBe("fetch https://x/src.tar.gz then https://x/src.tar.gz");
     // The one line that decides what a human is asked about. `post_blocking_review`
     // is absent on purpose: blocking a merge on a broken test is mechanical and
-    // reversible, and asking about it is ceremony (decision 42).
+    // reversible, and asking about it is ceremony (decision 42). `sandbox-mcp`
+    // carries no `requireApprovalForTools` at all, because provisioning a box and
+    // running a command in it is what the review *is* (decision 113).
     expect(spec.mcpServers).toEqual([
       { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
+      { name: "sandbox-mcp" },
     ]);
     expect(spec.config).toMatchObject({
-      sandbox: { enabled: true },
+      // Off, because the agent reaches a sandbox through `sandbox-mcp` now.
+      sandbox: { enabled: false },
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
     });
@@ -273,16 +277,24 @@ describe("buildConverseSpec", () => {
     // Structural, not prose. The message it reads was written by whoever could
     // reach the pull request, so the bound on a prompt injection is that there
     // is nothing to inject *into*: `apps/cujo` posts the reply afterwards.
+    //
+    // `sandbox-mcp` is the one server it gets, and it is not a review tool:
+    // nothing on it reaches a pull request. `github-mcp` is what must stay
+    // absent, and this asserts that rather than an empty list, because the list
+    // stopped being empty when the sandbox moved off the harness (113).
     const spec = buildConverseSpec(config, "rubric {{CUJO_SNIFF_TARBALL_URL}}");
-    expect(spec.mcpServers).toEqual([]);
+    expect(spec.mcpServers).toEqual([{ name: "sandbox-mcp" }]);
+    expect(spec.mcpServers?.some((s) => s.name === "github-mcp")).toBe(false);
   });
 
-  it("keeps the sandbox, because re-running is the point", () => {
+  it("keeps a sandbox, because re-running is the point", () => {
     // Every other reviewer can re-read a diff. Without a sandbox this agent
-    // could only paraphrase the report it was handed.
+    // could only paraphrase the report it was handed. It reaches one through
+    // `sandbox-mcp` now rather than through the harness, so the harness's own
+    // sandbox is off here exactly as it is on the reviewer.
     const spec = buildConverseSpec(config, "rubric");
     expect(spec.config).toMatchObject({
-      sandbox: { enabled: true },
+      sandbox: { enabled: false },
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
     });
@@ -362,12 +374,13 @@ describe("the runtime config both specs run under", () => {
     compactionThresholdTokens: 200_000,
   } as unknown as Config;
 
-  it("closes the sandbox download path on both specs", () => {
-    // The turn download endpoint would let a file written inside the box be
-    // fetched back out through the harness. Nothing here ever does that, so it
-    // is closed rather than left open because nobody asked.
+  it("leaves the harness with no sandbox to provision, on either spec", () => {
+    // Decision 113. The harness's provider manifest is a string literal, so the
+    // way off it is to stop asking the harness for a sandbox at all — and then
+    // the download path this test used to close goes with it, because the
+    // endpoint belonged to a sandbox the harness owned.
     for (const spec of [buildAgentSpec(config, "r"), buildConverseSpec(config, "r")]) {
-      expect(spec.config?.sandbox).toEqual({ enabled: true, fileDownloads: false });
+      expect(spec.config?.sandbox).toEqual({ enabled: false });
     }
   });
 

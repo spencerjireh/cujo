@@ -118,6 +118,10 @@ that is reversed after it was built or shown is noted here rather than deleted
 110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
 111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
 112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work)
+113. [The sandbox is an interface, reached through MCP and not through the harness](#113-the-sandbox-is-an-interface-reached-through-mcp-and-not-through-the-harness)
+114. [`sandbox-mcp` cannot carry the hardening the other services do](#114-sandbox-mcp-cannot-carry-the-hardening-the-other-services-do)
+115. [`provisioned_ms` replaces the `sandbox.created` event](#115-provisioned_ms-replaces-the-sandboxcreated-event)
+116. [Egress is enforced outside the sandbox, and its allowlist is a crossing](#116-egress-is-enforced-outside-the-sandbox-and-its-allowlist-is-a-crossing)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -6123,3 +6127,172 @@ session pinned to the old wording for a field that wording never named — the
 reason 54 left it optional. **A second validator pass that repairs a trimmed
 entry**, which would invent fields nobody measured. **Teaching the rubric harder**,
 which is what the previous three attempts were.
+
+## 113. The sandbox is an interface, reached through MCP and not through the harness
+
+Daytona tier one gives no sandbox-level egress policy, which is why the
+in-sandbox logging proxy became load-bearing — the thing enforcing the trust
+boundary sat on the untrusted side of it. That is the weakest joint in the
+two-zone story, and it cannot be fixed from inside the box.
+
+**The harness cannot be asked for a different sandbox.** Four facts, checked
+against SDK 0.1.3:
+
+- `SandboxProviderManifest.type` is the string literal `"daytona"` on a plain
+  interface, not a union.
+- The wire serializer uses `core.serialization.stringLiteral("daytona")`, so
+  casting past the type is rejected at runtime too.
+- `auth` is typed `DaytonaSandboxProviderAuth` directly, one field, `apiKey`.
+- The provider is a **singleton per tenant**, with only `get()` and
+  `createOrUpdate()`. There is no list, so there is no register-a-second-and-
+  switch migration either.
+
+There is also no image field anywhere in the SDK, which is the concrete form of
+decision 46's constraint: the image is not ours to choose, which is why there is
+no install step and why `sandbox/` is standard-library only.
+
+So Cujo stops using the harness's sandbox provider. `config.sandbox` is
+`{ enabled: false }` on both specs, no sandbox provider is registered at all, and
+the agent reaches a sandbox through `sandbox-mcp` — a second remote MCP server
+beside `github-mcp`, registered the same way and modelled on the same code.
+`McpServerType` is also a single literal, `"remote"`, which is all this needs.
+
+**`apps/sandbox-mcp/src/runtime.ts` is the point of the change.** Five operations
+and a name, with Daytona as one implementation and a local container runtime as
+the other, chosen by `CUJO_SANDBOX_RUNTIME`. Nothing in that interface names a
+vendor: no API key, no auto-archive interval, no exec timeout named after
+somebody's knob. Making `type` pluggable from the start is the entire lesson of
+the literal, and keeping Daytona behind the same interface is what makes the move
+reversible on one variable rather than a bet.
+
+Ids are minted by the server and mean nothing outside it, for the reason
+`github-mcp` mints a run id rather than taking a URL: the caller's input was read
+out of a pull request, and a vendor handle crossing back would let it name a box
+somebody else is using. The image, the gateway image and the container runtime
+come from this process's environment and are never tool inputs — a sandbox whose
+image a caller chose is not a sandbox.
+
+`sandbox-mcp` carries no `requireApprovalForTools`. Provisioning a box and running
+a command in it is what a review *is*; the gate is for the one irreversible thing,
+an accusation reaching a pull request (42).
+
+The contract suite's pinned bootstrap array grew an entry, which is a change to the
+contract and is named as one rather than edited to make a test pass. That suite
+runs with no sandbox at all, so it still covers the harness contract and still
+covers nothing about this.
+
+Rejected: **forking the SDK** to widen one literal, which is decision 1 in reverse
+for one field. **A local MCP server over stdio**, which `McpServerType` does not
+have. **Keeping the harness sandbox and adding a second one**, which is two
+sandboxes per review and an invitation to put the evidence in one and the checks
+in the other.
+
+## 114. `sandbox-mcp` cannot carry the hardening the other services do
+
+`github-mcp` runs `read_only: true`, `cap_drop: ALL` and
+`no-new-privileges: true`. `sandbox-mcp` cannot: it provisions a container, an
+egress gateway and a network per sandbox, so it holds the host's Docker socket,
+and that socket is root on the host by any honest reading.
+
+This is a real reduction and it gets an entry rather than a comment, because the
+alternative is a reader finding the missing hardening later and assuming it was
+forgotten.
+
+What stands in for it. The service is small and holds no pull request code — the
+code under review runs in the container it creates, never in this process. It takes
+no image name, no host path and no runtime name from a caller; all three come from
+its own environment, so the widest thing an agent can do through it is run a
+command in a box that was going to run commands anyway. It keeps
+`no-new-privileges`, which is compatible. And the container it creates gets
+`cap_drop: ALL` and `no-new-privileges` itself, so the hardening that was lost here
+is present exactly where the untrusted code is.
+
+The honest summary is that the trust boundary moved rather than weakened: before,
+the process holding no capability talked to a vendor that held them all; now it
+holds one capability and the vendor is gone. A deployment that prefers the old
+shape sets `CUJO_SANDBOX_RUNTIME=daytona` and gets it back, with the egress
+property given up (see 116).
+
+Rejected: **a rootless Docker socket**, which is the right answer and is a host
+provisioning change this decision does not reach — worth doing and not a
+prerequisite. **Giving this service its own Docker-in-Docker daemon**, which adds a
+privileged container to avoid a socket. **Building the sandbox with a library
+instead of the CLI**, which changes nothing about the socket.
+
+## 115. `provisioned_ms` replaces the `sandbox.created` event
+
+`sandbox.created` is a *harness* event. With the harness no longer provisioning
+anything (113) it is never emitted, so `setup.sandboxCreatedAt` would be null on
+every run from here on — and `docs/spec.md` documents a null there as meaning the
+sandbox was already there. Left alone, the board would have started telling that
+lie on every run, quietly, with no test failing.
+
+So `sandbox_create` returns `provisioned_ms`, and the fold reads it off that tool
+response into `setup.sandboxProvisionedMs`. The old field stays rather than being
+deleted: a projection stored before this change still carries the stamp, and the
+board still renders it.
+
+Read leniently and first-writer-wins, like the stamp it replaces. A tool result is
+a string the MCP server wrote, so it parses or it does not, and a
+`provisioned_ms` that is not a finite number is simply not recorded — a
+measurement nobody made is absent rather than zero (54).
+
+Per-check `sandboxMs` needed nothing, and it is worth saying why: it is summed from
+`report.runs[].duration_s`, measured by `sniff.py` inside the box. It never came
+from a harness event, so it survives the move untouched.
+
+Rejected: **deleting the field and the span with it**, which loses the one part of
+setup that was never the agent thinking. **Keeping `sandboxCreatedAt` and filling
+it with a timestamp this process makes up**, which would be a stamp off a different
+clock from every other stamp beside it.
+
+## 116. Egress is enforced outside the sandbox, and its allowlist is a crossing
+
+The in-sandbox proxy was the control. It ran in the untrusted zone, next to the
+code it was judging, and the only reason that held is that nothing had defeated it
+yet. With our own runtime the control moves out: one network per sandbox created
+`--internal`, so Docker installs no default route, and a gateway container on that
+network *and* one with outside access, holding the only route off and filtering
+with nftables. The sandbox can reach the gateway and cannot reconfigure it — they
+share no namespace, no filesystem and no process tree.
+
+Default deny, then the allowlist, then NAT, in that order, so the policy is in
+place before a packet can be forwarded. A gateway that finds no default route
+refuses to forward rather than falling back, because a gateway forwarding to
+somewhere nobody chose is worse than one that is down.
+
+**The in-sandbox proxy keeps running and becomes a sensor**, which is what it
+should always have been. `egress[]` still records what was attempted — and a row
+there now means an attempt that genuinely did not leave, rather than one the proxy
+decided to allow.
+
+**The allowlist is a new crossing and is treated as one.** It comes from a
+repository's own `.cujo.yml`, so it is untrusted text, and it used to reach a
+process *inside* the box where getting it wrong could only weaken a control the
+pull request already sat beside. It now configures a control outside the box. So it
+is validated on the trusted side and **refused rather than repaired**: hostnames
+only, no scheme, port, path, CIDR, wildcard, credentials, control character or
+address. Silently dropping the part that did not parse would leave a repository
+believing in an allowance it does not have, which is the argument `policy.py`
+already makes for refusing half a policy. Capped at 32 entries, because past that a
+repository is describing a network rather than its dependencies.
+
+A hostname and never an address, because the allowlist is resolved by name and an
+address would bypass the name it stood for. Every address a name resolves to is
+allowed, because a name behind a CDN is several and allowing one of them is a flake
+rather than a policy. A name that does not resolve is logged and skipped, not
+guessed at.
+
+gVisor (`runsc`) over a microVM for the runtime itself. It installs as a Docker
+runtime beside the default and needs no VMM, no rootfs pipeline and no per-VM
+bridge. Firecracker buys isolation against a kernel escape and costs all of that;
+the threat this sandbox contains is exfiltration, and the deciding factor named in
+the plan was network-layer egress rather than cold start. The runtime name is
+configurable and empty falls back to Docker's default with a warning on every
+create — a host that has not been provisioned yet still runs reviews, which beats a
+service that will not start.
+
+Rejected: **keeping the proxy as the control and hardening it**, which leaves the
+boundary enforced from inside. **An allowlist of CIDRs**, which is a network policy
+a repository should not be writing. **Resolving the allowlist once at boot**, which
+would pin a CDN's addresses for the life of the deployment.

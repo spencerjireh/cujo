@@ -80,7 +80,15 @@ export interface CheckTimings {
  */
 export interface SetupTimings {
   turnCreatedAt: string | null;
+  /**
+   * Null on every run from decision 113 onward. It came from the harness's
+   * `sandbox.created` event, and the harness stopped provisioning sandboxes;
+   * `sandboxProvisionedMs` is where the number lives now. Kept because a run
+   * stored before that change still carries the stamp.
+   */
   sandboxCreatedAt: string | null;
+  /** How long the sandbox took to provision, off `sandbox_create` (115). */
+  sandboxProvisionedMs?: number;
   agentStartedAt: string | null;
   firstCheckAt: string | null;
   messages: number;

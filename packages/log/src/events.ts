@@ -142,6 +142,19 @@ export const EVENT_NAMES = [
   "review.announce.skipped",
   "review.announce.failed",
   "mcp.request.failed",
+  // sandbox-mcp: the sandbox behind an interface (113-116). `sandbox.created`
+  // is this service's own line and not the harness event of the same name --
+  // the harness stopped emitting one when it stopped provisioning.
+  "sandbox.created",
+  "sandbox.create.failed",
+  "sandbox.exec.failed",
+  "sandbox.write.failed",
+  "sandbox.read.failed",
+  "sandbox.destroy.failed",
+  "sandbox.reap.failed",
+  "sandbox.allowlist.refused",
+  "sandbox.runtime.default",
+  "sandbox.egress.unenforced",
   // apps/web's route handlers.
   "proxy.rejected",
   "proxy.upstream.failed",

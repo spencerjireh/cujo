@@ -94,6 +94,7 @@ services:
       PORT: 8080
       TRUEFORGE_BASE_URL: http://server:8790
       GITHUB_MCP_URL: http://github-mcp:8081/mcp
+      SANDBOX_MCP_URL: http://sandbox-mcp:8082/mcp
       CUJO_DB_PATH: /data/cujo.db
       # The name `web` addresses this service by on the compose network, and
       # the only name the read plane answers on. Node's fetch always sends the
@@ -185,6 +186,64 @@ services:
         condition: service_healthy
       github-mcp:
         condition: service_healthy
+      sandbox-mcp:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # The sandbox, behind an interface and reached over MCP (decision 113). The
+  # harness no longer provisions one: its provider manifest types `type` as the
+  # string literal "daytona", so the way off that vendor is to stop asking the
+  # harness for a sandbox at all.
+  #
+  # This is the one service here that cannot carry the hardening the others do.
+  # It provisions a container, an egress gateway and a network per sandbox, so it
+  # needs the Docker socket -- and `read_only`, `cap_drop: ALL` and
+  # `no-new-privileges` are all incompatible with that. Decision 114 argues the
+  # trade rather than hiding it, and the mitigation is that this service is small,
+  # holds no pull request code, and takes no image name or host path from a caller.
+  # Never routed by Traefik.
+  sandbox-mcp:
+    build:
+      context: .
+      dockerfile: apps/sandbox-mcp/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 8082
+      # `local` is a container on this host with egress enforced outside it;
+      # `daytona` is the old vendor, kept so the move is reversible on one
+      # variable. A value that is neither refuses to boot rather than defaulting,
+      # because a typo that silently ran a different isolation model is the one
+      # failure this service must not have.
+      CUJO_SANDBOX_RUNTIME: ${CUJO_SANDBOX_RUNTIME:-local}
+      CUJO_SANDBOX_IMAGE: ${CUJO_SANDBOX_IMAGE:-}
+      CUJO_SANDBOX_GATEWAY_IMAGE: ${CUJO_SANDBOX_GATEWAY_IMAGE:-cujo-sandbox-gateway:latest}
+      # gVisor. Empty falls back to Docker's default runtime, with a warning on
+      # every create: a host that has not been provisioned yet still runs
+      # reviews, which is better than a service that will not start.
+      CUJO_SANDBOX_CONTAINER_RUNTIME: ${CUJO_SANDBOX_CONTAINER_RUNTIME:-}
+      CUJO_SANDBOX_EGRESS_NETWORK: ${CUJO_SANDBOX_EGRESS_NETWORK:-bridge}
+      CUJO_SANDBOX_MAX_LIFETIME_MS: ${CUJO_SANDBOX_MAX_LIFETIME_MS:-}
+      # Only read when CUJO_SANDBOX_RUNTIME is `daytona`.
+      DAYTONA_API_URL: ${DAYTONA_API_URL:-}
+      DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
+    volumes:
+      # The whole reason the hardening above cannot apply. The daemon is the
+      # host's; this service is a client of it.
+      - /var/run/docker.sock:/var/run/docker.sock
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8082/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   # The UI (apps/web), on the one public hostname; `cujo` is API-only and is
