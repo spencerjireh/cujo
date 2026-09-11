@@ -227,6 +227,53 @@ describe("fold", () => {
     expect(p.status).toBe("blocked_unattended");
   });
 
+  it("counts one attempt per check on the common path", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", '```json\n{"check":"tests"}\n```'),
+    ]);
+    expect(p.checks[0]?.attempts).toBe(1);
+  });
+
+  it("counts the second thread with a check's name as a second attempt", () => {
+    // Decision 108: the rubric respawns a sub-agent that errored, and the count
+    // is the only record that it did. Both threads stay in `checks`, because the
+    // first one holds the fault the retry was for.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests-1", "tests"),
+      threadErrored("th-tests-1", "429 rate limited"),
+      threadCreated("th-tests-2", "tests"),
+      threadDone("th-tests-2", '```json\n{"check":"tests"}\n```'),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks.map((c) => c.attempts)).toEqual([1, 2]);
+    expect(p.checks[0]?.status).toBe("error");
+    expect(p.checks[1]?.report).toEqual({ check: "tests" });
+    // The retry answered, so `tests` is not missing and the run is not unproven.
+    expect(p.findings.some((f) => f.rule === "check_missing" && f.check === "tests")).toBe(false);
+    expect(p.status).toBe("clean");
+  });
+
+  it("still calls a check missing when both attempts failed", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests-1", "tests"),
+      threadErrored("th-tests-1", "429 rate limited"),
+      threadCreated("th-tests-2", "tests"),
+      threadErrored("th-tests-2", "429 rate limited"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks.map((c) => c.attempts)).toEqual([1, 2]);
+    expect(p.findings.some((f) => f.rule === "check_missing" && f.check === "tests")).toBe(true);
+    expect(p.status).toBe("unproven");
+  });
+
   it("derives the inline comments from a review that sent none", () => {
     const p = fold([
       turnCreated("t1"),

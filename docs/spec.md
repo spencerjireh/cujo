@@ -319,6 +319,16 @@ manifest diff it reads first is free while that install runs. `tests`, `probes`
 and `smoke` go together once the install finishes, because all three run against
 an installed tree.
 
+**A sub-agent that returns an error instead of a report is respawned once**
+(decision 108), under the same name, after a short wait. The retry is the
+parent's because it has to be: a sub-agent is a thread inside the parent's turn,
+and the trusted side holds only the `thread.done` that says it failed — there is
+no handle with which to restart one. The second thread carries the same check
+name, so `CheckState.attempts` says which attempt a thread was, the digest reads
+the *later* thread for that check's row, and the run's duration spans both. A
+check whose second attempt also failed is still `check_missing`, because that
+rule keys on which titles produced a report.
+
 **The parent's install is wrapped in `sniff.py run --check setup` for the lock,
 not for a report.** The proxy and decoy logs are shared and sliced by offset, so
 an unwrapped install running beside a spawned `detonation` would have its egress
@@ -1101,7 +1111,7 @@ second plane behind one — the operator API was deleted with its hostname
 |-------|-----------------|
 | `GET /public/runs` | Public runs only, newest first, capped at 100. Filtered on `is_public = 1` in SQL, not by the route. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at`, `updated_at`, `pr_title`, and `digest` — and nothing else. Never the author, which belongs to the page about one run. |
 | `digest` on a list row | The run's checks and findings reduced to what a row can hold (decision 65): `checks` keyed by check name, each `{ status, ms, sandboxMs }`; `findings` as `{ critical, warn, info }` counts; and `durationMs`, the envelope from the first `startedAt` to the last `endedAt`. Nested keys stay camelCase, like every other nested object on this wire. A check name absent from `checks` never appeared, which is not the same fact as one that failed. `ms` and `durationMs` are null while a check is still running and on a run recorded before those stamps existed. `sandboxMs` is how much of `ms` was the sandbox executing the pull request, read off the check's own `timings` (Contract 6, decision 70) — the rest was the sub-agent deciding what to do next. It is null on the same terms plus a third: a check whose report carried no `runs[]` measured no sandbox time rather than zero, and a digest stored before the field existed never regains it, because `backfillDigest` re-derives a *missing* digest and not a stale one. Every one of these is emitted as `null` and never omitted; `durationMs` is deliberately not `updated_at − created_at`, which on a `blocked_pending` run counts the hours it waited on a person. The whole field is null for a run claimed but never folded. Derived once per fold and stored in `run_digests`; a run folded before that table existed is derived on read and backfilled. |
-| `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `attempts`, `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
 
 There is no write route, and the `/discord/*` routes that were Contract 7's

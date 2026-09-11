@@ -177,6 +177,17 @@ Spawn them as early as each one can do something, which is two moments and not o
   These are skipped when no test command was inferred.
   All three run against an installed tree, so none of them can start before it.
 
+**A sub-agent that comes back with an error instead of a report gets respawned once.**
+Not twice, and not a third sub-agent under a different name. Wait a few seconds first,
+spawn it again with the same name and the same instructions, and take whatever the second
+one returns as the check's answer. A model error inside a sub-agent is terminal for that
+sub-agent and Cujo cannot restart one, so this retry is the only one there is: on
+2026-09-10 a provider that throttled concurrency took `tests`, `probes` and `smoke`
+together in under 1.6 seconds, because they are spawned in one message, and the review
+posted with no evidence at all. If the second attempt also fails, say so in the review and
+move on — Cujo records both attempts, so a check that needed two tries does not read as a
+check that barely worked.
+
 You, the parent, never run a check yourself. The only commands you run in the sandbox are
 the two in Setup, the wrapped install, `sniff.py teardown`, and reads of the files you
 need to write the review. Taking the sensor lock for the install is not running a check:

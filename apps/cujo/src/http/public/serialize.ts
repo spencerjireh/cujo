@@ -226,6 +226,10 @@ function publicCheck(check: CheckState) {
     error: check.error,
     startedAt: check.startedAt,
     endedAt: check.endedAt,
+    // 1 rather than absent on a projection stored before the field existed,
+    // because "tried once" is what those runs did and a reader should not have
+    // to know which release they came from (decision 108).
+    attempts: check.attempts ?? 1,
     // Both null rather than absent when the check never produced them, so the
     // key is always there for a reader and a client needs no third case.
     usage: check.usage ?? null,
