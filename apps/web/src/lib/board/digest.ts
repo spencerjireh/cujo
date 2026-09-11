@@ -79,10 +79,10 @@ export function digestFrom(run: Run): RunDigest {
   for (const check of run.checks) {
     if (!check.isCheck) continue;
     const name = CHECK_NAMES.find((candidate) => candidate === check.title);
-    // First writer wins, as on the server: two threads carrying one check's
-    // name is not a shape the fold produces, and if it ever did, the earlier
-    // one is the run's.
-    if (name && !named.has(name)) named.set(name, check);
+    // Last writer wins, as on the server: two threads carrying one check's
+    // name is the rubric respawning a sub-agent that failed (decision 108), so
+    // the later thread holds the report and the earlier one holds the fault.
+    if (name) named.set(name, check);
   }
 
   const checks: Partial<Record<CheckName, DigestCheck>> = {};
@@ -105,5 +105,10 @@ export function digestFrom(run: Run): RunDigest {
     if (finding.severity in findings) findings[finding.severity] += 1;
   }
 
-  return { checks, findings, durationMs: spanMs([...named.values()]) };
+  // Over every attempt rather than the winners, as on the server, so a retried
+  // run keeps the time its first attempt spent before it failed.
+  const attempted = run.checks.filter(
+    (check) => check.isCheck && CHECK_NAMES.some((name) => name === check.title),
+  );
+  return { checks, findings, durationMs: spanMs(attempted) };
 }

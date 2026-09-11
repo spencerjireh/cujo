@@ -310,6 +310,12 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
       case "thread.created": {
         if (p.checks.some((c) => c.threadId === event.threadId)) break;
         const isCheck = (CHECK_NAMES as readonly string[]).includes(event.title as CheckName);
+        // Which attempt at this check's name this thread is. A second thread
+        // with the same title is the rubric respawning a sub-agent that came
+        // back with an error instead of a report (decision 108), and the count
+        // is the only record of it: the first thread's own state says it failed
+        // and nothing else would say the run tried again.
+        const attempts = p.checks.filter((c) => c.title === event.title).length + 1;
         p.checks.push({
           threadId: event.threadId,
           title: event.title,
@@ -319,6 +325,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           error: null,
           startedAt: event.createdAt ?? null,
           endedAt: null,
+          attempts,
         });
         // Setup ends at the first thread the rubric named for a check, and not
         // at any thread: a helper subagent spawned mid-setup would otherwise

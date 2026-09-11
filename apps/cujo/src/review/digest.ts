@@ -46,9 +46,12 @@ export function deriveDigest(projection: Projection): RunDigest {
   for (const check of projection.checks) {
     if (!check.isCheck) continue;
     const name = CHECK_NAMES.find((candidate) => candidate === check.title);
-    // First writer wins. Two threads with one check's name is not a shape the
-    // fold produces, and if it ever did, the earlier one is the run's.
-    if (name && !named.has(name)) named.set(name, check);
+    // Last writer wins, which is a retry (decision 108): two threads with one
+    // check's name means the first sub-agent failed and the rubric respawned
+    // it, so the later thread holds the report and the earlier one holds the
+    // fault it was retried for. Taking the earlier one would put `error` on the
+    // row of a check that went on to succeed.
+    if (name) named.set(name, check);
   }
 
   const checks: Partial<Record<CheckName, DigestCheck>> = {};
@@ -72,7 +75,13 @@ export function deriveDigest(projection: Projection): RunDigest {
     if (finding.severity in findings) findings[finding.severity] += 1;
   }
 
-  return { checks, findings, durationMs: spanMs([...named.values()]) };
+  // Over every attempt rather than the winners, so a retried run's duration
+  // still covers the time the first attempt spent before it failed. `spanMs` is
+  // an envelope, so a superseded attempt can only widen it, never double-count.
+  const attempted = projection.checks.filter(
+    (check) => check.isCheck && CHECK_NAMES.some((name) => name === check.title),
+  );
+  return { checks, findings, durationMs: spanMs(attempted) };
 }
 
 /**

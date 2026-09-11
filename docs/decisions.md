@@ -113,6 +113,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 105. [SessionEvents are validated at the boundary](#105-sessionevents-are-validated-at-the-boundary)
 106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
 107. [A run that proved nothing is `unproven`, not `clean`](#107-a-run-that-proved-nothing-is-unproven-not-clean)
+108. [A failed check is respawned once, by the rubric, and the run records it](#108-a-failed-check-is-respawned-once-by-the-rubric-and-the-run-records-it)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5841,3 +5842,64 @@ spends the distinction the change exists to draw. **Keeping `clean` and adding a
 coverage field to the projection**, which is cheaper and leaves a list view
 reading `clean`, which is exactly where the problem was. **Making the
 operational rules `critical`**, which would let a formatting warn block a merge.
+
+## 108. A failed check is respawned once, by the rubric, and the run records it
+
+Run `0c644064` lost `tests`, `probes` and `smoke` between 1425 ms and 1600 ms to
+a provider that had been narrowed to one endpoint, and nothing tried again. The
+review posted with no evidence. The design that makes a review fast — all three
+spawned in one message (73) — is the same one that makes them fail together.
+
+**The retry cannot live in `clients/trueforge.ts`.** A sub-agent is a thread
+inside one harness turn, not a call the client makes. Its failure arrives as a
+`thread.done` with an error state, and by then the only thing Cujo holds is an
+event: there is no handle to restart a thread, and the turn it belongs to is
+still running and still the parent's. The only backoff in that file,
+`bootstrapUntilReady`, is at a layer where a retry is a fresh HTTP request, which
+this is not.
+
+So the retry is the parent's, in the rubric: a sub-agent that returns an error
+instead of a report is spawned again, once, under the same name, after a short
+wait. Once and not twice, because two provider faults in a row are a provider
+that is down rather than one that is throttling, and a third attempt spends a
+turn budget the watchdog is already counting.
+
+**And the trusted side records it, because an invisible retry is worse than
+none.** A review saying "the tests check returned no report" when the first
+attempt died on a 429 and the second one worked describes a run that did not
+happen. `CheckState.attempts` is which attempt a thread was, so a projection
+carries both the fault and the answer. A count rather than a list, because what a
+reader needs is whether this evidence came first time.
+
+Two consequences follow from a check name appearing twice, and both were
+previously documented as shapes the fold does not produce:
+
+- **The digest takes the last thread, not the first.** `deriveDigest` kept the
+  first writer, with a comment saying two threads for one check was not a shape
+  the fold produced. It is now, and the earlier thread is the one holding the
+  fault — so reading it would put `error` on the row of a check that went on to
+  succeed. Reversed on both sides of the wire, because `apps/web` ports that
+  file and the two specimens of one run must agree.
+- **The run's duration spans every attempt.** The envelope is taken over all
+  named-check threads rather than the winners, so a retried run keeps the time
+  its first attempt spent before failing. `spanMs` is an envelope, so an extra
+  attempt can widen it and never double-count.
+
+`check_missing` needed no change and that is the point of where it already
+looked: it keys on titles that produced a report, so a successful retry
+suppresses it and two failures still raise it. `hardRuleFindings` and
+`invalidReportFindings` both skip a null report, so a failed attempt contributes
+no findings of its own and cannot accuse anything.
+
+Session pinning (16) means only a new pull request gets the instruction, so the
+recording half lands on every run and the retrying half lands on new sessions.
+That asymmetry is fine in this direction: a run with one attempt records one.
+
+Rejected: **retrying the whole turn**, which `retryTurn` already does for a turn
+that posted nothing and which cannot help the case that hurt — the parent posted
+an advisory anyway, so nothing was retryable and the run was recorded `clean`
+(107 is the other half of that run's fix). **Letting Cujo respawn the sub-agent
+over the SDK**, which would make the trusted side a second author of threads
+inside a turn the agent owns. **Collapsing the two threads into one
+`CheckState`**, which would lose the first attempt's timings and its error text,
+the two things that say what was retried and why.

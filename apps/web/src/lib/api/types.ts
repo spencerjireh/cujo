@@ -102,6 +102,14 @@ export interface CheckState {
   startedAt?: string | null;
   endedAt?: string | null;
   /**
+   * Which attempt at this check's name this thread was, 1 unless the rubric
+   * respawned a failed sub-agent (decision 108). `publicCheck` emits 1 rather
+   * than null for a run that predates the field, so there is no absent case to
+   * render — it is optional here only because this interface is assigned into
+   * `apps/cujo`'s.
+   */
+  attempts?: number;
+  /**
    * Optional *and* nullable, which are two different facts and both real here.
    * `publicCheck` always emits these keys as null when it has nothing, so null
    * is "this check reported none"; absent is a `run` frame from an older
