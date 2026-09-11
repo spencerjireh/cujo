@@ -182,6 +182,94 @@ def test_the_watcher_is_given_the_decoy_setup_seeded(cli: Cli, ctx: Context) -> 
         cli(["teardown"])
 
 
+def test_run_narrows_cwd_without_narrowing_the_workspace(cli: Cli, home_dir: Path) -> None:
+    """Decision 111: `--cwd` says where the command runs, `--workspace-root` what
+    the sensors count as inside the workspace.
+
+    The repository that forced this holds six services under `services/<name>/`
+    and no manifest at the root, so the install has to run inside one service.
+    Narrowing the workspace along with it would reclassify every write elsewhere
+    in the tree as outside the workspace, and `wrote_sensitive` is a rule that
+    accuses code of acting against the person running it.
+    """
+    tree = home_dir / "tree"
+    service = tree / "services" / "orders-py"
+    service.mkdir(parents=True)
+    # A write one directory up from where the command runs, which is what an
+    # install does when it writes a lock file or a build directory at the root.
+    script = "open('../../built.txt', 'w').write('x')"
+
+    setup = cli(["setup", "--proxy-port", "0"])
+    try:
+        assert setup["ok"] is True
+
+        # Without it, the default is today's behaviour and the write is outside.
+        narrow = cli(
+            ["run", "--check", "setup", "--cwd", str(service), "--", sys.executable, "-c", script]
+        )
+        assert narrow["exit"] == 0
+        outside = [c for c in narrow["fs_changes"] if c["path"].endswith("built.txt")]
+        assert outside and outside[0]["in_workspace"] is False
+
+        (tree / "built.txt").unlink()
+
+        # With the tree as the workspace root, the same write is inside it.
+        wide = cli(
+            [
+                "run",
+                "--check",
+                "setup",
+                "--cwd",
+                str(service),
+                "--workspace-root",
+                str(tree),
+                "--",
+                sys.executable,
+                "-c",
+                script,
+            ]
+        )
+        assert wide["exit"] == 0
+        inside = [c for c in wide["fs_changes"] if c["path"].endswith("built.txt")]
+        assert inside and inside[0]["in_workspace"] is True
+        # And the accusing rule stays quiet either way: the file is not sensitive.
+        assert wide["derived"]["wrote_sensitive"] is False
+    finally:
+        cli(["teardown"])
+
+
+def test_run_accepts_more_than_one_workspace_root(cli: Cli, home_dir: Path) -> None:
+    """Repeatable, because a monorepo install can legitimately touch two trees."""
+    one = home_dir / "one"
+    two = home_dir / "two"
+    one.mkdir()
+    two.mkdir()
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        report = cli(
+            [
+                "run",
+                "--check",
+                "setup",
+                "--cwd",
+                str(one),
+                "--workspace-root",
+                str(one),
+                "--workspace-root",
+                str(two),
+                "--",
+                sys.executable,
+                "-c",
+                f"open({str(two / 'x.txt')!r}, 'w').write('x')",
+            ]
+        )
+        assert report["exit"] == 0
+        written = [c for c in report["fs_changes"] if c["path"].endswith("x.txt")]
+        assert written and written[0]["in_workspace"] is True
+    finally:
+        cli(["teardown"])
+
+
 def test_run_without_a_command_is_an_error(cli: Cli) -> None:
     proc = cli.raw(["run", "--check", "tests"])
     assert proc.returncode != 0

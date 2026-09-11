@@ -102,7 +102,17 @@ def cmd_run(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     if not args.cmd:
         raise SystemExit("run: give the command after `--`")
     cwd = Path(args.cwd or os.getcwd()).resolve()
-    report = run_sensed(ctx, args.cmd, check=args.check, workspace_roots=[cwd], cwd=cwd)
+    # Where the command runs and what the sensors call the workspace are two
+    # questions, and they stopped having one answer when the install had to
+    # reach a service directory (decision 111). A repository of services under
+    # `services/<name>/` needs `--cwd` narrowed to one of them, and narrowing
+    # the workspace with it would reclassify every write elsewhere under
+    # `/work/head` as outside the workspace -- which feeds `fs_changes` and
+    # `derived.wrote_sensitive`, a rule that accuses code of acting against the
+    # person running it. A false accusation is the worst thing this file could
+    # produce, so the two are separate and the default is what it always was.
+    roots = [Path(root).resolve() for root in args.workspace_root] or [cwd]
+    report = run_sensed(ctx, args.cmd, check=args.check, workspace_roots=roots, cwd=cwd)
     return {"check": args.check, **report}
 
 
@@ -140,6 +150,14 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="run one command under the sensors")
     run.add_argument("--check", required=True)
     run.add_argument("--cwd")
+    # Repeatable, and separate from `--cwd` on purpose. See `cmd_run`.
+    run.add_argument(
+        "--workspace-root",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="what the sensors treat as inside the workspace; defaults to --cwd",
+    )
     run.add_argument("cmd", nargs=argparse.REMAINDER)
     run.set_defaults(func=cmd_run)
 
