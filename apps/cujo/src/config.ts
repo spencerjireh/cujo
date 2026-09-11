@@ -64,6 +64,8 @@ export interface Config {
   modelTemperature: number | null;
   modelMaxTokens: number | null;
   githubMcpUrl: string;
+  /** Where the agent reaches its sandbox, since the harness no longer has one. */
+  sandboxMcpUrl: string;
   /** Where the agent fetches the source archive holding `sandbox/`. */
   sniffTarballUrl: string;
   turnTimeoutMs: number;
@@ -282,6 +284,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     modelTemperature: sampling(env.CUJO_MODEL_TEMPERATURE, "CUJO_MODEL_TEMPERATURE"),
     modelMaxTokens: sampling(env.CUJO_MODEL_MAX_TOKENS, "CUJO_MODEL_MAX_TOKENS"),
     githubMcpUrl: env.GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp",
+    sandboxMcpUrl: env.SANDBOX_MCP_URL ?? "http://sandbox-mcp:8082/mcp",
     // `||`, not `??`: an unset compose optional arrives as the empty string,
     // and an empty URL would reach the sandbox as a `curl` with no argument.
     sniffTarballUrl: tarballUrl(

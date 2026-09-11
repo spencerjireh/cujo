@@ -163,6 +163,28 @@ export function parseReport(text: string): unknown | null {
   return null;
 }
 
+/**
+ * `provisioned_ms` out of a `sandbox_create` tool response, or nothing.
+ *
+ * The content is a JSON string the MCP server wrote, so it parses or it does
+ * not. Nothing here throws and nothing here trusts a shape: a response that is
+ * some other tool's, or malformed, or carries a `provisioned_ms` that is not a
+ * finite number, contributes nothing. The field is a measurement, and a
+ * measurement nobody made is absent rather than zero.
+ */
+function provisionedMs(content: unknown): number | undefined {
+  if (typeof content !== "string" || !content.includes("provisioned_ms")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return undefined;
+  }
+  if (!isObject(parsed)) return undefined;
+  const ms = parsed.provisioned_ms;
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : undefined;
+}
+
 const CALL_TOOL = "call_tool";
 const REVIEW_MCP_SERVER = "github-mcp";
 
@@ -270,10 +292,13 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         }
         break;
       }
-      // Where Daytona finished provisioning. Session-scoped, and `hydrate`
-      // scopes a fold to this run's own turns, so a second run on the same pull
-      // request sees none and the field stays null — which is the honest
-      // record of a sandbox that already existed.
+      // Where the harness finished provisioning a sandbox, back when it
+      // provisioned one. It no longer does (decision 113), so this event no
+      // longer arrives and the field stays null on every new run — the case
+      // below fills `sandboxProvisionedMs` from the tool response instead.
+      //
+      // Kept rather than deleted, because a projection stored before that change
+      // still carries the stamp and the board still renders it.
       case "sandbox.created": {
         p.setup.sandboxCreatedAt ??= event.createdAt;
         break;
@@ -391,6 +416,21 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
       case "tool.response": {
         if (p.approval && event.toolCallId === p.approval.toolCallId) {
           p.gatedResponseSeen = true;
+        }
+        // How long the sandbox took to provision, read off `sandbox_create`'s
+        // own answer (decision 115). `sandbox.created` was a harness event and
+        // the harness stopped provisioning, so without this the board's setup
+        // breakdown loses the one span that was never the agent thinking — and
+        // `docs/spec.md` documents a null there as meaning the sandbox already
+        // existed, which would have become a lie on every run.
+        //
+        // First writer wins, like `sandboxCreatedAt` above: a second
+        // `sandbox_create` in one run is a second box, and the first one is the
+        // run's. Read leniently, because this is a tool result and a number that
+        // is not a number is simply not recorded.
+        if (p.setup.sandboxProvisionedMs === undefined) {
+          const ms = provisionedMs(event.content);
+          if (ms !== undefined) p.setup.sandboxProvisionedMs = ms;
         }
         break;
       }

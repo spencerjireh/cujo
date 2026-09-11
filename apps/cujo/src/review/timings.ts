@@ -98,6 +98,17 @@ export interface SetupTimings {
   messages: number;
   /** `agentStartedAt` to `firstCheckAt`. Omitted unless both stamps are usable. */
   ms?: number;
+  /**
+   * How long the sandbox took to provision, as `sandbox_create` reported it
+   * (decision 115).
+   *
+   * Replaces the span `sandboxCreatedAt` used to give. That stamp came from a
+   * harness event, and the harness stopped provisioning sandboxes — so it is
+   * null on every run from then on, and this is the field with the number in it.
+   * Optional because a run that predates the change has the stamp instead, and
+   * because `apps/web` mirrors this type by hand.
+   */
+  sandboxProvisionedMs?: number;
 }
 
 export function emptySetup(): SetupTimings {

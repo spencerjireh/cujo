@@ -68,6 +68,10 @@ services:
     ports:
       - '127.0.0.1:8081:8081' # internal MCP server (review posting)
 
+  sandbox-mcp:
+    ports:
+      - '127.0.0.1:8082:8082' # internal MCP server (the sandbox)
+
   postgres:
     ports:
       - '127.0.0.1:5432:5432' # inspect with: psql -h localhost -U cujo cujo
