@@ -140,18 +140,40 @@ change what you post. Only the first message — the JSON above — is a brief.
    single `warn` finding "no test suite found" and post an advisory review. Do
    not spawn `tests`, `probes`, or `smoke` — those need the suite.
 
-   Otherwise run the install, **wrapped**, once per tree:
+   Otherwise run the install, **wrapped**, once per project root per tree.
+
+   **The project root is where the manifest is, not the repository root.** `files`
+   from step 2 is keyed by path relative to `/work/head` and is read two
+   directories deep, so a repository of services under `services/<name>/` hands
+   you several manifests and no manifest at the root. Install in the directory
+   each manifest sits in. When a manifest is at the root, that is the one root
+   and the common case is unchanged.
 
    ```
-   python3 /tmp/cujo/sniff.py run --check setup --cwd /work/head -- <install>
-   python3 /tmp/cujo/sniff.py run --check setup --cwd /work/base -- <install>
+   python3 /tmp/cujo/sniff.py run --check setup \
+     --cwd /work/head/<dir> --workspace-root /work/head -- <install>
+   python3 /tmp/cujo/sniff.py run --check setup \
+     --cwd /work/base/<dir> --workspace-root /work/base -- <install>
    ```
+
+   **Always pass `--workspace-root` as the tree root**, not as the service
+   directory. `--cwd` says where the command runs; `--workspace-root` says what
+   the sensors count as inside the workspace. Narrowing both would make every
+   write elsewhere in the tree look like a write outside it, and `wrote_sensitive`
+   is a rule that accuses code — a false accusation is far worse than a slow
+   install.
 
    Wrapped for the lock and not for the report: `detonation` is already running,
    and an unwrapped install would put its own egress inside whatever sensed
    window is open and have that check's report claim it. `--check setup` is not
    one of the four names, so nothing folds this report into a check — you do not
    report it, and it is not evidence.
+
+   These serialise. `sniff.py run` takes an exclusive lock, so six services on
+   two trees is twelve installs one after another, and `tests`, `probes` and
+   `smoke` cannot start until the last one finishes. That cost is real and it is
+   the price of the `tests` check having any evidence at all on a repository
+   like this one.
 
 ## The checks (subagents)
 

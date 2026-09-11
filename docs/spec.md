@@ -279,7 +279,16 @@ things the next decision needs (decision 71).
    the in-sandbox logging proxy and the inotify watcher on the decoy, and prints
    the env every later command exports, `HTTP(S)_PROXY` included. Its
    `--allow-host` list is the `allow_hosts` the parent just read.
-3. The parent runs the install in `/work/head` and `/work/base`, and delegates.
+3. The parent runs the install once per project root per tree, and delegates.
+   **The project root is where a manifest is, not the repository root** (decision
+   111): `files` is read two directories deep precisely so a repository of
+   services under `services/<name>/` is covered, and a repository with no root
+   manifest has no root install. `--cwd` narrows to the service;
+   `--workspace-root` is passed as the *tree* root, because the sensors' idea of
+   "inside the workspace" moves with it and narrowing both would make an install
+   writing at the tree root look like a write outside the workspace — which feeds
+   `wrote_sensitive`, a rule that accuses. These installs serialise on the sensor
+   lock, so the fan-out below starts later on a repository with many services.
 
 `.cujo.yml`'s schema:
 

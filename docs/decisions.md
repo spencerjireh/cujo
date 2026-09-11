@@ -116,6 +116,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 108. [A failed check is respawned once, by the rubric, and the run records it](#108-a-failed-check-is-respawned-once-by-the-rubric-and-the-run-records-it)
 109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review)
 110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
+111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -6010,3 +6011,57 @@ evidence had four holes in it. **Making the board stop reproducing the GitHub
 headline**, which reconciles the board with itself and tells the author nothing.
 **Teaching `github-mcp` the hard rules**, which would mean the write-only server
 reading Cujo's store — the dependency decision 5 exists to prevent.
+
+## 111. Where a command runs and what the sensors call the workspace are two questions
+
+The `tests` check has never once run against `orders-api`, and the reason was one
+word in the rubric. Discovery was already service-aware — `PREPARE_MAX_DEPTH` is
+2, and its own comment names this repository as six services under
+`services/<name>/` with no manifest at the root — while execution was not. The
+rubric ran exactly two installs, `--cwd /work/head` and `--cwd /work/base`, so
+the model was handed six manifests and one place to run one command.
+
+Two runs recorded the consequence. `b30239c8`: the wrapped install ran from the
+two roots and exited 1 because neither held a Python project. `319e3f8a`, which
+otherwise produced a useful review: `python -m pytest -q` exited 1 on both trees
+with `No module named pytest`, and no test ids were collected. Probes and smoke
+compensated by exercising the code directly, which is why the review was still
+worth reading — but the strongest evidence available was absent from every run.
+
+`sniff.py run` executes argv with no shell, so `cd services/x && uv sync` is not
+one wrapped command. Per-service install means one invocation per project root,
+and that is the easy half.
+
+**The hard half is a hazard nothing in `docs/` anticipated.** `cmd_run` passed
+`workspace_roots=[cwd]`, so the filesystem diff's idea of "inside the workspace"
+moved with `--cwd`. Narrowing `--cwd` to one service directory would have
+reclassified every write elsewhere under `/work/head` as outside the workspace —
+and that feeds `fs_changes` and `derived.wrote_sensitive`, a rule that accuses
+code of acting against the person running it. An install writing a lock file at
+the repository root is the ordinary case, not a corner one. A false accusation is
+the worst thing this code can produce, worse than the missing check it was fixing.
+
+So the two questions are separated. `--cwd` says where the command runs;
+`--workspace-root` is repeatable, says what the sensors count as inside, and
+defaults to `[cwd]` — exactly the old behaviour, so nothing that does not pass it
+changes. The rubric passes the *tree* root while narrowing `--cwd` to the service,
+and says plainly why.
+
+`sandbox/` stays standard-library only, so decision 46 is untouched: this is one
+`argparse` option and a `Path.resolve()`.
+
+The cost is serial. `sniff.py run` takes an exclusive lock, so six services on
+two trees is twelve installs one after another, and the `tests`, `probes` and
+`smoke` fan-out cannot begin until the last finishes. That is a real regression in
+wall clock on a polyglot repository, and it buys the `tests` check its first
+evidence ever on one. Worth it, and worth saying in the rubric rather than
+discovering in a run.
+
+Session pinning (16) means only a new pull request installs this way.
+
+Rejected: **inferring the roots in `sniff.py`**, which would put project-layout
+judgment in the untrusted zone when `prepare` already reports the manifests and
+the model already decides every other command. **Passing a shell string**, which
+would make `argv` a shell injection surface for text read out of a pull request.
+**Narrowing the workspace with `--cwd`**, covered above — the defect that would
+have shipped if the two ideas had stayed one.
