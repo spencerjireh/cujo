@@ -139,14 +139,13 @@ export function buildAgentSpec(
     | "modelReasoningEffort"
     | "modelTemperature"
     | "modelMaxTokens"
-    | "sniffTarballUrl"
     | "compactionThresholdTokens"
   >,
   rubric = loadRubric(),
 ): TrueForgeApi.AgentSpec {
   return {
     model: modelRef(config),
-    instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
+    instructions: rubric,
     // The one gated tool, and the one line that decides what a human is asked
     // about. `post_blocking_review` is deliberately not here: blocking a merge
     // on a broken test is mechanical and reversible, and asking about it is
@@ -201,15 +200,12 @@ export function buildAgentSpec(
  * paraphrase the report it was handed.
  */
 export function buildConverseSpec(
-  config: Pick<
-    Config,
-    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sniffTarballUrl"
-  >,
+  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
   rubric = loadRubric("CONVERSE.md"),
 ): TrueForgeApi.AgentSpec {
   return {
     model: modelRef(config),
-    instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
+    instructions: rubric,
     // `sandbox-mcp` and nothing else. Conversation has no write tool and is
     // never the Runner (47), and that is unchanged: `github-mcp` is absent here,
     // so there is no tool on this session that can reach a pull request.

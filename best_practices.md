@@ -24,13 +24,16 @@ the bot.
 - Keep pull requests small and focused: one concern each.
 - Run Python with `uv` in this repo (tests, tooling, scripts run on a developer
   machine or CI). The one exception is what actually executes in the sandbox --
-  `sandbox/sniff.py` and `sandbox/cujo_sniff/`: stdlib-only, imported from
-  `sys.path[0]` with no install, run with the sandbox's `python3`, because the
-  sandbox image is not ours and does not carry `uv`. `sandbox/tests/` is not
-  covered by that rule and imports `pytest` like every other test in the repo;
-  the archive carries it and the rubric drops it on arrival, so it never
-  reaches the sandbox.
-- Never install `evil-package` outside the Daytona sandbox — it is an
+  `sandbox/sniff.py` and `sandbox/cujo_sniff/`: imported from `sys.path[0]` with
+  no install, run with the image's own `python3`. **Stdlib-only by default, and no
+  longer because it has to be**: decision 117 reverses 46's constraint, because
+  the sandbox image is ours now and has an install step. A third-party import is
+  therefore possible -- but every package in that image is something a pull
+  request's code can reach, so adding one needs a reason in the PR the way an
+  unpinned dependency does. `sandbox/tests/` is not covered by the rule at all and
+  imports `pytest` like every other test here; it runs under `uv` on a developer
+  machine and in CI, and `sandbox/Dockerfile` does not copy it into the image.
+- Never install `evil-package` outside the sandbox — it is an
   intentional malicious sample. Keep the name out of `apps/` and `packages/`
   entirely, tests included, so the tripwire stays a tripwire.
 - A Discord server may receive a repo's reviews when the repo names it in

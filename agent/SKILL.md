@@ -52,8 +52,8 @@ it is the only record of how long the box took.
 - **No `cd`.** Use `cwd`.
 - **No variable expansion.** `$HOME` is four characters, not a path.
 
-So `python3 /tmp/cujo/sniff.py run --check tests --cwd /work/head -- pytest -q`
-is `argv: ["python3", "/tmp/cujo/sniff.py", "run", "--check", "tests", "--cwd",
+So `python3 /opt/cujo/sniff.py run --check tests --cwd /work/head -- pytest -q`
+is `argv: ["python3", "/opt/cujo/sniff.py", "run", "--check", "tests", "--cwd",
 "/work/head", "--", "pytest", "-q"]`.
 
 **Export nothing.** There is no shell to export into, and `env` on a
@@ -72,28 +72,19 @@ nobody destroys is reaped on a timer, which is a backstop and not a plan.
 
 ## Setup (you, the parent, in the sandbox)
 
-1. Fetch the sensor code. Run this as **one** command, exactly as written — the
-   `&&` chain is what stops a failed download from being papered over by a
-   leftover extraction, and the `mv` replaces `/tmp/cujo` rather than merging
-   into it, so a module deleted upstream cannot survive there and be imported.
-   `sniff.py` and `cujo_sniff/` land as siblings, which is what lets `sniff.py`
-   import the package with no install.
+1. The sensor code is already in the image, at `/opt/cujo` (decision 117).
+   There is nothing to fetch and nothing to extract. `sniff.py` and
+   `cujo_sniff/` sit there as siblings, which is what lets `sniff.py` import the
+   package with no install, and the image also carries a Python toolchain
+   (`uv`, `pip`, `pytest`), a Node toolchain (`node`, `corepack`) and `git`.
 
-   ```
-   rm -rf /tmp/cujo-src /tmp/cujo-src.tgz &&
-     curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&
-     mkdir -p /tmp/cujo-src &&
-     tar -xzf /tmp/cujo-src.tgz -C /tmp/cujo-src --strip-components=1 &&
-     rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo &&
-     rm -rf /tmp/cujo/tests
-   ```
-
-   If it fails, stop and report it; do not run the checks. Every later command
-   in this rubric assumes `/tmp/cujo/sniff.py` came from this fetch.
+   Every command below names `/opt/cujo/sniff.py`. If one reports that the file
+   is missing, stop and report it — the image is wrong and no check can produce
+   evidence.
 2. Clone both trees and read what decides the rest, in **one** command:
 
    ```
-   python3 /tmp/cujo/sniff.py prepare --clone-url <clone_url> \
+   python3 /opt/cujo/sniff.py prepare --clone-url <clone_url> \
      --head-sha <head_sha> --base-sha <base_sha> \
      --pr-number <pr_number> --repo <repo>
    ```
@@ -172,7 +163,7 @@ nobody destroys is reaped on a timer, which is a backstop and not a plan.
      report that the base policy could not be read. Do not proceed on inference:
      a repository that has a policy you cannot see is not a repository with no
      policy.
-3. `python3 /tmp/cujo/sniff.py setup --allow-host H ...`, with one `--allow-host` per
+3. `python3 /opt/cujo/sniff.py setup --allow-host H ...`, with one `--allow-host` per
    entry of `allow_hosts` you just read (none when the file or key is
    absent). It prints
    `{"ok": true, "proxy_port": 8899, "decoy": "~/.aws/credentials", "env": {...}}`. Export
@@ -197,9 +188,9 @@ nobody destroys is reaped on a timer, which is a backstop and not a plan.
    and the common case is unchanged.
 
    ```
-   python3 /tmp/cujo/sniff.py run --check setup \
+   python3 /opt/cujo/sniff.py run --check setup \
      --cwd /work/head/<dir> --workspace-root /work/head -- <install>
-   python3 /tmp/cujo/sniff.py run --check setup \
+   python3 /opt/cujo/sniff.py run --check setup \
      --cwd /work/base/<dir> --workspace-root /work/base -- <install>
    ```
 
@@ -268,7 +259,7 @@ records a `warn` for every check it did not receive, so a test run you did inlin
 the review no evidence.
 
 Every sub-agent wraps each command it runs in
-`python3 /tmp/cujo/sniff.py run --check <name> --cwd <dir> -- <command...>`, which prints
+`python3 /opt/cujo/sniff.py run --check <name> --cwd <dir> -- <command...>`, which prints
 a check report: `check, argv, exit, duration_s, stdout_tail, stderr_tail` plus the sensor
 block (`egress[]`, `files_read[]`, `fs_changes[]`, `subprocesses[]`,
 `secret_probe{decoy_read, decoy_in_egress}`, `sensors{...}`, `truncated{...}`,
@@ -282,7 +273,7 @@ records its own entry, so when the check is finished ask for the whole envelope
 and copy what it prints:
 
 ```
-python3 /tmp/cujo/sniff.py report --check <name> --extra '<json>'
+python3 /opt/cujo/sniff.py report --check <name> --extra '<json>'
 ```
 
 `--extra` is a JSON object holding only the per-check fields below — the ones the
@@ -312,10 +303,10 @@ ignored.
   `{request, base_status, head_status, head_tail}` and `log_tail`.
 - `detonation`: diff the manifest between base and head to the specifiers that are added
   or version-changed. For each, run
-  `python3 /tmp/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|auto>`
+  `python3 /opt/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|auto>`
   and put its JSON in `runs[]`.
 
-When every check is done, the parent runs `python3 /tmp/cujo/sniff.py teardown`, which
+When every check is done, the parent runs `python3 /opt/cujo/sniff.py teardown`, which
 stops the sensors and removes the decoy. Then call `sandbox_destroy` with the
 `sandbox_id`, which removes the box, its network and its egress gateway. Teardown
 first and destroy second: teardown is what restores the decoy and stops the

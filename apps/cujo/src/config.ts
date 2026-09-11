@@ -66,8 +66,6 @@ export interface Config {
   githubMcpUrl: string;
   /** Where the agent reaches its sandbox, since the harness no longer has one. */
   sandboxMcpUrl: string;
-  /** Where the agent fetches the source archive holding `sandbox/`. */
-  sniffTarballUrl: string;
   turnTimeoutMs: number;
   /**
    * The context size, in tokens, at which TrueForge summarises the parent's
@@ -200,34 +198,6 @@ function count(
   return value;
 }
 
-/**
- * The sensor archive URL, checked at boot because the sandbox cannot check it.
- *
- * The rubric interpolates this value into a shell command, inside double
- * quotes, so `&` and `;` are safe but `"`, `` ` ``, `$`, `\` and whitespace are
- * not: a value carrying one changes the command the sandbox runs rather than
- * the URL it fetches. No URL needs them. This is operator input rather than
- * anything a pull request can reach, so the risk is a broken fetch and not an
- * injection — but a broken fetch is every check failing to start.
- *
- * `.py` is rejected separately because `CUJO_SNIFF_TARBALL_URL` replaced
- * `CUJO_SNIFF_URL` (decision 46), so the mistake to expect is the old value
- * pasted into the new key. Failing here says so once, on the server; the same
- * value reaching the sandbox fails as a `tar` error inside a box nobody is
- * reading the logs of.
- */
-function tarballUrl(raw: string): string {
-  const reject = (why: string): never => {
-    throw new Error(`CUJO_SNIFF_TARBALL_URL ${why}; got ${JSON.stringify(raw)}`);
-  };
-  if (raw.endsWith(".py")) reject("must be a source archive, not a script");
-  if (/["`$\\]|\s/.test(raw)) reject("must not contain quotes, backslashes, $ or whitespace");
-  if (!URL.canParse(raw)) reject("must be an absolute URL");
-  const { protocol } = new URL(raw);
-  if (protocol !== "https:" && protocol !== "http:") reject("must be http or https");
-  return raw;
-}
-
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const modelProviderBaseUrl = env.MODEL_PROVIDER_BASE_URL;
   const modelProviderApiKey = env.MODEL_PROVIDER_API_KEY;
@@ -287,10 +257,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sandboxMcpUrl: env.SANDBOX_MCP_URL ?? "http://sandbox-mcp:8082/mcp",
     // `||`, not `??`: an unset compose optional arrives as the empty string,
     // and an empty URL would reach the sandbox as a `curl` with no argument.
-    sniffTarballUrl: tarballUrl(
-      env.CUJO_SNIFF_TARBALL_URL ||
-        "https://codeload.github.com/spencerjireh/cujo/tar.gz/refs/heads/main",
-    ),
     turnTimeoutMs: Number(env.CUJO_TURN_TIMEOUT_MS ?? 30 * 60 * 1000),
     compactionThresholdTokens: count(env.CUJO_COMPACTION_THRESHOLD_TOKENS, 200_000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),

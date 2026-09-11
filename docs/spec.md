@@ -592,18 +592,22 @@ writes to the shared audit log, which no report reads.
 names: `setup` seeds the decoy, starts the proxy and the watcher, and prints
 the environment every later command must carry; `run --check NAME -- CMD...`
 wraps one command and prints its report with the sensor block; `detonate
---dependency SPEC` is the detonation check; `teardown` stops the daemons and restores or removes the decoy. The
-agent fetches a source archive of this repo from `CUJO_SNIFF_TARBALL_URL`, a
-public URL, with no credential, and moves `sandbox/` out of it so `sniff.py`
-and the `cujo_sniff` package land side by side (decision 46). `sniff.py` is the
-entry point and nothing else: every one of those commands is implemented in the
+--dependency SPEC` is the detonation check; `report --check NAME` prints that
+check's whole assembled envelope (decision 112); `teardown` stops the daemons and
+restores or removes the decoy. **The sensors ship in the sandbox image**, at
+`/opt/cujo`, where `sniff.py` and the `cujo_sniff` package sit side by side
+(decision 117, reversing 46's runtime fetch). There is no archive, no
+`CUJO_SNIFF_TARBALL_URL` and no install step to skip. `sniff.py` is the entry
+point and nothing else: every one of those commands is implemented in the
 package, and the script exists so the rubric's spelling stays the same and so
 `sys.path[0]` finds the package with no install (decision 48).
 
-The commands keep their state in `CUJO_DIR`, which defaults *beside* the
-extracted code and never inside it, so logs, pid files, the decoy backup, and
-the sensed lock are neither mixed in with the modules nor destroyed by the
-fetch, which replaces the code directory wholesale (decision 48). The rubric
+The commands keep their state in `CUJO_DIR`, which defaults *beside* the code
+and never inside it, so logs, pid files, the decoy backup, the sensed lock and
+each check's recorded `runs[]` entries are not mixed in with the modules. The
+original reason was a fetch that replaced the code directory wholesale; the
+reason now is that the code directory is a read-only image layer, which makes
+the same argument more strongly (decisions 48, 117). The rubric
 never names that directory: every path it needs comes back in `setup`'s JSON.
 
 The `derived` block holds the booleans the hard rules read.
