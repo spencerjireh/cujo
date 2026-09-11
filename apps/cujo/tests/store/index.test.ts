@@ -483,6 +483,27 @@ describe("superseding a run to re-review its head (decision 104)", () => {
     expect(store.runs.listUnfinishedRuns().map((r) => r.id)).not.toContain(run.id);
   });
 
+  it("gives a run one comment slot, and only one", () => {
+    const store = new Store(":memory:");
+    const { run } = store.runs.createRun(claim);
+    // Decision 109: a comment is not the idempotent POST a reaction is, and
+    // `rehydrate` re-folds every run on every restart.
+    expect(store.runs.announcementOf(run.id)).toBeNull();
+    expect(store.runs.claimAnnouncement(run.id, "turn_timeout")).toBe(true);
+    expect(store.runs.announcementOf(run.id)).toBe("turn_timeout");
+    // The same kind twice, and a different kind, both lose.
+    expect(store.runs.claimAnnouncement(run.id, "turn_timeout")).toBe(false);
+    expect(store.runs.claimAnnouncement(run.id, "evidence_gap")).toBe(false);
+  });
+
+  it("forgets the comment slot when the run is deleted", () => {
+    const store = new Store(":memory:");
+    const { run } = store.runs.createRun(claim);
+    store.runs.claimAnnouncement(run.id, "evidence_gap");
+    store.runs.deleteRun(run.id);
+    expect(store.runs.announcementOf(run.id)).toBeNull();
+  });
+
   it("deleting a run that is gone is a no-op, not a throw", () => {
     const store = new Store(":memory:");
     expect(() => store.runs.deleteRun("nope")).not.toThrow();

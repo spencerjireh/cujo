@@ -1066,6 +1066,24 @@ Status moves on events from the session's turn streams, with one exception
 | `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
 | `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. A run that was waiting on a human also has its approval denied, so the session can take the newer head's turn (decision 39). |
 
+**A timed-out run says what it measured** (decision 109). The watchdog's
+synthetic terminal leaves `status: "error"`, and the reports that did land are
+read back from the session, folded without touching the run's own events, and
+posted to the pull request as one plain issue comment — never a review, because
+`apps/cujo` holds no review write at all. It names the check that hung, the
+checks that reported, any correctness critical among the findings, and the
+*number* of malice claims being held without naming one: an accusation reaches a
+pull request only once somebody has allowed it (Contract 4). Nothing is posted if
+the read back turns up a review the stream had not yet delivered.
+
+**An operational hard rule reaches the author too** (decision 110), as a second
+kind of the same comment: `check_missing`, `sensor_unarmed` and `report_invalid`
+say the evidence was thin rather than anything about the code, and the posted
+review cannot carry them — `github-mcp` composes that body from the agent's own
+arguments, and Cujo re-derives the rules afterwards. A run gets **one** comment
+at most, recorded in `run_announcements`, because a comment is not the idempotent
+POST a reaction is and `rehydrate` re-folds every run on restart.
+
 One run, one turn chain. Every run on a PR shares the PR's session, so a run
 records the id of each turn it creates (`createTurn`, then `subscribeToTurn`)
 before the first event arrives, and never adopts a turn another run on the

@@ -114,6 +114,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
 107. [A run that proved nothing is `unproven`, not `clean`](#107-a-run-that-proved-nothing-is-unproven-not-clean)
 108. [A failed check is respawned once, by the rubric, and the run records it](#108-a-failed-check-is-respawned-once-by-the-rubric-and-the-run-records-it)
+109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review)
+110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5903,3 +5905,108 @@ over the SDK**, which would make the trusted side a second author of threads
 inside a turn the agent owns. **Collapsing the two threads into one
 `CheckState`**, which would lose the first attempt's timings and its error text,
 the two things that say what was retried and why.
+
+## 109. A timed-out run posts what it measured, as a comment and never a review
+
+Run `b5724912` reached the 30 minute ceiling with `smoke` still running. `tests`
+had finished at 930,958 ms and `probes` at 1,215,088 ms, both with real reports.
+Neither reached the pull request, which got `review NONE` and nothing else after
+half an hour of real work. The same signature is in `c7bf0e13` and `ced0c934`, so
+this was never new.
+
+Nothing was missing but the publication. `fireWatchdog` already refolds, and the
+projection it writes already holds every parsed report, the hard-rule hits, and a
+`check_missing` warn for the check that hung. What it does not hold is
+`projection.review`, because no review tool was ever called — so the author saw
+the one outcome that carries no information.
+
+**A comment, not a review.** `apps/cujo` has no review-creation call at all
+(decision 5), and that is the gate: `post_gated_review` is the one tool a human
+answers for. So the new module reaches GitHub through `createComment` and holds
+no other write, which makes "this can never become a review" a fact about the
+types rather than a rule to remember.
+
+**Against decision 38.** That entry's invariant, stated honestly, is that
+*nothing states a finding on a pull request without a human allowing it*, and
+decision 42 already narrowed "a finding" to an accusation — a correctness
+critical posts unattended as `post_blocking_review`, and only a malice claim
+waits. So the line is the accusation, and this comment does not cross it:
+`heldClaims` counts malice claims and says how many are held, never what they
+are. Everything else it says is weaker than what 42 already permits, and a
+comment is weaker still than the review it stands in for, because it sets no
+review state.
+
+38 also rejected *a status comment edited in place*, for cluttering a thread
+Cujo was about to post a review into. This is not that. It fires only when no
+review was posted and none is coming, and a run gets one comment ever.
+
+**The harvest is a read, and that distinction is load-bearing.** The first cut
+called `replayTurn`, which was wrong in a way the tests caught: that method
+replaces the run's event list and preserves only what arrived *during* its own
+await, so the synthetic terminal `fireWatchdog` had appended a moment earlier was
+discarded — the fold went back to `running` with the timer already spent, which
+is a run nothing can finish. `harvest` does the same `listEvents` read and folds
+it into a projection nobody persists. Falling back to the stored projection when
+the read fails, because a thinner comment still beats silence.
+
+The read is what makes the comment true rather than merely present. A stream that
+never delivered a terminal event never triggered `hydrate` either, so the events
+in hand can hold a report as an id-only stub — and a comment built from those
+would tell an author that a check which worked reported nothing.
+
+**One comment per run, and the store says so.** A reaction could be re-applied
+freely because its POST is idempotent (38); a comment is not, and `rehydrate`
+re-folds a run's whole history on every restart, so "post it when the fold says
+so" would post it again on every redeploy. `run_announcements` is keyed on the
+run rather than on (run, kind), because a run gets one comment at most and a
+primary key is a better place to say that than every caller. The claim is taken
+*before* the GitHub call: a crash between them costs a comment nobody reads, and
+the other order costs a duplicate on the next boot.
+
+The run keeps `status: "error"` and the comment does not soften it. Cujo did fall
+over. What changed is that the author can see what was measured before it did,
+and the harvest will also notice a review the stream had not delivered yet — in
+which case nothing is posted, because the author already has the review.
+
+Rejected: **synthesising a verdict from the harvested reports**, which would make
+the trusted side the thing that reviews a pull request, when reading reports is
+the agent's whole job. **Raising the ceiling**, which does not make a hung check
+finish and costs every run the difference. **Posting through `github-mcp`**,
+which would put the gate's one tool on a path no human is on.
+
+## 110. Operational hard rules reach the author, as a follow-up comment
+
+A review posted `0 critical, 1 warn` while the run held two. The missing one was
+`report_invalid` on the `smoke` report — `runs.0.schema_version: Required (+31
+more)` — and it was on the board and in the log and nowhere the author could see.
+
+That split is structural, not a bug in one place. The posted body is composed by
+`github-mcp` from the agent's own tool arguments, and its headline counts the
+agent's findings. Cujo re-derives the hard rules afterwards on its own side
+(decision 21), by which time `fold` says plainly that nothing can be prevented —
+the review is already on the pull request under the bot's name. So the two
+surfaces disagreed by construction, and no amount of care in either one closes
+it.
+
+Of the three re-derived families, the operational rules are the one the author
+has a use for. `check_missing`, `sensor_unarmed` and `report_invalid` say the
+evidence was thin and never that the code did anything (decisions 62, 96), so
+passing them on states no finding about the pull request — which is what makes
+this allowed under 38's invariant at all. A malice claim would not be, and a
+correctness critical is already the agent's to post.
+
+So when one trips, Cujo posts one follow-up comment naming the gaps and saying
+they do not change the verdict. One per run, not one per finding, through the
+same module and the same claim as decision 109 — and a run that timed out never
+reaches this path, because it has no review to follow up on.
+
+What this does **not** do is reach back into the review. The review is the
+agent's, it is already posted, and editing it from the trusted side would make
+Cujo a second author of its own gated output.
+
+Rejected: **calling it intended and documenting it**, which was the cheaper
+answer and leaves the author reading `0 critical, 1 warn` on a run whose
+evidence had four holes in it. **Making the board stop reproducing the GitHub
+headline**, which reconciles the board with itself and tells the author nothing.
+**Teaching `github-mcp` the hard rules**, which would mean the write-only server
+reading Cujo's store — the dependency decision 5 exists to prevent.
