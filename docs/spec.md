@@ -279,7 +279,16 @@ things the next decision needs (decision 71).
    the in-sandbox logging proxy and the inotify watcher on the decoy, and prints
    the env every later command exports, `HTTP(S)_PROXY` included. Its
    `--allow-host` list is the `allow_hosts` the parent just read.
-3. The parent runs the install in `/work/head` and `/work/base`, and delegates.
+3. The parent runs the install once per project root per tree, and delegates.
+   **The project root is where a manifest is, not the repository root** (decision
+   111): `files` is read two directories deep precisely so a repository of
+   services under `services/<name>/` is covered, and a repository with no root
+   manifest has no root install. `--cwd` narrows to the service;
+   `--workspace-root` is passed as the *tree* root, because the sensors' idea of
+   "inside the workspace" moves with it and narrowing both would make an install
+   writing at the tree root look like a write outside the workspace — which feeds
+   `wrote_sensitive`, a rule that accuses. These installs serialise on the sensor
+   lock, so the fan-out below starts later on a repository with many services.
 
 `.cujo.yml`'s schema:
 
@@ -318,6 +327,16 @@ own fresh environment, so the repository's own install is nothing to it, and the
 manifest diff it reads first is free while that install runs. `tests`, `probes`
 and `smoke` go together once the install finishes, because all three run against
 an installed tree.
+
+**A sub-agent that returns an error instead of a report is respawned once**
+(decision 108), under the same name, after a short wait. The retry is the
+parent's because it has to be: a sub-agent is a thread inside the parent's turn,
+and the trusted side holds only the `thread.done` that says it failed — there is
+no handle with which to restart one. The second thread carries the same check
+name, so `CheckState.attempts` says which attempt a thread was, the digest reads
+the *later* thread for that check's row, and the run's duration spans both. A
+check whose second attempt also failed is still `check_missing`, because that
+rule keys on which titles produced a report.
 
 **The parent's install is wrapped in `sniff.py run --check setup` for the lock,
 not for a report.** The proxy and decoy logs are shared and sliced by offset, so
@@ -368,6 +387,17 @@ so no report is folded from it and it is never evidence.
   plus the shared sensor block below.
 
 ### The report
+
+**The sub-agent does not assemble the envelope — `sniff.py report --check <name>`
+does** (decision 112). Every `run` and `detonate` records its own entry, and that
+command prints the whole envelope: `check`, `schema_version`, every `runs[]` entry
+in order and whole, and the `derived` / `sensors` / `truncated` roll-up computed
+over them. The sub-agent passes the per-check fields in `--extra` and copies the
+output verbatim. `--extra` is spread *under* the envelope's own keys, so nothing
+the model sends can overwrite the sensors' half. `runs.0.schema_version: Required
+(+31 more)` was what the previous arrangement produced — a model rebuilding each
+entry out of the fields it judged interesting, against a rubric that already said
+not to.
 
 **[`docs/contracts/report.example.json`](contracts/report.example.json) is the
 shape.** One complete example carrying every field at once, and the normative
@@ -562,18 +592,22 @@ writes to the shared audit log, which no report reads.
 names: `setup` seeds the decoy, starts the proxy and the watcher, and prints
 the environment every later command must carry; `run --check NAME -- CMD...`
 wraps one command and prints its report with the sensor block; `detonate
---dependency SPEC` is the detonation check; `teardown` stops the daemons and restores or removes the decoy. The
-agent fetches a source archive of this repo from `CUJO_SNIFF_TARBALL_URL`, a
-public URL, with no credential, and moves `sandbox/` out of it so `sniff.py`
-and the `cujo_sniff` package land side by side (decision 46). `sniff.py` is the
-entry point and nothing else: every one of those commands is implemented in the
+--dependency SPEC` is the detonation check; `report --check NAME` prints that
+check's whole assembled envelope (decision 112); `teardown` stops the daemons and
+restores or removes the decoy. **The sensors ship in the sandbox image**, at
+`/opt/cujo`, where `sniff.py` and the `cujo_sniff` package sit side by side
+(decision 117, reversing 46's runtime fetch). There is no archive, no
+`CUJO_SNIFF_TARBALL_URL` and no install step to skip. `sniff.py` is the entry
+point and nothing else: every one of those commands is implemented in the
 package, and the script exists so the rubric's spelling stays the same and so
 `sys.path[0]` finds the package with no install (decision 48).
 
-The commands keep their state in `CUJO_DIR`, which defaults *beside* the
-extracted code and never inside it, so logs, pid files, the decoy backup, and
-the sensed lock are neither mixed in with the modules nor destroyed by the
-fetch, which replaces the code directory wholesale (decision 48). The rubric
+The commands keep their state in `CUJO_DIR`, which defaults *beside* the code
+and never inside it, so logs, pid files, the decoy backup, the sensed lock and
+each check's recorded `runs[]` entries are not mixed in with the modules. The
+original reason was a fetch that replaced the code directory wholesale; the
+reason now is that the code directory is a read-only image layer, which makes
+the same argument more strongly (decisions 48, 117). The rubric
 never names that directory: every path it needs comes back in `setup`'s JSON.
 
 The `derived` block holds the booleans the hard rules read.
@@ -1047,13 +1081,32 @@ Status moves on events from the session's turn streams, with one exception
 | Status | Set when |
 |--------|----------|
 | `running` | The run was claimed; the first turn is being started. |
-| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted. |
+| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted, and at least one check returned a report. |
+| `unproven` | `turn.done` on a posted review with **no check report at all** (decision 107). The review is real and the evidence behind it is absent, which `clean` claimed the opposite of. Not `error`: Cujo ran and posted, it just had nothing to show. Terminal, so `TERMINAL_STATUSES_SQL` names it and the partial index excludes it. The one exception is decision 87's: when no suite was inferred and `detonation` reported alone, that is `clean`. |
 | `blocked_unattended` | `turn.done` on an ungated `post_blocking_review`: Cujo blocked the merge on its own authority, for a correctness critical, and no human was asked. `approver` is null and stays null. |
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
 | `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
 | `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. A run that was waiting on a human also has its approval denied, so the session can take the newer head's turn (decision 39). |
+
+**A timed-out run says what it measured** (decision 109). The watchdog's
+synthetic terminal leaves `status: "error"`, and the reports that did land are
+read back from the session, folded without touching the run's own events, and
+posted to the pull request as one plain issue comment — never a review, because
+`apps/cujo` holds no review write at all. It names the check that hung, the
+checks that reported, any correctness critical among the findings, and the
+*number* of malice claims being held without naming one: an accusation reaches a
+pull request only once somebody has allowed it (Contract 4). Nothing is posted if
+the read back turns up a review the stream had not yet delivered.
+
+**An operational hard rule reaches the author too** (decision 110), as a second
+kind of the same comment: `check_missing`, `sensor_unarmed` and `report_invalid`
+say the evidence was thin rather than anything about the code, and the posted
+review cannot carry them — `github-mcp` composes that body from the agent's own
+arguments, and Cujo re-derives the rules afterwards. A run gets **one** comment
+at most, recorded in `run_announcements`, because a comment is not the idempotent
+POST a reaction is and `rehydrate` re-folds every run on restart.
 
 One run, one turn chain. Every run on a PR shares the PR's session, so a run
 records the id of each turn it creates (`createTurn`, then `subscribeToTurn`)
@@ -1100,7 +1153,7 @@ second plane behind one — the operator API was deleted with its hostname
 |-------|-----------------|
 | `GET /public/runs` | Public runs only, newest first, capped at 100. Filtered on `is_public = 1` in SQL, not by the route. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at`, `updated_at`, `pr_title`, and `digest` — and nothing else. Never the author, which belongs to the page about one run. |
 | `digest` on a list row | The run's checks and findings reduced to what a row can hold (decision 65): `checks` keyed by check name, each `{ status, ms, sandboxMs }`; `findings` as `{ critical, warn, info }` counts; and `durationMs`, the envelope from the first `startedAt` to the last `endedAt`. Nested keys stay camelCase, like every other nested object on this wire. A check name absent from `checks` never appeared, which is not the same fact as one that failed. `ms` and `durationMs` are null while a check is still running and on a run recorded before those stamps existed. `sandboxMs` is how much of `ms` was the sandbox executing the pull request, read off the check's own `timings` (Contract 6, decision 70) — the rest was the sub-agent deciding what to do next. It is null on the same terms plus a third: a check whose report carried no `runs[]` measured no sandbox time rather than zero, and a digest stored before the field existed never regains it, because `backfillDigest` re-derives a *missing* digest and not a stale one. Every one of these is emitted as `null` and never omitted; `durationMs` is deliberately not `updated_at − created_at`, which on a `blocked_pending` run counts the hours it waited on a person. The whole field is null for a run claimed but never folded. Derived once per fold and stored in `run_digests`; a run folded before that table existed is derived on read and backfilled. |
-| `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `attempts`, `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
 
 There is no write route, and the `/discord/*` routes that were Contract 7's
@@ -1227,6 +1280,7 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 | `blocked_posted` | red (`--sev-critical`) | The blocking review posted, and who decided. | Grouped critical findings, `Checks`. |
 | `denied` | grey (`--sev-low`) | The block was rejected; nothing was posted. | Grouped critical findings, `Checks`. |
 | `error` | blue (`--sev-info`) | The run ended in error. | `Error`. Red, never: red means the pull request is dangerous, and an infrastructure failure is a status, not a verdict. |
+| `unproven` | blue (`--sev-info`) | The review posted with no evidence: not one check returned a report. | `Checks`, `Summary`. The same blue as `error` for the same reason — both describe Cujo rather than the pull request — and the words tell them apart. |
 | `superseded` | near-black (`--line`) | Replaced by a newer commit. | `Head` and `Pull request` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
 
 The colour column is the brand severity ramp, dark values (decision 36); an
@@ -1621,7 +1675,8 @@ log.
 | `blocked_unattended` | 👎 | The blocking review posted. Shared with `blocked_posted` on purpose: the reactions describe what happened to the pull request, and a REQUEST_CHANGES is on it either way. |
 | `blocked_posted` | 👎 | The blocking review posted. |
 | `denied` | 👍 | A human cleared the pull request to proceed. |
-| `error` | 😕 | Cujo broke. Shared with no other state. |
+| `error` | 😕 | Cujo broke. |
+| `unproven` | 😕 | The review posted and no check reported. Shared with `error` on purpose, and with nothing else: on the pull request this pair means "do not read a verdict into this", and which of the two it was is on the board. |
 | `superseded` | *nothing* | Not this run's pull request to describe any more. |
 
 A `/cujo` command gets its own acknowledgement, on the command comment and not

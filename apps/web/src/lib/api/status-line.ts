@@ -25,5 +25,6 @@ export const STATUS_LINE: Record<RunStatus, string> = {
   blocked_posted: "Blocking review posted as REQUEST_CHANGES.",
   denied: "The block was rejected. Nothing was posted.",
   error: "The run ended in error.",
+  unproven: "The review posted with no evidence: not one check returned a report.",
   superseded: "Replaced by a newer commit on this PR.",
 };

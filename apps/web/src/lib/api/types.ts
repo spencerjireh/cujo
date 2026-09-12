@@ -14,6 +14,7 @@ export const RUN_STATUSES = [
   "blocked_posted",
   "denied",
   "error",
+  "unproven",
   "superseded",
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
@@ -79,7 +80,15 @@ export interface CheckTimings {
  */
 export interface SetupTimings {
   turnCreatedAt: string | null;
+  /**
+   * Null on every run from decision 113 onward. It came from the harness's
+   * `sandbox.created` event, and the harness stopped provisioning sandboxes;
+   * `sandboxProvisionedMs` is where the number lives now. Kept because a run
+   * stored before that change still carries the stamp.
+   */
   sandboxCreatedAt: string | null;
+  /** How long the sandbox took to provision, off `sandbox_create` (115). */
+  sandboxProvisionedMs?: number;
   agentStartedAt: string | null;
   firstCheckAt: string | null;
   messages: number;
@@ -100,6 +109,14 @@ export interface CheckState {
   /** Added by apps/cujo's fold from thread.created / thread.done. */
   startedAt?: string | null;
   endedAt?: string | null;
+  /**
+   * Which attempt at this check's name this thread was, 1 unless the rubric
+   * respawned a failed sub-agent (decision 108). `publicCheck` emits 1 rather
+   * than null for a run that predates the field, so there is no absent case to
+   * render — it is optional here only because this interface is assigned into
+   * `apps/cujo`'s.
+   */
+  attempts?: number;
   /**
    * Optional *and* nullable, which are two different facts and both real here.
    * `publicCheck` always emits these keys as null when it has nothing, so null

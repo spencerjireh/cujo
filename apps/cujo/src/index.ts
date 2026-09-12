@@ -60,18 +60,19 @@ async function main(): Promise<void> {
     log,
     config.botLogin,
   );
+  // Where a link to a run points. A public run links to the board anyone can
+  // open; a private one has no page at all, so its card and its comments carry
+  // no link (decision 57). Built before the runner because the runner needs it
+  // too, for the one comment a run may post (decisions 109, 110).
+  const links = { publicBaseUrl: config.publicBaseUrl };
   const runner = new Runner(
     store.runs,
     harness,
-    { turnTimeoutMs: config.turnTimeoutMs },
+    { turnTimeoutMs: config.turnTimeoutMs, links },
     log,
     github,
   );
   const spec = buildAgentSpec(config);
-  // Where a Discord card points. A public run links to the board anyone can
-  // open; a private one has no page at all, so its card carries no link
-  // (decision 57).
-  const links = { publicBaseUrl: config.publicBaseUrl };
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status

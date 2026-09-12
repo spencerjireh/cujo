@@ -77,6 +77,23 @@ describe("deriveDigest", () => {
     expect(digest.durationMs).toBe(30_000);
   });
 
+  it("takes the later thread when two carry one check's name, because that is a retry", () => {
+    // Decision 108. The earlier thread holds the provider fault the rubric
+    // retried for, so reading it would put `error` on a check that succeeded.
+    const digest = deriveDigest(
+      projection({
+        checks: [
+          check({ title: "tests", status: "error", startedAt: T0, endedAt: T30 }),
+          check({ title: "tests", startedAt: T30, endedAt: T90 }),
+        ],
+      }),
+    );
+    expect(digest.checks.tests).toEqual({ status: "done", ms: 60_000, sandboxMs: null });
+    // The envelope covers both attempts: the run really did spend the first
+    // thirty seconds on a check that failed.
+    expect(digest.durationMs).toBe(90_000);
+  });
+
   it("has no duration while a check is still running", () => {
     const digest = deriveDigest(
       projection({

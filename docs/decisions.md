@@ -112,6 +112,17 @@ that is reversed after it was built or shown is noted here rather than deleted
 104. [Supersede, do not delete, on re-review](#104-supersede-do-not-delete-on-re-review)
 105. [SessionEvents are validated at the boundary](#105-sessionevents-are-validated-at-the-boundary)
 106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
+107. [A run that proved nothing is `unproven`, not `clean`](#107-a-run-that-proved-nothing-is-unproven-not-clean)
+108. [A failed check is respawned once, by the rubric, and the run records it](#108-a-failed-check-is-respawned-once-by-the-rubric-and-the-run-records-it)
+109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review)
+110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
+111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
+112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work)
+113. [The sandbox is an interface, reached through MCP and not through the harness](#113-the-sandbox-is-an-interface-reached-through-mcp-and-not-through-the-harness)
+114. [`sandbox-mcp` cannot carry the hardening the other services do](#114-sandbox-mcp-cannot-carry-the-hardening-the-other-services-do)
+115. [`provisioned_ms` replaces the `sandbox.created` event](#115-provisioned_ms-replaces-the-sandboxcreated-event)
+116. [Egress is enforced outside the sandbox, and its allowlist is a crossing](#116-egress-is-enforced-outside-the-sandbox-and-its-allowlist-is-a-crossing)
+117. [The sandbox image is ours, which reverses 46](#117-the-sandbox-image-is-ours-which-reverses-46)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -1713,6 +1724,10 @@ late delivery for an older head would otherwise be the newest row. Two systems
 with no shared transaction cannot do better than that.
 
 ## 46. The sensors are a package, delivered as a source archive
+
+**Reversed in part by 117.** The sandbox image is ours now, so the sensors ship
+in a layer, there is an install step, and the stdlib-only rule is a default rather
+than a constraint. What holds is that state lives outside the code directory.
 
 `sandbox/sniff.py` had grown to a thousand lines holding five sensors, four
 subcommands, two daemons, and the tables that decide what counts as malicious.
@@ -5777,3 +5792,635 @@ image what the title and description already say. **A separate
 `twitter-image`**, when Next falls back to `opengraph-image` and one asset
 with one test is enough. **A transparent ground**, which vanishes on a
 light-theme client and takes the wordmark with it.
+
+## 107. A run that proved nothing is `unproven`, not `clean`
+
+`fold` reached `clean` whenever a review posted and no earlier rung fired, and
+coverage was never part of that decision. So run `b30239c8` ran zero checks,
+posted an advisory carrying four warnings, and sat on the public board as
+`clean`. The review body was honest about what had not happened; the status
+beside it was not, and a list view shows only the status.
+
+Nothing was going to fix that from the findings side. Every operational rule —
+`check_missing`, `sensor_unarmed`, `report_invalid` — is a `warn` by design (62,
+96), and the only rung above `clean` that reads findings at all filters on
+`critical`. A `warn` cannot move a status and should not be able to: a sub-agent
+that mis-formats one roll-up must not be able to change a verdict. So coverage
+enters as a status of its own rather than as a finding.
+
+`unproven` is set when a review posted and not one check returned a report. It
+sits immediately above `clean` in the ladder and below every contradiction rung,
+which is what stops it masking anything: a run that under-gated an accusation,
+or blocked a merge, or posted an advisory over a critical, still says that
+instead. Only a run with nothing else to say lands here.
+
+It is not `error`. Cujo did not fall over — it ran, it posted, and it had
+nothing to show. Those are opposite claims about where to look next, which is
+the same argument that keeps `error` blue rather than red: a status that
+describes Cujo must not read as a verdict on the pull request. `unproven` takes
+the same blue and the same 😕, and the *word* carries the distinction on every
+surface the colour appears on.
+
+A check that **reported** is the test, not a check that existed. Run `0c644064`
+lost all three sub-agents to a provider fault in under 1.6 seconds; three
+threads were created and `report` was null on every one. That is an unproven run,
+and reading thread count instead would have called it covered.
+
+The one case that stays `clean` is the one 87 allows: no test suite was
+inferred, so the three suite checks are inapplicable rather than missing and
+`detonation` ran alone. Its report is evidence like any other, so the predicate
+asks only whether any check reported and never which — the same reason
+`missingCheckFindings` suppresses itself there.
+
+**Terminal, and three places had to be told.** The status vocabulary was spelled
+out as a SQL string literal in three places, and `listUnfinishedRuns` already
+carried a comment saying what that costs: the type system cannot check a SQL
+string, so a status missing from one of them is silent. The specific failure
+here would be the partial unique index `runs_head` treating a finished run as
+active and refusing the next run on that head — a re-review that never starts,
+with nothing logged. So the list is one exported constant now,
+`TERMINAL_STATUSES_SQL`, interpolated at each site, and migration 10 rebuilds
+the index from it. Migration 9 keeps its own literal, because that is the text a
+deployed database already ran and editing it would make the ladder a lie about
+what was applied (the rule `CONTRIBUTING.md` states and `tests/store/db.test.ts`
+enforces).
+
+Everything else fell out of the compiler. `Record<RunStatus, …>` in the card
+colour, the card description, the reaction map, the board's tone, label and
+legend maps, and the manual's status sentence all stopped building until the new
+status was answered for, which is the property those maps exist to have (98).
+
+Rejected: **folding coverage into `error`**, which needs no schema change and
+spends the distinction the change exists to draw. **Keeping `clean` and adding a
+coverage field to the projection**, which is cheaper and leaves a list view
+reading `clean`, which is exactly where the problem was. **Making the
+operational rules `critical`**, which would let a formatting warn block a merge.
+
+## 108. A failed check is respawned once, by the rubric, and the run records it
+
+Run `0c644064` lost `tests`, `probes` and `smoke` between 1425 ms and 1600 ms to
+a provider that had been narrowed to one endpoint, and nothing tried again. The
+review posted with no evidence. The design that makes a review fast — all three
+spawned in one message (73) — is the same one that makes them fail together.
+
+**The retry cannot live in `clients/trueforge.ts`.** A sub-agent is a thread
+inside one harness turn, not a call the client makes. Its failure arrives as a
+`thread.done` with an error state, and by then the only thing Cujo holds is an
+event: there is no handle to restart a thread, and the turn it belongs to is
+still running and still the parent's. The only backoff in that file,
+`bootstrapUntilReady`, is at a layer where a retry is a fresh HTTP request, which
+this is not.
+
+So the retry is the parent's, in the rubric: a sub-agent that returns an error
+instead of a report is spawned again, once, under the same name, after a short
+wait. Once and not twice, because two provider faults in a row are a provider
+that is down rather than one that is throttling, and a third attempt spends a
+turn budget the watchdog is already counting.
+
+**And the trusted side records it, because an invisible retry is worse than
+none.** A review saying "the tests check returned no report" when the first
+attempt died on a 429 and the second one worked describes a run that did not
+happen. `CheckState.attempts` is which attempt a thread was, so a projection
+carries both the fault and the answer. A count rather than a list, because what a
+reader needs is whether this evidence came first time.
+
+Two consequences follow from a check name appearing twice, and both were
+previously documented as shapes the fold does not produce:
+
+- **The digest takes the last thread, not the first.** `deriveDigest` kept the
+  first writer, with a comment saying two threads for one check was not a shape
+  the fold produced. It is now, and the earlier thread is the one holding the
+  fault — so reading it would put `error` on the row of a check that went on to
+  succeed. Reversed on both sides of the wire, because `apps/web` ports that
+  file and the two specimens of one run must agree.
+- **The run's duration spans every attempt.** The envelope is taken over all
+  named-check threads rather than the winners, so a retried run keeps the time
+  its first attempt spent before failing. `spanMs` is an envelope, so an extra
+  attempt can widen it and never double-count.
+
+`check_missing` needed no change and that is the point of where it already
+looked: it keys on titles that produced a report, so a successful retry
+suppresses it and two failures still raise it. `hardRuleFindings` and
+`invalidReportFindings` both skip a null report, so a failed attempt contributes
+no findings of its own and cannot accuse anything.
+
+Session pinning (16) means only a new pull request gets the instruction, so the
+recording half lands on every run and the retrying half lands on new sessions.
+That asymmetry is fine in this direction: a run with one attempt records one.
+
+Rejected: **retrying the whole turn**, which `retryTurn` already does for a turn
+that posted nothing and which cannot help the case that hurt — the parent posted
+an advisory anyway, so nothing was retryable and the run was recorded `clean`
+(107 is the other half of that run's fix). **Letting Cujo respawn the sub-agent
+over the SDK**, which would make the trusted side a second author of threads
+inside a turn the agent owns. **Collapsing the two threads into one
+`CheckState`**, which would lose the first attempt's timings and its error text,
+the two things that say what was retried and why.
+
+## 109. A timed-out run posts what it measured, as a comment and never a review
+
+Run `b5724912` reached the 30 minute ceiling with `smoke` still running. `tests`
+had finished at 930,958 ms and `probes` at 1,215,088 ms, both with real reports.
+Neither reached the pull request, which got `review NONE` and nothing else after
+half an hour of real work. The same signature is in `c7bf0e13` and `ced0c934`, so
+this was never new.
+
+Nothing was missing but the publication. `fireWatchdog` already refolds, and the
+projection it writes already holds every parsed report, the hard-rule hits, and a
+`check_missing` warn for the check that hung. What it does not hold is
+`projection.review`, because no review tool was ever called — so the author saw
+the one outcome that carries no information.
+
+**A comment, not a review.** `apps/cujo` has no review-creation call at all
+(decision 5), and that is the gate: `post_gated_review` is the one tool a human
+answers for. So the new module reaches GitHub through `createComment` and holds
+no other write, which makes "this can never become a review" a fact about the
+types rather than a rule to remember.
+
+**Against decision 38.** That entry's invariant, stated honestly, is that
+*nothing states a finding on a pull request without a human allowing it*, and
+decision 42 already narrowed "a finding" to an accusation — a correctness
+critical posts unattended as `post_blocking_review`, and only a malice claim
+waits. So the line is the accusation, and this comment does not cross it:
+`heldClaims` counts malice claims and says how many are held, never what they
+are. Everything else it says is weaker than what 42 already permits, and a
+comment is weaker still than the review it stands in for, because it sets no
+review state.
+
+38 also rejected *a status comment edited in place*, for cluttering a thread
+Cujo was about to post a review into. This is not that. It fires only when no
+review was posted and none is coming, and a run gets one comment ever.
+
+**The harvest is a read, and that distinction is load-bearing.** The first cut
+called `replayTurn`, which was wrong in a way the tests caught: that method
+replaces the run's event list and preserves only what arrived *during* its own
+await, so the synthetic terminal `fireWatchdog` had appended a moment earlier was
+discarded — the fold went back to `running` with the timer already spent, which
+is a run nothing can finish. `harvest` does the same `listEvents` read and folds
+it into a projection nobody persists. Falling back to the stored projection when
+the read fails, because a thinner comment still beats silence.
+
+The read is what makes the comment true rather than merely present. A stream that
+never delivered a terminal event never triggered `hydrate` either, so the events
+in hand can hold a report as an id-only stub — and a comment built from those
+would tell an author that a check which worked reported nothing.
+
+**One comment per run, and the store says so.** A reaction could be re-applied
+freely because its POST is idempotent (38); a comment is not, and `rehydrate`
+re-folds a run's whole history on every restart, so "post it when the fold says
+so" would post it again on every redeploy. `run_announcements` is keyed on the
+run rather than on (run, kind), because a run gets one comment at most and a
+primary key is a better place to say that than every caller. The claim is taken
+*before* the GitHub call: a crash between them costs a comment nobody reads, and
+the other order costs a duplicate on the next boot.
+
+The run keeps `status: "error"` and the comment does not soften it. Cujo did fall
+over. What changed is that the author can see what was measured before it did,
+and the harvest will also notice a review the stream had not delivered yet — in
+which case nothing is posted, because the author already has the review.
+
+Rejected: **synthesising a verdict from the harvested reports**, which would make
+the trusted side the thing that reviews a pull request, when reading reports is
+the agent's whole job. **Raising the ceiling**, which does not make a hung check
+finish and costs every run the difference. **Posting through `github-mcp`**,
+which would put the gate's one tool on a path no human is on.
+
+## 110. Operational hard rules reach the author, as a follow-up comment
+
+A review posted `0 critical, 1 warn` while the run held two. The missing one was
+`report_invalid` on the `smoke` report — `runs.0.schema_version: Required (+31
+more)` — and it was on the board and in the log and nowhere the author could see.
+
+That split is structural, not a bug in one place. The posted body is composed by
+`github-mcp` from the agent's own tool arguments, and its headline counts the
+agent's findings. Cujo re-derives the hard rules afterwards on its own side
+(decision 21), by which time `fold` says plainly that nothing can be prevented —
+the review is already on the pull request under the bot's name. So the two
+surfaces disagreed by construction, and no amount of care in either one closes
+it.
+
+Of the three re-derived families, the operational rules are the one the author
+has a use for. `check_missing`, `sensor_unarmed` and `report_invalid` say the
+evidence was thin and never that the code did anything (decisions 62, 96), so
+passing them on states no finding about the pull request — which is what makes
+this allowed under 38's invariant at all. A malice claim would not be, and a
+correctness critical is already the agent's to post.
+
+So when one trips, Cujo posts one follow-up comment naming the gaps and saying
+they do not change the verdict. One per run, not one per finding, through the
+same module and the same claim as decision 109 — and a run that timed out never
+reaches this path, because it has no review to follow up on.
+
+What this does **not** do is reach back into the review. The review is the
+agent's, it is already posted, and editing it from the trusted side would make
+Cujo a second author of its own gated output.
+
+Rejected: **calling it intended and documenting it**, which was the cheaper
+answer and leaves the author reading `0 critical, 1 warn` on a run whose
+evidence had four holes in it. **Making the board stop reproducing the GitHub
+headline**, which reconciles the board with itself and tells the author nothing.
+**Teaching `github-mcp` the hard rules**, which would mean the write-only server
+reading Cujo's store — the dependency decision 5 exists to prevent.
+
+## 111. Where a command runs and what the sensors call the workspace are two questions
+
+The `tests` check has never once run against `orders-api`, and the reason was one
+word in the rubric. Discovery was already service-aware — `PREPARE_MAX_DEPTH` is
+2, and its own comment names this repository as six services under
+`services/<name>/` with no manifest at the root — while execution was not. The
+rubric ran exactly two installs, `--cwd /work/head` and `--cwd /work/base`, so
+the model was handed six manifests and one place to run one command.
+
+Two runs recorded the consequence. `b30239c8`: the wrapped install ran from the
+two roots and exited 1 because neither held a Python project. `319e3f8a`, which
+otherwise produced a useful review: `python -m pytest -q` exited 1 on both trees
+with `No module named pytest`, and no test ids were collected. Probes and smoke
+compensated by exercising the code directly, which is why the review was still
+worth reading — but the strongest evidence available was absent from every run.
+
+`sniff.py run` executes argv with no shell, so `cd services/x && uv sync` is not
+one wrapped command. Per-service install means one invocation per project root,
+and that is the easy half.
+
+**The hard half is a hazard nothing in `docs/` anticipated.** `cmd_run` passed
+`workspace_roots=[cwd]`, so the filesystem diff's idea of "inside the workspace"
+moved with `--cwd`. Narrowing `--cwd` to one service directory would have
+reclassified every write elsewhere under `/work/head` as outside the workspace —
+and that feeds `fs_changes` and `derived.wrote_sensitive`, a rule that accuses
+code of acting against the person running it. An install writing a lock file at
+the repository root is the ordinary case, not a corner one. A false accusation is
+the worst thing this code can produce, worse than the missing check it was fixing.
+
+So the two questions are separated. `--cwd` says where the command runs;
+`--workspace-root` is repeatable, says what the sensors count as inside, and
+defaults to `[cwd]` — exactly the old behaviour, so nothing that does not pass it
+changes. The rubric passes the *tree* root while narrowing `--cwd` to the service,
+and says plainly why.
+
+`sandbox/` stays standard-library only, so decision 46 is untouched: this is one
+`argparse` option and a `Path.resolve()`.
+
+The cost is serial. `sniff.py run` takes an exclusive lock, so six services on
+two trees is twelve installs one after another, and the `tests`, `probes` and
+`smoke` fan-out cannot begin until the last finishes. That is a real regression in
+wall clock on a polyglot repository, and it buys the `tests` check its first
+evidence ever on one. Worth it, and worth saying in the rubric rather than
+discovering in a run.
+
+Session pinning (16) means only a new pull request installs this way.
+
+Rejected: **inferring the roots in `sniff.py`**, which would put project-layout
+judgment in the untrusted zone when `prepare` already reports the manifests and
+the model already decides every other command. **Passing a shell string**, which
+would make `argv` a shell injection surface for text read out of a pull request.
+**Narrowing the workspace with `--cwd`**, covered above — the defect that would
+have shipped if the two ideas had stayed one.
+
+## 112. `sniff.py` assembles the envelope, because asking a model to did not work
+
+`report_invalid` fired on `319e3f8a` with `runs.0.schema_version: Required (+31
+more)`. There was no producer-and-consumer drift to find: `sniff.py` emits
+`runs[].schema_version`, the validator requires it, `report.example.json` carries
+it, and `sandbox/tests/test_contract.py` asserts it at both levels. The sub-agent
+in between was rebuilding each `runs[]` entry out of the fields it judged
+interesting — against a rubric that already said, in bold, never to trim an entry.
+
+That was the fourth shape of the same failure. Decision 96 records fourteen
+`report_invalid` warns across three models in five runs, each a different partial
+reading of one sentence, and the fix then was to make the validator more lenient.
+Leniency has a floor: `runs[]` entries are copied verbatim, so a key missing there
+means the producer moved, which is the thing the validator exists to catch. The
+instruction could not get stricter and the schema could not get looser.
+
+So the instruction goes away. Every `run` and `detonate` records its own entry
+under the check's name, and `sniff.py report --check <name>` prints the whole
+envelope: `check`, `schema_version`, every entry in the order it ran and whole,
+and the `derived` / `sensors` / `truncated` roll-up computed over them. The
+sub-agent copies one blob. Copying one blob is something a model does reliably and
+copying thirty-odd fields per entry is not, which is the entire argument.
+
+**The roll-up is now computed rather than asked for, and the rules are
+asymmetric.** Each `derived` and `truncated` key is an OR across entries, because
+something that happened in one command happened. A sensor counts as armed only if
+it was armed for *every* entry, and carries the detail from the first entry it was
+not — a sensor blind for one command leaves that command's clean rows worth less
+than they look, and naming the window it was blind in is what a reader needs.
+
+**`--extra` is the model's half and it cannot reach the sensors' half.** The
+per-check fields the sensors know nothing about still come from the sub-agent —
+`base`, `head` and `base_pass_head_fail` for `tests`, `probes[]`, `endpoints[]` and
+`log_tail`. They are spread *under* the envelope's own keys, so a model that sends
+`derived` or `runs` in `--extra` is ignored rather than believed. The whole point
+is that those stopped being the model's to write.
+
+Still standard library only, so decision 46 holds: `json`, `pathlib`, and a file
+per check. Append-only, one object per line, and a half-written line from a killed
+command is skipped rather than taken as the end of the file.
+
+This does not relax the validator. A report that fails the schema is still read by
+the hard rules field by field, and `report_invalid` is still a `warn` that says
+the evidence is not the shape it claims (62). What changes is that there is far
+less left for a model to get wrong — and decision 110 now tells the pull request
+author when one of these trips, which it did not before.
+
+Session pinning (16) means only a new pull request reports this way. The command
+exists for every sandbox immediately, because `sandbox/` is fetched from `main`
+(19, 46), so an old session simply does not call it.
+
+Rejected: **making the envelope's `schema_version` required**, which punishes a
+session pinned to the old wording for a field that wording never named — the
+reason 54 left it optional. **A second validator pass that repairs a trimmed
+entry**, which would invent fields nobody measured. **Teaching the rubric harder**,
+which is what the previous three attempts were.
+
+## 113. The sandbox is an interface, reached through MCP and not through the harness
+
+Daytona tier one gives no sandbox-level egress policy, which is why the
+in-sandbox logging proxy became load-bearing — the thing enforcing the trust
+boundary sat on the untrusted side of it. That is the weakest joint in the
+two-zone story, and it cannot be fixed from inside the box.
+
+**The harness cannot be asked for a different sandbox.** Four facts, checked
+against SDK 0.1.3:
+
+- `SandboxProviderManifest.type` is the string literal `"daytona"` on a plain
+  interface, not a union.
+- The wire serializer uses `core.serialization.stringLiteral("daytona")`, so
+  casting past the type is rejected at runtime too.
+- `auth` is typed `DaytonaSandboxProviderAuth` directly, one field, `apiKey`.
+- The provider is a **singleton per tenant**, with only `get()` and
+  `createOrUpdate()`. There is no list, so there is no register-a-second-and-
+  switch migration either.
+
+There is also no image field anywhere in the SDK, which is the concrete form of
+decision 46's constraint: the image is not ours to choose, which is why there is
+no install step and why `sandbox/` is standard-library only.
+
+So Cujo stops using the harness's sandbox provider. `config.sandbox` is
+`{ enabled: false }` on both specs, no sandbox provider is registered at all, and
+the agent reaches a sandbox through `sandbox-mcp` — a second remote MCP server
+beside `github-mcp`, registered the same way and modelled on the same code.
+`McpServerType` is also a single literal, `"remote"`, which is all this needs.
+
+**`apps/sandbox-mcp/src/runtime.ts` is the point of the change.** Five operations
+and a name, with Daytona as one implementation and a local container runtime as
+the other, chosen by `CUJO_SANDBOX_RUNTIME`. Nothing in that interface names a
+vendor: no API key, no auto-archive interval, no exec timeout named after
+somebody's knob. Making `type` pluggable from the start is the entire lesson of
+the literal, and keeping Daytona behind the same interface is what makes the move
+reversible on one variable rather than a bet.
+
+Ids are minted by the server and mean nothing outside it, for the reason
+`github-mcp` mints a run id rather than taking a URL: the caller's input was read
+out of a pull request, and a vendor handle crossing back would let it name a box
+somebody else is using. The image, the gateway image and the container runtime
+come from this process's environment and are never tool inputs — a sandbox whose
+image a caller chose is not a sandbox.
+
+`sandbox-mcp` carries no `requireApprovalForTools`. Provisioning a box and running
+a command in it is what a review *is*; the gate is for the one irreversible thing,
+an accusation reaching a pull request (42).
+
+The contract suite's pinned bootstrap array grew an entry, which is a change to the
+contract and is named as one rather than edited to make a test pass. That suite
+runs with no sandbox at all, so it still covers the harness contract and still
+covers nothing about this.
+
+Rejected: **forking the SDK** to widen one literal, which is decision 1 in reverse
+for one field. **A local MCP server over stdio**, which `McpServerType` does not
+have. **Keeping the harness sandbox and adding a second one**, which is two
+sandboxes per review and an invitation to put the evidence in one and the checks
+in the other.
+
+## 114. `sandbox-mcp` cannot carry the hardening the other services do
+
+`github-mcp` runs `read_only: true`, `cap_drop: ALL` and
+`no-new-privileges: true`. `sandbox-mcp` cannot: it provisions a container, an
+egress gateway and a network per sandbox, so it holds the host's Docker socket,
+and that socket is root on the host by any honest reading.
+
+This is a real reduction and it gets an entry rather than a comment, because the
+alternative is a reader finding the missing hardening later and assuming it was
+forgotten.
+
+What stands in for it. The service is small and holds no pull request code — the
+code under review runs in the container it creates, never in this process. It takes
+no image name, no host path and no runtime name from a caller; all three come from
+its own environment, so the widest thing an agent can do through it is run a
+command in a box that was going to run commands anyway. It keeps
+`no-new-privileges`, which is compatible. And the container it creates gets
+`cap_drop: ALL` and `no-new-privileges` itself, so the hardening that was lost here
+is present exactly where the untrusted code is.
+
+The honest summary is that the trust boundary moved rather than weakened: before,
+the process holding no capability talked to a vendor that held them all; now it
+holds one capability and the vendor is gone. A deployment that prefers the old
+shape sets `CUJO_SANDBOX_RUNTIME=daytona` and gets it back, with the egress
+property given up (see 116).
+
+Rejected: **a rootless Docker socket**, which is the right answer and is a host
+provisioning change this decision does not reach — worth doing and not a
+prerequisite. **Giving this service its own Docker-in-Docker daemon**, which adds a
+privileged container to avoid a socket. **Building the sandbox with a library
+instead of the CLI**, which changes nothing about the socket.
+
+## 115. `provisioned_ms` replaces the `sandbox.created` event
+
+`sandbox.created` is a *harness* event. With the harness no longer provisioning
+anything (113) it is never emitted, so `setup.sandboxCreatedAt` would be null on
+every run from here on — and `docs/spec.md` documents a null there as meaning the
+sandbox was already there. Left alone, the board would have started telling that
+lie on every run, quietly, with no test failing.
+
+So `sandbox_create` returns `provisioned_ms`, and the fold reads it off that tool
+response into `setup.sandboxProvisionedMs`. The old field stays rather than being
+deleted: a projection stored before this change still carries the stamp, and the
+board still renders it.
+
+Read leniently and first-writer-wins, like the stamp it replaces. A tool result is
+a string the MCP server wrote, so it parses or it does not, and a
+`provisioned_ms` that is not a finite number is simply not recorded — a
+measurement nobody made is absent rather than zero (54).
+
+Per-check `sandboxMs` needed nothing, and it is worth saying why: it is summed from
+`report.runs[].duration_s`, measured by `sniff.py` inside the box. It never came
+from a harness event, so it survives the move untouched.
+
+Rejected: **deleting the field and the span with it**, which loses the one part of
+setup that was never the agent thinking. **Keeping `sandboxCreatedAt` and filling
+it with a timestamp this process makes up**, which would be a stamp off a different
+clock from every other stamp beside it.
+
+## 116. Egress is enforced outside the sandbox, and its allowlist is a crossing
+
+The in-sandbox proxy was the control. It ran in the untrusted zone, next to the
+code it was judging, and the only reason that held is that nothing had defeated it
+yet. With our own runtime the control moves out: one network per sandbox created
+`--internal`, so Docker installs no default route, and a gateway container on that
+network *and* one with outside access, holding the only route off and filtering
+with nftables. The sandbox can reach the gateway and cannot reconfigure it — they
+share no namespace, no filesystem and no process tree.
+
+Default deny, then the allowlist, then NAT, in that order, so the policy is in
+place before a packet can be forwarded. A gateway that finds no default route
+refuses to forward rather than falling back, because a gateway forwarding to
+somewhere nobody chose is worse than one that is down.
+
+**The in-sandbox proxy keeps running and becomes a sensor**, which is what it
+should always have been. `egress[]` still records what was attempted — and a row
+there now means an attempt that genuinely did not leave, rather than one the proxy
+decided to allow.
+
+**The allowlist is a new crossing and is treated as one.** It comes from a
+repository's own `.cujo.yml`, so it is untrusted text, and it used to reach a
+process *inside* the box where getting it wrong could only weaken a control the
+pull request already sat beside. It now configures a control outside the box. So it
+is validated on the trusted side and **refused rather than repaired**: hostnames
+only, no scheme, port, path, CIDR, wildcard, credentials, control character or
+address. Silently dropping the part that did not parse would leave a repository
+believing in an allowance it does not have, which is the argument `policy.py`
+already makes for refusing half a policy. Capped at 32 entries, because past that a
+repository is describing a network rather than its dependencies.
+
+A hostname and never an address, because the allowlist is resolved by name and an
+address would bypass the name it stood for. Every address a name resolves to is
+allowed, because a name behind a CDN is several and allowing one of them is a flake
+rather than a policy. A name that does not resolve is logged and skipped, not
+guessed at.
+
+gVisor (`runsc`) over a microVM for the runtime itself. It installs as a Docker
+runtime beside the default and needs no VMM, no rootfs pipeline and no per-VM
+bridge. Firecracker buys isolation against a kernel escape and costs all of that;
+the threat this sandbox contains is exfiltration, and the deciding factor named in
+the plan was network-layer egress rather than cold start. The runtime name is
+configurable and empty falls back to Docker's default with a warning on every
+create — a host that has not been provisioned yet still runs reviews, which beats a
+service that will not start.
+
+Rejected: **keeping the proxy as the control and hardening it**, which leaves the
+boundary enforced from inside. **An allowlist of CIDRs**, which is a network policy
+a repository should not be writing. **Resolving the allowlist once at boot**, which
+would pin a CDN's addresses for the life of the deployment.
+
+## 117. The sandbox image is ours, which reverses 46
+
+**Reverses decision 46 in part.** That entry chose to fetch `sandbox/` into the
+box from a source archive at run time, stdlib-only and imported from
+`sys.path[0]`, and it was right for the situation it was in: the image belonged to
+the sandbox provider, there was no install step, and `SandboxProviderManifest` has
+no image field at all, so the image was not ours to change. Every constraint in
+that entry traces back to that one fact.
+
+Decision 113 changed the fact. `sandbox/Dockerfile` builds the image a review runs
+in, so the sensors ship in a layer and the rest of 46 falls away with them:
+
+- **No runtime fetch.** `COPY sniff.py /opt/cujo/sniff.py` and
+  `COPY cujo_sniff /opt/cujo/cujo_sniff` put them there as siblings, which is the
+  property 46 arranged with `tar --strip-components=1` and a `mv`. The rubric's
+  first step is now a sentence rather than an `&&` chain, and the failure mode it
+  guarded against — a half-extracted fetch leaving a module deleted upstream
+  importable — cannot happen to a layer.
+- **`CUJO_SNIFF_TARBALL_URL` is gone**, and with it `tarballUrl()` in `config.ts`.
+  That validator existed because the rubric interpolated the value into a
+  double-quoted shell word, so a `"` or a `$` in it changed the command rather than
+  the URL. No interpolation, no shell word, nothing to validate. Three tests in
+  `config.test.ts` went with it.
+- **`specFingerprint` is now a digest of the rubric as written.** It used to change
+  with the substituted URL, because two deploys pointing at different sensor code
+  were two different rubrics. Nothing is substituted now, and the sensor code's
+  version is the image's — which this deliberately does not try to capture, because
+  an image digest in the rubric's fingerprint would mean every image rebuild
+  re-pinned every session (16).
+- **There is an install step, so `pytest` is in the image.** This is the other half
+  of decision 111: the `tests` check had never once run against the demo
+  repository, first because the install did not reach the service directories and
+  then because there was no `pytest` to run. A repository's own install is still
+  what *should* provide its test runner; this is what stops a repository with none
+  from producing no evidence at all.
+
+**The stdlib-only rule becomes a default rather than a constraint.** A third-party
+import under `sandbox/` is now possible. It stays discouraged, and the reason
+changed: it is no longer that it cannot work, it is that every package in that
+image is something a pull request's code can reach. So adding one needs a reason
+in the pull request, the way an unpinned dependency does. `CONTRIBUTING.md` and
+`best_practices.md` both say so, in step.
+
+What 46 got right and this keeps: state lives outside the code. `Context.from_env`
+derives `code_dir` from `__file__`, so moving the package to `/opt/cujo` needed no
+Python change at all, and the state directory stays at `/tmp/cujo-state` for the
+reason `context.py` gives — state that outlives the code it was written by has to
+sit outside it. A read-only code directory makes that argument stronger rather
+than weaker.
+
+The image runs as a non-root user. Root in the box would have made every
+`wrote_sensitive` reading weaker than it looks, because everything is writable to
+root and the decoy is supposed to be a file somebody chose to read. `tini` is PID 1,
+because the box is entered with `exec` and lives for a whole review: without an
+init, a suite that abandons a child leaves a zombie whose row would appear in a
+later check's `subprocesses`.
+
+Rejected: **pinning the archive to a commit** instead, which is what 19 and 46 both
+left open and which solves the wrong half — it makes the fetch reproducible and
+still leaves the image somebody else's. **Installing the repository's own
+dependencies into the image**, which would mean the image knows what it is about to
+review. **`apt`-installing every language a target might use**, which is an image
+that grows forever to cover a case a `.cujo.yml` could state.
+
+## 118. `sandbox-mcp` builds the images it runs, at boot, from contexts it carries
+
+Decision 117 made the sandbox image ours and 116 added the gateway beside it.
+Neither said who builds them on the host, and the answer was nobody.
+`docker-compose.yml` names both as tags, `cujo-sandbox:latest` and
+`cujo-sandbox-gateway:latest`, but they are not services in it: the local
+runtime starts them with `docker run` per sandbox, so `up --build` never sees a
+`build:` for either, and Coolify's deploy — which is `up --build` and nothing
+else (architecture, deployment topology) — would have brought up a `sandbox-mcp`
+whose first `create` was a `docker run` of a tag Docker had never heard of, which
+it answers by trying to pull `docker.io/library/cujo-sandbox` and failing. Every
+review after the first deploy of 113 would have failed at provisioning.
+
+So `sandbox-mcp` builds them itself. `apps/sandbox-mcp/Dockerfile` copies
+`sandbox/` and `apps/sandbox-mcp/gateway/` into its image at `/app/images`, and
+at boot, when the runtime is `local`, `buildImages` runs `docker build` on each
+through the socket the service already holds, tagging the result with the name
+the runtime will later run. The HTTP server listens meanwhile and answers 503 on
+`/healthz` *and* `/mcp` until both builds finish; a build that fails ends the
+process, so a sandbox service that cannot provision is never one the deploy
+calls healthy. The compose healthcheck's `start_period` is twenty minutes,
+because failures inside it do not count and a cold build is minutes of `apt` and
+`pip`; a warm rebuild is layer-cached and passes in seconds.
+
+Why this and not a build-only compose service, which is the usual trick — a
+service with `build:` and `image:` and an entrypoint of `true`, that
+`sandbox-mcp` `depends_on` completing. Three reasons. It relies on Coolify
+keeping the `image:` name a compose file gives a service it builds, which the
+documentation does not promise and which a rename would break silently: the
+tag would simply not exist, in the same way as before. It makes the images'
+freshness a property of the deploy pipeline rather than of the service, so a
+`sandbox-mcp` started any other way — `make up-local`, a container run by hand —
+would run stale sensors or none. And it would show in Coolify as a service that
+exits, which is a thing to explain on every deploy. Building at boot makes the
+sensors a review runs exactly the code the deploy shipped, from the same commit
+that built the service, with no third thing to keep in step. The
+`specFingerprint` argument in 117 rests on that.
+
+What this costs. The socket was already there (114); this uses it for one more
+thing, and `docker build` is a bigger surface than `docker run`. The contexts
+are this image's own files and never a caller's, and the tags come from the
+environment, so nothing a pull request wrote reaches the build. The first boot
+after a base-image change is a slow boot, and `cujo` waits on it; that is the
+right order, since a webhook that arrived earlier would have had nowhere to run.
+The build does not `--pull`, deliberately: the base images are whatever the host
+has, and a registry that is down must not stop a deploy whose layers are cached.
+
+`CUJO_SANDBOX_IMAGES_DIR` set empty skips the build and runs whatever the two
+tags already name. That is for a developer with both built by hand, and for the
+`daytona` runtime the question does not arise, which is why the contract-test
+overlay needs no socket.
+
+Rejected: **pre-built images in a registry**, pulled by tag, which is a release
+step and a second credential for a project whose deploy is a merge (35).
+**Building lazily on the first `create`**, which puts minutes of build inside a
+tool call the agent is waiting on, and a turn that times out there looks like a
+sandbox failure. **A `depends_on` a build-only service**, above.
+

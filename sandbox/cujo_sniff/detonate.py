@@ -19,6 +19,7 @@ from typing import Any
 from cujo_sniff.context import Context, state_paths
 from cujo_sniff.policy import SCHEMA_VERSION
 from cujo_sniff.report import merge_reports
+from cujo_sniff.reports import record_run
 from cujo_sniff.runner import run_sensed
 from cujo_sniff.scrub import scrub
 
@@ -100,7 +101,7 @@ def cmd_detonate(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
             break
     last = reports[-1]
     sensors = merge_reports(reports)
-    return {
+    entry: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         # The specifier comes out of the pull request's own manifest, so it is
         # as much the author's text as anything the install printed.
@@ -117,3 +118,10 @@ def cmd_detonate(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
         "stderr_tail": last["stderr_tail"],
         **sensors,
     }
+    # Recorded so `sniff.py report --check detonation` assembles the envelope
+    # from every dependency that was detonated, instead of a model retyping one
+    # entry per specifier (decision 112). The unit here is the dependency: the
+    # install commands behind it are already rolled into `subprocesses` above,
+    # and `run_sensed` records nothing of its own -- only `cmd_run` does.
+    record_run(ctx, "detonation", entry)
+    return entry

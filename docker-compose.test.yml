@@ -15,6 +15,17 @@ services:
       GITHUB_APP_ID: '1'
       GITHUB_APP_PRIVATE_KEY: ${CUJO_INT_APP_KEY:-x}
 
+  # Started so `bootstrap` has something to register, and never called: the
+  # contract suite runs with `sandbox: { enabled: false }` on both specs, so no
+  # turn in it asks for a sandbox. `daytona` rather than `local` because this
+  # runtime needs no Docker socket to boot and answer a healthcheck, and the keys
+  # below are never used.
+  sandbox-mcp:
+    environment:
+      CUJO_SANDBOX_RUNTIME: daytona
+      DAYTONA_API_URL: http://127.0.0.1:1
+      DAYTONA_API_KEY: ${CUJO_INT_DAYTONA_KEY:-x}
+
   postgres:
     environment:
       POSTGRES_USER: cujo

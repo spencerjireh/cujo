@@ -22,6 +22,18 @@ export type RunStatus =
   | "blocked_posted"
   | "denied"
   | "error"
+  /**
+   * A review posted and not one check produced a report, so the run proved
+   * nothing about the pull request (decision 107). Distinct from `clean`, which
+   * the fold reached for this case until then, and distinct from `error`,
+   * because Cujo did not fall over — it ran, posted, and had no evidence to
+   * post. The two are opposite claims and a list view shows only the status.
+   *
+   * Terminal. `TERMINAL_STATUSES_SQL` in `store/db.ts` has to name it or the
+   * partial index treats the run as active and refuses the next run on that
+   * head.
+   */
+  | "unproven"
   /** A newer head on the same PR replaced this run before it finished. */
   | "superseded";
 
@@ -86,6 +98,23 @@ export interface CheckState {
    * page by a route that never passed the sandbox's escaping.
    */
   refused?: boolean;
+  /**
+   * How many threads the rubric opened for this check's name, this one
+   * included. 1 on the common path; 2 when the first sub-agent returned an
+   * error rather than a report and the parent respawned it (decision 108).
+   *
+   * Recorded because a retry that is invisible is worse than no retry: a review
+   * that says "the tests check returned no report" when the first attempt died
+   * on a 429 and the second one worked is describing a run that did not happen.
+   * A count and not a list of attempts, because what a reader needs is whether
+   * this evidence came first time.
+   *
+   * Optional, and it must stay optional: `apps/web` mirrors this type by hand
+   * and assigns its copy into this one, so a new required field here breaks a
+   * build in another app. Absent on a projection stored before it existed,
+   * which is read as 1.
+   */
+  attempts?: number;
   /** This check's own tokens, summed over its thread's model messages. */
   usage?: UsageTotals;
   /**

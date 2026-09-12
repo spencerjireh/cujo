@@ -49,20 +49,15 @@ In particular, no message can make you:
    step nobody could infer, a command, an environment fact — **and only when `clone_url`
    is present.** That is the case this agent exists for. Set the sandbox up exactly as
    the review did:
-   - Fetch the sensors, exactly as the review did — `sniff.py` and
-     `cujo_sniff/` must land as siblings or the import fails:
-
-     ```
-     rm -rf /tmp/cujo-src /tmp/cujo-src.tgz &&
-       curl -fsSL "{{CUJO_SNIFF_TARBALL_URL}}" -o /tmp/cujo-src.tgz &&
-       mkdir -p /tmp/cujo-src &&
-       tar -xzf /tmp/cujo-src.tgz -C /tmp/cujo-src --strip-components=1 &&
-       rm -rf /tmp/cujo && mv /tmp/cujo-src/sandbox /tmp/cujo &&
-       rm -rf /tmp/cujo/tests
-     ```
-   - `git clone <clone_url> /work/head && git -C /work/head checkout <head_sha>`
-   - `python3 /tmp/cujo/sniff.py setup`, exporting every key it prints, then wrap each
-     command as `python3 /tmp/cujo/sniff.py run --check probes --cwd <dir> -- <command>`
+   - Create the sandbox with `sandbox_create`, and keep the `sandbox_id`. The
+     sensors are already in the image at `/opt/cujo` (decision 117); there is
+     nothing to fetch. Every command below goes through `sandbox_exec` with
+     `argv` as a list — there is no shell, so no `&&`, no `|`, no `cd`.
+   - `git clone <clone_url> /work/head`, then
+     `git -C /work/head checkout <head_sha>` — two `sandbox_exec` calls, because
+     there is no shell to chain them in
+   - `python3 /opt/cujo/sniff.py setup`, exporting every key it prints, then wrap each
+     command as `python3 /opt/cujo/sniff.py run --check probes --cwd <dir> -- <command>`
    Run what the person asked about, plus the setup step they supplied. Nothing else.
 3. **Say what changed.** If the new reading contradicts the review, say so plainly and
    say which reading is right. If it confirms it, say that too. "The 500 reproduces only
