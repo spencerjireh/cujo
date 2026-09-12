@@ -8,12 +8,17 @@
  * the pull request's code cannot reach, on a network it has no route off
  * (decisions 114, 116).
  *
- * **Shape.** One network per sandbox, created `--internal` so Docker installs no
- * default route. The sandbox joins it and nothing else. A gateway container joins
- * that network *and* a second one with outside access, holds the only route out,
- * and filters with nftables from the allowlist it was given at creation. Code
- * inside the sandbox can reach the gateway and cannot reconfigure it: they share
- * no namespace, no filesystem and no process tree.
+ * **Shape.** One network per sandbox, created with the bridge's own address
+ * inhibited and host masquerade off, so the host holds no address on it and
+ * routes nothing for it. Docker still installs the sandbox's default route via
+ * the subnet's gateway address; the gateway container claims that address and
+ * so is the only thing the route leads to (decision 121). The gateway joins that
+ * network *and* a second one with outside access, forwards through nftables from
+ * the allowlist it was given at creation, and runs the resolver the sandbox is
+ * pointed at, which answers for allowlisted names and nothing else. Code inside
+ * the sandbox can reach the gateway and cannot reconfigure it: they share no
+ * namespace, no filesystem and no process tree, and the sandbox holds no
+ * capability that could change a route.
  *
  * The in-sandbox proxy keeps running and keeps recording `egress[]` rows. It is a
  * sensor now, which is what it should always have been — its verdict is no longer
@@ -60,6 +65,14 @@ export interface LocalRuntimeOptions {
   containerRuntime?: string;
   /** The network the gateway reaches the internet through. */
   egressNetwork?: string;
+  /**
+   * Hosts every sandbox may reach, before a repository asks for anything. The
+   * clone host: fetching the pull request is Cujo's own step, not a dependency
+   * the repository declares, so it is not the repository's to allow or forget.
+   */
+  baselineHosts?: string[];
+  /** How long to wait for the gateway to report its rules armed. */
+  gatewayReadyTimeoutMs?: number;
   docker?: Docker;
   log?: Logger;
   /** Seconds a container may idle before it is reaped. */
@@ -77,6 +90,11 @@ interface Box {
 const DEFAULT_EXEC_TIMEOUT_MS = 20 * 60 * 1000;
 /** Names are derived from the id, so one sandbox's resources are findable. */
 const PREFIX = "cujo-sbx";
+/** Where a public clone of a pull request comes from. */
+const DEFAULT_BASELINE_HOSTS = ["github.com"];
+const DEFAULT_GATEWAY_READY_TIMEOUT_MS = 15_000;
+/** The line `gateway/entrypoint.sh` prints once its rules and resolver are up. */
+const GATEWAY_ARMED = "gateway.armed";
 
 export class LocalRuntime implements SandboxRuntime {
   readonly name = "local";
@@ -117,32 +135,82 @@ export class LocalRuntime implements SandboxRuntime {
       });
     }
 
+    const allowHosts = [
+      ...(this.options.baselineHosts ?? DEFAULT_BASELINE_HOSTS),
+      ...spec.allowHosts,
+    ];
+
     try {
-      // `--internal` is the load-bearing flag: Docker installs no default route
-      // on an internal network, so the sandbox's only way out is a container
-      // that is also on another one.
-      await this.run(["network", "create", "--internal", network]);
+      // Not `--internal`, which is what this first shipped as: an internal
+      // network gives the sandbox no default route at all and no upstream DNS,
+      // so nothing in it could reach the gateway as a router, and nothing could
+      // resolve a name (decision 121). Instead the two bridge options below:
+      // `inhibit_ipv4` keeps the host from taking the subnet's gateway address,
+      // so the default route Docker installs in the sandbox leads to an address
+      // nobody holds until the gateway container claims it; and no masquerade,
+      // so the host NATs nothing for this subnet even if a packet reached it.
+      await this.run([
+        "network",
+        "create",
+        "--opt",
+        "com.docker.network.bridge.inhibit_ipv4=true",
+        "--opt",
+        "com.docker.network.bridge.enable_ip_masquerade=false",
+        network,
+      ]);
+      // The address the sandbox's default route points at, reserved by IPAM and
+      // held by nobody on the wire. The gateway takes it.
+      const gatewayIp = await this.run([
+        "network",
+        "inspect",
+        "--format",
+        "{{(index .IPAM.Config 0).Gateway}}",
+        network,
+      ]);
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(gatewayIp)) {
+        throw new SandboxError("provision_failed", "network has no IPv4 gateway address");
+      }
 
       // The gateway first, so the sandbox never exists with no filter in front
-      // of it. NET_ADMIN because it writes its own nftables rules; it is the one
-      // container here that gets a capability, and it holds no pull request code.
+      // of it. NET_ADMIN because it writes its own nftables rules and claims the
+      // gateway address; it is the one container here that gets a capability,
+      // and it holds no pull request code. Forwarding is switched on here rather
+      // than by the script, because `/proc/sys` is read-only in a container.
+      //
+      // Created, connected, then started -- not `run`: the script reads its
+      // routing table on its first line, and a container started with one leg
+      // has that leg as its default route until the second is attached, which
+      // is the wrong answer to "which way is out".
       await this.run([
-        "run",
-        "--detach",
+        "create",
         "--name",
         gateway,
         "--network",
         network,
         "--cap-add",
         "NET_ADMIN",
+        "--sysctl",
+        "net.ipv4.ip_forward=1",
+        "--env",
+        `CUJO_GATEWAY_IP=${gatewayIp}`,
         "--env",
         // One argv entry, so a hostname cannot become two. Already validated as
         // hostnames with no whitespace or control characters (`allowlist.ts`).
-        `CUJO_ALLOW_HOSTS=${spec.allowHosts.join(",")}`,
+        `CUJO_ALLOW_HOSTS=${allowHosts.join(",")}`,
         this.options.gatewayImage,
       ]);
-      // Its second leg, which is the only route off the internal network.
-      await this.run(["network", "connect", this.options.egressNetwork ?? "bridge", gateway]);
+      // Its second leg, which is the only route off the sandbox's network.
+      // Highest gateway priority, so the container's own default route goes out
+      // this leg and never back at the address it is about to claim.
+      await this.run([
+        "network",
+        "connect",
+        "--gw-priority",
+        "100",
+        this.options.egressNetwork ?? "bridge",
+        gateway,
+      ]);
+      await this.run(["start", gateway]);
 
       await this.run([
         "run",
@@ -152,8 +220,13 @@ export class LocalRuntime implements SandboxRuntime {
         container,
         "--network",
         network,
+        // Every name the sandbox resolves goes to the gateway's resolver, which
+        // answers for the allowlist and nothing else. Docker's embedded resolver
+        // still sits at 127.0.0.11 inside the box; this is what it forwards to.
+        "--dns",
+        gatewayIp,
         // No capability at all, and no new ones: this is where the pull request's
-        // code runs.
+        // code runs, and without NET_ADMIN it cannot change the route it was given.
         "--cap-drop",
         "ALL",
         "--security-opt",
@@ -165,6 +238,10 @@ export class LocalRuntime implements SandboxRuntime {
         this.options.image,
         "infinity",
       ]);
+
+      // The first `exec` may come within a second of this returning, and a
+      // resolver that is not listening yet is a clone that fails on DNS.
+      await this.waitForGateway(gateway);
 
       const box: Box = { id, container, gateway, network, createdAt: Date.now() };
       this.boxes.set(id, box);
@@ -180,6 +257,36 @@ export class LocalRuntime implements SandboxRuntime {
       await this.reap({ id, container, gateway, network, createdAt: started }).catch(() => {});
       if (error instanceof SandboxError) throw error;
       throw new SandboxError("provision_failed", String(error));
+    }
+  }
+
+  /**
+   * Block until the gateway has printed `gateway.armed`, or fail the provision.
+   *
+   * The script sets its drop policy before anything else and prints that line
+   * last, after the allowlist rules and the resolver are up, so seeing it means
+   * the sandbox can be handed to a caller. A gateway that exits instead — no
+   * default route, a refused rule — is reported by name rather than surfacing
+   * later as a clone that could not resolve anything.
+   */
+  private async waitForGateway(gateway: string): Promise<void> {
+    const deadline =
+      Date.now() + (this.options.gatewayReadyTimeoutMs ?? DEFAULT_GATEWAY_READY_TIMEOUT_MS);
+    for (;;) {
+      const logs = await this.docker(["logs", gateway]);
+      const output = `${logs.stdout}\n${logs.stderr}`;
+      if (output.includes(GATEWAY_ARMED)) return;
+      const state = await this.docker(["inspect", "--format", "{{.State.Running}}", gateway]);
+      if (state.exitCode === 0 && state.stdout.trim() === "false") {
+        throw new SandboxError(
+          "provision_failed",
+          `gateway exited before arming: ${output.trim().slice(-300)}`,
+        );
+      }
+      if (Date.now() >= deadline) {
+        throw new SandboxError("provision_failed", "gateway did not arm in time");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
 
