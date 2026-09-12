@@ -25,5 +25,12 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends docker.io \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=build --chown=node:node /repo/apps/sandbox-mcp/dist ./dist
+# The two build contexts the local runtime needs, built through that socket at
+# boot (decision 118). They are `docker run` per sandbox, never compose
+# services, so nothing in `up --build` would build them; carrying the contexts
+# here is what makes the sensors a review runs the code this deploy shipped.
+# `sandbox/tests/` rides along and is ignored by that Dockerfile's COPY lines.
+COPY sandbox ./images/sandbox
+COPY apps/sandbox-mcp/gateway ./images/gateway
 EXPOSE 8082
 CMD ["node", "dist/index.js"]

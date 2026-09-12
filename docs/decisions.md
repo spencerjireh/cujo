@@ -6365,3 +6365,62 @@ still leaves the image somebody else's. **Installing the repository's own
 dependencies into the image**, which would mean the image knows what it is about to
 review. **`apt`-installing every language a target might use**, which is an image
 that grows forever to cover a case a `.cujo.yml` could state.
+
+## 118. `sandbox-mcp` builds the images it runs, at boot, from contexts it carries
+
+Decision 117 made the sandbox image ours and 116 added the gateway beside it.
+Neither said who builds them on the host, and the answer was nobody.
+`docker-compose.yml` names both as tags, `cujo-sandbox:latest` and
+`cujo-sandbox-gateway:latest`, but they are not services in it: the local
+runtime starts them with `docker run` per sandbox, so `up --build` never sees a
+`build:` for either, and Coolify's deploy — which is `up --build` and nothing
+else (architecture, deployment topology) — would have brought up a `sandbox-mcp`
+whose first `create` was a `docker run` of a tag Docker had never heard of, which
+it answers by trying to pull `docker.io/library/cujo-sandbox` and failing. Every
+review after the first deploy of 113 would have failed at provisioning.
+
+So `sandbox-mcp` builds them itself. `apps/sandbox-mcp/Dockerfile` copies
+`sandbox/` and `apps/sandbox-mcp/gateway/` into its image at `/app/images`, and
+at boot, when the runtime is `local`, `buildImages` runs `docker build` on each
+through the socket the service already holds, tagging the result with the name
+the runtime will later run. The HTTP server listens meanwhile and answers 503 on
+`/healthz` *and* `/mcp` until both builds finish; a build that fails ends the
+process, so a sandbox service that cannot provision is never one the deploy
+calls healthy. The compose healthcheck's `start_period` is twenty minutes,
+because failures inside it do not count and a cold build is minutes of `apt` and
+`pip`; a warm rebuild is layer-cached and passes in seconds.
+
+Why this and not a build-only compose service, which is the usual trick — a
+service with `build:` and `image:` and an entrypoint of `true`, that
+`sandbox-mcp` `depends_on` completing. Three reasons. It relies on Coolify
+keeping the `image:` name a compose file gives a service it builds, which the
+documentation does not promise and which a rename would break silently: the
+tag would simply not exist, in the same way as before. It makes the images'
+freshness a property of the deploy pipeline rather than of the service, so a
+`sandbox-mcp` started any other way — `make up-local`, a container run by hand —
+would run stale sensors or none. And it would show in Coolify as a service that
+exits, which is a thing to explain on every deploy. Building at boot makes the
+sensors a review runs exactly the code the deploy shipped, from the same commit
+that built the service, with no third thing to keep in step. The
+`specFingerprint` argument in 117 rests on that.
+
+What this costs. The socket was already there (114); this uses it for one more
+thing, and `docker build` is a bigger surface than `docker run`. The contexts
+are this image's own files and never a caller's, and the tags come from the
+environment, so nothing a pull request wrote reaches the build. The first boot
+after a base-image change is a slow boot, and `cujo` waits on it; that is the
+right order, since a webhook that arrived earlier would have had nowhere to run.
+The build does not `--pull`, deliberately: the base images are whatever the host
+has, and a registry that is down must not stop a deploy whose layers are cached.
+
+`CUJO_SANDBOX_IMAGES_DIR` set empty skips the build and runs whatever the two
+tags already name. That is for a developer with both built by hand, and for the
+`daytona` runtime the question does not arise, which is why the contract-test
+overlay needs no socket.
+
+Rejected: **pre-built images in a registry**, pulled by tag, which is a release
+step and a second credential for a project whose deploy is a merge (35).
+**Building lazily on the first `create`**, which puts minutes of build inside a
+tool call the agent is waiting on, and a turn that times out there looks like a
+sandbox failure. **A `depends_on` a build-only service**, above.
+
