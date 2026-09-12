@@ -6550,3 +6550,31 @@ gVisor, in the path of a netstack that injects frames below netfilter. **A
 non-inhibited bridge with masquerade off**, which leaves the host as the
 sandbox's router with a private source address, dropped upstream but not by us.
 **Leaving DNS to the daemon**, above.
+
+## 122. The gateway's baseline is the sensor's known-host list
+
+Decision 121 gave every sandbox `github.com` before a repository asked for
+anything, on the argument that the clone is Cujo's step. The next live review
+(orders-api #40, a real code change this time) cloned, then failed to install:
+`pip` got NXDOMAIN for `pypi.org`, because the repository's `.cujo.yml` names no
+`allow_hosts` — deliberately, as its comment says — and the gateway allowed
+nothing else. Every check needs the install, so the run was `unproven` again,
+one hop further along.
+
+The same argument covers the install. Under the old runtime the in-sandbox
+proxy carried `KNOWN_INDEX_HOSTS`, the registries an install legitimately talks
+to, and a repository never had to name one; the gateway replaced the proxy as
+the control (116) and did not inherit the list. So the gateway's baseline is now
+that list — the clone hosts and the package indexes for Python, Node, Rust, Go
+and Ruby — and a repository's `allow_hosts` adds to it. The sensor still holds
+its own copy, because nothing under `sandbox/` can import from the trusted side
+(46, 117), and a test in `sandbox-mcp` reads `policy.py` and fails if the two
+differ. They have to be one list: the sensor's says which egress was
+*expected*, the gateway's says which is *possible*, and a host on one and not
+the other is either an install that cannot run or an egress row marked unknown
+that the gateway let through.
+
+Not a widening of what a review may reach in any way that matters. These are
+the hosts the sensor already called clean, on every review that ever ran, and
+the gateway still resolves nothing else. What changes is who has to remember
+them: nobody.
