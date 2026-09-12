@@ -1,5 +1,5 @@
+import { REASONING_EFFORTS, type ReasoningEffort } from "@cujo/harness-contract";
 import { type Level, parseLevel } from "@cujo/log";
-import { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 
 /**
  * Environment for the apps/cujo process. Every name here is fixed by the build
@@ -14,7 +14,7 @@ export interface Config {
    * keeps its old environment until the swap (decision 35).
    */
   logLevel: Level;
-  trueforgeBaseUrl: string;
+  harnessBaseUrl: string;
   githubWebhookSecret: string;
   githubAppId: string;
   githubAppPrivateKey: string;
@@ -67,20 +67,6 @@ export interface Config {
   /** Where the agent reaches its sandbox, since the harness no longer has one. */
   sandboxMcpUrl: string;
   turnTimeoutMs: number;
-  /**
-   * The context size, in tokens, at which TrueForge summarises the parent's
-   * older history. Above the harness default of 50,000 on purpose: the review
-   * agent collects four full check reports and then writes its body from them,
-   * so a compaction between the last `thread.done` and the review is a review
-   * argued from a summary of the evidence rather than the evidence.
-   *
-   * Nothing observes when it fires. The SDK's event union carries no compaction
-   * event, so Cujo cannot say it happened and does not claim to; the per-check
-   * token counts are what let a reader see it for themselves.
-   *
-   * Applies to the review agent only. Conversation keeps the harness default.
-   */
-  compactionThresholdTokens: number;
   /** Concurrent public run streams this process will hold (decision 34). */
   publicStreamLimit: number;
   /**
@@ -111,43 +97,40 @@ export interface Config {
       name: string;
       baseUrl: string;
       apiKey: string;
-      /** `name` is the TrueForge model name; `modelId` is the provider's id. */
+      /** `name` is what `CUJO_MODEL` names after the slash; `modelId` is the provider's id. */
       models: { name: string; modelId: string }[];
       /**
-       * Reasoning efforts these models accept, declared on every one of them
-       * (decision 56).
-       *
-       * One list rather than a value per model, because there is no
-       * provider-level field to send: the declaration lives on each
-       * `ConfiguredModel.properties`, so this is fanned out at registration.
-       * Empty declares nothing, which is what every deploy did before — and
-       * what made `CUJO_MODEL_REASONING_EFFORT` unusable.
+       * What the harness needs to know about every one of these models
+       * (decision 127): the window it clamps the output cap against, that cap,
+       * and whether a reasoning effort means anything to it at all. One value
+       * each for every model in the list, because a deploy registers one
+       * provider and, in practice, one model.
        */
-      reasoningEfforts: TrueForgeApi.ReasoningEffort[];
+      contextWindow: number;
+      maxTokens: number;
+      reasoning: boolean;
     } | null;
-    daytonaApiKey: string | null;
   };
 }
 
 /**
- * The efforts TrueForge knows, taken from the SDK rather than retyped, so the
- * list cannot drift from the server that validates against it.
+ * The efforts the harness contract names, taken from the package rather than
+ * retyped, so the list cannot drift from the schema that validates the spec.
  *
- * Checked here and not merely at registration: an unknown value is accepted by
- * every string type between here and the wire, and the server then rejects the
- * *provider*, which `bootstrapUntilReady` retries forever. That leaves the
- * webhook answering 503 for good — the same shape of silent outage this whole
- * change exists to remove, just moved one step earlier.
+ * Checked here and not at session creation: an unknown value is accepted by
+ * every string type between here and the wire, and a spec the harness refuses
+ * is a webhook answering 502 while this process reports healthy. Failing here
+ * is a container that visibly will not boot.
  */
-const EFFORTS = Object.values(TrueForgeApi.ReasoningEffort) as string[];
+const EFFORTS: readonly string[] = REASONING_EFFORTS;
 
-function effort(raw: string, name: string): TrueForgeApi.ReasoningEffort {
+function effort(raw: string, name: string): ReasoningEffort {
   if (!EFFORTS.includes(raw)) {
     throw new Error(
       `${name} has ${JSON.stringify(raw)}, which is not a reasoning effort. Valid values: ${EFFORTS.join(", ")}.`,
     );
   }
-  return raw as TrueForgeApi.ReasoningEffort;
+  return raw as ReasoningEffort;
 }
 
 /**
@@ -201,42 +184,14 @@ function count(
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const modelProviderBaseUrl = env.MODEL_PROVIDER_BASE_URL;
   const modelProviderApiKey = env.MODEL_PROVIDER_API_KEY;
-  // MODEL_PROVIDER_REASONING_EFFORTS: `<effort>,...`, declared on every model
-  // this process registers (decision 56).
-  const reasoningEfforts = (env.MODEL_PROVIDER_REASONING_EFFORTS ?? "")
-    .split(",")
-    .map((e) => e.trim())
-    .filter(Boolean)
-    .map((e) => effort(e, "MODEL_PROVIDER_REASONING_EFFORTS"));
   const chosen = (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim();
-  // Validated on its own before the membership check below, so a typo shared by
-  // both variables is caught rather than agreeing with itself.
+  // The seven words the harness clamps against what the model declares
+  // (decision 127); nothing has to be announced to the provider any more.
   const modelReasoningEffort = chosen ? effort(chosen, "CUJO_MODEL_REASONING_EFFORT") : "";
-  // Refuse to start rather than answer 502 to every pull request.
-  //
-  // An effort the registration does not declare is rejected when the session is
-  // created, which is after this process is up and reporting healthy: `/readyz`
-  // stays green, the model provider is registered, and every review silently
-  // stops. Failing here turns that into a container that visibly will not boot.
-  //
-  // Only when this process is the thing that registers the provider. With the
-  // provider configured in the operator console instead, Cujo does not know what
-  // it declares, and refusing on a guess would block a working deploy.
-  if (
-    modelReasoningEffort &&
-    modelProviderBaseUrl &&
-    modelProviderApiKey &&
-    !reasoningEfforts.includes(modelReasoningEffort)
-  ) {
-    const declared = reasoningEfforts.length ? reasoningEfforts.join(", ") : "it is empty";
-    throw new Error(
-      `CUJO_MODEL_REASONING_EFFORT is ${JSON.stringify(modelReasoningEffort)}, which MODEL_PROVIDER_REASONING_EFFORTS does not declare (${declared}). TrueForge refuses a session whose model asks for an undeclared effort, so every review would fail to start.`,
-    );
-  }
   return {
     port: Number(env.PORT ?? 8080),
     logLevel: parseLevel(env.CUJO_LOG_LEVEL),
-    trueforgeBaseUrl: env.TRUEFORGE_BASE_URL ?? "http://server:8790",
+    harnessBaseUrl: env.HARNESS_BASE_URL ?? "http://harness:8790",
     githubWebhookSecret: required(env, "GITHUB_WEBHOOK_SECRET"),
     githubAppId: required(env, "GITHUB_APP_ID"),
     githubAppPrivateKey: required(env, "GITHUB_APP_PRIVATE_KEY"),
@@ -258,7 +213,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // `||`, not `??`: an unset compose optional arrives as the empty string,
     // and an empty URL would reach the sandbox as a `curl` with no argument.
     turnTimeoutMs: Number(env.CUJO_TURN_TIMEOUT_MS ?? 30 * 60 * 1000),
-    compactionThresholdTokens: count(env.CUJO_COMPACTION_THRESHOLD_TOKENS, 200_000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
     converseLimit: count(env.CUJO_CONVERSE_LIMIT, 3, { zeroOk: true }),
     converseWindowMs: count(env.CUJO_CONVERSE_WINDOW_MS, 60 * 60 * 1000),
@@ -286,10 +240,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
                   if (eq === -1) return { name: pair, modelId: pair };
                   return { name: pair.slice(0, eq).trim(), modelId: pair.slice(eq + 1).trim() };
                 }),
-              reasoningEfforts,
+              contextWindow: count(env.MODEL_PROVIDER_CONTEXT_WINDOW, 128_000),
+              maxTokens: count(env.MODEL_PROVIDER_MAX_TOKENS, 16_384),
+              // Only an explicit "0" turns it off: a model that reasons and is
+              // told it does not gets no effort at all.
+              reasoning: env.MODEL_PROVIDER_REASONING !== "0",
             }
           : null,
-      daytonaApiKey: env.DAYTONA_API_KEY ?? null,
     },
   };
 }

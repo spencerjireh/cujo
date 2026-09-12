@@ -43,7 +43,7 @@ The split between deterministic code and agent reasoning is fixed:
 
 ## Non-goals (for this milestone)
 
-- Private repos and self-hosted Daytona.
+- Private repos.
 - TLS interception of sandbox egress; metadata only (decision 10).
 - Forcing all sandbox traffic through the proxy. The proxy sees processes that
   honour `HTTP(S)_PROXY`; a non-Python process that opens a direct socket is
@@ -165,7 +165,7 @@ For a `pull_request` event the `apps/cujo` webhook module:
    anything unsigned or mismatched.
 2. Reads the PR metadata and the changed-file list with the App installation
    token (Contents: read, Pull requests: read).
-3. Finds or creates the TrueForge session for this PR (see Contract 5) and
+3. Finds or creates the harness session for this PR (see Contract 5) and
    starts one turn with a single user message: repo full name, PR number, base
    SHA, head SHA, the changed-file list, and — only when the repo is public —
    `run_id`, which the agent passes back to the review tool (Contract 4). An id
@@ -184,7 +184,7 @@ The webhook module does not decide what to check. That is the agent's job.
 
 ## Contract 2 — the sandbox run
 
-One Daytona sandbox per turn. The parent agent sets it up, delegates each
+One sandbox per turn. The parent agent sets it up, delegates each
 check to a subagent, and collects one JSON report per check. Only those reports
 cross back out of the sandbox.
 
@@ -947,40 +947,50 @@ stays last.
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.
 
-The gate is the harness's `require_approval_for_tools` on `post_gated_review`,
-and that one name is the whole mechanism: the annotation `@destructive` marks
-what a tool does, but it is the explicit list that decides what pauses, so
-`post_blocking_review` stays annotated destructive and is no longer gated. When
-a finding accuses code of acting maliciously the agent calls the gated tool,
-after posting the observation, and the turn pauses with a `tool.approval_required`
-event on the `main` thread, carrying `tool_calls[{id, source_event_id}]`.
-`apps/cujo` reads the drafted review from the `model.message` event that
-`source_event_id` names, and rebuilds both the posted body and its inline
-comments by calling `@cujo/review-render` — the same package `github-mcp`
-posts with, so the board cannot describe a finding differently from the pull
-request (decision 74). It marks the run `blocked_pending`. The board shows nothing of it until it posts: publishing a
-held accusation is exactly what the gate prevents, and the audience there had no
-way to allow it. The answer comes from `/cujo confirm` or
-`/cujo dismiss` on the pull request (Contract 8, decisions 45 and 49), and
-`apps/cujo` resumes the turn
-with `sessions.createTurn(sessionId, {input: [{type:
-'user.tool_approval', threadId: 'main', toolCallId, approval: {status:
-'allow' | 'deny'}}]})` and then `subscribeToTurn` on the returned id, which it
-records as its own before any event arrives. On `allow` the gated review posts as
-`cujo-guard[bot]`. On `deny` the agent posts nothing further and ends the turn;
-the rubric says so explicitly, so a dismissed accusation never degrades into a
-second review nobody asked for. The advisory observation posted before the pause
-and is unaffected either way, which is what makes a denial and a timeout both
-safe: the evidence stands, and only the claim about a person is dropped.
+The gate is the spec's `requireApprovalForTools` on `post_gated_review`, and
+that one name is the whole mechanism: the list is exact tool names, absent
+means none (decision 128), so `post_blocking_review` is not gated. When a
+finding accuses code of acting maliciously the agent calls the gated tool,
+after posting the observation, and the harness holds the call inside its
+tool hook (decision 125): it emits `tool.approval_required` on the `main`
+thread, carrying `toolCalls[{id, sourceEventId}]`, and ends the turn as `done`
+with that event as its required action. The observation has posted by then,
+because a gated tool runs sequentially and the calls before it in the same
+message have executed (decision 126). `apps/cujo` reads the drafted review
+from the `model.message` event that `sourceEventId` names, and rebuilds both
+the posted body and its inline comments by calling `@cujo/review-render` — the
+same package `github-mcp` posts with, so the board cannot describe a finding
+differently from the pull request (decision 74). It marks the run
+`blocked_pending`. The board shows nothing of it until it posts: publishing a
+held accusation is exactly what the gate prevents, and the audience there had
+no way to allow it. The answer comes from `/cujo confirm` or `/cujo dismiss`
+on the pull request (Contract 8, decisions 45 and 49), and `apps/cujo` answers
+with a new turn whose input is `[{type: 'user.tool_approval', threadId:
+'main', toolCallId, approval: {status: 'allow' | 'deny', reason?}}]`, then
+subscribes to the returned id, which it records as its own before any event
+arrives. On `allow` the held call runs and the gated review posts as
+`cujo-guard[bot]`; its `tool.response` carries the original call id. On `deny`
+the reason is the tool result the model reads, it posts nothing further and
+ends the turn; the rubric says so explicitly, so a dismissed accusation never
+degrades into a second review nobody asked for. The advisory observation
+posted before the pause and is unaffected either way, which is what makes a
+denial and a timeout both safe: the evidence stands, and only the claim about
+a person is dropped.
+
+A held call that outlives the harness process is answered by a re-call
+(decision 125): the harness tells the model the outcome in a new turn and, on
+`allow`, asks it to make the same call again, which the gate lets through once
+with identical arguments. The fold treats any successful `tool.response` to
+the gated tool after an allow as the review posting, whatever the call id.
 
 The deny is not always a human's. The approval is outstanding on the session
-rather than on the turn that raised it, and while one is pending TrueForge
-refuses every later user message on the thread, so a block nobody will decide
-has to be answered before the pull request can be reviewed again. `apps/cujo`
-sends that deny itself when a newer head supersedes the run, and once more as a
-retry if a turn cannot be started at all; the reason it sends says the commit
-was replaced, not that an operator rejected the block, and the run stays
-`superseded` with no approver (decision 39).
+rather than on the turn that raised it. `apps/cujo` sends a deny itself when a
+newer head supersedes the run, and once more as a retry if a turn cannot be
+started at all; the reason it sends says the commit was replaced, not that an
+operator rejected the block, and the run stays `superseded` with no approver
+(decision 39). The harness would void the pending approval on the new head's
+user message anyway (decision 125), and refuses a later answer to it with
+`409`; the stale deny is what lets the model hear why.
 
 **Stale review dismissal (decision 52).** A `REQUEST_CHANGES` review from an
 older commit stays on the pull request when a newer head replaces it. When a new
@@ -1006,6 +1016,15 @@ posts and shows as changes-requested, but does not gate the merge.
 - On `synchronize` (new commits), the session runs a fresh turn against the new
   head SHA rather than opening a new session. The earlier turns stay in the
   session, so the agent can see what it said before.
+- **`/cujo reset` from Discord forgets a pull request's sessions** (decision
+  123), the review one and the conversation one, so the next push or `/cujo
+  review` creates fresh ones on the current rubric and model. A session is
+  pinned to the spec it was created with (decision 16), and before this the
+  only way to reach a pull request already under review with a changed rubric
+  was a new pull request. It is refused while a run on the pull request is
+  unfinished, because that run's turn is live on the session, and it needs the
+  same authorization as `/cujo watch`: the server the repo names is the one
+  that may restart its reviews.
 - The idempotency check lives in **`apps/cujo`**, not the agent or `github-mcp`.
   Before starting a turn, it lists the PR's existing reviews with the
   installation token and skips the turn if `cujo-guard[bot]` has already
@@ -1042,19 +1061,19 @@ posts and shows as changes-requested, but does not gate the merge.
 ## Contract 6 — the run record and the operator API
 
 `apps/cujo` keeps one record per PR event it acted on, called a run. It is a
-projection of the TrueForge session (decision 18): the fields below are all
-`apps/cujo` stores, and everything else the UI shows is rebuilt from
-`listTurnEvents` on demand.
+projection of the harness session (decision 18): the fields below are all
+`apps/cujo` stores, and everything else the UI shows is rebuilt from the
+session's event log on demand, which `listEvents` returns whole (decision 123).
 
-Events from TrueForge are validated at the boundary before they enter the
-fold (decision 105). The schema is shallow — only the fields `fold.ts` and
-`runner.service.ts` read — and lenient: `.passthrough()` on every object,
-`safeParse` with a `run.event.invalid` warning on mismatch, never a rejection.
-The same additive-only principle as the report validator (decision 62).
+Events from the harness are validated at the boundary before they enter the
+fold (decision 105), against the contract's own schemas
+(`packages/harness-contract`): `safeParse` with a `run.event.invalid` warning
+on mismatch, never a rejection, and a type the contract does not name is
+checked for an id and a timestamp only.
 
-A run spans more than one TrueForge turn. `tool.approval_required` ends the
+A run spans more than one harness turn. `tool.approval_required` ends the
 turn it arrives in, and the resume (Contract 4) is a new turn whose
-`turn.created` carries `previous_turn_id`. So a run holds an ordered list of
+`turn.created` carries `previousTurnId`. So a run holds an ordered list of
 turn ids, appended on every `turn.created` `apps/cujo` sees for the session,
 whether it started that turn or not, and rehydration replays every turn in the
 list in order.
@@ -1063,7 +1082,7 @@ list in order.
 |-------|---------|
 | `id` | Run id, `apps/cujo`'s own. |
 | `repo`, `pr_number`, `head_sha` | The PR event that started it. |
-| `session_id` | The TrueForge session (one per PR, Contract 5). |
+| `session_id` | The harness session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
 | `status` | One of the eight states below. |
 | `approver`, `decided_at` | Who decided and when. `github:<login>` for a decision made with `/cujo confirm` or `/cujo dismiss` on the pull request, which is the only way a held finding is answered (decisions 45 and 49); the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
@@ -1071,8 +1090,8 @@ list in order.
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 55). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
 | `model`, `rubric_sha256` | What produced this verdict: the configured model, and a SHA-256 of the instructions a session would be given — `agent/SKILL.md` after the tarball URL is substituted, so two deploys pointing at different sensor code hash differently. **Both describe the process that claimed the run, not necessarily the session that reviewed it**: the spec is built once at boot and a session is created once per pull request and then kept (decision 16), so a run claimed on an older session carries today's values. Unset for a run claimed before the columns existed. Served on both planes: a model name and a digest of a public rubric name no person and authorize nothing. |
-| `usage` | What the run cost, summed over every `turn.done` on it, from TrueForge's own `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus its estimated cost in USD. Cujo keeps no price table — the number is the harness's, or it is absent. Reads zero for most of a run and fills in at the end, because the streamed `model.message` is a stub and usage arrives with the persisted copy. Each check carries its own token total beside it, summed from its thread's messages, which is the only way to attribute anything per check. **The key is always present**, and is `null` for a run whose projection was stored before the field existed — null and not zeros, because such a run did not cost nothing, it has no record. The per-check `usage` and `timings` are null on the same terms. |
-| `setup` | Where the run went before the first check existed: `turnCreatedAt` (the run's first `turn.created`), `sandboxCreatedAt` (`sandbox.created`, where Daytona provisioning ends), `agentStartedAt` (the parent's first `model.message` on `main`), `firstCheckAt` (the first `thread.created` titled for a check), `messages` (the parent's own messages before it, which is the round-trip count setup cost), and `ms`, the span from `agentStartedAt` to `firstCheckAt`. Four stamps and not one duration, because two of the useful spans end outside this object — the claim is `created_at`, and a reader subtracts. `sandboxCreatedAt` is null on a second run for one pull request: the event is session-scoped and a fold sees only its own run's turns, so null says the sandbox was already there, which is why a re-run is faster. `ms` is omitted while either end is missing. **The key is always present**, `null` for a projection stored before the field existed, on the same terms as `usage`. |
+| `usage` | What the run cost, summed over every `turn.done` on it, from the harness's `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus its estimated cost in USD when the harness reports one above zero. Cujo keeps no price table — the number is the harness's, or it is absent. Each check carries its own token total beside it, summed from its thread's messages, which is the only way to attribute anything per check. **The key is always present**, and is `null` for a run whose projection was stored before the field existed — null and not zeros, because such a run did not cost nothing, it has no record. The per-check `usage` and `timings` are null on the same terms. |
+| `setup` | Where the run went before the first check existed: `turnCreatedAt` (the run's first `turn.created`), `sandboxCreatedAt` (always null since decision 115; `sandboxProvisionedMs` beside it is what the sandbox's own answer reports), `agentStartedAt` (the parent's first `model.message` on `main`), `firstCheckAt` (the first `thread.created` titled for a check), `messages` (the parent's own messages before it, which is the round-trip count setup cost), and `ms`, the span from `agentStartedAt` to `firstCheckAt`. Four stamps and not one duration, because two of the useful spans end outside this object — the claim is `created_at`, and a reader subtracts. `sandboxCreatedAt` is null on a second run for one pull request: the event is session-scoped and a fold sees only its own run's turns, so null says the sandbox was already there, which is why a re-run is faster. `ms` is omitted while either end is missing. **The key is always present**, `null` for a projection stored before the field existed, on the same terms as `usage`. |
 | `created_at`, `updated_at` | Timestamps. |
 
 Status moves on events from the session's turn streams, with one exception
@@ -1109,26 +1128,26 @@ at most, recorded in `run_announcements`, because a comment is not the idempoten
 POST a reaction is and `rehydrate` re-folds every run on restart.
 
 One run, one turn chain. Every run on a PR shares the PR's session, so a run
-records the id of each turn it creates (`createTurn`, then `subscribeToTurn`)
-before the first event arrives, and never adopts a turn another run on the
+records the id of each turn it creates (`startTurn` or `resume`, then
+`subscribe`) before the first event arrives, and never adopts a turn another run on the
 session recorded. A run that has no recorded turn after a restart was lost
 between the claim and the turn; it ends in `error`, and because an errored run
 with no turn does not hold its head, a redelivery of the webhook claims the
 head again and reviews it.
 
-The fold reads persisted events. The turn stream's `model.message` is a stub
-(id only; the server streams text as deltas and never streams tool calls), so
-at each decision point (`tool.approval_required`, `turn.done`) `apps/cujo`
-re-reads the session's events with `listEvents` and replaces the stream's
-copies by id before folding. The review tool call is recognised whether the
-model called the MCP tool by name or through the harness's `call_tool`
-meta-tool (`{mcp_server: 'github-mcp', tool_name, input}`), which is what the
-server exposes by default.
+The fold reads persisted events. The turn stream carries every stored event
+with its content, plus `model.message.delta` frames for text as it is
+produced; at each decision point (`tool.approval_required`, `turn.done`)
+`apps/cujo` still re-reads the session's events with `listEvents` and replaces
+the stream's copies by id before folding, so a stream that dropped a frame
+cannot cost a verdict. The review tool call is recognised by the tool's own
+name on the `model.message`: the harness exposes MCP tools to the model by
+name and there is no meta-tool (decision 128).
 
 A resume `apps/cujo` did not send is still tracked. After `blocked_pending`,
-`apps/cujo` keeps a subscription on the session (`subscribeToTurn` for a turn
-still running; `listEvents` on the session after a restart), so a new turn
-started from the TrueForge operator console is seen like any other: its id is
+`apps/cujo` keeps a subscription on the session (`subscribe` for a turn still
+running; `listEvents` on the session after a restart), so a new turn started
+by anything else that can reach the harness is seen like any other: its id is
 appended to `turn_ids`, the gated call's `tool.response` moves the run to
 `blocked_posted` or its absence to `denied`, and `approver` is set to
 `external`. The UI shows such a run with an "approved outside Cujo" mark
@@ -1247,7 +1266,7 @@ emitters.
 | `run.status.changed` | info | `from`, `to`, `error_message`? | Each status transition. `error_message` is present only when `to` is `error` and the projection carries an error string; omitted on clean endings. |
 | `check.started` | info | `check`, `thread_id` | A sub-agent thread whose title matches a check name moves to running. |
 | `check.finished` | info | `check`, `thread_id`, `status`, `duration_ms`? | A check thread reaches a terminal state. |
-| `run.setup.completed` | info | `session_id` | Fires once, on the first `check.started`, confirming sandbox setup succeeded and sensors are armed. `session_id` is the TrueForge session, not a turn id. Seeded from the stored projection on rehydrate so a restart does not re-emit. |
+| `run.setup.completed` | info | `session_id` | Fires once, on the first `check.started`, confirming sandbox setup succeeded and sensors are armed. `session_id` is the harness session, not a turn id. Seeded from the stored projection on rehydrate so a restart does not re-emit. |
 | `check.hard_rule.tripped` | warn | `rule`, `check`, `severity`, `claim` | One line per rule per check. `claim` is `"malice"` for the four supply-chain rules (decision 21), `"correctness"` for `tests_failed`, or `"operational"` for `check_missing` and `sensor_unarmed` (evidence-quality warnings, not code defects). Deduplicated by `rule:check` and seeded from the stored projection, so a restart does not re-announce. |
 
 ## Contract 7 — Discord notifications
@@ -1733,17 +1752,17 @@ diff; Cujo still has the sandbox recipe, so when a maintainer says "that route
 needs orders to exist, seed the database first", the answer is a new measurement
 rather than a rephrasing of the old one.
 
-**Its own TrueForge session, always.** Keyed `(repo, pr_number)` in
+**Its own harness session, always.** Keyed `(repo, pr_number)` in
 `conversation_sessions`, which is a second table rather than a column because
 `sessions` is keyed by the pull request and already holds the review's. Sharing
 the review's session fails three ways, each independently fatal:
 
-- it **cancels a live review** — creating a turn while one runs cancels the old
-  one, and a subscriber to the cancelled turn is never told, so the run ends on
-  the watchdog. Ungated, that is a one-comment denial of review.
-- it is **refused `422`** — "user message cannot be sent while approvals or
-  questions are pending" — in exactly the `blocked_pending` state a maintainer
-  most wants to talk about.
+- it **cancels a live review** — creating a turn while one runs ends the old
+  one as `cancelled-for-next-turn`. Ungated, that is a one-comment denial of
+  review.
+- it **voids a held accusation** — a new user message on a session with a
+  pending approval supersedes it (decision 125), in exactly the
+  `blocked_pending` state a maintainer most wants to talk about.
 - it **corrupts the projection**: `fold` dedupes checks by thread id, so a
   re-run emits every hard-rule critical twice and can never clear the finding it
   was meant to correct.
@@ -1755,8 +1774,8 @@ to whichever surface the question came from, so an answer lands under the
 finding it is about. Only conversation is dispatched from the review-thread
 event; a `/cujo` verb stays on the pull request's own thread.
 
-**The agent holds no write authority.** Its spec carries `mcpServers: []`, so it
-has no review tool and no way to reach GitHub at all; `apps/cujo` reads the
+**The agent holds no write authority.** Its spec names `sandbox-mcp` and no
+other server, so it has no review tool and no way to reach GitHub at all; `apps/cujo` reads the
 turn's final assistant message — the last one on `main` with text and no tool
 call — and posts it. That is what bounds a prompt injection through a stranger's
 comment to "wastes a sandbox", and it is why a turn that errors or times out

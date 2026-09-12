@@ -46,7 +46,7 @@ export function FlowDiagram() {
         viewBox="0 0 760 262"
         className="h-auto w-full min-w-[620px]"
         role="img"
-        aria-label="GitHub sends a webhook to the Cujo service, which starts a turn on the TrueForge harness. The harness runs the pull request inside a disposable Daytona sandbox, where the tests, probes, smoke and detonation checks execute. Only pull request code and dependency names cross into the sandbox, and only JSON reports come back. The review returns through the github-mcp server, which holds the credentials and stays on the trusted side, and is posted to GitHub."
+        aria-label="GitHub sends a webhook to the Cujo service, which starts a turn on the harness. The harness runs the pull request inside a disposable sandbox, where the tests, probes, smoke and detonation checks execute. Only pull request code and dependency names cross into the sandbox, and only JSON reports come back. The review returns through the github-mcp server, which holds the credentials and stays on the trusted side, and is posted to GitHub."
       >
         <title>Where the trust boundary falls</title>
         <defs>
@@ -83,15 +83,8 @@ export function FlowDiagram() {
 
         <Box x={GITHUB.x} y={ROW_Y} w={GITHUB.w} label="GitHub" sub="pull request" />
         <Box x={CUJO.x} y={ROW_Y} w={CUJO.w} label="apps/cujo" sub="verifies, folds" />
-        <Box x={FORGE.x} y={ROW_Y} w={FORGE.w} label="TrueForge" sub="runs the agent" />
-        <Box
-          x={SANDBOX_X}
-          y={48}
-          w={200}
-          h={140}
-          label="Daytona sandbox"
-          sub="the PR executes here"
-        />
+        <Box x={FORGE.x} y={ROW_Y} w={FORGE.w} label="harness" sub="runs the agent" />
+        <Box x={SANDBOX_X} y={48} w={200} h={140} label="Sandbox" sub="the PR executes here" />
         {CHECKS.map((name, i) => (
           <text
             key={name}

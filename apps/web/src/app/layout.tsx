@@ -69,8 +69,7 @@ const FOOTER_BUTTON =
 
 const SOURCE = [
   { label: "Cujo", href: "https://github.com/spencerjireh/cujo" },
-  { label: "TrueForge", href: "https://github.com/truefoundry/trueforge" },
-  { label: "Daytona", href: "https://github.com/daytonaio/daytona" },
+  { label: "pi", href: "https://github.com/badlogic/pi-mono" },
 ];
 
 /**
@@ -111,8 +110,8 @@ export function SiteFooter() {
         <div>
           <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">Built on</h2>
           <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
-            TrueForge, unforked, for the agent harness. Daytona for the sandbox each pull request is
-            executed in, and thrown away with.
+            Its own harness, on the pi coding agent SDK. A container on its own host for the sandbox
+            each pull request is executed in, and thrown away with.
           </p>
         </div>
         <div>

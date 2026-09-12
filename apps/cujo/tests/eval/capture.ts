@@ -8,9 +8,9 @@
  * not exercised until a new pull request arrives in production. This is how a
  * rubric edit becomes a diff instead of a hope.
  *
- * Usage, against a deployment whose TrueForge this process can reach:
+ * Usage, against a deployment whose harness this process can reach:
  *
- *   TRUEFORGE_BASE_URL=http://localhost:8790 \
+ *   HARNESS_BASE_URL=http://localhost:8790 \
  *     node apps/cujo/tests/eval/capture.ts <session-id> <slug> [--verdict]
  *
  * It lives under `tests/` rather than `src/` for three reasons, all of them
@@ -27,7 +27,6 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { TrueForge } from "@truefoundry/trueforge-sdk";
 import type { Event } from "../../src/review/fold";
 import { verdictOf } from "./verdict";
 
@@ -42,7 +41,6 @@ import { verdictOf } from "./verdict";
  */
 const KEPT = new Set([
   "turn.created",
-  "sandbox.created",
   "model.message",
   "thread.created",
   "thread.done",
@@ -56,7 +54,7 @@ const KEPT = new Set([
  *
  * A type guard rather than a cast, because everything after this point treats
  * the value as a trusted `Event`: it is filtered on `.type`, written into a
- * fixture that is committed, and folded. The API is our own TrueForge, so this
+ * fixture that is committed, and folded. The API is our own harness, so this
  * is not a hostile boundary — but a malformed payload should be dropped with a
  * count a person can see, not carried into a fixture that then encodes it as
  * the expected shape forever.
@@ -84,14 +82,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  const client = new TrueForge({
-    baseUrl: process.env.TRUEFORGE_BASE_URL ?? "http://localhost:8790",
-  });
-  const page = await client.sessions.listEvents(sessionId, { limit: 100 });
-  const raw: unknown[] = [];
-  for await (const item of page) raw.push(item.event);
-  // The API lists newest first, exactly as `Harness.listEvents` handles it.
-  raw.reverse();
+  const baseUrl = (process.env.HARNESS_BASE_URL ?? "http://localhost:8790").replace(/\/+$/, "");
+  const response = await fetch(`${baseUrl}/sessions/${sessionId}/events`);
+  if (!response.ok) throw new Error(`harness answered ${response.status}`);
+  // Oldest first, uncapped (decision 123).
+  const raw = ((await response.json()) as { event: unknown }[]).map((item) => item.event);
 
   const events = raw.filter(isKeptEvent).map(stripReasoning);
   const dropped = raw.length - events.length;

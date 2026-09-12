@@ -1,13 +1,15 @@
 /**
  * A stub OpenAI-compatible model endpoint for the harness contract tests. It
  * answers /v1/chat/completions (streaming and not) with a canned reply built
- * from the last user message, so a TrueForge turn completes without a real
+ * from the last user message, so a harness turn completes without a real
  * model. A message containing SLOW, and planning no tool call, is answered
  * after a delay, which is how the tests hold a turn open long enough to cancel
  * it -- a `CALL` is exempt so that spawning a SLOW sub-agent stalls the child
  * rather than the parent. A message `SAY <text>` is answered with that text
  * verbatim, which is how a sub-agent spawned by the stub ends with a check
- * report.
+ * report. `CALLS <json array of {name, args}>` makes several calls in one
+ * message, which is how the rubric posts an observation and an accusation
+ * together.
  */
 
 import { type Server, createServer } from "node:http";
@@ -27,18 +29,27 @@ interface ChatRequest {
  * (matched by suffix, since the harness may prefix MCP tool names). Once a
  * tool result is in the conversation the stub answers with text.
  */
-function plannedCall(
+function plannedCalls(
   prompt: string,
   tools: ChatRequest["tools"],
-): { name: string; args: string } | null {
+): { name: string; args: string }[] | null {
+  const resolve = (wanted: string, args: string) => {
+    const tool = (tools ?? []).find(
+      (t) => t.function.name === wanted || t.function.name.endsWith(wanted),
+    );
+    return tool ? { name: tool.function.name, args } : null;
+  };
+  const many = /CALLS (\[[\s\S]*\])/.exec(prompt);
+  if (many?.[1]) {
+    const planned = (JSON.parse(many[1]) as { name: string; args: unknown }[])
+      .map((c) => resolve(c.name, JSON.stringify(c.args ?? {})))
+      .filter((c): c is { name: string; args: string } => c !== null);
+    return planned.length ? planned : null;
+  }
   const m = /CALL (\S+)\s*(\{[\s\S]*\})?/.exec(prompt);
   if (!m?.[1]) return null;
-  const wanted = m[1];
-  const tool = (tools ?? []).find(
-    (t) => t.function.name === wanted || t.function.name.endsWith(wanted),
-  );
-  if (!tool) return null;
-  return { name: tool.function.name, args: m[2] ?? "{}" };
+  const one = resolve(m[1], m[2] ?? "{}");
+  return one ? [one] : null;
 }
 
 function textOf(content: unknown): string {
@@ -83,12 +94,12 @@ export async function startStubModel(): Promise<StubModel> {
     const messages = body.messages ?? [];
     const lastUser = messages.map((m) => m.role).lastIndexOf("user");
     const toolResultSeen = messages.slice(lastUser + 1).some((m) => m.role === "tool");
-    const call = toolResultSeen ? null : plannedCall(prompt, body.tools);
+    const calls = toolResultSeen ? null : plannedCalls(prompt, body.tools);
     // A message that plans a call is an instruction to call, not a slow answer
     // -- and the arguments of `CALL create_sub_agent` carry the child's whole
     // prompt, so spawning a SLOW child would otherwise stall the parent here
     // and never spawn anything.
-    if (prompt.includes("SLOW") && !call) {
+    if (prompt.includes("SLOW") && !calls) {
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, SLOW_MS);
         req.on("close", () => {
@@ -103,14 +114,12 @@ export async function startStubModel(): Promise<StubModel> {
     const id = `chatcmpl-${Date.now()}`;
     const created = Math.floor(Date.now() / 1000);
     const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
-    const toolCalls = call
-      ? [
-          {
-            id: `call_${Date.now()}`,
-            type: "function",
-            function: { name: call.name, arguments: call.args },
-          },
-        ]
+    const toolCalls = calls
+      ? calls.map((call, index) => ({
+          id: `call_${Date.now()}_${index}`,
+          type: "function",
+          function: { name: call.name, arguments: call.args },
+        }))
       : undefined;
     if (body.stream) {
       res.writeHead(200, {

@@ -32,7 +32,7 @@ first, somewhere it can do no harm, and tells you what it saw.
 1. The Cujo GitHub App receives the `pull_request` webhook. `apps/cujo`
    verifies the signature and starts one agent turn with the PR context: repo,
    PR number, base and head SHAs, changed files.
-2. The agent provisions a Daytona sandbox, clones both SHAs, seeds a decoy
+2. The agent provisions a sandbox, clones both SHAs, seeds a decoy
    secret, and starts a logging proxy. Then it spawns one subagent per check:
    `tests` (the suite on base and head), `probes` (agent-written scripts against
    the changed code), `smoke` (boot the app, hit it), and — when a dependency
@@ -64,14 +64,18 @@ Start with [docs/architecture.md](docs/architecture.md) for the mental model,
 then [docs/spec.md](docs/spec.md) for the contracts the code follows. The docs
 are canonical: a design change lands there first.
 
-## Built on TrueForge
+## The harness
 
-Cujo runs on [TrueForge](https://trueforge.dev), an open-source agent harness,
-used as published — no fork. The harness supplies the model runtime, the Daytona
-sandbox, the subagents, the MCP tool that posts the review, and the approval
-gate that holds a blocking one. Cujo is the agent, the rubric, the in-sandbox
-sensor script, and the service around them: `apps/cujo` is the harness's only
-client, and the board in `apps/web` reads that service, never the harness.
+Cujo runs on its own agent harness, `apps/harness`, built on the
+[pi coding agent SDK](https://github.com/badlogic/pi-mono) for the agent loop,
+the provider layer, retries and compaction. The harness itself is sessions,
+turns, an event log, the approval gate that holds an accusation for a human,
+and the tool that spawns one sub-agent per check; the contract between it and
+the rest of Cujo is `packages/harness-contract`
+([decision 123](docs/decisions.md#123-the-harness-is-ours-built-on-pi-and-the-contract-is-a-package)).
+Cujo is the agent, the rubric, the in-sandbox sensor script, and the service
+around them: `apps/cujo` is the harness's only client, and the board in
+`apps/web` reads that service, never the harness.
 
 ## Use it on your repository
 
@@ -96,15 +100,14 @@ board has the rest at <https://cujo.spencerjireh.com/docs/install>.
 ## Run your own
 
 ```bash
-cp .env.example .env   # POSTGRES_*, GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
-                       # GITHUB_WEBHOOK_SECRET and CUJO_MODEL are required
+cp .env.example .env   # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET,
+                       # CUJO_MODEL and the MODEL_PROVIDER_* block are required
 make up-local          # docker compose up with the local overlay
 ```
 
 The overlay publishes each service on `127.0.0.1` — the board on 3000, the
-TrueForge console on 8790, `cujo` on 8080, `github-mcp` on 8081 — and points
-`PUBLIC_BASE_URL` at localhost. (On Linux that loopback isolation needs Docker
-Engine `>= 28.0`.) The deploy uses `docker-compose.yml` alone. `make help`
+harness on 8790, `cujo` on 8080, `github-mcp` on 8081, `sandbox-mcp` on 8082.
+(On Linux that loopback isolation needs Docker Engine `>= 28.0`.) The deploy uses `docker-compose.yml` alone. `make help`
 lists the other targets.
 
 Nothing is behind a credential; there is none ([decision 57](docs/decisions.md#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)). `cujo` dispatches
@@ -115,8 +118,9 @@ API answers on the internal name, where anything outside `/public` is 404.
 curl -s -H 'Host: cujo' http://localhost:8080/public/runs
 ```
 
-Set `MODEL_PROVIDER_*` and `DAYTONA_API_KEY` to register the model and sandbox
-providers at start, or add them in the console. A self-hosted instance needs
+`MODEL_PROVIDER_*` names an OpenAI-compatible endpoint and the models on it;
+`apps/cujo` registers it on the harness at start, and there is nowhere else to
+configure one. A self-hosted instance needs
 its own GitHub App, so that the private key is yours. Permissions are Contents
 read, Metadata read, Pull requests write and Issues read, events are
 `pull_request`, `issue_comment`, `pull_request_review_comment` and

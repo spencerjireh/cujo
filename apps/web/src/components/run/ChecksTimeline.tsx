@@ -34,7 +34,7 @@ import { type ReactNode, useMemo } from "react";
  * A lane is split where the run said it can be, and both splits are the same
  * claim: the head of the bar at full strength is a machine doing work, and the
  * remainder is the model deciding what to make of it. On a check that is
- * `sandboxMs`, the pull request's own code executing. On setup it is Daytona
+ * `sandboxMs`, the pull request's own code executing. On setup it is the sandbox provisioner
  * provisioning the sandbox. It is drawn as strength and never as a second hue:
  * the lane already carries its outcome in its colour, and a lane saying two
  * things in two colours would be the mistake the chamber's blue rule exists to
@@ -301,7 +301,7 @@ export function ChecksTimeline({
           Lanes share one time axis, {span(total)} end to end.
           {window === null
             ? ""
-            : " Setup is the window before the first check existed; the solid head of it is Daytona provisioning the sandbox."}
+            : " Setup is the window before the first check existed; the solid head of it is the sandbox being provisioned."}
           {hasSplit
             ? " The solid part of a check is the sandbox executing the pull request; the rest is the model reading what came back."
             : ""}

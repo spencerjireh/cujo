@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Cujo: an execution-backed pull request reviewer built on stock TrueForge (an
-open-source agent harness, used unforked). A GitHub webhook starts a TrueForge
-turn; the agent clones the PR into a disposable Daytona sandbox, runs tests,
-probes, a smoke boot, and dependency detonation, then posts one review as
-`cujo-guard[bot]`. `docs/` is the design of record and changes in the same PR as
+Cujo: an execution-backed pull request reviewer on its own agent harness
+(`apps/harness`, built on the pi coding agent SDK; decision 123). A GitHub
+webhook starts a harness turn; the agent clones the PR into a disposable
+sandbox, runs tests, probes, a smoke boot, and dependency detonation, then
+posts one review as `cujo-guard[bot]`. `docs/` is the design of record and changes in the same PR as
 the code (or before it). Read `docs/architecture.md` then `docs/spec.md` before
 changing behavior; add an entry to `docs/decisions.md` for any load-bearing
 choice (reverse, do not delete, when one changes).
@@ -45,8 +45,8 @@ Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/sandbox-mcp`,
 `@cujo/review-render`, `@cujo/gh-app-auth`, `@cujo/brand`.
 
 Local stack (`make up-local` = `docker compose -f docker-compose.yml -f
-docker-compose.local.yml up --build`): the UI on :3000, TrueForge console/API
-on :8790, `cujo` on :8080 (dispatches on `Host`: the internal name `cujo` =
+docker-compose.local.yml up --build`): the UI on :3000, the harness API on
+:8790, `cujo` on :8080 (dispatches on `Host`: the internal name `cujo` =
 the read API, `cujo-ingress.localhost` = webhook and Discord), `github-mcp` on
 :8081. Curl the API with `-H 'Host: cujo'`, which is what every production
 request carries too; anything outside `/public` is 404 there, and there is no
@@ -56,9 +56,9 @@ alone; never make the base file depend on the overlay or the Makefile.
 
 ## Architecture
 
-Two trust zones with one narrow bridge. Trusted: TrueForge, `apps/cujo`,
-`github-mcp`, and every secret. Untrusted and disposable: the Daytona sandbox
-holding the PR code, `sandbox/`, and the logging proxy. Only PR code, public PR
+Two trust zones with one narrow bridge. Trusted: `apps/harness`, `apps/cujo`,
+`github-mcp`, `sandbox-mcp`, and every secret. Untrusted and disposable: the
+sandbox holding the PR code, `sandbox/`, and the logging proxy. Only PR code, public PR
 metadata, dependency names, Cujo's own sensor script, and a public run's own id
 go in; only JSON reports come out. No token, key, clone credential, or hostname
 may ever reach the sandbox. Treat any change that moves data across this line as
@@ -68,7 +68,7 @@ Read `docs/architecture.md` for the components, the crossings table, the
 approval path and the deployment topology. What follows is only what you need
 before you can read anything else: where code goes, and what governs that.
 
-`apps/cujo` (Hono, `node:sqlite`) is the sole TrueForge client and the only
+`apps/cujo` (Hono, `node:sqlite`) is the harness's sole client and the only
 thing GitHub touches. Its `src/` is grouped by trust plane:
 
 ```
@@ -96,9 +96,11 @@ answers on the internal name because this process never receives a published
 one (decision 34); `http/public/serialize.ts` is an allowlist, and adding a
 field to `Projection` or `RunRecord` fails its test until classified.
 
-`apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the
-MCP server whose one destructive tool is the entire human gate; `agent/SKILL.md`
-is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
+`apps/harness` is the harness: sessions, turns, the event log, the approval
+gate and the `create_sub_agent` tool over pi, with the eight-operation contract
+in `packages/harness-contract`. `apps/web` is the UI and holds no secrets and
+no state; `apps/github-mcp` is the MCP server whose one destructive tool is
+the entire human gate; `agent/SKILL.md` is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
 entry point and `cujo_sniff/` as the package behind it. Report shapes live in
 `docs/spec.md` Contract 2.
 
@@ -119,6 +121,6 @@ entry point and `cujo_sniff/` as the package behind it. Report shapes live in
   third-party module -- but it is stdlib-only by default, because every package in
   that image is something a pull request's code can reach. Adding one needs a
   reason in the PR.
-- Never install `evil-package` outside the Daytona sandbox; it is an intentional
+- Never install `evil-package` outside the sandbox; it is an intentional
   malicious sample.
 - `*.pem` and `.env` are gitignored; real values live in the Coolify deploy.

@@ -1,4 +1,4 @@
-# Local development helpers for the Cujo / TrueForge stack.
+# Local development helpers for the Cujo stack.
 # These target LOCAL runs only; the deploy uses docker-compose.yml directly
 # and never uses this file or docker-compose.local.yml.
 
@@ -19,7 +19,7 @@ up-local: ## Build and run the full stack locally, ports published to the host
 up-local-d: ## Same as up-local, detached
 	$(COMPOSE) up --build -d
 
-down: ## Stop the local stack (keeps the pgdata volume)
+down: ## Stop the local stack (keeps the volumes)
 	$(COMPOSE) down
 
 logs: ## Follow logs from the local stack
@@ -28,14 +28,14 @@ logs: ## Follow logs from the local stack
 ps: ## Show local stack status
 	$(COMPOSE) ps
 
-clean: ## Stop the local stack and delete its volumes (drops the database)
+clean: ## Stop the local stack and delete its volumes (drops every database)
 	$(COMPOSE) down -v
 
-test-int-up: ## Start the TrueForge server and github-mcp for the contract tests
-	$(COMPOSE_INT) up -d --build --wait server github-mcp sandbox-mcp
+test-int-up: ## Start the harness and both MCP servers for the contract tests
+	$(COMPOSE_INT) up -d --build --wait harness github-mcp sandbox-mcp
 
 test-int: test-int-up ## Run the harness contract tests against that stack
-	cd apps/cujo && TRUEFORGE_BASE_URL=http://127.0.0.1:8790 pnpm test:int
+	cd apps/cujo && HARNESS_BASE_URL=http://127.0.0.1:8790 pnpm test:int
 
 test-int-down: ## Stop the contract-test stack and drop its volumes
 	$(COMPOSE_INT) down -v

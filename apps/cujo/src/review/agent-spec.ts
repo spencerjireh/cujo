@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
+import type { AgentSpec, ModelParams, ReasoningEffort } from "@cujo/harness-contract";
 import type { PullRequestInfo } from "../clients/github";
 import type { Config } from "../config";
 
@@ -90,7 +90,7 @@ export function loadRubric(name = "SKILL.md"): string {
  * See `RunRecord.rubricSha256` for the caveat about which session that is
  * actually true of.
  */
-export function specFingerprint(spec: TrueForgeApi.AgentSpec): string {
+export function specFingerprint(spec: AgentSpec): string {
   return createHash("sha256")
     .update(spec.instructions ?? "")
     .digest("hex");
@@ -109,10 +109,9 @@ export function specFingerprint(spec: TrueForgeApi.AgentSpec): string {
  * setting has to mean an absent key and never a default. A model that does not
  * reason answers an empty `reasoning_effort` with an error rather than a
  * default, and some reasoning models reject `temperature` outright or take only
- * `1` — and the failure that produces is the invisible one decision 56 exists
- * to prevent: the process boots, `/readyz` is green, and every webhook answers
- * 502. Nothing in CI catches it, because the contract suite runs against a stub
- * model provider.
+ * `1` — and the failure that produces is the invisible one: the process boots,
+ * `/readyz` is green, and every webhook answers 502. Nothing in CI catches it,
+ * because the contract suite runs against a stub model provider.
  *
  * So `params` is omitted entirely when nothing is configured, and each key
  * appears only when a deploy asked for it. Determinism is worth having, but it
@@ -121,9 +120,11 @@ export function specFingerprint(spec: TrueForgeApi.AgentSpec): string {
  */
 function modelRef(
   config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
-): TrueForgeApi.Model {
-  const params: TrueForgeApi.ModelParams = {
-    ...(config.modelReasoningEffort ? { reasoningEffort: config.modelReasoningEffort } : {}),
+): AgentSpec["model"] {
+  const params: ModelParams = {
+    ...(config.modelReasoningEffort
+      ? { reasoningEffort: config.modelReasoningEffort as ReasoningEffort }
+      : {}),
     // `!= null` and not a truthiness test: `temperature: 0` is the setting
     // somebody reaching for this most likely wants, and `0` is falsy.
     ...(config.modelTemperature != null ? { temperature: config.modelTemperature } : {}),
@@ -133,16 +134,9 @@ function modelRef(
 }
 
 export function buildAgentSpec(
-  config: Pick<
-    Config,
-    | "model"
-    | "modelReasoningEffort"
-    | "modelTemperature"
-    | "modelMaxTokens"
-    | "compactionThresholdTokens"
-  >,
+  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
   rubric = loadRubric(),
-): TrueForgeApi.AgentSpec {
+): AgentSpec {
   return {
     model: modelRef(config),
     instructions: rubric,
@@ -153,34 +147,20 @@ export function buildAgentSpec(
     // `sandbox-mcp` is ungated on purpose: provisioning a box and running a
     // command in it is what the review *is*, and the gate is for the one
     // irreversible thing — an accusation reaching a pull request (42). The
-    // empty list is the whole fix of decision 120: the harness's default when
-    // the key is absent is `["@write", "@destructive"]`, which is every tool on
-    // this server, so the first live review paused on `sandbox_create` and
-    // sat as `blocked_pending` with nothing to approve.
+    // empty list means what it says (decision 128); it is no longer the
+    // workaround decision 120 needed against a harness default of everything.
     mcpServers: [
       { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
       { name: "sandbox-mcp", requireApprovalForTools: [] },
     ],
     config: {
-      // Off, because the harness no longer provisions anything (decision 113).
-      // The agent reaches a sandbox through `sandbox-mcp`, which is the door
-      // around `SandboxProviderManifest`'s `type: "daytona"` string literal.
-      //
-      // `fileDownloads` went with it and is not missed: it was off anyway, and
-      // the endpoint it named belongs to a sandbox the harness owned. Nothing
-      // reaches into the new one except through the five tools.
-      sandbox: { enabled: false },
-      // Raised well above the harness default of 50,000. The parent holds four
-      // full check reports and then writes the review body from them, so a
-      // compaction in between is a review argued from a summary of the
-      // evidence. The hard rules survive it either way — Cujo re-derives those
-      // from the reports on its own side — but the prose would not.
-      contextManagement: {
-        compaction: { enabled: true, compactionThresholdTokens: config.compactionThresholdTokens },
-      },
-      // The review runs headless; nothing can answer a question or view a card.
-      askUserQuestions: { enabled: false },
-      generativeUi: { enabled: false },
+      // On: the parent holds four full check reports and then writes the review
+      // body from them, and a context that overflows the model's window is a
+      // turn that ends in an error rather than a review. The harness compacts
+      // against the window the provider manifest declares (decision 129) and
+      // logs when it does; the hard rules survive it either way, because Cujo
+      // re-derives those from the reports on its own side.
+      compaction: { enabled: true },
       iterationLimit: 150,
     },
   };
@@ -198,7 +178,7 @@ export function buildAgentSpec(
  * achieves is a wasted sandbox. `apps/cujo` posts the reply itself, after the
  * turn ends, from the final assistant message.
  *
- * `sandbox.enabled` stays true. Re-execution is the whole point — every other
+ * The sandbox tools stay. Re-execution is the whole point — every other
  * review bot can re-read a diff, and only this one still has the recipe — so
  * removing the sandbox would leave a conversation agent that can only
  * paraphrase the report it was handed.
@@ -206,7 +186,7 @@ export function buildAgentSpec(
 export function buildConverseSpec(
   config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
   rubric = loadRubric("CONVERSE.md"),
-): TrueForgeApi.AgentSpec {
+): AgentSpec {
   return {
     model: modelRef(config),
     instructions: rubric,
@@ -217,13 +197,10 @@ export function buildConverseSpec(
     // tools are present at all.
     mcpServers: [{ name: "sandbox-mcp", requireApprovalForTools: [] }],
     config: {
-      // Off here too, for the reason it is off above: the harness provisions no
-      // sandbox any more (decision 113). No `contextManagement`: this answers one
-      // question against a brief already collected, so it never holds the
-      // evidence a compaction would summarise away.
-      sandbox: { enabled: false },
-      askUserQuestions: { enabled: false },
-      generativeUi: { enabled: false },
+      // No compaction: this answers one question against a brief already
+      // collected, so it never holds the evidence a compaction would summarise
+      // away, and an overflow is an answer worth failing loudly.
+      compaction: { enabled: false },
       // Lower than the review's 150: this answers one question against a brief
       // that is already collected, and a conversation that needs a hundred
       // steps has misunderstood what it was asked.
