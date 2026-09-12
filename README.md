@@ -146,45 +146,6 @@ with a stub model provider, checking what the unit tests assume — turn ids,
 replay, chaining, cancel, the approval gate, resume, the fold of real events.
 `make test-int-down` stops it.
 
-## Qodo Code Review Evidence
-
-Qodo reviews every pull request automatically. It reads
-[`best_practices.md`](best_practices.md), a mirror of the Standards section in
-[`CONTRIBUTING.md`](CONTRIBUTING.md), so the bot checks the same rules a human
-reviewer would. Every Qodo comment is applied or answered with a one-line
-reason and resolved before merge, and nothing merges with an open thread.
-
-Counted from the GitHub API on 2026-08-30.
-
-- **106** merged pull requests, every one reviewed by Qodo.
-- **93** received findings, **380** inline review threads in total, and **13**
-  came back clean.
-- **23** drew two or more review passes after fixes were pushed.
-
-Two pull requests to read.
-
-[PR #70 — the board opens on the chamber, not a table](https://github.com/spencerjireh/cujo/pull/70)
-shows the follow-up loop against final code. Qodo reviewed it five times. The
-first pass raised five bugs in the WebGL chamber, among them startup without a
-`.catch()`, an activity cap that could overflow, an inert sort control, and
-lost initial focus. The fix commit drew a second pass with five more, among
-them a floor-grid resource leak and a delayed startup that bypassed the
-visibility check. The last pass, at 15:47 UTC, ran against the final commit,
-at 15:44 UTC, and closed on one test-coverage note. Fifteen threads, all
-resolved before merge.
-
-[PR #49 — answer @cujo-guard in its own session, with no way to write](https://github.com/spencerjireh/cujo/pull/49)
-shows what the review is for. The PR adds the conversational feature. When
-someone mentions `@cujo-guard` on a pull request, Cujo replies in a read-only
-session that can reference the run but never approve or dismiss it. Qodo
-raised 14 findings across security (the conversation payload leaked context
-that should not cross the trust boundary), correctness (the reply could target
-a stale PR head, and a failed turn still posted an answer), and reliability
-(the timeout left a consumer active, and a rate-limiter map could grow without
-bound). Each got a code fix, a design-decision citation, or a one-line reason,
-and the final commit on the branch applies its last finding, the dead-turn
-reply.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
