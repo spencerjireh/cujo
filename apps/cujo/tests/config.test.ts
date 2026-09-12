@@ -39,13 +39,13 @@ describe("loadConfig", () => {
     const config = loadConfig(base);
     expect(config).toMatchObject({
       port: 8080,
-      trueforgeBaseUrl: "http://server:8790",
+      harnessBaseUrl: "http://harness:8790",
       internalHost: "cujo",
       webhookHost: "cujo-ingress.spencerjireh.com",
       dbPath: "/data/cujo.db",
       githubMcpUrl: "http://github-mcp:8081/mcp",
       turnTimeoutMs: 30 * 60 * 1000,
-      bootstrap: { modelProvider: null, daytonaApiKey: null },
+      bootstrap: { modelProvider: null },
     });
   });
 
@@ -88,7 +88,6 @@ describe("loadConfig", () => {
       MODEL_PROVIDER_BASE_URL: "https://llm.example/v1",
       MODEL_PROVIDER_API_KEY: "k",
       MODEL_PROVIDER_MODELS: " fast=vendor/fast-1 , plain ,",
-      DAYTONA_API_KEY: "d",
     });
     expect(config.bootstrap.modelProvider).toEqual({
       name: "openrouter",
@@ -98,11 +97,10 @@ describe("loadConfig", () => {
         { name: "fast", modelId: "vendor/fast-1" },
         { name: "plain", modelId: "plain" },
       ],
-      // Nothing declared unless asked for: this is what every deploy sent
-      // before decision 56, and it is why an effort could not be used.
-      reasoningEfforts: [],
+      contextWindow: 128_000,
+      maxTokens: 16_384,
+      reasoning: true,
     });
-    expect(config.bootstrap.daytonaApiKey).toBe("d");
     expect(
       loadConfig({ ...base, MODEL_PROVIDER_BASE_URL: "https://llm.example/v1" }).bootstrap
         .modelProvider,
@@ -115,74 +113,39 @@ describe("loadConfig", () => {
     MODEL_PROVIDER_MODELS: "fast=vendor/fast-1",
   };
 
-  it("declares the reasoning efforts the registration will carry", () => {
-    const config = loadConfig({
+  it("carries the model's limits and whether it reasons (decision 127)", () => {
+    const provider = loadConfig({
       ...base,
       ...withProvider,
-      MODEL_PROVIDER_REASONING_EFFORTS: " none , low ,,medium ",
-    });
-    expect(config.bootstrap.modelProvider?.reasoningEfforts).toEqual(["none", "low", "medium"]);
-  });
-
-  it("refuses to start when the chosen effort is not declared", () => {
-    // The whole point of decision 56. Without this the process starts, reports
-    // healthy, and answers 502 to every pull request — the failure is invisible
-    // except in GitHub's delivery log, which nobody is reading.
-    expect(() =>
-      loadConfig({
-        ...base,
-        ...withProvider,
-        MODEL_PROVIDER_REASONING_EFFORTS: "none,medium",
-        CUJO_MODEL_REASONING_EFFORT: "low",
-      }),
-    ).toThrow(/"low".*does not declare.*none, medium/s);
-
-    // And when nothing at all is declared, which is the state that shipped.
-    expect(() =>
-      loadConfig({ ...base, ...withProvider, CUJO_MODEL_REASONING_EFFORT: "low" }),
-    ).toThrow(/it is empty/);
+      MODEL_PROVIDER_CONTEXT_WINDOW: "200000",
+      MODEL_PROVIDER_MAX_TOKENS: "32000",
+      MODEL_PROVIDER_REASONING: "0",
+    }).bootstrap.modelProvider;
+    expect(provider).toMatchObject({ contextWindow: 200_000, maxTokens: 32_000, reasoning: false });
+    // Only an explicit "0" turns reasoning off.
+    expect(
+      loadConfig({ ...base, ...withProvider, MODEL_PROVIDER_REASONING: "" }).bootstrap.modelProvider
+        ?.reasoning,
+    ).toBe(true);
   });
 
   it("refuses a value that is not a reasoning effort at all", () => {
-    // Qodo caught this: a typo shared by both variables satisfies the
-    // membership check by agreeing with itself, and the bad value then reaches
-    // TrueForge, which rejects the *provider* -- and bootstrapUntilReady
-    // retries that forever, so the webhook answers 503 for good.
-    expect(() =>
-      loadConfig({ ...base, ...withProvider, MODEL_PROVIDER_REASONING_EFFORTS: "none,loow" }),
-    ).toThrow(/MODEL_PROVIDER_REASONING_EFFORTS has "loow"/);
-    expect(() =>
-      loadConfig({
-        ...base,
-        ...withProvider,
-        MODEL_PROVIDER_REASONING_EFFORTS: "loow",
-        CUJO_MODEL_REASONING_EFFORT: "loow",
-      }),
-    ).toThrow(/not a reasoning effort/);
-    // And on its own, where there is no declared list to agree with.
+    // A bad value would otherwise reach the harness inside the agent spec,
+    // which refuses the session after this process reports healthy.
     expect(() => loadConfig({ ...base, CUJO_MODEL_REASONING_EFFORT: "loow" })).toThrow(
       /CUJO_MODEL_REASONING_EFFORT has "loow"/,
     );
   });
 
-  it("accepts a declared effort, and says nothing when none is chosen", () => {
+  it("accepts an effort, and says nothing when none is chosen", () => {
     expect(
-      loadConfig({
-        ...base,
-        ...withProvider,
-        MODEL_PROVIDER_REASONING_EFFORTS: "none,low",
-        CUJO_MODEL_REASONING_EFFORT: "low",
-      }).modelReasoningEffort,
+      loadConfig({ ...base, ...withProvider, CUJO_MODEL_REASONING_EFFORT: "low" })
+        .modelReasoningEffort,
     ).toBe("low");
     expect(loadConfig({ ...base, ...withProvider }).modelReasoningEffort).toBe("");
-  });
-
-  it("does not refuse when this process is not the one registering the provider", () => {
-    // The provider is configured in the operator console instead, so Cujo has
-    // no idea what it declares. Refusing on a guess would block a deploy that
-    // works.
-    expect(loadConfig({ ...base, CUJO_MODEL_REASONING_EFFORT: "low" }).modelReasoningEffort).toBe(
-      "low",
+    // Nothing has to be declared any more: the harness clamps (decision 127).
+    expect(loadConfig({ ...base, CUJO_MODEL_REASONING_EFFORT: "xhigh" }).modelReasoningEffort).toBe(
+      "xhigh",
     );
   });
 
@@ -205,21 +168,6 @@ describe("loadConfig", () => {
 
     it("refuses a cap of zero, which would serve nobody", () => {
       expect(loadConfig({ ...base, CUJO_PUBLIC_STREAM_LIMIT: "0" }).publicStreamLimit).toBe(200);
-    });
-
-    it("defaults the compaction threshold well above the harness's own", () => {
-      // TrueForge compacts at 50,000 by default. The review agent holds four
-      // full check reports before it writes anything, so it needs more room.
-      expect(loadConfig(base).compactionThresholdTokens).toBe(200_000);
-      for (const raw of ["", "   ", "abc", "-1", "1.5", "0"]) {
-        expect(
-          loadConfig({ ...base, CUJO_COMPACTION_THRESHOLD_TOKENS: raw }).compactionThresholdTokens,
-        ).toBe(200_000);
-      }
-      expect(
-        loadConfig({ ...base, CUJO_COMPACTION_THRESHOLD_TOKENS: "80000" })
-          .compactionThresholdTokens,
-      ).toBe(80_000);
     });
 
     it("sends no sampling key unless a deploy asked for one", () => {

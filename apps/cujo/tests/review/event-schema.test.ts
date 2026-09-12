@@ -1,79 +1,70 @@
 /**
- * Shallow event validation (decision 105). Each case is built from what
- * `fold.ts` and `runner.service.ts` actually read, not from the full SDK
- * surface — so a failure here means a field Cujo relies on has moved.
+ * Event validation (decision 105), now over the contract's own schemas. The
+ * valid cases are the shapes `apps/harness` writes; the policy under test is
+ * that a failure is a diagnostic and never a dropped event.
  */
 
 import { describe, expect, it } from "vitest";
 import { validateEvent } from "../../src/review/event-schema";
 
-const base = { id: "evt-1", createdAt: "2026-08-30T00:00:00Z" };
+const base = { id: "evt-1", createdAt: "2026-08-30T00:00:00Z", threadId: "main" };
 
 describe("valid events", () => {
-  it("accepts a turn.created", () => {
+  it("accepts a turn.created, with or without an approval input", () => {
     expect(
       validateEvent({
         ...base,
         type: "turn.created",
         turnId: "t1",
         previousTurnId: null,
-        threadId: null,
+        input: [],
       }),
     ).toEqual({ valid: true });
-  });
-
-  it("accepts a turn.created with approval input", () => {
     expect(
       validateEvent({
         ...base,
         type: "turn.created",
-        turnId: "t1",
+        turnId: "t2",
+        previousTurnId: "t1",
         input: [
           {
             type: "user.tool_approval",
+            threadId: "main",
             toolCallId: "tc-1",
-            approval: { status: "allow" },
+            approval: { status: "deny", reason: "no" },
           },
         ],
       }),
     ).toEqual({ valid: true });
   });
 
-  it("accepts a turn.done with metrics", () => {
+  it("accepts every turn.done state", () => {
+    const at = "2026-08-30T00:01:00Z";
     expect(
       validateEvent({
         ...base,
         type: "turn.done",
         state: {
           status: "done",
-          completedAt: "2026-08-30T00:01:00Z",
-          metrics: {
-            totalInputTokens: 100,
-            totalOutputTokens: 50,
-            totalReasoningTokens: 20,
-            totalCostInUsd: 0.01,
-          },
+          completedAt: at,
+          output: null,
+          requiredActions: [],
+          metrics: { totalInputTokens: 100, totalOutputTokens: 50, totalReasoningTokens: 20 },
         },
       }),
     ).toEqual({ valid: true });
-  });
-
-  it("accepts a turn.done with error status", () => {
     expect(
       validateEvent({
         ...base,
         type: "turn.done",
-        state: { status: "error", message: "model refused" },
+        state: { status: "error", completedAt: at, message: "model refused" },
       }),
     ).toEqual({ valid: true });
-  });
-
-  it("accepts a turn.done with cancelled status", () => {
     expect(
       validateEvent({
         ...base,
         type: "turn.done",
-        state: { status: "cancelled", reason: "newer_head" },
+        state: { status: "cancelled", completedAt: at, reason: "cancelled-for-next-turn" },
       }),
     ).toEqual({ valid: true });
   });
@@ -83,190 +74,141 @@ describe("valid events", () => {
       validateEvent({
         ...base,
         type: "model.message",
-        threadId: "main",
-        usage: { inputTokens: 50, outputTokens: 30 },
+        content: null,
+        usage: { inputTokens: 1, outputTokens: 2 },
+        finishReason: "tool_calls",
         toolCalls: [
-          { id: "tc-1", type: "function", function: { name: "call_tool", arguments: "{}" } },
+          {
+            id: "c1",
+            type: "function",
+            function: { name: "sandbox_exec", arguments: "{}" },
+            toolInfo: { type: "mcp", name: "sandbox_exec", serverName: "sandbox-mcp" },
+          },
         ],
-        content: "reviewing the code",
       }),
     ).toEqual({ valid: true });
   });
 
-  it("accepts a thread.created", () => {
-    expect(
-      validateEvent({ ...base, type: "thread.created", threadId: "th-1", title: "tests" }),
-    ).toEqual({ valid: true });
-  });
-
-  it("accepts a thread.done with done status", () => {
+  it("accepts the thread events", () => {
+    const parent = { threadId: "main", toolCallId: "c1" };
     expect(
       validateEvent({
         ...base,
-        type: "thread.done",
         threadId: "th-1",
-        state: { status: "done", output: { content: "report", finishReason: "stop" } },
+        type: "thread.created",
+        title: "tests",
+        parent,
+        agentInfo: { type: "dynamic", name: "tests", input: "go" },
       }),
     ).toEqual({ valid: true });
-  });
-
-  it("accepts a thread.done with error status", () => {
     expect(
       validateEvent({
         ...base,
-        type: "thread.done",
         threadId: "th-1",
-        state: { status: "error", error: "timeout" },
+        type: "thread.done",
+        title: "tests",
+        parent,
+        state: { status: "error", error: "boom" },
       }),
     ).toEqual({ valid: true });
   });
 
-  it("accepts a tool.approval_required", () => {
+  it("accepts an approval request and a tool response", () => {
     expect(
       validateEvent({
         ...base,
         type: "tool.approval_required",
-        threadId: "main",
-        toolCalls: [{ id: "tc-1", sourceEventId: "evt-0" }],
+        toolCalls: [{ id: "c1", sourceEventId: "evt-0" }],
+      }),
+    ).toEqual({ valid: true });
+    expect(
+      validateEvent({
+        ...base,
+        type: "tool.response",
+        toolCallId: "c1",
+        toolName: "sandbox_exec",
+        content: "{}",
+        isError: false,
       }),
     ).toEqual({ valid: true });
   });
 
-  it("accepts a tool.response", () => {
-    expect(validateEvent({ ...base, type: "tool.response", toolCallId: "tc-1" })).toEqual({
+  it("accepts a type the contract does not name, on an id and a timestamp alone", () => {
+    expect(validateEvent({ ...base, type: "harness.future", data: { size: 1024 } })).toEqual({
       valid: true,
     });
-  });
-
-  it("accepts a sandbox.created", () => {
-    expect(validateEvent({ ...base, type: "sandbox.created" })).toEqual({ valid: true });
-  });
-});
-
-describe("unknown event types pass through the catch-all", () => {
-  it("accepts mcp.initialize", () => {
-    expect(validateEvent({ ...base, type: "mcp.initialize", mcpServers: [] })).toEqual({
-      valid: true,
-    });
-  });
-
-  it("accepts mcp.auth_required", () => {
-    expect(validateEvent({ ...base, type: "mcp.auth_required", mcpServers: [] })).toEqual({
-      valid: true,
-    });
-  });
-
-  it("accepts a completely new event type from a future SDK", () => {
-    expect(validateEvent({ ...base, type: "sandbox.snapshot", data: { size: 1024 } })).toEqual({
-      valid: true,
-    });
-  });
-});
-
-describe("passthrough preserves unknown fields", () => {
-  it("keeps extra fields on a turn.created", () => {
-    const event = {
-      ...base,
-      type: "turn.created",
-      turnId: "t1",
-      newSdkField: "hello",
-      anotherField: 42,
-    };
-    const result = validateEvent(event);
-    expect(result.valid).toBe(true);
-  });
-
-  it("keeps extra fields on nested objects", () => {
-    const event = {
-      ...base,
-      type: "turn.done",
-      state: {
-        status: "done",
-        metrics: { totalInputTokens: 10, futureMetric: 99 },
-        newStateField: true,
-      },
-    };
-    const result = validateEvent(event);
-    expect(result.valid).toBe(true);
   });
 });
 
 describe("invalid events produce a diagnostic", () => {
   it("rejects a turn.created missing turnId", () => {
-    const result = validateEvent({ ...base, type: "turn.created" });
+    const result = validateEvent({
+      ...base,
+      type: "turn.created",
+      previousTurnId: null,
+      input: [],
+    });
     expect(result.valid).toBe(false);
     expect(result.problem).toContain("turnId");
   });
 
-  it("rejects a turn.done with invalid state.status", () => {
-    const result = validateEvent({
-      ...base,
-      type: "turn.done",
-      state: { status: "unknown_status" },
-    });
+  it("rejects a turn.done with an unknown status", () => {
+    const result = validateEvent({ ...base, type: "turn.done", state: { status: "unknown" } });
     expect(result.valid).toBe(false);
     expect(result.problem).toBeDefined();
   });
 
   it("rejects a model.message missing threadId", () => {
-    const result = validateEvent({ ...base, type: "model.message" });
+    const { threadId: _dropped, ...rest } = base;
+    const result = validateEvent({ ...rest, type: "model.message", content: "x" });
     expect(result.valid).toBe(false);
     expect(result.problem).toContain("threadId");
   });
 
   it("rejects a thread.created missing title", () => {
-    const result = validateEvent({ ...base, type: "thread.created", threadId: "th-1" });
+    const result = validateEvent({
+      ...base,
+      type: "thread.created",
+      parent: { threadId: "main", toolCallId: "c" },
+      agentInfo: { type: "dynamic", name: "t", input: "" },
+    });
     expect(result.valid).toBe(false);
     expect(result.problem).toContain("title");
   });
 
   it("rejects a tool.approval_required missing toolCalls", () => {
-    const result = validateEvent({
-      ...base,
-      type: "tool.approval_required",
-      threadId: "main",
-    });
+    const result = validateEvent({ ...base, type: "tool.approval_required" });
     expect(result.valid).toBe(false);
     expect(result.problem).toContain("toolCalls");
   });
 
   it("rejects a tool.response missing toolCallId", () => {
-    const result = validateEvent({ ...base, type: "tool.response" });
+    const result = validateEvent({
+      ...base,
+      type: "tool.response",
+      toolName: "x",
+      content: "",
+      isError: false,
+    });
     expect(result.valid).toBe(false);
     expect(result.problem).toContain("toolCallId");
   });
 
-  it("rejects an event missing the base id field", () => {
-    const result = validateEvent({ createdAt: "2026-08-30T00:00:00Z", type: "sandbox.created" });
-    expect(result.valid).toBe(false);
-    expect(result.problem).toContain("id");
+  it("rejects an unknown type missing the base fields", () => {
+    expect(validateEvent({ createdAt: "2026-08-30T00:00:00Z", type: "x.y" }).problem).toContain(
+      "id",
+    );
+    expect(validateEvent({ id: "evt-1", type: "x.y" }).problem).toContain("createdAt");
   });
 
-  it("rejects an event missing createdAt", () => {
-    const result = validateEvent({ id: "evt-1", type: "sandbox.created" });
-    expect(result.valid).toBe(false);
-    expect(result.problem).toContain("createdAt");
+  it("rejects a non-object and null", () => {
+    expect(validateEvent("not an event").valid).toBe(false);
+    expect(validateEvent(null).valid).toBe(false);
   });
 
-  it("rejects a non-object", () => {
-    const result = validateEvent("not an event");
+  it("names the issue count when several fields are wrong", () => {
+    const result = validateEvent({ id: "evt-1", createdAt: "x", type: "model.message" });
     expect(result.valid).toBe(false);
-    expect(result.problem).toBeDefined();
-  });
-
-  it("rejects null", () => {
-    const result = validateEvent(null);
-    expect(result.valid).toBe(false);
-    expect(result.problem).toBeDefined();
-  });
-
-  it("names the issue count when multiple fields are wrong", () => {
-    const result = validateEvent({
-      ...base,
-      type: "model.message",
-      // missing threadId, usage has wrong type
-    });
-    expect(result.valid).toBe(false);
-    expect(result.problem).toMatch(/threadId/);
+    expect(result.problem).toMatch(/\(\+\d+ more\)/);
   });
 });

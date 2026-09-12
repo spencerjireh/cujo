@@ -1,5 +1,14 @@
+import {
+  MAIN_THREAD,
+  type ModelMessageEvent,
+  type ModelMessageUsage,
+  type SessionEvent,
+  type StreamEvent,
+  type ToolApprovalInput,
+  type ToolCall,
+  type TurnMetrics,
+} from "@cujo/harness-contract";
 import { type RenderInput, renderReviewBody, reviewComments } from "@cujo/review-render";
-import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import {
   agentFindings,
   hardRuleFindings,
@@ -20,7 +29,7 @@ import {
   type UsageTotals,
 } from "./types";
 
-export type Event = TrueForgeApi.SessionEvent | TrueForgeApi.TurnStreamingEvent;
+export type Event = SessionEvent | StreamEvent;
 
 const REVIEW_TOOLS = new Set(["post_advisory_review", "post_blocking_review", "post_gated_review"]);
 
@@ -79,7 +88,7 @@ export function emptyUsage(): UsageTotals {
  * Mutates, because the fold owns both objects and copying one per message on a
  * run with hundreds of them buys nothing.
  */
-function addMessageUsage(total: UsageTotals, usage: TrueForgeApi.ModelMessageUsage): void {
+function addMessageUsage(total: UsageTotals, usage: ModelMessageUsage): void {
   total.inputTokens += usage.inputTokens ?? 0;
   total.outputTokens += usage.outputTokens ?? 0;
   total.cacheReadTokens += usage.cacheReadTokens ?? 0;
@@ -95,7 +104,7 @@ function addMessageUsage(total: UsageTotals, usage: TrueForgeApi.ModelMessageUsa
  * some turn reports them, because "no cost reported" and "cost zero" are not
  * the same claim (decision 54's rule, applied to a different producer).
  */
-function addTurnMetrics(total: UsageTotals, metrics: TrueForgeApi.TurnMetrics): void {
+function addTurnMetrics(total: UsageTotals, metrics: TurnMetrics): void {
   total.inputTokens += metrics.totalInputTokens ?? 0;
   total.outputTokens += metrics.totalOutputTokens ?? 0;
   total.cacheReadTokens += metrics.totalCacheReadTokens ?? 0;
@@ -128,18 +137,9 @@ export function emptyProjection(): Projection {
   };
 }
 
-/**
- * Pull the text out of a model message. Content is either a string or a list
- * of text parts; refusals are dropped.
- */
-export function messageText(message: TrueForgeApi.ModelMessageEvent | null | undefined): string {
-  const content = message?.content;
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  return content
-    .map((part) => (part.type === "text" ? part.text : ""))
-    .join("")
-    .trim();
+/** Pull the text out of a model message. A refusal is not text. */
+export function messageText(message: ModelMessageEvent | null | undefined): string {
+  return (message?.content ?? "").trim();
 }
 
 /**
@@ -185,9 +185,6 @@ function provisionedMs(content: unknown): number | undefined {
   return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : undefined;
 }
 
-const CALL_TOOL = "call_tool";
-const REVIEW_MCP_SERVER = "github-mcp";
-
 /** A plain object, which is what a `coverage` value has to be to render. */
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -209,23 +206,12 @@ function parseArguments(raw: string): Record<string, unknown> {
 }
 
 /**
- * The review tool call, whichever way the harness exposed the tool to the
- * model: directly by name, or through TrueForge's `call_tool` meta-tool
- * (`{mcp_server, tool_name, input}`), which is what the server does by
- * default (contract test: "a review goes through call_tool"). Through
- * `call_tool` the server must be github-mcp: a same-named tool elsewhere
- * posts nothing, and a run must not fold clean on it.
+ * The review tool call. The harness exposes MCP tools to the model by name
+ * (decision 128), so the name on the call is the tool.
  */
-export function parseReview(
-  call: TrueForgeApi.ChatCompletionMessageToolCall,
-): DraftedReview | null {
-  let args = parseArguments(call.function.arguments);
-  let tool = call.function.name;
-  if (tool === CALL_TOOL) {
-    if (args.mcp_server !== REVIEW_MCP_SERVER || typeof args.tool_name !== "string") return null;
-    tool = args.tool_name;
-    args = asObject(args.input);
-  }
+export function parseReview(call: ToolCall): DraftedReview | null {
+  const args = parseArguments(call.function.arguments);
+  const tool = call.function.name;
   if (!REVIEW_TOOLS.has(tool)) return null;
   const findings = Array.isArray(args.findings) ? args.findings : [];
   const body = typeof args.body === "string" ? args.body : "";
@@ -273,7 +259,7 @@ export function parseReview(
  */
 export function fold(events: readonly Event[], options: FoldOptions = {}): Projection {
   const p = emptyProjection();
-  const messages = new Map<string, TrueForgeApi.ModelMessageEvent>();
+  const messages = new Map<string, ModelMessageEvent>();
   const cujoResumes = options.cujoResumeTurnIds ?? new Set<string>();
 
   for (const event of events) {
@@ -284,23 +270,12 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // retried adds another, and the setup window belongs to the first.
         p.setup.turnCreatedAt ??= event.createdAt;
         const approval = event.input?.find(
-          (item): item is TrueForgeApi.UserToolApprovalEvent => item.type === "user.tool_approval",
+          (item): item is ToolApprovalInput => item.type === "user.tool_approval",
         );
         if (approval) {
           p.decision = approval.approval.status;
           if (!cujoResumes.has(event.turnId)) p.externalResume = true;
         }
-        break;
-      }
-      // Where the harness finished provisioning a sandbox, back when it
-      // provisioned one. It no longer does (decision 113), so this event no
-      // longer arrives and the field stays null on every new run — the case
-      // below fills `sandboxProvisionedMs` from the tool response instead.
-      //
-      // Kept rather than deleted, because a projection stored before that change
-      // still carries the stamp and the board still renders it.
-      case "sandbox.created": {
-        p.setup.sandboxCreatedAt ??= event.createdAt;
         break;
       }
       case "model.message": {
@@ -391,7 +366,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
       case "tool.approval_required": {
         const call = event.toolCalls[0];
         if (!call) break;
-        if (event.threadId !== "main") {
+        if (event.threadId !== MAIN_THREAD) {
           // A subagent was handed the review tool. The design forbids it, so
           // the run is an error and no approve button is offered.
           p.status = "error";
@@ -414,7 +389,12 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         break;
       }
       case "tool.response": {
+        // The held call ran under its own id; after a harness restart the
+        // approved call is made again under a new one (decision 125), so an
+        // allow followed by any response to the gated tool is the review posted.
         if (p.approval && event.toolCallId === p.approval.toolCallId) {
+          p.gatedResponseSeen = true;
+        } else if (p.decision === "allow" && event.toolName === GATED_TOOL && !event.isError) {
           p.gatedResponseSeen = true;
         }
         // How long the sandbox took to provision, read off `sandbox_create`'s
@@ -563,8 +543,8 @@ export function lastTurnOutcome(events: readonly Event[]): "done" | "error" | "c
  * from an approval that was already dealt with.
  *
  * The question matters because an approval is outstanding on the session, not
- * on the turn that requested it: while one is pending, TrueForge refuses every
- * later user message on the thread (decision 39).
+ * on the turn that requested it, and the run answers a stale one before the
+ * next head's turn as a courtesy to the model (decision 39, refined by 125).
  */
 export function pendingApproval(events: readonly Event[]): PendingApproval | null {
   let candidate: PendingApproval | null = null;
@@ -578,7 +558,7 @@ export function pendingApproval(events: readonly Event[]): PendingApproval | nul
         // Only `main` may hold a review tool call. A request on any other
         // thread is the design violation `fold` reports as an error, and
         // answering it is not this function's business.
-        if (!call?.id || event.threadId !== "main") break;
+        if (!call?.id || event.threadId !== MAIN_THREAD) break;
         candidate = {
           threadId: event.threadId,
           toolCallId: call.id,
@@ -589,10 +569,15 @@ export function pendingApproval(events: readonly Event[]): PendingApproval | nul
       case "turn.created": {
         const id = candidate?.toolCallId;
         if (!id) break;
-        const answered = event.input?.some(
-          (item) => item.type === "user.tool_approval" && item.toolCallId === id,
+        // Answered, or voided: a new user message on the session supersedes
+        // whatever was pending (decision 125), and the harness refuses a late
+        // answer to it.
+        const settled = event.input?.some(
+          (item) =>
+            (item.type === "user.tool_approval" && item.toolCallId === id) ||
+            item.type === "user.message",
         );
-        if (answered) candidate = null;
+        if (settled) candidate = null;
         break;
       }
       default:

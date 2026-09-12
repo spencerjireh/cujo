@@ -1,7 +1,7 @@
 /**
  * The wire shapes served by `apps/cujo`. These are hand-written rather than
  * imported from `@cujo/cujo` for two reasons: that package pulls `node:sqlite`
- * and the TrueForge SDK into the module graph, and its internal `RunRecord` is
+ * and the harness contract into the module graph, and its internal `RunRecord` is
  * not the wire shape — `api.ts` serializes run fields as snake_case while
  * leaving the nested objects camelCase. `types.test.ts` guards the drift.
  */
@@ -31,9 +31,9 @@ export function isLive(status: RunStatus): boolean {
 }
 
 /**
- * What a turn cost, as TrueForge counted it.
+ * What a turn cost, as the harness counted it.
  *
- * Optional keys are the ones TrueForge itself does not always report:
+ * Optional keys are the ones the harness does not always report:
  * `reasoningTokens` arrives only on turn metrics, and `costUsd` only when the
  * provider priced the call. Absent is "not reported", never zero — a run that
  * carries no record of what it cost did not cost nothing (decision 54).
@@ -97,7 +97,7 @@ export interface SetupTimings {
 
 export interface CheckState {
   /**
-   * The TrueForge thread. Operator plane only: it is a harness handle, and the
+   * The harness thread. Operator plane only: it is a harness handle, and the
    * public serializer publishes none of those (decision 34).
    */
   threadId?: string;
@@ -243,7 +243,7 @@ export interface RunList {
 /** `GET /runs/:id` and every `run` event on the SSE stream. */
 export interface Run extends RunSummary {
   /**
-   * Handles into TrueForge and the webhook delivery, published since decision
+   * Handles into the harness and the webhook delivery, published since decision
    * 52. Optional because a `run` event on the stream and a run stored by an
    * older release may predate them, not because a plane withholds them.
    */

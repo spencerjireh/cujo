@@ -184,18 +184,12 @@ describe("buildAgentSpec", () => {
     // reversible, and asking about it is ceremony (decision 42). `sandbox-mcp`
     // gates nothing, because provisioning a box and running a command in it is
     // what the review *is* (decision 113) — and it says so with an empty list,
-    // because an absent key means the harness default, `@write` and
-    // `@destructive`, which is every tool on that server (decision 120).
+    // which means what it says (decision 128).
     expect(spec.mcpServers).toEqual([
       { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
       { name: "sandbox-mcp", requireApprovalForTools: [] },
     ]);
-    expect(spec.config).toMatchObject({
-      // Off, because the agent reaches a sandbox through `sandbox-mcp` now.
-      sandbox: { enabled: false },
-      askUserQuestions: { enabled: false },
-      generativeUi: { enabled: false },
-    });
+    expect(spec.config).toEqual({ compaction: { enabled: true }, iterationLimit: 150 });
   });
 
   it("passes the reasoning effort through, and omits params when it is unset", () => {
@@ -268,17 +262,12 @@ describe("buildConverseSpec", () => {
     expect(spec.mcpServers?.some((s) => s.name === "github-mcp")).toBe(false);
   });
 
-  it("keeps a sandbox, because re-running is the point", () => {
+  it("keeps the sandbox tools, because re-running is the point", () => {
     // Every other reviewer can re-read a diff. Without a sandbox this agent
-    // could only paraphrase the report it was handed. It reaches one through
-    // `sandbox-mcp` now rather than through the harness, so the harness's own
-    // sandbox is off here exactly as it is on the reviewer.
+    // could only paraphrase the report it was handed.
     const spec = buildConverseSpec(config, "rubric");
-    expect(spec.config).toMatchObject({
-      sandbox: { enabled: false },
-      askUserQuestions: { enabled: false },
-      generativeUi: { enabled: false },
-    });
+    expect(spec.mcpServers.map((s) => s.name)).toEqual(["sandbox-mcp"]);
+    expect(spec.config).toEqual({ compaction: { enabled: false }, iterationLimit: 60 });
   });
 
   it("runs at the same reasoning effort as the reviewer", () => {
@@ -342,9 +331,8 @@ describe("specFingerprint", () => {
     );
   });
 
-  it("hashes an absent instruction string rather than throwing", () => {
-    // `instructions` is optional on AgentSpec.
-    expect(specFingerprint({ model: { name: "m" } })).toMatch(/^[0-9a-f]{64}$/);
+  it("is a hex digest", () => {
+    expect(specFingerprint(buildAgentSpec(config, "r"))).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
@@ -352,33 +340,26 @@ describe("the runtime config both specs run under", () => {
   const config = {
     model: "m",
     modelReasoningEffort: "",
-    compactionThresholdTokens: 200_000,
   } as unknown as Config;
 
-  it("leaves the harness with no sandbox to provision, on either spec", () => {
-    // Decision 113. The harness's provider manifest is a string literal, so the
-    // way off it is to stop asking the harness for a sandbox at all — and then
-    // the download path this test used to close goes with it, because the
-    // endpoint belonged to a sandbox the harness owned.
-    for (const spec of [buildAgentSpec(config, "r"), buildConverseSpec(config, "r")]) {
-      expect(spec.config?.sandbox).toEqual({ enabled: false });
-    }
-  });
-
-  it("raises the compaction threshold for the review, and only the review", () => {
-    expect(buildAgentSpec(config, "r").config?.contextManagement).toEqual({
-      compaction: { enabled: true, compactionThresholdTokens: 200_000 },
-    });
+  it("compacts the review and never the conversation (decision 129)", () => {
+    expect(buildAgentSpec(config, "r").config.compaction).toEqual({ enabled: true });
     // Conversation answers one question against a brief already collected, so
     // it never holds the evidence a compaction would summarise away.
-    expect(buildConverseSpec(config, "r").config?.contextManagement).toBeUndefined();
+    expect(buildConverseSpec(config, "r").config.compaction).toEqual({ enabled: false });
   });
 
-  it("passes the configured threshold through rather than a constant", () => {
-    const lower = { ...config, compactionThresholdTokens: 60_000 } as unknown as Config;
-    expect(
-      buildAgentSpec(lower, "r").config?.contextManagement?.compaction?.compactionThresholdTokens,
-    ).toBe(60_000);
+  it("gives the review more room to iterate than the conversation", () => {
+    expect(buildAgentSpec(config, "r").config.iterationLimit).toBe(150);
+    expect(buildConverseSpec(config, "r").config.iterationLimit).toBe(60);
+  });
+
+  it("carries nothing the harness does not know", () => {
+    // The TrueForge keys (`sandbox`, `askUserQuestions`, `generativeUi`,
+    // `contextManagement`) are gone with it; the contract's schema is strict.
+    for (const spec of [buildAgentSpec(config, "r"), buildConverseSpec(config, "r")]) {
+      expect(Object.keys(spec.config).sort()).toEqual(["compaction", "iterationLimit"]);
+    }
   });
 });
 
@@ -388,7 +369,6 @@ describe("modelRef, through the specs", () => {
     modelReasoningEffort: "",
     modelTemperature: null,
     modelMaxTokens: null,
-    compactionThresholdTokens: 200_000,
   } as unknown as Config;
 
   it("sends no params at all when nothing is configured", () => {

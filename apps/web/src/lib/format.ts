@@ -68,7 +68,7 @@ export function compactCount(value: number): string {
 }
 
 /**
- * A cost, at the precision the number deserves. TrueForge's estimates land in
+ * A cost, at the precision the number deserves. The harness's estimates land in
  * fractions of a cent, and `$0.00` beside a real figure is the same misreading
  * `compactCount` avoids — so anything under a cent gets four places.
  *

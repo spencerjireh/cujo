@@ -89,6 +89,13 @@ function build(
   };
   const settled: ((name: string) => void)[] = [];
   const nextSettled = () => new Promise<string>((resolve) => settled.push(resolve));
+  // What `index.ts` wires: refuse while a run is unfinished on the pull
+  // request, otherwise forget both sessions.
+  const resetSession = vi.fn((repo: string, prNumber: number) => {
+    const busy = store.runs.listUnfinishedRuns({ repo, prNumber })[0];
+    if (busy) return { kind: "busy" as const, runId: busy.id };
+    return { kind: "reset" as const, sessions: store.runs.deleteSessions(repo, prNumber) };
+  });
   const app = interactionRoutes({
     log: silentLog,
     publicKey,
@@ -97,9 +104,10 @@ function build(
     github: github as unknown as GitHubReader,
     links: { publicBaseUrl: "https://cujo.example.com" },
     defaultGuild: options.defaultGuild ?? null,
+    resetSession,
     onSettled: (name) => settled.shift()?.(name),
   });
-  return { app, store, discord, github, declared, nextSettled };
+  return { app, store, discord, github, declared, nextSettled, resetSession };
 }
 
 function post(
@@ -381,6 +389,58 @@ describe("interactions endpoint", () => {
       command("unwatch", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
     );
     expect(second).toContain("not being sent");
+  });
+
+  it("resets a pull request's sessions, and refuses while a review is running", async () => {
+    const built = build();
+    authorize(built);
+    const repo = "spencerjireh/orders-api";
+    const resetCommand = () =>
+      command("reset", [
+        { name: "repo", type: 3, value: repo },
+        { name: "pr", type: 4, value: 7 },
+      ]);
+
+    // Nothing to forget yet: still a success, so an operator can run it blind.
+    expect(await reply(built, resetCommand())).toContain("no session");
+
+    built.store.runs.putSession(repo, 7, "sess-old");
+    built.store.runs.putConversationSession(repo, 7, "conv-old");
+    const { run } = built.store.runs.createRun({
+      repo,
+      prNumber: 7,
+      headSha: "abc",
+      sessionId: "sess-old",
+      isPublic: true,
+    });
+    expect(await reply(built, resetCommand())).toContain("review in progress");
+    expect(built.store.runs.getSession(repo, 7)).toBe("sess-old");
+
+    built.store.runs.updateRun(run.id, { status: "unproven" });
+    expect(await reply(built, resetCommand())).toContain("Forgot");
+    expect(built.store.runs.getSession(repo, 7)).toBeNull();
+    expect(built.store.runs.getConversationSession(repo, 7)).toBeNull();
+    expect(built.resetSession).toHaveBeenLastCalledWith(repo, 7);
+  });
+
+  it("reset needs a pull request number, and authorization like watch", async () => {
+    const built = build();
+    authorize(built);
+    const missing = await reply(
+      built,
+      command("reset", [{ name: "repo", type: 3, value: "spencerjireh/orders-api" }]),
+    );
+    expect(missing).toContain("pull request number");
+    const stranger = build({ declaredGuild: "999" });
+    const refused = await reply(
+      stranger,
+      command("reset", [
+        { name: "repo", type: 3, value: "spencerjireh/orders-api" },
+        { name: "pr", type: 4, value: 7 },
+      ]),
+    );
+    expect(refused).not.toContain("Forgot");
+    expect(stranger.resetSession).not.toHaveBeenCalled();
   });
 
   it("reports what this server is being sent, and nothing it is not", async () => {

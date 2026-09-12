@@ -10,6 +10,7 @@
 /** Discord application command option types. */
 const SUB_COMMAND = 1;
 const STRING = 3;
+const INTEGER = 4;
 const CHANNEL = 7;
 const ROLE = 8;
 
@@ -77,6 +78,21 @@ export const CUJO_COMMAND = {
       name: "test",
       description: "Post a sample card, to prove the whole path works",
       options: [repoOption],
+    },
+    {
+      type: SUB_COMMAND,
+      name: "reset",
+      description: "Forget a pull request's sessions, so its next review starts fresh",
+      options: [
+        repoOption,
+        {
+          type: INTEGER,
+          name: "pr",
+          description: "The pull request number",
+          required: true,
+          min_value: 1,
+        },
+      ],
     },
   ],
 };

@@ -1,33 +1,28 @@
+import type {
+  ModelMessageUsage,
+  SessionEvent,
+  ToolCall,
+  TurnDoneEvent,
+  TurnInputItem,
+  TurnMetrics,
+  TurnStateDone,
+} from "@cujo/harness-contract";
 import { renderReviewBody, reviewComments } from "@cujo/review-render";
-import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it } from "vitest";
 import { isMaliceClaim } from "../../src/review/findings";
 import { fold, parseReport, parseReview, pendingApproval } from "../../src/review/fold";
 
-type Ev = TrueForgeApi.SessionEvent;
+type Ev = SessionEvent;
 const at = "2026-08-27T00:00:00Z";
 
-const turnCreated = (
-  turnId: string,
-  input?: TrueForgeApi.TurnInputItem[],
-  createdAt: string = at,
-): Ev => ({
+const turnCreated = (turnId: string, input?: TurnInputItem[], createdAt: string = at): Ev => ({
   type: "turn.created",
   id: `tc-${turnId}`,
   createdAt,
-  threadId: null,
+  threadId: "main",
   turnId,
   previousTurnId: null,
-  state: { status: "running" },
-  ...(input ? { input } : {}),
-});
-
-const sandboxCreated = (createdAt: string): Ev => ({
-  type: "sandbox.created",
-  id: "sbx",
-  createdAt,
-  threadId: null,
-  sandboxId: "sb-1",
+  input: input ?? [],
 });
 
 /** A parent turn with no tool call: one round trip, and nothing else. */
@@ -39,15 +34,15 @@ const mainMessage = (id: string, createdAt: string): Ev => ({
   content: "",
 });
 
-const turnDone = (state: TrueForgeApi.TurnDoneEventState = doneState()): Ev => ({
+const turnDone = (state: TurnDoneEvent["state"] = doneState()): Ev => ({
   type: "turn.done",
   id: "td",
   createdAt: at,
-  threadId: null,
+  threadId: "main",
   state,
 });
 
-function doneState(): TrueForgeApi.TurnStateDone {
+function doneState(): TurnStateDone {
   return { status: "done", completedAt: at, output: null, requiredActions: [] };
 }
 
@@ -56,18 +51,14 @@ const reviewCall = (id: string, name: string, args: unknown): Ev => ({
   id: `mm-${id}`,
   createdAt: at,
   threadId: "main",
+  content: null,
   toolCalls: [
     {
       id,
       type: "function",
       function: { name, arguments: JSON.stringify(args) },
-      toolInfo: {
-        type: "mcp",
-        mcpServerId: "x",
-        mcpServerName: "github-mcp",
-        originalToolName: name,
-      },
-    } as unknown as TrueForgeApi.ToolCall,
+      toolInfo: { type: "mcp", name, serverName: "github-mcp" },
+    },
   ],
 });
 
@@ -86,16 +77,19 @@ const threadErrored = (threadId: string, message: string, createdAt: string = at
   createdAt,
   threadId,
   title: threadId,
+  parent: { threadId: "main", toolCallId: "spawn" },
   state: { status: "error", error: message },
 });
 
-const toolResponse = (toolCallId: string): Ev => ({
+const toolResponse = (toolCallId: string, toolName = "post_gated_review", isError = false): Ev => ({
   type: "tool.response",
-  id: "tr",
+  id: `tr-${toolCallId}`,
   createdAt: at,
   threadId: "main",
   toolCallId,
+  toolName,
   content: "{}",
+  isError,
 });
 
 const threadCreated = (threadId: string, title: string, createdAt: string = at): Ev => ({
@@ -105,7 +99,7 @@ const threadCreated = (threadId: string, title: string, createdAt: string = at):
   threadId,
   title,
   parent: { threadId: "main", toolCallId: "spawn" },
-  agentInfo: {} as TrueForgeApi.AgentInfo,
+  agentInfo: { type: "dynamic", name: title, input: "" },
 });
 
 const threadDone = (threadId: string, text: string, createdAt: string = at): Ev => ({
@@ -114,6 +108,7 @@ const threadDone = (threadId: string, text: string, createdAt: string = at): Ev 
   createdAt,
   threadId,
   title: threadId,
+  parent: { threadId: "main", toolCallId: "spawn" },
   state: {
     status: "done",
     output: { type: "model.message", id: "out", createdAt: at, threadId, content: text },
@@ -138,8 +133,13 @@ const derivedReview = {
     { check: "probes", severity: "info", title: "the probes agreed", evidence: "3 of 3" },
   ],
 };
-const resume = (status: "allow" | "deny"): TrueForgeApi.TurnInputItem[] => [
-  { type: "user.tool_approval", threadId: "main", toolCallId: "call-1", approval: { status } },
+const resume = (status: "allow" | "deny"): TurnInputItem[] => [
+  {
+    type: "user.tool_approval",
+    threadId: "main",
+    toolCallId: "call-1",
+    approval: status === "allow" ? { status } : { status, reason: "no" },
+  },
 ];
 
 describe("fold", () => {
@@ -354,6 +354,43 @@ describe("fold", () => {
     expect(p.status).toBe("blocked_posted");
     expect(p.turnIds).toEqual(["t1", "t2"]);
     expect(p.externalResume).toBe(false);
+  });
+
+  it("is blocked_posted after an allow answered by a re-call under a new call id (decision 125)", () => {
+    // The harness restarted while the call was held; on allow the model made
+    // the same call again, so the response carries a different id.
+    const p = fold(
+      [
+        turnCreated("t1"),
+        reviewCall("call-1", "post_gated_review", review),
+        approvalRequired("main", "call-1", "mm-call-1"),
+        turnDone(),
+        turnCreated("t2", resume("allow")),
+        reviewCall("call-2", "post_gated_review", review),
+        toolResponse("call-2", "post_gated_review"),
+        turnDone(),
+      ],
+      { cujoResumeTurnIds: new Set(["t2"]) },
+    );
+    expect(p.status).toBe("blocked_posted");
+  });
+
+  it("does not count an errored or unrelated response as the accusation posting", () => {
+    const paused = [
+      turnCreated("t1"),
+      reviewCall("call-1", "post_gated_review", review),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+      turnCreated("t2", resume("allow")),
+    ];
+    const options = { cujoResumeTurnIds: new Set(["t2"]) };
+    expect(
+      fold([...paused, toolResponse("call-2", "post_gated_review", true), turnDone()], options)
+        .status,
+    ).not.toBe("blocked_posted");
+    expect(
+      fold([...paused, toolResponse("call-2", "post_advisory_review"), turnDone()], options).status,
+    ).not.toBe("blocked_posted");
   });
 
   it("is denied after a deny resume, with or without the refusal tool.response", () => {
@@ -583,7 +620,7 @@ describe("hard rules in the fold", () => {
           threadId: "main",
           toolCallId: "call-1",
           approval: { status: "allow" },
-        } as unknown as TrueForgeApi.TurnInputItem,
+        } as unknown as TurnInputItem,
       ]),
       toolResponse("call-1"),
       turnDone(),
@@ -602,7 +639,7 @@ describe("hard rules in the fold", () => {
           threadId: "main",
           toolCallId: "call-1",
           approval: { status: "deny" },
-        } as unknown as TrueForgeApi.TurnInputItem,
+        } as unknown as TurnInputItem,
       ]),
       toolResponse("call-1"),
       turnDone(),
@@ -702,6 +739,7 @@ describe("hard rules in the fold", () => {
       createdAt: at,
       threadId: "th-tests",
       title: "tests",
+      parent: { threadId: "main", toolCallId: "spawn" },
       state: {
         status: "done",
         output: {
@@ -761,14 +799,10 @@ describe("hard rules in the fold", () => {
 });
 
 describe("usage and timings in the fold", () => {
-  const usage = (inputTokens: number, outputTokens: number): TrueForgeApi.ModelMessageUsage =>
-    ({ inputTokens, outputTokens }) as TrueForgeApi.ModelMessageUsage;
+  const usage = (inputTokens: number, outputTokens: number): ModelMessageUsage =>
+    ({ inputTokens, outputTokens }) as ModelMessageUsage;
 
-  const message = (
-    id: string,
-    threadId: string,
-    u: TrueForgeApi.ModelMessageUsage | undefined,
-  ): Ev => ({
+  const message = (id: string, threadId: string, u: ModelMessageUsage | undefined): Ev => ({
     type: "model.message",
     id,
     createdAt: at,
@@ -777,8 +811,7 @@ describe("usage and timings in the fold", () => {
     ...(u ? { usage: u } : {}),
   });
 
-  const doneWithMetrics = (metrics: TrueForgeApi.TurnMetrics): Ev =>
-    turnDone({ ...doneState(), metrics });
+  const doneWithMetrics = (metrics: TurnMetrics): Ev => turnDone({ ...doneState(), metrics });
 
   it("attributes a message's tokens to the check whose thread it came from", () => {
     const p = fold([
@@ -855,22 +888,15 @@ describe("usage and timings in the fold", () => {
 });
 
 describe("parseReview", () => {
-  const callTool = (id: string, args: unknown) =>
-    ({
-      id,
-      type: "function",
-      function: { name: "call_tool", arguments: JSON.stringify(args) },
-      toolInfo: { type: "truefoundry-system", name: "call_tool" },
-    }) as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+  const call = (id: string, name: string, args: string): ToolCall => ({
+    id,
+    type: "function",
+    function: { name, arguments: args },
+    toolInfo: { type: "mcp", name, serverName: "github-mcp" },
+  });
 
-  it("reads a review posted through the call_tool meta-tool", () => {
-    const parsed = parseReview(
-      callTool("c1", {
-        mcp_server: "github-mcp",
-        tool_name: "post_blocking_review",
-        input: review,
-      }),
-    );
+  it("reads a review tool called by name (decision 128)", () => {
+    const parsed = parseReview(call("c1", "post_blocking_review", JSON.stringify(review)));
     expect(parsed).toEqual({
       tool: "post_blocking_review",
       toolCallId: "c1",
@@ -883,61 +909,19 @@ describe("parseReview", () => {
     });
   });
 
-  it("ignores call_tool for anything but a review tool on github-mcp, and malformed input", () => {
-    expect(parseReview(callTool("c2", { mcp_server: "x", tool_name: "list_tools" }))).toBeNull();
-    expect(parseReview(callTool("c3", { mcp_server: "github-mcp" }))).toBeNull();
-    // A same-named tool on another server posts nothing.
+  it("ignores anything but a review tool, and tolerates malformed arguments", () => {
+    expect(parseReview(call("c2", "sandbox_exec", "{}"))).toBeNull();
+    expect(parseReview(call("c3", "create_sub_agent", '{"name":"tests"}'))).toBeNull();
     expect(
-      parseReview(callTool("c5", { mcp_server: "other", tool_name: "post_advisory_review" })),
-    ).toBeNull();
-    expect(
-      parseReview(
-        callTool("c4", {
-          mcp_server: "github-mcp",
-          tool_name: "post_advisory_review",
-          input: "not an object",
-        }),
-      ),
+      parseReview(call("c4", "post_advisory_review", JSON.stringify({ body: 42 }))),
     ).toMatchObject({ tool: "post_advisory_review", body: "", comments: [] });
     // JSON that is not an object must not throw mid-fold.
     for (const raw of ["null", "[]", "42", '"s"', "{not json"]) {
-      const call = {
-        id: "c6",
-        type: "function",
-        function: { name: "call_tool", arguments: raw },
-      } as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
-      expect(parseReview(call)).toBeNull();
+      expect(parseReview(call("c6", "post_advisory_review", raw))).toMatchObject({
+        tool: "post_advisory_review",
+        comments: [],
+      });
     }
-    const direct = {
-      id: "c7",
-      type: "function",
-      function: { name: "post_advisory_review", arguments: "null" },
-    } as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
-    expect(parseReview(direct)).toMatchObject({ tool: "post_advisory_review", comments: [] });
-  });
-
-  it("folds a call_tool review the same as a direct one", () => {
-    const message: Ev = {
-      type: "model.message",
-      id: "mm-1",
-      createdAt: at,
-      threadId: "main",
-      toolCalls: [
-        callTool("call-1", {
-          mcp_server: "github-mcp",
-          tool_name: "post_blocking_review",
-          input: review,
-        }) as unknown as TrueForgeApi.ToolCall,
-      ],
-    };
-    const p = fold([
-      turnCreated("t1"),
-      message,
-      approvalRequired("main", "call-1", "mm-1"),
-      turnDone(),
-    ]);
-    expect(p.status).toBe("blocked_pending");
-    expect(p.review?.tool).toBe("post_blocking_review");
   });
 });
 
@@ -989,7 +973,7 @@ describe("check timing", () => {
 });
 
 describe("pendingApproval", () => {
-  const answer = (toolCallId: string): TrueForgeApi.TurnInputItem[] => [
+  const answer = (toolCallId: string): TurnInputItem[] => [
     { type: "user.tool_approval", threadId: "main", toolCallId, approval: { status: "allow" } },
   ];
 
@@ -1036,6 +1020,17 @@ describe("pendingApproval", () => {
     expect(pendingApproval(events)?.toolCallId).toBe("call-2");
   });
 
+  it("is null once a later user message voided the request (decision 125)", () => {
+    const events = [
+      turnCreated("t1"),
+      approvalRequired("main", "call-1", "mm-1"),
+      turnDone(),
+      turnCreated("t2", [{ type: "user.message", content: "next head" }]),
+      turnDone(),
+    ];
+    expect(pendingApproval(events)).toBeNull();
+  });
+
   it("ignores a resume that answers some other tool call", () => {
     const events = [
       turnCreated("t1"),
@@ -1062,20 +1057,18 @@ describe("parseReport", () => {
 
 describe("the setup window", () => {
   const claim = "2026-08-27T00:00:00.000Z";
-  const boxed = "2026-08-27T00:00:10.000Z";
   const spoke = "2026-08-27T00:00:15.000Z";
   const spawn = "2026-08-27T00:01:15.000Z";
 
   it("stamps each end of the window from the event that marks it", () => {
     const p = fold([
       turnCreated("t1", undefined, claim),
-      sandboxCreated(boxed),
       mainMessage("m1", spoke),
       threadCreated("sub-1", "tests", spawn),
     ]);
     expect(p.setup).toEqual({
       turnCreatedAt: claim,
-      sandboxCreatedAt: boxed,
+      sandboxCreatedAt: null,
       agentStartedAt: spoke,
       firstCheckAt: spawn,
       messages: 1,
@@ -1083,10 +1076,7 @@ describe("the setup window", () => {
     });
   });
 
-  it("leaves the sandbox stamp null when the session already had one", () => {
-    // A second run on the same pull request. `hydrate` scopes a fold to this
-    // run's own turns, so the first run's `sandbox.created` is not in the
-    // stream — the sandbox was already there, which is why a re-run is faster.
+  it("leaves the sandbox stamp null: the harness provisions nothing (decision 113)", () => {
     const p = fold([
       turnCreated("t2", undefined, claim),
       mainMessage("m1", spoke),
@@ -1195,12 +1185,12 @@ const sharedArgs = {
   egress: [{ host: "pypi.org", port: 443, known: true }],
 };
 
-const reviewToolCall = (name: string): TrueForgeApi.ChatCompletionMessageToolCall =>
+const reviewToolCall = (name: string): ToolCall =>
   ({
     id: "call-1",
     type: "function",
     function: { name, arguments: JSON.stringify(sharedArgs) },
-  }) as unknown as TrueForgeApi.ChatCompletionMessageToolCall;
+  }) as unknown as ToolCall;
 
 describe("parseReview agrees with what github-mcp posts", () => {
   it("is the body github-mcp composes, not the lede the model sent", () => {
@@ -1247,7 +1237,7 @@ describe("parseReview agrees with what github-mcp posts", () => {
       id: "call-2",
       type: "function",
       function: { name: "post_advisory_review", arguments: JSON.stringify(held) },
-    } as unknown as TrueForgeApi.ChatCompletionMessageToolCall);
+    } as unknown as ToolCall);
     expect(parsed?.composedBody).toContain("(1 held)");
     expect(parsed?.composedBody).toContain("· held");
   });

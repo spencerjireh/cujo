@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { MAIN_THREAD } from "@cujo/harness-contract";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import {
@@ -6,7 +7,7 @@ import {
   STALE_DENY_REASON,
   type SessionEvent,
   type StreamEvent,
-} from "../clients/trueforge";
+} from "../clients/harness";
 import type { RunStore } from "../store";
 import { announceEvidenceGaps, announceTimeout } from "./announce";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
@@ -150,7 +151,7 @@ function errorTurnDone(id: string, message: string): StreamEvent {
     type: "turn.done",
     id,
     createdAt: now,
-    threadId: null,
+    threadId: MAIN_THREAD,
     state: { status: "error", message, completedAt: now },
   };
 }
