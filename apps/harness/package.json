@@ -1,0 +1,22 @@
+{
+  "name": "@cujo/harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cujo/harness-contract": "workspace:*",
+    "@cujo/log": "workspace:*",
+    "@hono/node-server": "2.1.1",
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "hono": "4.13.5",
+    "zod": "3.25.76"
+  }
+}

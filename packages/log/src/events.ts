@@ -24,6 +24,9 @@ export const EVENT_NAMES = [
   // at the call site: they run every few seconds forever and would drown the
   // signal this whole vocabulary exists to create.
   "http.request",
+  // A handler that threw something other than a typed refusal (the harness
+  // answers 500 and logs the cause here; a typed refusal is just a status).
+  "http.failed",
   // Process lifecycle. `service.stopping` is what distinguishes a deploy from
   // a crash in a log that otherwise just ends.
   "service.started",
@@ -33,6 +36,22 @@ export const EVENT_NAMES = [
   "harness.bootstrap.ok",
   "harness.bootstrap.failed",
   "harness.ready",
+  // The harness itself (`apps/harness`, decision 123): a turn's life, the
+  // gate holding a call, a sub-agent's thread, and pi's retries and
+  // compactions surfaced as lines rather than events.
+  "harness.turn.started",
+  "harness.turn.finished",
+  "harness.turn.failed",
+  "harness.turn.suspended",
+  "harness.turn.resumed",
+  "harness.turn.recalled",
+  "harness.turn.abandoned",
+  "harness.gate.recalled",
+  "harness.approval.superseded",
+  "harness.thread.finished",
+  "harness.retry.scheduled",
+  "harness.compaction.finished",
+  "harness.mcp.connect.retried",
   // Signature-gated ingress. Every one carries `delivery_id`.
   "webhook.accepted",
   "webhook.ignored",
