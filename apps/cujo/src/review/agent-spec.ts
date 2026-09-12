@@ -152,10 +152,14 @@ export function buildAgentSpec(
     // ceremony. Only the accusation waits (decision 42).
     // `sandbox-mcp` is ungated on purpose: provisioning a box and running a
     // command in it is what the review *is*, and the gate is for the one
-    // irreversible thing — an accusation reaching a pull request (42).
+    // irreversible thing — an accusation reaching a pull request (42). The
+    // empty list is the whole fix of decision 120: the harness's default when
+    // the key is absent is `["@write", "@destructive"]`, which is every tool on
+    // this server, so the first live review paused on `sandbox_create` and
+    // sat as `blocked_pending` with nothing to approve.
     mcpServers: [
       { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
-      { name: "sandbox-mcp" },
+      { name: "sandbox-mcp", requireApprovalForTools: [] },
     ],
     config: {
       // Off, because the harness no longer provisions anything (decision 113).
@@ -211,7 +215,7 @@ export function buildConverseSpec(
     // so there is no tool on this session that can reach a pull request.
     // Re-execution is still the whole point of it, which is why the sandbox
     // tools are present at all.
-    mcpServers: [{ name: "sandbox-mcp" }],
+    mcpServers: [{ name: "sandbox-mcp", requireApprovalForTools: [] }],
     config: {
       // Off here too, for the reason it is off above: the harness provisions no
       // sandbox any more (decision 113). No `contextManagement`: this answers one
