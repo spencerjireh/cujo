@@ -1,33 +1,33 @@
 /**
- * Harness contract tests: the TrueForge behaviors apps/cujo relies on, run
- * against a real server and a real github-mcp (`make test-int`). Every
+ * Harness contract tests: the behaviors apps/cujo relies on, run against a
+ * real `apps/harness` and a real github-mcp (`make test-int`). Every
  * assumption the unit tests fake is checked here: a turn id is known at
- * creation, a subscription replays the turn from its first event, a later
- * turn chains to the previous one, cancel ends the running turn, creating a
- * turn while one runs cancels the old one, and the events a review tool call
- * produces fold into the statuses Contract 6 promises. Skipped unless
- * TRUEFORGE_BASE_URL is set.
+ * creation, a subscription replays the turn from its first event and then
+ * streams live, a later turn chains to the previous one, cancel ends the
+ * running turn, creating a turn while one runs ends the old one, a sub-agent's
+ * report is durable before its parent finishes, the gate holds and the answer
+ * reaches the model, and the events a review tool call produces fold into
+ * the statuses Contract 6 promises. Skipped unless HARNESS_BASE_URL is set.
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   Harness,
   type StreamEvent,
-  type ToolApprovalRequiredEvent,
   type TurnCreatedEvent,
   type TurnDoneEvent,
-} from "../../src/clients/trueforge";
+} from "../../src/clients/harness";
 import type { Config } from "../../src/config";
 import { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
 import { type StubModel, startStubModel } from "./stub-model";
 
-const BASE_URL = process.env.TRUEFORGE_BASE_URL;
-/** How the server container reaches this process. */
+const BASE_URL = process.env.HARNESS_BASE_URL;
+/** How the harness container reaches this process. */
 const STUB_HOST = process.env.CUJO_STUB_MODEL_HOST ?? "host.docker.internal";
-/** How the server container reaches github-mcp (the compose service name). */
+/** How the harness container reaches github-mcp (the compose service name). */
 const GITHUB_MCP_URL = process.env.CUJO_GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp";
-/** Registered so bootstrap is complete; never called, since no spec asks for a sandbox. */
+/** Registered so bootstrap is complete; never called, since no spec here names it. */
 const SANDBOX_MCP_URL = process.env.CUJO_SANDBOX_MCP_URL ?? "http://sandbox-mcp:8082/mcp";
 const PROVIDER = "cujo-contract-stub";
 const MODEL = `${PROVIDER}/stub`;
@@ -42,25 +42,30 @@ const REVIEW_ARGS = JSON.stringify({
 async function collect(stream: AsyncIterable<StreamEvent>): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
   for await (const event of stream) {
-    if (event.type === "model.message.delta") continue;
     events.push(event);
     if (event.type === "turn.done") break;
   }
   return events;
 }
 
+const stored = (events: StreamEvent[]) => events.filter((e) => e.type !== "model.message.delta");
 const turnCreated = (events: StreamEvent[]) =>
   events.find((e): e is TurnCreatedEvent => e.type === "turn.created");
 const turnDone = (events: StreamEvent[]) =>
   events.find((e): e is TurnDoneEvent => e.type === "turn.done");
 const outputText = (events: StreamEvent[]) => {
   const done = turnDone(events);
-  if (done?.state.status !== "done") return "";
-  const content = done.state.output?.content;
-  return typeof content === "string" ? content : "";
+  return done?.state.status === "done" ? (done.state.output?.content ?? "") : "";
 };
 
-describe.skipIf(!BASE_URL)("TrueForge contract", () => {
+const spec = () => ({
+  model: { name: MODEL, params: { reasoningEffort: "low" as const } },
+  instructions: "Do what the user message says.",
+  mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
+  config: { iterationLimit: 20, compaction: { enabled: false } },
+});
+
+describe.skipIf(!BASE_URL)("harness contract", () => {
   let stub: StubModel;
   let harness: Harness;
   let sessionId: string;
@@ -70,29 +75,23 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   beforeAll(async () => {
     stub = await startStubModel();
     const config = {
-      trueforgeBaseUrl: BASE_URL,
+      harnessBaseUrl: BASE_URL,
       githubMcpUrl: GITHUB_MCP_URL,
+      sandboxMcpUrl: SANDBOX_MCP_URL,
       bootstrap: {
         modelProvider: {
           name: PROVIDER,
           baseUrl: `http://${STUB_HOST}:${stub.port}/v1`,
           apiKey: "stub",
           models: [{ name: "stub", modelId: "stub-1" }],
-          // Declared so the session below can ask for one. Without this the
-          // server rejects any `reasoningEffort` and createSession throws --
-          // which is exactly what shipped, because this test used to create a
-          // session with no `params` at all and so never touched that path
-          // (decision 56).
-          reasoningEfforts: ["none", "low"],
+          contextWindow: 100_000,
+          maxTokens: 4_000,
+          // The spec below asks for an effort anyway: the harness clamps it to
+          // nothing for a model that declares none (decision 127), and that
+          // clamp, not a refusal, is the contract.
+          reasoning: false,
         },
-        // Kept null, and now it changes nothing: no sandbox provider is
-        // registered whatever this holds (decision 113).
-        daytonaApiKey: null,
       },
-      // This suite runs with no sandbox at all -- `sandbox: { enabled: false }`
-      // on both specs -- so nothing here calls the server. The URL is still
-      // required, because `bootstrap` registers it.
-      sandboxMcpUrl: SANDBOX_MCP_URL,
     } as unknown as Config;
     harness = new Harness(config);
   });
@@ -107,9 +106,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
   it("bootstrap registers both MCP servers and the model provider, twice without harm", async () => {
     // The array is pinned deliberately: it is the one place the *order* and the
     // *completeness* of bootstrap are asserted against a real server, and
-    // `bootstrapUntilReady` re-applies the whole thing on a retry. It grew a
-    // `sandbox-mcp` entry with decision 113, which is a change to the contract
-    // rather than a drive-by edit to make a test pass.
+    // `bootstrapUntilReady` re-applies the whole thing on a retry.
     const applied = await harness.bootstrap();
     expect(applied).toEqual([
       "mcp-server github-mcp",
@@ -117,26 +114,16 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
       `model-provider ${PROVIDER}`,
     ]);
     expect(harness.ready).toBe(true);
-    await harness.bootstrap();
-    const { data } = await harness.client.settings.modelProviders.list();
-    expect(data.filter((p) => p.name === PROVIDER)).toHaveLength(1);
+    await expect(harness.bootstrap()).resolves.toEqual(applied);
   });
 
   it("creates a session from an inline agent spec that gates the accusation", async () => {
-    sessionId = await harness.createSession({
-      // `params` is the half CI never exercised. A spec naming an effort the
-      // provider does not declare is refused at creation, and production found
-      // that out as a 502 on every webhook.
-      model: { name: MODEL, params: { reasoningEffort: "low" } },
-      instructions: "Do what the user message says.",
-      mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
-      config: {
-        sandbox: { enabled: false },
-        askUserQuestions: { enabled: false },
-        generativeUi: { enabled: false },
-      },
-    });
+    sessionId = await harness.createSession(spec());
     expect(sessionId).toMatch(/\S+/);
+    // An unknown model is refused at creation, not at the first turn.
+    await expect(
+      harness.createSession({ ...spec(), model: { name: `${PROVIDER}/nope` } }),
+    ).rejects.toThrow(/Unknown model/);
   });
 
   it("returns the turn id at creation and replays the turn from turn.created on subscribe", async () => {
@@ -148,16 +135,17 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(created?.previousTurnId).toBeNull();
     expect(turnDone(events)?.state.status).toBe("done");
     expect(outputText(events)).toBe("echo: first");
-    // The stream's model.message is a stub: the text is on turn.done only.
+    // The stream carries the text as it is produced, and the stored message
+    // with it: no stub, no re-read needed to know what the model said.
+    expect(events.filter((e) => e.type === "model.message.delta").length).toBeGreaterThan(0);
     const message = events.find((e) => e.type === "model.message");
-    expect(message).toBeDefined();
-    expect(message && "content" in message).toBe(false);
+    expect(message && "content" in message ? message.content : null).toBe("echo: first");
   });
 
-  it("replays a finished turn in full on a later subscribe", async () => {
-    const events = await collect(await harness.subscribe(sessionId, firstTurn));
+  it("replays a finished turn in full on a later subscribe, then closes", async () => {
+    const events = stored(await collect(await harness.subscribe(sessionId, firstTurn)));
     expect(turnCreated(events)?.turnId).toBe(firstTurn);
-    expect(turnDone(events)?.state.status).toBe("done");
+    expect(events.at(-1)?.type).toBe("turn.done");
   });
 
   it("chains the next turn to the previous one, and lists events oldest first", async () => {
@@ -171,7 +159,10 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(items[0]?.event.type).toBe("turn.created");
 
     const turns = await harness.listTurns(sessionId);
-    expect(turns.map((t) => t.id)).toEqual(expect.arrayContaining([firstTurn, second]));
+    expect(turns.map((t) => t.id)).toEqual([firstTurn, second]);
+    // The model saw the whole conversation: the transcript is the session's.
+    const last = stub.requests.at(-1)?.messages ?? [];
+    expect(last.filter((m) => m.role === "user")).toHaveLength(2);
   });
 
   it("cancel ends the running turn as cancelled", async () => {
@@ -181,9 +172,10 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     await harness.cancelTurn(sessionId);
     const done = turnDone(await streamPromise);
     expect(done?.state.status).toBe("cancelled");
+    if (done?.state.status === "cancelled") expect(done.state.reason).toBe("client-cancelled");
   });
 
-  it("creating a turn while one runs cancels the old one, but its stream does not close", async () => {
+  it("creating a turn while one runs ends the old one, and its stream closes", async () => {
     const slow = await harness.startTurn(sessionId, "SLOW two");
     const slowEvents = harness.subscribe(sessionId, slow).then(collect);
     await new Promise((r) => setTimeout(r, 1500));
@@ -191,23 +183,18 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     const nextEvents = await collect(await harness.subscribe(sessionId, next));
     expect(turnDone(nextEvents)?.state.status).toBe("done");
 
-    // The old turn is cancelled on the server ...
     const old = (await harness.listTurns(sessionId)).find((t) => t.id === slow);
     expect(old?.state.status).toBe("cancelled");
     if (old?.state.status === "cancelled") {
       expect(old.state.reason).toBe("cancelled-for-next-turn");
     }
-    // ... but a subscriber to it is never told (this is why the runner
-    // cancels explicitly before starting a newer head's turn).
-    const closed = await Promise.race([
-      slowEvents.then(() => true),
-      new Promise<boolean>((r) => setTimeout(() => r(false), 5_000)),
-    ]);
-    expect(closed).toBe(false);
+    // The subscriber is told, and the stream ends (unlike TrueForge, which left
+    // it open; the runner's explicit cancel before a newer head stays anyway).
+    const done = turnDone(await slowEvents);
+    expect(done?.state.status).toBe("cancelled");
   });
 
-  const reviewMessage = (tool: string) =>
-    `CALL call_tool {"mcp_server":"github-mcp","tool_name":"${tool}","input":${REVIEW_ARGS}}`;
+  const reviewMessage = (tool: string) => `CALL ${tool} ${REVIEW_ARGS}`;
 
   // The rest drives the real Runner, so the stream, the persisted re-read,
   // the fold, the store, the approve route, and the poll are all exercised.
@@ -220,10 +207,17 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
       interval: 250,
     });
 
-  it("a review through call_tool: the model sees meta-tools, not the MCP tools", () => {
+  it("the model sees the MCP tools by name, plus create_sub_agent", () => {
     const names = stub.requests.at(-1)?.tools?.map((t) => t.function.name) ?? [];
-    expect(names).toEqual(expect.arrayContaining(["call_tool", "list_tools", "get_tool_info"]));
-    expect(names.some((n) => n.endsWith("post_gated_review"))).toBe(false);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "post_advisory_review",
+        "post_blocking_review",
+        "post_gated_review",
+        "create_sub_agent",
+      ]),
+    );
+    expect(names.some((n) => n === "call_tool" || n === "list_tools")).toBe(false);
     runner = new Runner(store.runs, harness, { turnTimeoutMs: 60_000, pollIntervalMs: 1_000 });
   });
   const active = (): Runner => {
@@ -262,28 +256,45 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(store.runs.getRun(run.id)?.turnIds).toHaveLength(2);
   });
 
-  it("a denied accusation folds to denied", async () => {
+  it("a denied accusation folds to denied, and the reason reaches the model", async () => {
     const run = runFor("h-deny");
     await active().start(run, reviewMessage("post_gated_review"));
     expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
     expect((await active().approve(run.id, "deny", "op@example.com")).ok).toBe(true);
     await settled(run.id, ["denied"]);
+    // The refusal is the tool result the model read before ending its turn.
+    const results = (stub.requests.at(-1)?.messages ?? []).filter((m) => m.role === "tool");
+    expect(results.at(-1)?.content).toContain("Rejected by a Cujo operator");
+  });
+
+  it("an advisory in the same message as the gated call posts before the pause", async () => {
+    const run = runFor("h-both");
+    const both = `CALLS ${JSON.stringify([
+      { name: "post_advisory_review", args: JSON.parse(REVIEW_ARGS) },
+      { name: "post_gated_review", args: JSON.parse(REVIEW_ARGS) },
+    ])}`;
+    await active().start(run, both);
+    expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
+    const types = (await harness.listEvents(sessionId))
+      .filter((i) => i.turnId === store.runs.getRun(run.id)?.turnIds[0])
+      .map((i) => i.event.type);
+    expect(types.indexOf("tool.response")).toBeGreaterThan(-1);
+    expect(types.indexOf("tool.response")).toBeLessThan(types.indexOf("tool.approval_required"));
+    expect((await active().approve(run.id, "deny", "op@example.com")).ok).toBe(true);
+    await settled(run.id, ["denied"]);
   });
 
   /**
-   * The regression behind decision 39, and the only test that exercises the
-   * refusal itself. An approval is outstanding on the session, not on the turn
-   * that raised it, so before the fix `supersede`'s cancel left it pending and
-   * every later head on that pull request failed to start a turn with
-   * `422 user message cannot be sent while approvals or questions are pending`.
+   * Decision 39's regression, kept: a newer head arrives while a human is
+   * still being asked about the old one. Under this harness the new turn
+   * voids the pending approval by itself (decision 125); the runner's stale
+   * deny is still sent first, and either way the next turn starts.
    */
   it("a superseded accusation leaves the session able to take the next head's turn", async () => {
     const stale = runFor("h-stale");
     await active().start(stale, reviewMessage("post_gated_review"));
     expect(store.runs.getRun(stale.id)?.status).toBe("blocked_pending");
 
-    // What the webhook does when a newer commit arrives while a human is
-    // still being asked about the old one.
     await active().supersede(stale.id);
     expect(store.runs.getRun(stale.id)?.status).toBe("superseded");
     // Nobody decided it, so it must not read as a run someone turned down.
@@ -295,7 +306,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(store.runs.getRun(next.id)?.status).toBe("unproven");
   });
 
-  it("a sub-agent's name is the thread title, and its report trips a hard rule", async () => {
+  it("a sub-agent's name is the thread title, its report is durable before the parent ends, and it trips a hard rule", async () => {
     const run = runFor("h-sub");
     // A whole envelope, not just the field the rule reads: the fold validates
     // the report and adds a `report_invalid` warn beside the rules when it does
@@ -325,6 +336,12 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     expect(projection?.hardRuleHits).toHaveLength(1);
     expect(store.runs.getRun(run.id)?.status).toBe("error");
     expect(projection?.error).toBe("turn ended without a review");
+    // Durable as it landed: the thread finished before the parent's turn did.
+    const turnId = store.runs.getRun(run.id)?.turnIds[0];
+    const types = (await harness.listEvents(sessionId))
+      .filter((i) => i.turnId === turnId)
+      .map((i) => i.event.type);
+    expect(types.indexOf("thread.done")).toBeLessThan(types.lastIndexOf("turn.done"));
   });
 
   it("a resume sent outside Cujo is picked up by the poll and marked external", async () => {
@@ -340,72 +357,38 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     active().stopAll();
   });
 
-  /**
-   * The wedge behind the orders-api#18 incident, pinned in full because every
-   * intuition about it turned out to be wrong.
-   *
-   * A run whose stream is lost ends on a synthetic terminal (`consume`, when
-   * every resubscribe is spent) while its turn keeps running. The next run on
-   * the pull request then cannot start, and the four facts below say why no
-   * obvious remedy works:
-   *
-   * - a *running* turn does not wedge a session at all; the cancel test above
-   *   shows a second turn simply supersedes it. Running **sub-agents** do.
-   * - the refused `startTurn` **cancels the turn on its way out**, so by the
-   *   time a heal looks, nothing is `running` and the wedge is invisible in
-   *   `listTurns`.
-   * - `cancelTurn` does **not** clear it. The sub-agents outlive their turn.
-   * - an empty-input turn **is** accepted while a message is refused, which is
-   *   what the 422 text itself advises.
-   *
-   * Last in the file on purpose: it holds a session open, and the tests above
-   * read `stub.requests.at(-1)`.
-   */
-  it("a running sub-agent wedges the session, and only empty input is accepted", async () => {
-    // Its own session, spec-identical to the shared one -- `create_sub_agent`
-    // is only offered when the spec declares an MCP server.
-    const wedged = await harness.createSession({
-      model: { name: MODEL, params: { reasoningEffort: "low" } },
-      instructions: "Do what the user message says.",
-      mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
-      config: {
-        sandbox: { enabled: false },
-        askUserQuestions: { enabled: false },
-        generativeUi: { enabled: false },
-      },
-    });
-    const statusOf = async (id: string) =>
-      (await harness.listTurns(wedged)).find((t) => t.id === id)?.state.status;
-    const tryTurn = async (input: string) =>
-      await harness.startTurn(wedged, input).then(
-        () => "started",
-        (error: unknown) => String(error),
-      );
+  it("listEvents returns every event past a hundred", async () => {
+    const before = (await harness.listEvents(sessionId)).length;
+    // Three events per plain turn; enough to cross what a page used to hold.
+    const needed = Math.ceil(Math.max(0, 110 - before) / 3);
+    for (let i = 0; i < needed; i += 1) {
+      const turn = await harness.startTurn(sessionId, `m${i}`);
+      await collect(await harness.subscribe(sessionId, turn));
+    }
+    expect((await harness.listEvents(sessionId)).length).toBeGreaterThan(100);
+  }, 120_000);
 
-    // The parent spawns a sub-agent whose own prompt is SLOW, so the child
-    // holds the session while the parent waits on it. The parent's prompt
-    // carries that SLOW too, which is why the stub exempts a planned call.
+  /**
+   * Decision 69's wedge, inverted. A running sub-agent used to hold the
+   * session so that no later message was accepted; now a new turn ends the
+   * parent and, through it, the child.
+   */
+  it("a new turn while a sub-agent runs supersedes it, and the child stops", async () => {
+    const own = await harness.createSession(spec());
     const spawn = `CALL create_sub_agent ${JSON.stringify({ name: "tests", input: "SLOW" })}`;
-    const before = stub.requests.length;
-    const parent = await harness.startTurn(wedged, spawn);
-    await new Promise((r) => setTimeout(r, 5_000));
-    // Guard the premise: without the spawn tool the stub answers with plain
-    // text, nothing runs, and everything below passes vacuously. The second
-    // request is the child, which is the one still sleeping.
-    const mine = stub.requests.slice(before);
-    expect(mine[0]?.tools?.map((t) => t.function.name)).toContain("create_sub_agent");
-    expect(mine.length).toBeGreaterThan(1);
+    const parent = await harness.startTurn(own, spawn);
+    const parentEvents = harness.subscribe(own, parent).then(collect);
+    await new Promise((r) => setTimeout(r, 3_000));
+    const statusOf = async (id: string) =>
+      (await harness.listTurns(own)).find((t) => t.id === id)?.state.status;
     expect(await statusOf(parent)).toBe("running");
 
-    // The incident: the session refuses the next head's turn.
-    expect(await tryTurn("second")).toContain("422");
-    // ... and the refusal cancelled the turn on its way out, so a heal that
-    // looks for a running turn finds nothing to act on.
+    const second = await harness.startTurn(own, "second");
+    const events = await collect(await harness.subscribe(own, second));
+    expect(turnDone(events)?.state.status).toBe("done");
     expect(await statusOf(parent)).toBe("cancelled");
-    // Cancelling does not release the session: the sub-agents outlive it.
-    await harness.cancelTurn(wedged);
-    expect(await tryTurn("third")).toContain("422");
-    // Empty input is the one thing the session still accepts.
-    await expect(harness.client.sessions.createTurn(wedged, { input: [] })).resolves.toBeDefined();
-  }, 120_000);
+    const first = stored(await parentEvents);
+    const thread = first.find((e) => e.type === "thread.done");
+    expect(thread && "state" in thread ? thread.state.status : null).toBe("error");
+  }, 60_000);
 });

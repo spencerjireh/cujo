@@ -10,7 +10,7 @@ import { RunLedger } from "./RunLedger";
 /**
  * What this run was, in handles.
  *
- * Decision 52 put the TrueForge session, its turns and the webhook delivery on
+ * Decision 52 put the harness session, its turns and the webhook delivery on
  * the public projection, and decision 57 kept them there on the argument that
  * they authorize nothing: the console they name has its own Access application,
  * which is the thing standing between a reader and a session. Both decisions

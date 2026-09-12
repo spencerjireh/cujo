@@ -110,6 +110,13 @@ function optionValue(command: CommandOption | null, name: string): string | null
   return found?.value === undefined ? null : String(found.value);
 }
 
+function integerOption(command: CommandOption | null, name: string): number | null {
+  const raw = optionValue(command, name);
+  if (raw === null) return null;
+  const value = Number(raw);
+  return Number.isInteger(value) ? value : null;
+}
+
 function focusedValue(interaction: Interaction): string {
   for (const option of subcommand(interaction)?.options ?? []) {
     if (option.focused) return String(option.value ?? "");
@@ -149,6 +156,7 @@ export function interactionRoutes(deps: InteractionDeps): Hono<RequestEnv> {
       repo: optionValue(command, "repo"),
       channelId: optionValue(command, "channel"),
       roleId: optionValue(command, "role"),
+      prNumber: integerOption(command, "pr"),
     });
   };
 

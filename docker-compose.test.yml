@@ -1,13 +1,13 @@
-# Overlay for the harness contract tests (`make test-int`). Runs the TrueForge
-# server, its stores, and github-mcp with fixed throwaway credentials, and
-# publishes only the server on loopback:8790. github-mcp gets a placeholder
+# Overlay for the harness contract tests (`make test-int`). Runs the harness,
+# github-mcp and sandbox-mcp with fixed throwaway credentials, and publishes
+# only the harness on loopback:8790. github-mcp gets a placeholder
 # App key: the tests exercise tool listing and the approval gate, and the
 # GitHub call behind the tool fails in the way the tests expect. The values
 # below are not secrets (the stack is loopback-only and thrown away); they
 # are variables with defaults so no credential-shaped literal sits in the
 # repo. The cujo service is not started. Never used by the deploy.
 #
-#   docker compose -p cujo-int -f docker-compose.yml -f docker-compose.test.yml up -d server github-mcp
+#   docker compose -p cujo-int -f docker-compose.yml -f docker-compose.test.yml up -d harness github-mcp sandbox-mcp
 
 services:
   github-mcp:
@@ -15,9 +15,8 @@ services:
       GITHUB_APP_ID: '1'
       GITHUB_APP_PRIVATE_KEY: ${CUJO_INT_APP_KEY:-x}
 
-  # Started so `bootstrap` has something to register, and never called: the
-  # contract suite runs with `sandbox: { enabled: false }` on both specs, so no
-  # turn in it asks for a sandbox. `daytona` rather than `local` because this
+  # Started so `bootstrap` has something to register, and never called: no
+  # spec in the contract suite names it, so no turn in it asks for a sandbox. `daytona` rather than `local` because this
   # runtime needs no Docker socket to boot and answer a healthcheck, and the keys
   # below are never used.
   sandbox-mcp:
@@ -26,18 +25,7 @@ services:
       DAYTONA_API_URL: http://127.0.0.1:1
       DAYTONA_API_KEY: ${CUJO_INT_DAYTONA_KEY:-x}
 
-  postgres:
-    environment:
-      POSTGRES_USER: cujo
-      POSTGRES_PASSWORD: ${CUJO_INT_DB_PASSWORD:-cujo}
-      POSTGRES_DB: cujo
-
-  server:
-    environment:
-      POSTGRES_USER: cujo
-      POSTGRES_PASSWORD: ${CUJO_INT_DB_PASSWORD:-cujo}
-      POSTGRES_DB: cujo
-      PUBLIC_BASE_URL: http://localhost:8790
+  harness:
     # The stub model provider runs in the test process on the host; on Linux
     # engines host.docker.internal needs this mapping (Docker Desktop and
     # OrbStack provide it on their own).

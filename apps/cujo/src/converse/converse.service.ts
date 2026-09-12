@@ -22,10 +22,10 @@
  * still answers the person, which a reply tool structurally cannot do.
  */
 
+import type { AgentSpec } from "@cujo/harness-contract";
 import { type Logger, errorFields } from "@cujo/log";
-import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "../clients/github";
-import type { Harness, SessionEvent } from "../clients/trueforge";
+import type { Harness, SessionEvent } from "../clients/harness";
 import { messageText } from "../review/fold";
 import { parseMention } from "../review/parse-command";
 import type { CheckState, Finding, Projection, RunRecord } from "../review/types";
@@ -58,7 +58,7 @@ export interface ConverseDeps {
   harness: Pick<Harness, "createSession" | "startTurn" | "subscribe" | "listEvents" | "cancelTurn">;
   github: ConverseGitHub;
   /** Built once at startup, like the review spec. */
-  spec: TrueForgeApi.AgentSpec;
+  spec: AgentSpec;
   limit: ConverseRateLimit;
   /** How long one answer may take before the person is told it did not finish. */
   turnTimeoutMs: number;

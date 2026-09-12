@@ -26,7 +26,7 @@ export interface SetupWindow {
   /** `endedAt − startedAt`. Zero is possible and is not an error. */
   lengthMs: number;
   /**
-   * Daytona provisioning as a share of the lane, 0–1, or null.
+   * Sandbox provisioning as a share of the lane, 0–1, or null.
    *
    * Null is a fact rather than a gap, and it is the interesting one: the
    * `sandbox.created` event is session-scoped, so a second run on the same pull
@@ -90,7 +90,7 @@ export function setupWindow(setup: SetupTimings | null | undefined): SetupWindow
 }
 
 /**
- * How much of the lane Daytona accounted for.
+ * How much of the lane provisioning accounted for.
  *
  * Clamped into the lane rather than trusted: these are two harness stamps and
  * the arithmetic below is sound, but a bar wider than the lane it sits in would

@@ -120,6 +120,7 @@ export function build(
             github,
             links: { publicBaseUrl: "https://cujo.example.com" },
             defaultGuild: null,
+            resetSession: () => ({ kind: "reset", sessions: 0 }),
           },
         }
       : {}),

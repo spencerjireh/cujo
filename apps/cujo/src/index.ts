@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { DiscordClient } from "./clients/discord";
 import { GitHubReader } from "./clients/github";
 import { GitHubReactions } from "./clients/github-reactions";
-import { Harness } from "./clients/trueforge";
+import { Harness } from "./clients/harness";
 import { loadConfig } from "./config";
 import { ConverseService } from "./converse/converse.service";
 import { ConverseRateLimit } from "./converse/rate-limit";
@@ -288,6 +288,11 @@ async function main(): Promise<void> {
           github,
           links,
           defaultGuild: config.defaultDiscordGuild,
+          resetSession: (repo: string, prNumber: number) => {
+            const busy = store.runs.listUnfinishedRuns({ repo, prNumber })[0];
+            if (busy) return { kind: "busy" as const, runId: busy.id };
+            return { kind: "reset" as const, sessions: store.runs.deleteSessions(repo, prNumber) };
+          },
         }
       : null;
   if (interactions && discord) {

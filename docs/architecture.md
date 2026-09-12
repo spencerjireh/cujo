@@ -23,16 +23,16 @@ sandbox is thrown away afterwards.
 
 | Piece | Role |
 |-------|------|
-| **TrueForge** | The agent harness — the runtime that turns a model into a working agent. Deployed and live. Reached only by `apps/cujo` over the SDK and by `github-mcp` as a tool; its bundled UI is an operator console, not the product. |
+| **`apps/harness`** | The agent harness (decision 123): sessions, turns, the event log, the approval gate and the sub-agent tool, over the pi coding agent SDK for the loop, the provider layer, retry and compaction. Reached only by `apps/cujo` over HTTP. No console, no database service: one SQLite file and the pi transcripts on a volume. The contract between the two is `packages/harness-contract`. |
 | **Cujo agent** | The parent reviewer: a language model, the review rubric as its instructions, a sandbox, subagents, and a GitHub tool. It sets up the sandbox, delegates the checks, merges the findings, and posts. |
-| **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each starts with fresh context (its instructions and the sandbox tools, no shared history) and returns only a JSON report to the parent. |
-| **Daytona sandbox** | A disposable cloud box where the untrusted PR runs. One per turn, destroyed after it. |
+| **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each is a nested pi session (decision 124) that starts with fresh context (the rubric and the sandbox tools, no shared history, no review tool) and returns only a JSON report to the parent; its events are written to the log as they happen, so a parent that times out later loses nothing the child reported. |
+| **The sandbox** | A disposable container where the untrusted PR runs, provisioned by `sandbox-mcp` below. One per turn, destroyed after it. |
 | **`sandbox/`** | The in-sandbox sensor code: `sniff.py` and the `cujo_sniff` package behind it. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check, and each report says which of them was watching while it was produced (decision 54). |
-| **`apps/cujo`** | The Cujo service and TrueForge's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes and no credential: signature-gated ingress, and an anonymous read-only `/public` group (decision 34, decision 57). |
+| **`apps/cujo`** | The Cujo service and the harness's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes and no credential: signature-gated ingress, and an anonymous read-only `/public` group (decision 34, decision 57). |
 | **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. One hostname and one plane: the anonymous read-only board (decision 57), plus the manual at `/docs`, which is static, calls nothing, and is the only path on this site that asks to be indexed (decision 98). The manual is reached from two buttons on the footer, *Manual* and *Install the App*, and from a link on the hero legend; the site has no navigation bar. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
-| **`sandbox-mcp`** | The other MCP server, and the sandbox itself (decision 113). Five tools — create, exec, write, read, destroy — over one interface with two implementations, chosen by `CUJO_SANDBOX_RUNTIME`: `local` is a container on our own host with egress enforced by a gateway outside it, `daytona` is the vendor kept so the move is reversible. The harness provisions no sandbox at all any more; its provider manifest types `type` as the string literal `"daytona"`, which is what made the move necessary and an MCP server the only reversible way to make it. |
+| **`sandbox-mcp`** | The other MCP server, and the sandbox itself (decision 113). Five tools — create, exec, write, read, destroy — over one interface with two implementations, chosen by `CUJO_SANDBOX_RUNTIME`: `local` is a container on our own host with egress enforced by a gateway outside it, `daytona` is the vendor kept so the move is reversible. The harness provisions nothing; the agent reaches a box only through these five tools, which the harness exposes to the model by name (decision 128). |
 | **The egress gateway** | One container per sandbox, on that sandbox's network *and* one with outside access. It is the sandbox's router — it claims the gateway address the sandbox's default route points at, on a bridge the host holds no address on — and its resolver, answering for `allow_hosts` plus the clone host and NXDOMAIN for everything else, and it filters what it forwards with nftables from that same list (decisions 116, 121). Default deny. The code under review can reach it and cannot reconfigure it. The in-sandbox proxy is a sensor now, not a control. |
 | **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). A card links to the board for a public run and nowhere for a private one, which has no page (decision 57). Optional: with no bot token the service runs and says nothing. |
 | **`/cujo` command** | The other half, also in `apps/cujo`. A server a repo has named in its `.cujo.yml` picks its own channel and ping role from inside Discord (Contract 8). Slash commands over an HTTP interactions endpoint, not a gateway. It routes notifications and nothing else — a review is confirmed on the pull request. |
@@ -42,10 +42,10 @@ sandbox is thrown away afterwards.
 
 Two zones, with a narrow bridge between them.
 
-- **Trusted (our server):** the TrueForge harness, the Cujo agent and its API
-  keys, `apps/cujo`, and `github-mcp`. Secrets live here, the Discord bot token
-  among them.
-- **Untrusted and disposable (the Daytona sandbox):** the PR's code, its
+- **Trusted (our server):** `apps/harness`, the Cujo agent and its API keys,
+  `apps/cujo`, `github-mcp` and `sandbox-mcp`. Secrets live here, the Discord
+  bot token among them.
+- **Untrusted and disposable (the sandbox):** the PR's code, its
   dependencies, the check subagents' scripts, `sandbox/`, and the logging
   proxy.
 
@@ -58,7 +58,7 @@ whole design protects, so keep it in mind when reading the flow below.
 
 ## System map
 
-Three zones. TrueForge is one box in the middle zone: it runs the agent, but
+Three zones. The harness is one box in the middle zone: it runs the agent, but
 nothing outside the server talks to it. `apps/cujo` is the only thing GitHub
 touches, and no person reaches it directly: a human reads the evidence on the
 board and answers a held review on the pull request. Thick edges are that
@@ -76,13 +76,13 @@ flowchart LR
   subgraph server [Our server - compose network - secrets live here]
     Web[apps/web<br/>anonymous board<br/>read-only - no state]
     Cujo[apps/cujo<br/>webhook - run store<br/>event folder - read API<br/>resumes the held turn]
-    TF[TrueForge server<br/>agent runtime - internal<br/>parent agent + subagents<br/>approval gate - sessions]
+    TF[apps/harness<br/>pi agent loop - internal<br/>parent agent + subagents<br/>approval gate - event log]
     MCP[github-mcp<br/>holds App private key]
-    DB[(Postgres + Redis<br/>TrueForge state)]
+    DB[(SQLite + transcripts<br/>harness volume)]
   end
 
-  subgraph sandbox [Untrusted - disposable - Daytona]
-    SB[Daytona sandbox<br/>PR code at base + head<br/>tests - probes - smoke<br/>detonation - sniff.py<br/>logging proxy - decoy secret]
+  subgraph sandbox [Untrusted - disposable - sandbox-mcp]
+    SB[Sandbox container<br/>PR code at base + head<br/>tests - probes - smoke<br/>detonation - sniff.py<br/>logging proxy - decoy secret]
     Canary[Unknown host<br/>where evil-package phones]
   end
 
@@ -113,60 +113,66 @@ Every crossing, with what it carries and what protects it:
 | From → To | Transport | What crosses | Auth |
 |-----------|-----------|--------------|------|
 | GitHub → `apps/cujo` | HTTPS webhook on `cujo-ingress.spencerjireh.com` | PR opened or synchronized: repo, PR number, base and head SHA | HMAC signature |
-| `apps/cujo` → TrueForge | HTTP on the compose network | `sessions.create` with the inline agent spec; `createTurn` with the PR context, then `subscribeToTurn`; `listEvents` on restart | None needed; TrueForge has no public API route |
-| TrueForge → `apps/cujo` | The same stream, reverse direction | Events tagged by `thread_id`: `thread.created`, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
+| `apps/cujo` → `apps/harness` | HTTP on the compose network (`packages/harness-contract`) | `POST /sessions` with the inline agent spec; `POST /turns` with the PR context, then the turn's SSE subscription; `GET /events` on restart, uncapped | None needed; the harness has no public route |
+| `apps/harness` → `apps/cujo` | The same stream, reverse direction | Events tagged by `threadId`: `thread.created`, `model.message` with its text, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
 | Agent → `sandbox-mcp` → sandbox | MCP on the compose network, then `docker exec` into the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The PR's public metadata (number, SHAs, changed files, title, description). The dependency names from the manifest diff. Cujo's own `sandbox/` sensor code and the commands the subagents run. The run's own id, when the repo is public, so the review can name its evidence page — an id and never a URL, so no hostname crosses (decision 36). | Internal, and nothing in the box. The image, the container runtime and the host paths come from `sandbox-mcp`'s own environment and are never tool inputs, so a caller cannot choose what it runs in. Private repos are a non-goal, so no clone credential exists to leak |
-| Sandbox → TrueForge | Command stdout | One JSON report per check with the sensor block, the sensor-health block, and every string in it escaped | None; treated as untrusted data, which is what the escaping is for |
-| Sandbox → anyone, through TrueForge | The turn download endpoint | **Nothing, and there is no longer an endpoint.** Both specs set `sandbox.enabled: false` (decision 113), so the harness owns no sandbox and serves no download for one. A check report reaching the parent as text on a thread event is still the only way anything leaves, and `sandbox_read_file` is the only read into the box, bounded by `max_bytes` | Closed by there being nothing to close |
+| Sandbox → the harness | Command stdout, through `sandbox_exec` | One JSON report per check with the sensor block, the sensor-health block, and every string in it escaped | None; treated as untrusted data, which is what the escaping is for |
+| Sandbox → anyone, through the harness | — | **Nothing.** The harness owns no sandbox and serves no download (decision 113). A check report reaching the parent as text on a thread event is the only way anything leaves, and `sandbox_read_file` is the only read into the box, bounded by `max_bytes` | Closed by there being nothing to close |
 | Sandbox → internet | Through the egress gateway, outside the box (decision 116) | Only what `allow_hosts` named, resolved by name. Everything else is dropped on a network the sandbox has no route off. The in-sandbox proxy still records every attempt, so `egress[]` is still the evidence — and a row in it now means a connection that genuinely did not leave | Default deny at the network layer, in a container the code under review cannot reach. The decoy secret is still the only "secret" it can find |
 | A repository's `.cujo.yml` → the gateway | `allow_hosts` on `sandbox_create` | Hostnames, and nothing else. This is untrusted text configuring a **trusted-side** control, which it was not before, so it is validated and refused rather than repaired: no scheme, port, path, CIDR, wildcard, credentials, control character or address, and at most 32 entries (decision 116) | Validated in `apps/sandbox-mcp/src/allowlist.ts` before any runtime sees it |
-| TrueForge → model provider | HTTPS | Prompts, reports, tool calls | Provider key, registered once on the server |
-| TrueForge → `github-mcp` | MCP on the compose network | `post_advisory_review` and `post_blocking_review` (free) or `post_gated_review` (paused until a human confirms) | Internal |
+| `apps/harness` → model provider | HTTPS, OpenAI-compatible chat completions | Prompts, reports, tool calls | Provider key, registered once on the harness by `apps/cujo` at boot and held in memory there |
+| `apps/harness` → `github-mcp` | MCP on the compose network | `post_advisory_review` and `post_blocking_review` (free) or `post_gated_review` (held until a human confirms) | Internal |
 | `github-mcp` → GitHub | REST API | The review, as `cujo-guard[bot]`: a body **composed by `github-mcp`** from the agent's findings, coverage and egress (verdict headline, findings by severity, coverage, egress, a machine-readable block — decision 74), plus one inline comment per anchored finding, derived from the findings rather than sent beside them; `apps/cujo` rebuilds both with the same `@cujo/review-render` package for the board | Installation token minted from the App private key |
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
 | `apps/cujo` → GitHub | REST API | A reply on the pull request, and a reaction on the comment it answers (decision 43). Text, but only ever in answer to a person who addressed Cujo directly — never an unprompted finding | Installation token minted from the App private key; the same `pull_requests: write` |
-| `apps/cujo` → TrueForge | HTTP on the compose network | A **second** session per pull request, for conversation only (Contract 10): `sessions.create` with a spec carrying `mcpServers: []`, then one turn per question. Never the review's session, which a second turn would cancel, be refused on, or corrupt | Internal |
+| `apps/cujo` → `apps/harness` | HTTP on the compose network | A **second** session per pull request, for conversation only (Contract 10): a spec carrying `sandbox-mcp` and no review tool, then one turn per question. Never the review's session, which a second turn would cancel or corrupt | Internal |
 | Human → `apps/web` | HTTPS on `cujo.spencerjireh.com` | Reads runs, check cards, findings and the posted review for a **public** repo, redacted by the allowlist in `http/public/serialize.ts`. The board opens on a full-height chamber that stays pinned while the rest of the board rises over it, holding the thirty newest runs as a galaxy three layers deep — each run a star system: a core sized by the worst thing it found, one ring per check on a tilt seeded off the run's id, as wide as the check watched and bright for the share of that spent executing, and up to six satellites for what it found (decisions 65, 68, 82) — then a rack of summary strips, then the record, then the key to the drawing. A run's **layer** is time, newest in front, and its position within the layer — across it and a little into it — is a deterministic function of its id that means nothing, which the key says in words; everything else in there is a measurement, down to the light that walks the stars, which is the board re-reading this API, oldest run first, and beats each star once as it reads it (decisions 83, 95). A running run is green, the one tone that is not a verdict (decision 94). The decorative layer admitted alongside it is the air in the room and the star field behind it, and lives in exactly two files (decisions 80, 82). Clicking a star scrolls the record to its row rather than leaving the board, and a run's own page draws the same object turning beside the pull request's title. Nothing flat is served in the chamber's place: a phone, and a browser that will not give it a WebGL context, get the readout and then the record. There is no site header: the mark and the name sit in the corner of whichever page is rendering it. Hovering a star, or a record row, swaps the hero's readings for the key to the drawing (decision 89); a record row is one link, its checks and findings one cell (decision 88), and the newest run of a pull request pushed to twice is marked latest with the older dimmed (decision 92). A run page opens on a verdict card, with the operator's numbers folded beneath it (decision 91), and nothing else on it opens until asked (decision 93). It writes nothing and decides nothing: a held finding is answered with `/cujo confirm` on the pull request (decision 49), and a Discord channel is bound with `/cujo watch` (decision 57) | None. There is no credential and no authenticated route left |
-| `apps/cujo` → TrueForge | HTTP on the compose network | `createTurn` with `user.tool_approval {allow \| deny}`, then `subscribeToTurn`; the turn resumes | Internal |
+| `apps/cujo` → `apps/harness` | HTTP on the compose network | `POST /turns` with `user.tool_approval {allow \| deny}`, then the new turn's subscription; the held call runs or the model reads the refusal (decision 125) | Internal |
 | Discord → `apps/cujo` | HTTPS to `cujo-ingress.spencerjireh.com` | A `/cujo` interaction: the server, the invoking member and their permissions, and the chosen repo, channel and role (Contract 8) | Ed25519 over `timestamp + rawBody`, verified against `DISCORD_PUBLIC_KEY`; an invalid signature is 401 |
 | `apps/cujo` → Discord | HTTPS to `discord.com/api/v10` | One card per run, edited in place: repo, PR number, status, check names, finding titles and evidence, and the run's Cujo link. Every derived string escaped, stripped of bidi, truncated, and mention-suppressed (Contract 7) | `Authorization: Bot`; `DISCORD_BOT_TOKEN`, held only by `apps/cujo` and never near the sandbox |
 
 ## The approval path
 
-The mechanism the design hinges on: the pause happens inside TrueForge, the
-answer is given on the pull request, and the resume goes over the SDK.
+The mechanism the design hinges on: the pause happens inside the harness, with
+the model's call held in pi's `beforeToolCall` hook, the answer is given on the
+pull request, and the resume is the next turn's input (decision 125).
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant GH as GitHub
   participant C as apps/cujo
-  participant TF as TrueForge
+  participant TF as apps/harness
   participant Sub as Check subagents
   participant H as Human
   participant M as github-mcp
 
   GH->>C: pull_request webhook (HMAC)
-  C->>TF: sessions.create / createTurn(PR context) + subscribeToTurn
-  TF->>Sub: spawn tests, probes, smoke, detonation
+  C->>TF: POST /sessions, POST /turns (PR context), subscribe
+  TF->>Sub: create_sub_agent x tests, probes, smoke, detonation
   TF-->>C: thread.created (title = check name)
   Sub-->>TF: JSON report
-  TF-->>C: thread.done (state.output = report)
+  TF-->>C: thread.done (state.output = report), stored as it lands
   Note over TF: a malice hard rule forces critical
   TF->>M: post_advisory_review(the observation)
   M->>GH: COMMENT review as cujo-guard[bot]
-  TF->>M: post_gated_review(the accusation)
-  Note over TF,M: tool is gated - turn pauses
-  TF-->>C: tool.approval_required (thread main, tool_call id)
+  Note over TF: post_gated_review is gated: the call is held, the turn ends
+  TF-->>C: tool.approval_required (thread main, tool call id), turn.done
   C->>C: run status = blocked_pending
   H->>C: reads the observation on the pull request
   H->>C: /cujo confirm
-  C->>TF: createTurn(user.tool_approval allow) + subscribeToTurn
+  C->>TF: POST /turns (user.tool_approval allow), subscribe
   TF->>M: post_gated_review proceeds
   M->>GH: REQUEST_CHANGES review as cujo-guard[bot]
   TF-->>C: tool.response, turn.done
   C->>C: run status = blocked_posted
 ```
+
+The observation posts before the pause because a gated tool runs sequentially
+(decision 126): pi prepares, executes and records each call in that batch
+before it looks at the next. A harness that restarts while a call is held
+answers a later allow by asking the model to make the same call again, which
+the gate lets through once with identical arguments (decision 125).
 
 On `/cujo dismiss`, the resume sends `deny`; the agent posts nothing further and
 the run ends `denied` — the advisory observation posted before the pause and
@@ -187,8 +193,9 @@ With no `critical` finding the agent calls `post_advisory_review` alone; with a
 `blocked_unattended`. Neither pauses (decision 42). If a new head is pushed
 while a run is still going, that run ends `superseded` and the new head gets its
 own run on the same session; only the newest head is reviewed.
-Superseding a run that was waiting on a human also answers its approval, since
-the session refuses the new head's turn while one is pending (decision 39).
+Superseding a run that was waiting on a human also answers its approval with a
+stale deny, so the model hears why (decision 39); the harness would void it on
+the new head's turn anyway (decision 125).
 
 ## End-to-end flow
 
@@ -199,8 +206,8 @@ the session refuses the new head's turn while one is pending (decision 39).
    session with that context: repo, PR number, base SHA, head SHA, changed
    files. It stays subscribed to the turn's event stream and folds what it
    sees into a run the UI can show while the checks are still going.
-3. **Into the sandbox.** The agent provisions a Daytona sandbox and runs two
-   commands. `sniff.py prepare` clones head, adds a worktree at base, and hands
+3. **Into the sandbox.** The agent provisions a sandbox through `sandbox-mcp`
+   and runs two commands. `sniff.py prepare` clones head, adds a worktree at base, and hands
    back `.cujo.yml` from base if the repo has one (policy comes from the target
    branch, never from the PR) together with the head's build files, so the
    parent settles policy and infers the commands in one step rather than five
@@ -280,13 +287,14 @@ security boundary made visible: reading is public, deciding is not.
 Everything runs on one Hetzner server (`hetzner-server-1`, Helsinki), deployed by
 Coolify in a single `docker-compose` project so the services share a network.
 
-- **`server`** — TrueForge (API + bundled UI) on port 8790, reached by
-  `apps/cujo` at `http://server:8790` on the compose network. Its UI is also
-  published at `https://cujo-harness.spencerjireh.com` behind Cloudflare Access
-  (email OTP) as an operator console: read transcripts, register the model key
-  and the `github-mcp` connector, debug. Nobody approves a block there
-  (decision 17).
-- **`postgres` + `redis`** — TrueForge hosted-mode state.
+- **`harness`** — `apps/harness` on port 8790, reached by `apps/cujo` at
+  `http://harness:8790` on the compose network and by nothing else. Not
+  published: there is no console to publish (decision 123), and the model key
+  it holds arrives from `cujo` at boot and lives in memory. A volume holds its
+  SQLite event log and the pi transcripts. Hardened like `cujo`: non-root,
+  read-only rootfs except the volume, no capabilities. It waits on both MCP
+  servers being healthy, because a turn bridges their tool lists before it
+  starts.
 - **`cujo`** — the `apps/cujo` service, API-only since decision 27, on one
   published hostname. `https://cujo-ingress.spencerjireh.com` carries the two
   signature-gated ingress routes, with no Access policy, since neither GitHub
@@ -314,9 +322,9 @@ Coolify in a single `docker-compose` project so the services share a network.
   stream at `/api/public/runs/:id/events` to `cujo` server-side, so the UI and
   the API stay same-origin (decision 27). `/api/health` is this container's
   healthcheck and never calls `cujo`.
-- **`github-mcp`** — internal only, reachable by `server` over the compose
+- **`github-mcp`** — internal only, reachable by `harness` over the compose
   network. Holds the GitHub App private key.
-- **`sandbox-mcp`** — internal only, reachable by `server` over the compose
+- **`sandbox-mcp`** — internal only, reachable by `harness` over the compose
   network, and the one service that holds the host's Docker socket (decision
   114). At boot it builds the two images a review runs — the sandbox from
   `sandbox/Dockerfile` and the egress gateway from
@@ -330,11 +338,11 @@ Coolify in a single `docker-compose` project so the services share a network.
   later on the host: attaching the gateway's outside leg uses
   `network connect --gw-priority` (decision 121).
 
-The DNS records and the Access apps exist. Coolify routes
-`cujo-harness.spencerjireh.com` to `server`, `cujo-ingress.spencerjireh.com` to
-`cujo`, and `cujo.spencerjireh.com` to `web`; a hostname is attachable only once
+The DNS records exist. Coolify routes `cujo-ingress.spencerjireh.com` to
+`cujo` and `cujo.spencerjireh.com` to `web`; a hostname is attachable only once
 Coolify has parsed the service from the compose file on `main`, which `web`
-already satisfies.
+already satisfies. `cujo-harness.spencerjireh.com` routed to TrueForge's
+console and has nothing behind it since decision 123.
 Configuration reaches the services as environment variables set in Coolify;
 `.env.example` lists every name.
 
@@ -357,16 +365,14 @@ URL held in a variable, most of all — has to stay valid on both sides of it
 The Coolify control plane runs on a separate host (netcup) that never executes
 untrusted code.
 
-Cloudflare proxies all three hostnames, and a Hetzner Cloud firewall accepts
+Cloudflare proxies both hostnames, and a Hetzner Cloud firewall accepts
 ports 80 and 443 only from Cloudflare's published ranges, so the origin's own
 address is not a way past a gate; port 22 stays open for the control plane.
-One Access application is left, over `cujo-harness`: that console has its own
-authentication disabled, so an OTP is exactly what it is for. It is also the
-only gate anywhere in this system that a person passes — `cujo` is anonymous
-and `cujo-ingress` takes signatures (decision 57). A second
-application scoped to `/.well-known/acme-challenge` holds a bypass policy for
-each name Access fronts, without which Traefik's HTTP-01 renewal is answered by
-the login page (decision 33). A Cloudflare rate-limiting rule bounds requests per address to
+No Access application fronts anything a person uses any more: `cujo` is
+anonymous and `cujo-ingress` takes signatures (decision 57), and the operator
+console Access used to gate went with TrueForge (decision 123). The
+application scoped to `/.well-known/acme-challenge` (decision 33) is moot for
+the same reason and can go with the `cujo-harness` one. A Cloudflare rate-limiting rule bounds requests per address to
 the public board's stream route; the process caps concurrent public streams as
 well, and the two answer 429 and 503 respectively so a log says which bound bit
 (decision 34).

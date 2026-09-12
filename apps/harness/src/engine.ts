@@ -39,7 +39,7 @@ import {
 import { MetricsAccumulator, isAssistant, mapEvent, modelMessageOf } from "./events";
 import { newId, now } from "./ids";
 import { type BridgeOptions, type BridgedServer, connectServer } from "./mcp";
-import { type Models, thinkingLevelOf } from "./model";
+import { type Models, UnknownModelError, thinkingLevelOf } from "./model";
 import { openPiSession } from "./pi";
 import type { Store } from "./store";
 import { SUB_AGENT_TOOL, createSubAgentTool } from "./subagent";
@@ -164,7 +164,12 @@ export class Engine {
   createSession(spec: AgentSpec): string {
     // Fail at creation, not at the first turn, when the model is unknown:
     // Cujo records the session id and would otherwise pin a dead one.
-    this.models.resolve(spec.model.name, spec.model.params);
+    try {
+      this.models.resolve(spec.model.name, spec.model.params);
+    } catch (error) {
+      if (error instanceof UnknownModelError) throw new HarnessError(400, error.message);
+      throw error;
+    }
     for (const server of spec.mcpServers) {
       if (!this.store.getMcpServer(server.name)) {
         throw new HarnessError(400, `unknown MCP server "${server.name}"`);

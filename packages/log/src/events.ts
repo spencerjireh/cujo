@@ -127,6 +127,10 @@ export const EVENT_NAMES = [
   // The one place a human decides: `/cujo confirm` on the pull request.
   "approve.applied",
   "approve.rejected",
+  // `/cujo reset` from Discord (Contract 5, decision 123): a pull request's
+  // sessions forgotten, or refused because a run is still on one.
+  "session.reset",
+  "session.reset.refused",
   // The anonymous plane. All three are `debug` except the rejection.
   "public.stream.opened",
   "public.stream.closed",

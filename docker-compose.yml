@@ -1,66 +1,41 @@
-# Cujo — stock TrueForge harness in hosted mode (Postgres + Redis, not SQLite).
+# Cujo: the review service, its own harness (decision 123), two MCP servers
+# and the board.
 #
 # No ports are published here: the deploy runs behind a reverse proxy that
-# terminates TLS and routes cujo-harness.spencerjireh.com to `server` (8790),
-# cujo.spencerjireh.com to `web` (3000), and cujo-ingress.spencerjireh.com to
-# `cujo` (8080). Three hostnames, and `web` answers exactly one of them: the
-# anonymous board. The operator hostname was deleted with its plane
-# (decision 57). For a local run with ports on your host, see the local stack
-# section of AGENTS.md. Secrets come from the deploy environment, never this
-# file.
+# terminates TLS and routes cujo.spencerjireh.com to `web` (3000) and
+# cujo-ingress.spencerjireh.com to `cujo` (8080). Two hostnames, and `web`
+# answers exactly one of them: the anonymous board. The operator hostname was
+# deleted with its plane (decision 57), and the harness has no console at all.
+# For a local run with ports on your host, see the local stack section of
+# AGENTS.md. Secrets come from the deploy environment, never this file.
 
 services:
-  postgres:
-    image: postgres:17
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-
-  server:
+  # The agent harness: sessions, turns, the event log and the approval gate
+  # over the pi coding agent SDK (decision 123). State is one SQLite file and
+  # the pi transcripts on its volume; there is no database service and no UI.
+  # Hardened like `cujo`: non-root image, read-only rootfs except the volume.
+  harness:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: apps/harness/Dockerfile
     environment:
       NODE_ENV: production
       PORT: 8790
-      HOST: 0.0.0.0
-      # Hosted mode: use Postgres + Redis, not SQLite.
-      STANDALONE: 'false'
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      REDIS_URL: redis://redis:6379
-      # Public origin for MCP OAuth callbacks and the (later) GitHub webhook.
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
-      # A review turn runs tests, probes, a smoke boot, and installs; the
-      # server's defaults (10 minutes for both) cancel it mid-check. Keep in
-      # step with CUJO_TURN_TIMEOUT_MS on the cujo service (30 minutes).
-      SERVER_EXECUTION_TIMEOUT_SECONDS: ${SERVER_EXECUTION_TIMEOUT_SECONDS:-1800}
-      TURN_SUBSCRIBE_TIMEOUT_MS: ${TURN_SUBSCRIBE_TIMEOUT_MS:-1860000}
+      HARNESS_DATA_DIR: /data
+      CUJO_LOG_LEVEL: ${CUJO_LOG_LEVEL:-info}
+    volumes:
+      - harnessdata:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
-      postgres:
+      github-mcp:
         condition: service_healthy
-      redis:
+      sandbox-mcp:
         condition: service_healthy
     healthcheck:
       test:
@@ -74,11 +49,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    # Above the app's default 30s graceful timeout so turn drain is not cut off.
+    # A turn that is mid-flight when the container stops is ended as an error
+    # at the next boot and retried once by cujo (decision 130); the grace is
+    # for the event log to flush, not for the turn to finish.
     stop_grace_period: 35s
     restart: unless-stopped
 
-  # The Cujo service: webhook receiver, run store, TrueForge event folder, and
+  # The Cujo service: webhook receiver, run store, harness event folder, and
   # the read API. Two hostnames and two planes from one process (spec
   # Contract 6): the signature-gated ingress host, and the internal name that
   # carries the anonymous `/public` group. No authenticated route at all
@@ -92,7 +69,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8080
-      TRUEFORGE_BASE_URL: http://server:8790
+      HARNESS_BASE_URL: http://harness:8790
       GITHUB_MCP_URL: http://github-mcp:8081/mcp
       SANDBOX_MCP_URL: http://sandbox-mcp:8082/mcp
       CUJO_DB_PATH: /data/cujo.db
@@ -141,24 +118,22 @@ services:
       # Does Cujo react on the pull requests it reviews (decision 38)? Only an
       # explicit 0 turns it off.
       CUJO_PR_REACTIONS: ${CUJO_PR_REACTIONS:-1}
-      # One turn, stream retries included; the Daytona idle stop is derived from it.
+      # One turn, stream retries included. The harness has no timeout of its
+      # own; this watchdog is what ends a review that hangs.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}
-      # Where TrueForge summarises the review agent's older history. Well above
-      # the harness default of 50,000: the parent holds four full check reports
-      # before it writes the review body from them.
-      CUJO_COMPACTION_THRESHOLD_TOKENS: ${CUJO_COMPACTION_THRESHOLD_TOKENS:-200000}
-      # Optional one-time bootstrap of the harness (model + sandbox providers).
-      # Leave unset to configure them in the operator console instead.
+      # The model provider, registered on the harness at start (decision 127).
+      # The harness holds nothing until this process tells it; there is no
+      # console to configure it in.
       MODEL_PROVIDER_NAME: ${MODEL_PROVIDER_NAME:-}
       MODEL_PROVIDER_BASE_URL: ${MODEL_PROVIDER_BASE_URL:-}
       MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}
       MODEL_PROVIDER_MODELS: ${MODEL_PROVIDER_MODELS:-}
-      # What those models accept as a reasoning effort, declared on every one of
-      # them (decision 56). CUJO_MODEL_REASONING_EFFORT must name a value from
-      # this list, or the process refuses to start -- an undeclared effort is
-      # refused when the session is created, which would stop every review.
-      MODEL_PROVIDER_REASONING_EFFORTS: ${MODEL_PROVIDER_REASONING_EFFORTS:-}
-      DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
+      # What the harness needs to know about those models: the window it
+      # compacts against, the output cap, and whether a reasoning effort means
+      # anything to them. One value each for every model in the list.
+      MODEL_PROVIDER_CONTEXT_WINDOW: ${MODEL_PROVIDER_CONTEXT_WINDOW:-128000}
+      MODEL_PROVIDER_MAX_TOKENS: ${MODEL_PROVIDER_MAX_TOKENS:-16384}
+      MODEL_PROVIDER_REASONING: ${MODEL_PROVIDER_REASONING:-1}
     volumes:
       - cujodata:/data
     read_only: true
@@ -181,7 +156,7 @@ services:
       retries: 10
       start_period: 10s
     depends_on:
-      server:
+      harness:
         condition: service_healthy
       github-mcp:
         condition: service_healthy
@@ -190,9 +165,8 @@ services:
     restart: unless-stopped
 
   # The sandbox, behind an interface and reached over MCP (decision 113). The
-  # harness no longer provisions one: its provider manifest types `type` as the
-  # string literal "daytona", so the way off that vendor is to stop asking the
-  # harness for a sandbox at all.
+  # harness provisions nothing; the agent reaches a box only through the five
+  # tools this server lists.
   #
   # This is the one service here that cannot carry the hardening the others do.
   # It provisions a container, an egress gateway and a network per sandbox, so it
@@ -333,5 +307,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  pgdata:
+  harnessdata:
   cujodata:

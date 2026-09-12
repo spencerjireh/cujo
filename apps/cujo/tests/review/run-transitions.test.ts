@@ -10,13 +10,13 @@
 
 import { type Level, createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
-import type { Harness, SessionEvent, StreamEvent } from "../../src/clients/trueforge";
+import type { Harness, SessionEvent, StreamEvent } from "../../src/clients/harness";
 import { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
 
 // `SessionEvent` through the client wrapper rather than `TrueForgeApi`
-// direct: `clients/trueforge.ts` is the only module that should track the
-// SDK's shapes, and it already re-exports the ones a test needs.
+// direct: `clients/harness.ts` is the only module that should track the
+// contract's shapes, and it already re-exports the ones a test needs.
 type Ev = SessionEvent;
 
 const at = "2026-08-27T10:00:00Z";
@@ -25,17 +25,17 @@ const turnCreated = (turnId: string, createdAt: string = at): Ev => ({
   type: "turn.created",
   id: `tc-${turnId}`,
   createdAt,
-  threadId: null,
+  threadId: "main",
   turnId,
   previousTurnId: null,
-  state: { status: "running" },
+  input: [],
 });
 
 const turnDone = (turnId: string, createdAt: string = at): Ev => ({
   type: "turn.done",
   id: `td-${turnId}`,
   createdAt,
-  threadId: null,
+  threadId: "main",
   state: { status: "done", completedAt: createdAt, output: null, requiredActions: [] },
 });
 
@@ -52,18 +52,14 @@ const reviewCall = (id: string): Ev => ({
   id: `mm-${id}`,
   createdAt: at,
   threadId: "main",
+  content: null,
   toolCalls: [
     {
       id,
       type: "function",
       function: { name: "post_advisory_review", arguments: "{}" },
-      toolInfo: {
-        type: "mcp",
-        mcpServerId: "x",
-        mcpServerName: "github-mcp",
-        originalToolName: "n",
-      },
-    } as never,
+      toolInfo: { type: "mcp", name: "post_advisory_review", serverName: "github-mcp" },
+    },
   ],
 });
 
@@ -74,7 +70,7 @@ const threadCreated = (threadId: string, title: string, createdAt: string = at):
   threadId,
   title,
   parent: { threadId: "main", toolCallId: "spawn" },
-  agentInfo: {} as never,
+  agentInfo: { type: "dynamic", name: title, input: "" },
 });
 
 const threadDone = (threadId: string, createdAt: string, report?: string): Ev => ({
@@ -83,6 +79,7 @@ const threadDone = (threadId: string, createdAt: string, report?: string): Ev =>
   createdAt,
   threadId,
   title: threadId,
+  parent: { threadId: "main", toolCallId: "spawn" },
   state: {
     status: "done",
     output: {
