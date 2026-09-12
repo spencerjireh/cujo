@@ -231,10 +231,13 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     return runner;
   };
 
-  it("an advisory review folds to clean, even when github-mcp's GitHub call fails", async () => {
+  it("an advisory review folds to unproven, even when github-mcp's GitHub call fails", async () => {
     const run = runFor("h-adv");
     await active().start(run, reviewMessage("post_advisory_review"));
-    expect(store.runs.getRun(run.id)?.status).toBe("clean");
+    // `unproven` and not `clean`: this turn posts a review without any check
+    // having reported, which is the exact shape decision 107 stops calling
+    // clean. The review still lands, which is what this test is about.
+    expect(store.runs.getRun(run.id)?.status).toBe("unproven");
     const projection = store.runs.getProjection(run.id);
     expect(projection?.review).toMatchObject({
       tool: "post_advisory_review",
@@ -289,7 +292,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     const next = runFor("h-next");
     await active().start(next, reviewMessage("post_advisory_review"));
     expect(store.runs.getProjection(next.id)?.error).toBeNull();
-    expect(store.runs.getRun(next.id)?.status).toBe("clean");
+    expect(store.runs.getRun(next.id)?.status).toBe("unproven");
   });
 
   it("a sub-agent's name is the thread title, and its report trips a hard rule", async () => {
