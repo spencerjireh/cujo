@@ -7,7 +7,6 @@
 
 <p align="center">
   Cujo reviews pull requests by running them.<br>
-  <a href="https://youtu.be/rA7HLMxZypU">Demo video</a> &middot;
   <a href="https://cujo.spencerjireh.com">Live board</a> &middot;
   <a href="docs/architecture.md">Architecture</a>
 </p>

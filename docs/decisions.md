@@ -160,9 +160,9 @@ account, and it scopes permissions to the app rather than to a person. Bare
 ## 5. The agent posts the review via MCP, not the `apps/cujo` code
 
 The review is posted by the agent calling a `github-mcp` tool, not by
-`apps/cujo` calling the GitHub API directly. Two reasons: the rubric scores
-real MCP tool use, and the human-approval gate should sit on the *agent's*
-action. If plumbing posted the review, the "agent, gated by a human" story would
+`apps/cujo` calling the GitHub API directly. Two reasons: real MCP tool use
+is what the harness is for, and the human-approval gate should sit on the
+*agent's* action. If plumbing posted the review, the "agent, gated by a human" story would
 be hollow. `github-mcp` is a small server we own that authenticates as the App.
 
 ## 6. Reviews auto-post; the human gate is on the block
@@ -266,8 +266,8 @@ to CI shape).
 Each check (`tests`, `probes`, `smoke`, `detonation`) runs in a TrueForge
 dynamic subagent with fresh context; only its JSON report returns to the
 parent. This keeps each check's context small and focused, keeps a noisy test
-log from crowding out the detonation report, and exercises the subagent
-feature the Double-O track names. The parent owns setup, the hard rules,
+log from crowding out the detonation report, and lets a check fail on its
+own without taking the others with it. The parent owns setup, the hard rules,
 synthesis, and the post.
 
 ## 15. No tests means one `warn` and stop
@@ -308,11 +308,11 @@ thing: being the surface a person looks at.
 
 Why: a customer of a PR review bot wants to see which PRs ran, what the checks
 found, and one button to approve or reject the block, not an agent transcript.
-The Savile Row track (best UI) cannot be won with a UI we did not build. And
-the Double-O track is not hurt: the harness does the same work, the write-up
-says plainly that Cujo's UI is a client of the harness API, and driving the
-approval gate over the SDK demonstrates the harness as infrastructure rather
-than as a chat window. Decision 1 (stock TrueForge, no fork) holds; the SDK and
+The product is used through its UI, and one we did not build could not carry
+the brand or the approval flow as designed. The harness loses nothing: it does
+the same work, Cujo's UI is plainly a client of the harness API, and driving
+the approval gate over the SDK uses the harness as infrastructure rather than
+as a chat window. Decision 1 (stock TrueForge, no fork) holds; the SDK and
 HTTP API are a published interface.
 
 What was verified against the TrueForge source (SDK 0.1.3, read 2026-08-27):
@@ -385,8 +385,8 @@ things that enter the sandbox are the PR's public clone and Cujo's own script
 and commands, fetched without a credential. The cost is that a sandbox needs
 egress to `raw.githubusercontent.com` at setup, which is on the known-host list
 anyway. Pinning the URL to a commit instead of `main` is a one-variable change
-when the script is stable; during the hackathon `main` keeps the sandbox and
-the repo in step.
+when the script is stable; while the script is still changing, `main` keeps
+the sandbox and the repo in step.
 
 The harness's own Git-backed skills would carry the rubric the same way, and
 are the natural next step: `agent/SKILL.md` is already in the skill format so
@@ -443,9 +443,9 @@ trusted-side check is the tripwire behind the tripwire.
 
 ## 22. A brand system in `brand/`: guard dog, amber, dark and light
 
-Cujo had no logo, palette, or type, and the Savile Row track judges the UI on
-the video and the running product (see 17). One source of truth in `brand/`
-now feeds the UI, the README, and the video, so they cannot drift apart. The
+Cujo had no logo, palette, or type, and the UI is the surface the product is
+judged on (see 17). One source of truth in `brand/` now feeds the UI and the
+README, so they cannot drift apart. The
 choices: keep the name and read it as a guard dog on a chain (loyal, watchful,
 contained), which is what `cujo-guard[bot]` and the approval gate already say;
 a flat geometric dog head with one amber eye as the mark; lowercase `cujo` in

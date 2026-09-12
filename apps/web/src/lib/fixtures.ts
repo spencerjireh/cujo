@@ -3,7 +3,7 @@ import type { CheckState, DraftedReview, Finding, Run, RunDigest, RunSummary } f
 /**
  * The three demo runs, plus the states that are awkward to
  * reproduce against a live stack. Stories build on these so a reviewer sees the
- * same evidence the video does.
+ * same evidence the live board does.
  */
 
 const T0 = "2026-08-28T10:00:00.000Z";
