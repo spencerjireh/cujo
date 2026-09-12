@@ -28,7 +28,13 @@ import { describe, expect, it } from "vitest";
 import { EVENT_NAMES } from "../src/events";
 
 const REPO = join(import.meta.dirname, "../../..");
-const APPS = ["apps/cujo/src", "apps/github-mcp/src", "apps/sandbox-mcp/src", "apps/web/src"];
+const APPS = [
+  "apps/cujo/src",
+  "apps/github-mcp/src",
+  "apps/harness/src",
+  "apps/sandbox-mcp/src",
+  "apps/web/src",
+];
 
 /**
  * Any receiver ending in `log` or `logger`, so `c.get("log").warn(…)`,

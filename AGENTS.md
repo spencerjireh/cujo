@@ -40,8 +40,9 @@ uv run pytest sandbox/tests/test_cli.py -k name -n0         # ...in one process
 `pytest` runs under `pytest-xdist` by default (decision 78). Add `-n0` when you
 are debugging one test and want its output unbuffered in a single process.
 
-Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/web`, `@cujo/gh-app-auth`,
-`@cujo/brand`.
+Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/sandbox-mcp`,
+`@cujo/harness`, `@cujo/web`, `@cujo/harness-contract`, `@cujo/log`,
+`@cujo/review-render`, `@cujo/gh-app-auth`, `@cujo/brand`.
 
 Local stack (`make up-local` = `docker compose -f docker-compose.yml -f
 docker-compose.local.yml up --build`): the UI on :3000, TrueForge console/API

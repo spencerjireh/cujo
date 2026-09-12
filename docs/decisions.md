@@ -123,6 +123,19 @@ that is reversed after it was built or shown is noted here rather than deleted
 115. [`provisioned_ms` replaces the `sandbox.created` event](#115-provisioned_ms-replaces-the-sandboxcreated-event)
 116. [Egress is enforced outside the sandbox, and its allowlist is a crossing](#116-egress-is-enforced-outside-the-sandbox-and-its-allowlist-is-a-crossing)
 117. [The sandbox image is ours, which reverses 46](#117-the-sandbox-image-is-ours-which-reverses-46)
+118. [`sandbox-mcp` builds the images it runs, at boot, from contexts it carries](#118-sandbox-mcp-builds-the-images-it-runs-at-boot-from-contexts-it-carries)
+119. [No review bot; `best_practices.md` goes with it](#119-no-review-bot-best_practicesmd-goes-with-it)
+120. [`sandbox-mcp` says `requireApprovalForTools: []`, because absent means everything](#120-sandbox-mcp-says-requireapprovalfortools--because-absent-means-everything)
+121. [The gateway is the sandbox's router and resolver, which refines 116](#121-the-gateway-is-the-sandboxs-router-and-resolver-which-refines-116)
+122. [The gateway's baseline is the sensor's known-host list](#122-the-gateways-baseline-is-the-sensors-known-host-list)
+123. [The harness is ours, built on pi, and the contract is a package](#123-the-harness-is-ours-built-on-pi-and-the-contract-is-a-package)
+124. [A sub-agent is a nested pi session, and its report is durable as it lands](#124-a-sub-agent-is-a-nested-pi-session-and-its-report-is-durable-as-it-lands)
+125. [The gate holds the call; a new turn voids it; a restart is answered by a re-call](#125-the-gate-holds-the-call-a-new-turn-voids-it-a-restart-is-answered-by-a-re-call)
+126. [A gated tool runs sequentially, so the observation posts before the pause](#126-a-gated-tool-runs-sequentially-so-the-observation-posts-before-the-pause)
+127. [Reasoning effort is clamped by the harness, not declared by the provider](#127-reasoning-effort-is-clamped-by-the-harness-not-declared-by-the-provider)
+128. [MCP tools are exposed by name, and only exact names are gated](#128-mcp-tools-are-exposed-by-name-and-only-exact-names-are-gated)
+129. [Compaction is pi's context-window rule](#129-compaction-is-pis-context-window-rule)
+130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -6578,3 +6591,179 @@ Not a widening of what a review may reach in any way that matters. These are
 the hosts the sensor already called clean, on every review that ever ran, and
 the gateway still resolves nothing else. What changes is who has to remember
 them: nobody.
+
+## 123. The harness is ours, built on pi, and the contract is a package
+
+Decision 1 chose stock TrueForge because the hackathon rubric rewarded using a
+harness, not building one. What the harness layer has cost since is written
+down in the outage findings and in the decisions that worked around it: a
+running sub-agent wedges the session (69), a turn timeout discards reports its
+sub-agents already finished (109), a sub-agent failure is terminal so the retry
+lives in the rubric (108), a session is pinned to a pull request with no reset
+(16), the provider must declare reasoning efforts or the session is refused
+(56), the stream's `model.message` is an id-only stub (spec Contract 6),
+`listEvents` pages at 100, and an absent `requireApprovalForTools` gates every
+tool (120). Each was a fact about a dependency, and the design of record is
+mostly a list of them.
+
+So the harness is now `apps/harness`: a service on the same port with the same
+eight operations `clients/trueforge.ts` already needed, built on the pi coding
+agent SDK (`@earendil-works/pi-coding-agent`, pinned) rather than an agent loop
+of our own. pi is the loop, the provider layer, the retry and the compaction;
+the harness is sessions, turns, the event log, the gate, and the sub-agent
+tool, which is everything that hurt. TypeScript, in this repo, because it is a
+few hundred lines of glue around a library and not a service of its own; the
+language split the plan assumed bought nothing once the loop was not being
+written.
+
+The contract is `packages/harness-contract`: the event vocabulary TrueForge
+used (`turn.created`, `turn.done`, `model.message`, `thread.created`,
+`thread.done`, `tool.approval_required`, `tool.response`), kept because
+`fold.ts`, the event schema and the board already speak it, as types both
+sides compile against and Zod schemas the harness validates inbound bodies
+with. camelCase end to end; the SDK's snake-case wire translation goes with
+the SDK. Dropped: `sandbox.created` (115 already), `mcp.*`,
+`tool.response_required`, and the spec's `sandbox`, `askUserQuestions`,
+`generativeUi` and `skills` keys. Added: `tool.response.toolName`, which 125
+needs.
+
+Takes effect when `apps/cujo` cuts over, in the pull request after the one
+that lands the service. Reverses 1 and 2's dependency on a hosted harness;
+refines 17 (Cujo still owns the UI; the harness is now ours too) and 18 (Cujo
+is still a projection; the event log it projects is now the harness's SQLite
+table). What is not built: a console, multi-tenancy, a plugin system, a
+provider abstraction wider than one manifest.
+
+Rejected: **the Claude Agent SDK**, which is Claude Code as a library: it
+speaks the Anthropic API only, so a non-Anthropic model needs a proxy, and its
+sub-agents, retries and transcript are its own; the parts this decision exists
+to own are the parts it hides. **The OpenAI Agents SDK**, provider-neutral and
+with a serializable suspended run, but a second opinionated layer between the
+model and the gate. **Writing the loop**, which is small but is where the time
+goes. **A separate repository**, which would have made Cujo review its own
+harness at the cost of a release step per change; there is nothing to version
+across repositories.
+
+## 124. A sub-agent is a nested pi session, and its report is durable as it lands
+
+pi has no sub-agents in core. `create_sub_agent` is a tool the harness
+registers itself, with the `{ name, input }` shape `agent/SKILL.md` already
+asks for, so the rubric did not move (14 stands: one sub-agent per check).
+Its execution is a second `AgentSession` in the same process: the rubric as
+its system prompt, the sandbox tools only — no `github-mcp` tool and no
+`create_sub_agent` of its own, which is the rubric's "a sub-agent never posts
+a review" enforced rather than asked — and an in-memory transcript, because
+its events go to the same log as the parent's, tagged with a thread id, as
+they happen. `thread.created` when it starts, `thread.done` with its final
+message when it ends, and every `model.message` and `tool.response` in
+between, each written to SQLite before the next thing happens.
+
+That last clause is the point. A parent turn that times out after its children
+reported (findings #3; 109) loses nothing, because the reports were rows before
+the parent knew about them. pi runs sibling tool calls concurrently by default,
+so "spawn `tests`, `probes` and `smoke` together" still means together. A
+parent abort aborts its children through the tool's signal, so the four facts
+69 recorded about a wedged session are no longer facts: cancel ends everything
+on the session, and a new turn supersedes cleanly. 108 stands: a sub-agent that
+errors still reports an error thread and the rubric still respawns it once,
+because the reason for the respawn (a provider error inside the child is the
+child's) has not changed.
+
+Rejected: **a pi subprocess per sub-agent** (the shipped `subagent/` example),
+which isolates but hides the child's events behind stdout parsing.
+**Flattening to one agent**, which changes the fold, the hard rules and the
+board for a smaller harness.
+
+## 125. The gate holds the call; a new turn voids it; a restart is answered by a re-call
+
+The gate is pi's `beforeToolCall`. A call to a tool named in
+`requireApprovalForTools` is held there: the harness writes a pending
+approval, emits `tool.approval_required` on `main` with the call id and the
+event id of the message that carried it, ends the current turn as `done` with
+that event as its required action, and waits. The pi run is suspended inside
+the hook, its arguments intact, with no deadline. The answer arrives as the
+next turn's input, `user.tool_approval` with the same shape as before: allow
+lets the call run, and its `tool.response` carries the original call id, which
+is what the fold matches; deny returns the reason as the tool result, which is
+what the model reads before it ends its turn. One send answers the approval
+and starts the turn, as Contract 4 always said.
+
+Two things change from TrueForge. There is no 422: a `user.message` on a
+session with a pending approval does not refuse, it supersedes — the pending
+row is marked so, the run is aborted, the held hook is released by the abort
+signal, and the new turn starts. 39's stale-deny stays as a courtesy to the
+model (the reason reaches it) but is no longer what unblocks the session.
+And an approval that outlives the process is answered by a re-call: the row
+is still pending, the suspended call is gone with the process, so the answer
+opens the transcript, gives the dangling call a result that says what
+happened, and starts a turn whose prompt tells the model the outcome and, on
+allow, asks it to make the same call again; the gate lets that one through
+once, and only with identical arguments. A call that never ran is not a side
+effect to replay, so this is a message, not a replay engine.
+
+Rejected: **persisting the suspended call and executing it without the
+model** on allow, a second path the model never sees and a serializer for a
+half-finished pi run. **Failing the run on restart**, which throws away a
+review a human was about to approve.
+
+## 126. A gated tool runs sequentially, so the observation posts before the pause
+
+pi's default tool execution is parallel: every call in an assistant message is
+preflighted, hook and all, before any executes. The rubric posts the
+observation and the accusation in one message, advisory first. Under parallel
+execution the gate would hold the batch before the advisory ran, and a deny
+followed by a cancel would drop the advisory on the floor while the fold, which
+records the review from the tool call and not the response, believed it
+posted. That breaks the one invariant the two-call design exists for: the
+observation always publishes.
+
+So a tool named in `requireApprovalForTools` is registered with pi's
+`executionMode: "sequential"`, which makes pi prepare, execute and record each
+call in that batch before it preflights the next. The advisory has posted
+before the gate is reached. The cost is that a gated call in the same message
+as `create_sub_agent` calls would serialize those; the rubric never writes
+that message.
+
+## 127. Reasoning effort is clamped by the harness, not declared by the provider
+
+56 existed because TrueForge refused a session whose reasoning effort the
+provider manifest had not listed, and refused it with a 502 after boot. pi
+clamps a thinking level against what the model declares (`xhigh` and `max`
+fold to `high` unless the model maps them; a model with `reasoning: false`
+gets none), so there is nothing to declare and nothing to refuse. The manifest
+carries `reasoning`, `contextWindow` and `maxTokens` per model instead: pi
+clamps the output cap against the window and, with both zero, would ask the
+provider for one token. `MODEL_PROVIDER_REASONING_EFFORTS` goes; the seven
+effort words are validated where they are read. Reverses 56; 53 stands (the
+effort is still a deployment setting, still pinned at session creation).
+
+## 128. MCP tools are exposed by name, and only exact names are gated
+
+The harness bridges each MCP server's `listTools` into pi tools of the same
+name, with the server's JSON Schema handed through verbatim: the model sees
+`post_gated_review` and `sandbox_exec`, not TrueForge's `call_tool` meta-tool.
+The fold already recognised both forms; the meta-tool branch goes with the
+cutover. Only remote streamable-HTTP servers, as 113 already narrowed it to.
+
+`requireApprovalForTools` is a list of exact tool names, and absent or empty
+means none. There are no `@write` and `@destructive` classes, so 120's
+workaround (`[]` because absent meant everything) is no longer a workaround;
+the empty list means what it says. Refines 113; reverses 120's premise.
+
+## 129. Compaction is pi's context-window rule
+
+64 raised TrueForge's compaction threshold to 200,000 tokens and noted that
+nothing said when a compaction happened. pi compacts when the context would
+exceed the model's declared window less a reserve, and says so with an event
+the harness logs (`harness.compaction.finished`). The threshold knob goes
+(`CUJO_COMPACTION_THRESHOLD_TOKENS`); the spec's `compaction.enabled` stays,
+on for the review session and off for the conversation one. Reverses 64.
+
+## 130. A harness restart ends a running turn as an error, so Cujo retries it once
+
+A turn that was running when the harness process died is ended at the next
+boot with `turn.done { status: "error", message: "harness restarted" }`, not
+as `cancelled`. The fold treats every cancel as final and Cujo's retry refuses
+it; an error is the one outcome that lets Cujo start the turn over once. A
+restart mid-review is then one lost attempt, not a lost review.
+
