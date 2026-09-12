@@ -201,3 +201,49 @@ describe("the tools", () => {
     await client.close();
   });
 });
+
+describe("readiness (decision 118)", () => {
+  /** A server whose runtime is still building its images. */
+  async function notReadyServer() {
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const app = createApp({
+      runtime: new FakeRuntime(),
+      log: createLogger({ service: "sandbox-mcp", sink: () => {} }),
+      ready,
+    });
+    await new Promise<void>((resolve) => app.listen(0, () => resolve()));
+    const url = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
+    const close = () => new Promise<void>((resolve) => app.close(() => resolve()));
+    return { url, release, close };
+  }
+
+  it("answers 503 on /healthz and /mcp until the images exist, then 200", async () => {
+    const { url, release, close } = await notReadyServer();
+    try {
+      const health = await fetch(`${url}/healthz`);
+      expect(health.status).toBe(503);
+      expect(await health.json()).toMatchObject({ ok: false, reason: "not_ready" });
+      // The MCP surface too: a `create` now would `docker run` a tag that does
+      // not exist, and Docker would answer by trying to pull it.
+      const mcp = await fetch(`${url}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+      });
+      expect(mcp.status).toBe(503);
+
+      release();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect((await fetch(`${url}/healthz`)).status).toBe(200);
+    } finally {
+      await close();
+    }
+  });
+
+  it("is ready at once when no readiness promise is given", async () => {
+    expect((await fetch(`${base}/healthz`)).status).toBe(200);
+  });
+});

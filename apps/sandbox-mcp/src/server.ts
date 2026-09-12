@@ -23,6 +23,14 @@ import { registerSandboxTools } from "./tools";
 export interface AppOptions {
   runtime: SandboxRuntime;
   log?: Logger;
+  /**
+   * Resolves when the runtime can provision. Until then `/healthz` is 503 and
+   * so is `/mcp`: the local runtime builds its images at boot (decision 118),
+   * and a `create` before that finishes would be a `docker run` of a tag that
+   * does not exist yet, which Docker answers by trying to pull it from a
+   * registry it was never on. Absent means ready.
+   */
+  ready?: Promise<void>;
 }
 
 /** A body bigger than this is not a tool call. `writeFile` is the widest caller. */
@@ -56,16 +64,36 @@ export function createMcpServer(runtime: SandboxRuntime, log?: Logger): McpServe
 
 export function createApp(options: AppOptions) {
   const log = options.log ?? createLogger({ service: "sandbox-mcp" });
+  // Sampled, never awaited on the request path: a healthcheck that hangs for
+  // the length of a build is a healthcheck that times out.
+  let ready = options.ready === undefined;
+  void options.ready?.then(() => {
+    ready = true;
+  });
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
     if (url.pathname === "/healthz") {
-      json(res, 200, { ok: true, service: "sandbox-mcp", runtime: options.runtime.name });
+      json(res, ready ? 200 : 503, {
+        ok: ready,
+        service: "sandbox-mcp",
+        runtime: options.runtime.name,
+        ...(ready ? {} : { reason: "not_ready" }),
+      });
       return;
     }
 
     if (url.pathname !== "/mcp") {
       json(res, 404, { ok: false });
+      return;
+    }
+
+    if (!ready) {
+      json(res, 503, {
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "sandbox-mcp is not ready" },
+        id: null,
+      });
       return;
     }
 

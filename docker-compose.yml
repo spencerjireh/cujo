@@ -216,7 +216,12 @@ services:
       CUJO_SANDBOX_RUNTIME: ${CUJO_SANDBOX_RUNTIME:-local}
       # Built from sandbox/Dockerfile (decision 117). It ships `sniff.py` and
       # `cujo_sniff/` at /opt/cujo plus a Python and a Node toolchain, so there
-      # is no runtime fetch and no tarball URL any more.
+      # is no runtime fetch and no tarball URL any more. These are tags, not
+      # pulls: sandbox-mcp builds both at boot from contexts its own image
+      # carries (decision 118), because they are `docker run` per sandbox and
+      # not services here, so `up --build` would never build them. Until both
+      # exist it answers 503, which is why the healthcheck's start period is
+      # long enough for a cold build.
       CUJO_SANDBOX_IMAGE: ${CUJO_SANDBOX_IMAGE:-cujo-sandbox:latest}
       CUJO_SANDBOX_GATEWAY_IMAGE: ${CUJO_SANDBOX_GATEWAY_IMAGE:-cujo-sandbox-gateway:latest}
       # gVisor. Empty falls back to Docker's default runtime, with a warning on
@@ -245,7 +250,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      # A cold build of the sandbox image is minutes of apt and pip. Failures
+      # inside the start period do not count, so a first deploy waits for the
+      # build instead of restarting the service in the middle of it; a warm
+      # rebuild is layer-cached and passes in seconds.
+      start_period: 20m
     restart: unless-stopped
 
   # The UI (apps/web), on the one public hostname; `cujo` is API-only and is

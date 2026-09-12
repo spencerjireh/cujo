@@ -316,6 +316,17 @@ Coolify in a single `docker-compose` project so the services share a network.
   healthcheck and never calls `cujo`.
 - **`github-mcp`** — internal only, reachable by `server` over the compose
   network. Holds the GitHub App private key.
+- **`sandbox-mcp`** — internal only, reachable by `server` over the compose
+  network, and the one service that holds the host's Docker socket (decision
+  114). At boot it builds the two images a review runs — the sandbox from
+  `sandbox/Dockerfile` and the egress gateway from
+  `apps/sandbox-mcp/gateway/Dockerfile`, both carried inside its own image —
+  and answers 503 on `/healthz` and `/mcp` until both exist (decision 118).
+  Nothing else builds them: they are `docker run` per sandbox, never compose
+  services, so `up --build` does not see them. A cold build is minutes and a
+  warm one is seconds, which is what the healthcheck's start period is sized
+  for; `cujo` waits on this service being healthy, so the first webhook after a
+  deploy never reaches a sandbox that does not exist yet.
 
 The DNS records and the Access apps exist. Coolify routes
 `cujo-harness.spencerjireh.com` to `server`, `cujo-ingress.spencerjireh.com` to
