@@ -182,11 +182,13 @@ describe("buildAgentSpec", () => {
     // The one line that decides what a human is asked about. `post_blocking_review`
     // is absent on purpose: blocking a merge on a broken test is mechanical and
     // reversible, and asking about it is ceremony (decision 42). `sandbox-mcp`
-    // carries no `requireApprovalForTools` at all, because provisioning a box and
-    // running a command in it is what the review *is* (decision 113).
+    // gates nothing, because provisioning a box and running a command in it is
+    // what the review *is* (decision 113) — and it says so with an empty list,
+    // because an absent key means the harness default, `@write` and
+    // `@destructive`, which is every tool on that server (decision 120).
     expect(spec.mcpServers).toEqual([
       { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
-      { name: "sandbox-mcp" },
+      { name: "sandbox-mcp", requireApprovalForTools: [] },
     ]);
     expect(spec.config).toMatchObject({
       // Off, because the agent reaches a sandbox through `sandbox-mcp` now.
@@ -262,7 +264,7 @@ describe("buildConverseSpec", () => {
     // absent, and this asserts that rather than an empty list, because the list
     // stopped being empty when the sandbox moved off the harness (113).
     const spec = buildConverseSpec(config, "rubric {{CUJO_SNIFF_TARBALL_URL}}");
-    expect(spec.mcpServers).toEqual([{ name: "sandbox-mcp" }]);
+    expect(spec.mcpServers).toEqual([{ name: "sandbox-mcp", requireApprovalForTools: [] }]);
     expect(spec.mcpServers?.some((s) => s.name === "github-mcp")).toBe(false);
   });
 

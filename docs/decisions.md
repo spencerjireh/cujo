@@ -6453,3 +6453,30 @@ Not a reversal of anything numbered. The bot was never a decision here; it
 predates the file. The entries that lean on `best_practices.md` (26, 35, and
 the ones that name a finding) describe what was true when they were written and
 are left as written.
+
+## 120. `sandbox-mcp` says `requireApprovalForTools: []`, because absent means everything
+
+Decision 113 gave `sandbox-mcp` no `requireApprovalForTools`, reasoning that
+provisioning a box and running a command in it is what a review *is* and the
+gate is for the accusation alone (42). The reasoning holds; the spelling was
+wrong. The SDK documents the key's default as `["@write", "@destructive"]`, and
+every tool on that server but `sandbox_read_file` is annotated as a write, so an
+absent key gated four of the five. The first live review on the new runtime
+(orders-api #38) called `sandbox_create`, the harness paused for an approval
+nobody was going to give, and `apps/cujo` folded the pause into
+`blocked_pending` — a status that names a human decision, over a run that had
+nothing to decide.
+
+Nothing before production could have caught it. The contract suite runs with no
+sandbox and never calls a sandbox tool, which decision 113 says in as many
+words, and the unit test pinned the shape it was given rather than the harness's
+reading of it. The fix is the empty list on both specs, which the SDK types
+accept and which means what the comment always said.
+
+Two things this does not do. It does not annotate the tools as read-only to
+dodge the default: `sandbox_exec` runs a pull request's code and
+`sandbox_destroy` removes a box, and lying about that to the harness to avoid
+one line of config is the wrong trade. And it does not teach the fold to
+distinguish a pause on a review tool from a pause on any other, which is a real
+gap — `blocked_pending` should be reachable only through `post_gated_review` —
+but is a second change with its own test, not this one.
