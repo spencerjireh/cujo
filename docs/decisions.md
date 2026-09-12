@@ -6480,3 +6480,73 @@ one line of config is the wrong trade. And it does not teach the fold to
 distinguish a pause on a review tool from a pause on any other, which is a real
 gap — `blocked_pending` should be reachable only through `post_gated_review` —
 but is a second change with its own test, not this one.
+
+## 121. The gateway is the sandbox's router and resolver, which refines 116
+
+Decision 116 put the sandbox on a network created `--internal` and a gateway
+container beside it holding "the only route off". The first live review on the
+new runtime (orders-api #39) could not resolve `github.com` to clone anything,
+and the reason is that an internal network gives a container two things 116 did
+not account for: no default route at all, and an embedded resolver that refuses
+to forward. Nothing in the sandbox had a route *to* the gateway, and nothing in
+it could turn a name into an address. The gateway forwarded correctly and no
+packet ever reached it.
+
+So the shape changes in three places, and the property 116 wanted — the
+gateway is the only way out, and the sandbox cannot change that — is now true
+rather than intended.
+
+**The network is not internal.** It is created with the bridge's own address
+inhibited (`com.docker.network.bridge.inhibit_ipv4`) and host masquerade off.
+Docker still reserves a gateway address for the subnet and still installs the
+sandbox's default route through it; with the bridge inhibited that address
+belongs to no interface, so the route leads nowhere until the gateway container
+claims it, which its script does first. The host holds no address on the bridge
+and NATs nothing for the subnet, so even a packet aimed at the host bridge has
+no one to answer it. The sandbox runs with every capability dropped, so it can
+neither add a route nor open a raw socket to bypass one.
+
+**The gateway is the resolver.** The sandbox's `--dns` is the gateway address,
+so Docker's embedded resolver inside the box forwards to `dnsmasq` on the
+gateway, which forwards each allowlisted name (and the clone host) to its own
+upstream and answers NXDOMAIN for everything else. A name outside the list does
+not resolve, which is a stronger statement than "does not connect": the old
+design would have let the daemon resolve any name on the sandbox's behalf, and
+a resolver that answers for anything is a covert channel one label wide. The
+gateway's input path accepts only port 53 from the sandbox leg, so the sandbox
+can ask it a name and nothing else.
+
+**The clone host is a baseline, not a request.** `github.com` is allowed on
+every sandbox before a repository asks for anything. Fetching the pull request
+is Cujo's own step; making it the repository's to declare, or the rubric's to
+remember, is how a review ends with "could not resolve github.com" and three
+`check_missing` warnings, which is exactly what happened.
+
+Two mechanics that fell out of doing it for real. Forwarding is switched on
+with `--sysctl net.ipv4.ip_forward=1` at creation, because `/proc/sys` is
+read-only inside the container and the script's `echo 1 >` would have failed on
+`set -e`. And the gateway is created, connected to its outside leg with the
+highest gateway priority, and only then started, because the script reads its
+routing table on its first line and a container started with one leg has that
+leg as its default route — the masquerade would have gone out the sandbox side.
+`--gw-priority` needs Docker 28, which the deploy host exceeds.
+
+`create` now waits for the gateway to print `gateway.armed` before returning,
+bounded, and fails the provision with the gateway's own log if it exits first.
+The first `exec` follows `create` within a second, and a resolver that is not
+listening yet is a clone that fails on DNS with no way to tell it apart from a
+real outage.
+
+What this reverses in 116: the "internal network" and the claim that DNS to the
+embedded resolver is what makes the allowlist resolvable. What stays: default
+deny, the allowlist as a crossing validated on the trusted side, names not
+addresses, resolve every address, and the proxy as a sensor. Verified end to end
+on a 29.x daemon: a sandbox with `allow_hosts: [pypi.org]` fetches `github.com`
+and `pypi.org`, gets NXDOMAIN for `example.com`, and times out on `1.1.1.1`.
+
+Rejected: **sharing the gateway's network namespace** (`--network container:`),
+which puts the policy in the same namespace as the code it judges and, under
+gVisor, in the path of a netstack that injects frames below netfilter. **A
+non-inhibited bridge with masquerade off**, which leaves the host as the
+sandbox's router with a private source address, dropped upstream but not by us.
+**Leaving DNS to the daemon**, above.
