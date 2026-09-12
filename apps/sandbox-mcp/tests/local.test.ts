@@ -8,11 +8,13 @@
  * rather than left holding a network.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
 import type { Docker, DockerResult } from "../src/docker";
 import { SandboxError } from "../src/runtime";
-import { LocalRuntime } from "../src/runtimes/local";
+import { BASELINE_HOSTS, LocalRuntime } from "../src/runtimes/local";
 
 const ok: DockerResult = { stdout: "id\n", stderr: "", exitCode: 0, timedOut: false };
 const GATEWAY_IP = "10.9.0.1";
@@ -122,13 +124,32 @@ describe("LocalRuntime.create", () => {
     expect(indexOf(calls, "network", "rm")).toBeGreaterThanOrEqual(0);
   });
 
-  it("always allows the clone host, ahead of whatever the repository asked for", async () => {
+  it("always allows the clone host and the package indexes, ahead of what the repository asked for", async () => {
     const { docker, calls } = fakeDocker();
-    await runtime(docker).create({ allowHosts: ["pypi.org"] });
+    await runtime(docker).create({ allowHosts: ["api.example.com", "pypi.org"] });
     const gateway = calls.find((c) => c.includes("cujo/sandbox-gateway:pinned")) ?? [];
-    // Fetching the pull request is Cujo's step, not a dependency the repository
-    // declares, so it is not the repository's to allow or to forget.
-    expect(gateway).toContain("CUJO_ALLOW_HOSTS=github.com,pypi.org");
+    const env = gateway.find((a) => a.startsWith("CUJO_ALLOW_HOSTS=")) ?? "";
+    const hosts = env.slice("CUJO_ALLOW_HOSTS=".length).split(",");
+    // Fetching the pull request and installing its dependencies are Cujo's
+    // steps, not things a repository declares, so they are not its to forget
+    // (decision 122). Its own additions follow; a repeat is not a second rule.
+    expect(hosts.slice(0, BASELINE_HOSTS.length)).toEqual([...BASELINE_HOSTS]);
+    expect(hosts.slice(BASELINE_HOSTS.length)).toEqual(["api.example.com"]);
+  });
+
+  it("allows exactly the hosts the sensor calls known, so expected and possible egress agree", () => {
+    // `KNOWN_INDEX_HOSTS` in policy.py is what makes an egress row `known`; if
+    // the gateway allowed less, an install the sensor would call clean could not
+    // run, and if it allowed more, a row the gateway let through would be
+    // `unknown`. Read from the file, because the sandbox side cannot import this.
+    const policy = readFileSync(
+      join(import.meta.dirname, "../../../sandbox/cujo_sniff/policy.py"),
+      "utf8",
+    );
+    const block = policy.match(/KNOWN_INDEX_HOSTS = frozenset\(\s*\{([^}]*)\}/)?.[1] ?? "";
+    const known = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(known.length).toBeGreaterThan(0);
+    expect([...BASELINE_HOSTS].sort()).toEqual([...known].sort());
   });
 
   it("starts the gateway before the sandbox, so there is never an unfiltered window", async () => {
@@ -145,7 +166,9 @@ describe("LocalRuntime.create", () => {
     await runtime(docker).create({ allowHosts: ["pypi.org", "files.pythonhosted.org"] });
     const gateway = calls.find((c) => c.includes("cujo/sandbox-gateway:pinned")) ?? [];
     // One argv entry, so no hostname can become a second flag or a second rule.
-    expect(gateway).toContain("CUJO_ALLOW_HOSTS=github.com,pypi.org,files.pythonhosted.org");
+    const env = gateway.find((a) => a.startsWith("CUJO_ALLOW_HOSTS=")) ?? "";
+    expect(env.split(",")).toContain("files.pythonhosted.org");
+    expect(gateway.filter((a) => a.startsWith("CUJO_ALLOW_HOSTS="))).toHaveLength(1);
   });
 
   it("gives the gateway its one capability and the sandbox none", async () => {

@@ -66,9 +66,8 @@ export interface LocalRuntimeOptions {
   /** The network the gateway reaches the internet through. */
   egressNetwork?: string;
   /**
-   * Hosts every sandbox may reach, before a repository asks for anything. The
-   * clone host: fetching the pull request is Cujo's own step, not a dependency
-   * the repository declares, so it is not the repository's to allow or forget.
+   * Hosts every sandbox may reach, before a repository asks for anything.
+   * Default: `BASELINE_HOSTS`, the clone host and the package indexes.
    */
   baselineHosts?: string[];
   /** How long to wait for the gateway to report its rules armed. */
@@ -90,8 +89,31 @@ interface Box {
 const DEFAULT_EXEC_TIMEOUT_MS = 20 * 60 * 1000;
 /** Names are derived from the id, so one sandbox's resources are findable. */
 const PREFIX = "cujo-sbx";
-/** Where a public clone of a pull request comes from. */
-const DEFAULT_BASELINE_HOSTS = ["github.com"];
+/**
+ * Hosts an install legitimately talks to, allowed on every sandbox.
+ *
+ * The same set as `KNOWN_INDEX_HOSTS` in `sandbox/cujo_sniff/policy.py`, and a
+ * test holds the two in step. The sensor uses it to say which egress was
+ * *expected*; the gateway uses it to say which egress is *possible*. Those have
+ * to be one list: an install that the sensor would call clean and the gateway
+ * refuses is a review with no evidence, which is what orders-api #40 was
+ * (decision 122). A repository's `allow_hosts` adds to this; it cannot remove
+ * from it, and it never needs to name a registry.
+ */
+export const BASELINE_HOSTS: readonly string[] = [
+  "github.com",
+  "objects.githubusercontent.com",
+  "codeload.github.com",
+  "pypi.org",
+  "files.pythonhosted.org",
+  "registry.npmjs.org",
+  "crates.io",
+  "static.crates.io",
+  "proxy.golang.org",
+  "sum.golang.org",
+  "rubygems.org",
+  "index.rubygems.org",
+];
 const DEFAULT_GATEWAY_READY_TIMEOUT_MS = 15_000;
 /** The line `gateway/entrypoint.sh` prints once its rules and resolver are up. */
 const GATEWAY_ARMED = "gateway.armed";
@@ -135,9 +157,10 @@ export class LocalRuntime implements SandboxRuntime {
       });
     }
 
+    // The baseline first, then the repository's additions, minus repeats: a
+    // name that is both would otherwise be two rules and two resolver entries.
     const allowHosts = [
-      ...(this.options.baselineHosts ?? DEFAULT_BASELINE_HOSTS),
-      ...spec.allowHosts,
+      ...new Set([...(this.options.baselineHosts ?? BASELINE_HOSTS), ...spec.allowHosts]),
     ];
 
     try {
