@@ -21,8 +21,25 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8082
 # The client only. The daemon is the host's, reached through its socket.
+#
+# From Docker's own repository and pinned, not Debian's `docker.io`: bookworm
+# ships client 20.10, which speaks API 1.41, and Engine 29 refuses anything
+# below 1.44. Against the deploy host that was every `docker` call failing at
+# boot, so the image build failed, the process exited, and the healthcheck
+# never saw a 200. The pin tracks the host's engine (29.7.2 when written); a
+# newer client talks to an older engine, so bump this before the host, not after.
+ARG DOCKER_CLI_VERSION=5:29.7.2-1~debian.12~bookworm
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends docker.io \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && install -m 0755 -d /etc/apt/keyrings \
+  && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+  && chmod a+r /etc/apt/keyrings/docker.asc \
+  && echo "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+    > /etc/apt/sources.list.d/docker.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends "docker-ce-cli=${DOCKER_CLI_VERSION}" \
+  && apt-get purge -y curl \
+  && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=build --chown=node:node /repo/apps/sandbox-mcp/dist ./dist
 # The two build contexts the local runtime needs, built through that socket at
