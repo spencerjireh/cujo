@@ -103,13 +103,11 @@ entry point and `cujo_sniff/` as the package behind it. Report shapes live in
 
 ## Repo rules
 
-- Every change is a PR; no direct commits to `main`. Qodo reviews PRs here and
-  reads `best_practices.md`, which mirrors the Standards section of
-  `CONTRIBUTING.md`; keep the two in sync.
-- Before merging, wait for Qodo's review to finish and check that every Qodo
-  comment is applied, or answered with a one-line reason and resolved
-  (`gh pr view --comments`, `gh pr checks`). Never merge with an open Qodo
-  thread.
+- Every change is a PR; no direct commits to `main`. The Standards section of
+  `CONTRIBUTING.md` is what a review holds a PR to. There is no review bot
+  (decision 119): CI green and every open thread applied, or answered with a
+  one-line reason and resolved, is the bar (`gh pr checks`,
+  `gh pr view --comments`).
 - Pin dependencies; a `git+` or unpinned spec needs a reason in the PR.
 - Commit subjects use Conventional Commits (`type(scope): summary`, imperative,
   no trailing period); explain the why in the body. See `CONTRIBUTING.md`.

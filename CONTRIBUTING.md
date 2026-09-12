@@ -14,18 +14,19 @@ which in the PR.
 
 ## Every change is a pull request
 
-No direct commits to `main`, including small and solo ones — a PR is the only thing
-Qodo can review, and the review trail is part of what's judged.
+No direct commits to `main`, including small and solo ones — a PR is the only
+place a change gets CI, a description of why, and a review trail.
 
-- Keep PRs small: one concern each. A small PR gets a sharper Qodo review and costs
+- Keep PRs small: one concern each. A small PR gets a sharper review and costs
   little to open.
-- Engage every Qodo comment — apply it, or reply with a one-line reason and resolve
-  it.
-- Let Qodo review before you merge; don't merge over an unaddressed comment without
-  a stated reason.
+- Engage every review comment — apply it, or reply with a one-line reason and
+  resolve it.
+- Don't merge over an unaddressed comment without a stated reason, and never
+  with CI red.
 
-Qodo runs on this repo only. The demo PRs on `orders-api` are reviewed by
-`cujo-guard[bot]` itself, so a second bot there would muddy that story.
+There is no review bot on this repo (decision 119). The demo PRs on
+`orders-api` are reviewed by `cujo-guard[bot]` itself, and that is the only
+bot review anywhere in the project.
 
 ## Pull request descriptions
 
@@ -55,12 +56,8 @@ the test exercises a specific contract or decision, name it.
 
 ## Standards
 
-The standards Qodo checks and reviewers hold to. At code time they are mirrored
-into Qodo's `best_practices.md` so the file and the bot check the same things.
-The two copies are identical bullet for bullet. Only the link form differs: this
-note and the reference style are the whole of the allowed divergence, because
-CONTRIBUTING.md renders on GitHub and best_practices.md is read as plain text by
-the bot.
+The standards a review holds a pull request to. This is the one copy: the
+mirror that a review bot read went with the bot (decision 119).
 
 - Secrets never enter the repo: no token, key, or `.env` in a commit. The GitHub
   App key (`*.pem`) and `.env` are gitignored; real values live in Coolify.
@@ -182,7 +179,7 @@ Why the change is needed, not what the diff already shows.
   `Added HMAC checking.`
 - Write a body when the reason is not obvious from the subject: what was wrong,
   why this fix, what was considered and rejected. Wrap at 72. When a commit
-  closes a Qodo finding, say which one.
+  closes a review finding, say which one.
 
 A good message lets a reader understand the change from `git log` alone,
 without opening the diff.

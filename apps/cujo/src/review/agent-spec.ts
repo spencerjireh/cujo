@@ -50,8 +50,8 @@ export function isDocsOnly(files: readonly string[]): boolean {
 }
 
 /**
- * The rubric lives in agent/SKILL.md at the repo root so a reader (and Qodo)
- * can review it as prose. The Dockerfile copies it next to dist/.
+ * The rubric lives in agent/SKILL.md at the repo root so a reader can review
+ * it as prose. The Dockerfile copies it next to dist/.
  *
  * The candidates are a chain, not alternatives, and two of them are load
  * bearing for different environments: the four-level one is this source file
