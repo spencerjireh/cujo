@@ -6424,3 +6424,32 @@ step and a second credential for a project whose deploy is a merge (35).
 tool call the agent is waiting on, and a turn that times out there looks like a
 sandbox failure. **A `depends_on` a build-only service**, above.
 
+
+## 119. No review bot; `best_practices.md` goes with it
+
+Qodo is uninstalled from this repository. It reviewed every pull request from
+the first to #120, and the project got real value from it: several entries
+above cite a finding of its by name, and `sandbox/tests/test_script_capture.py`
+still carries the numbers. Those citations stay, because they are history and
+the rule is that an entry is reversed rather than edited.
+
+What changes. The Standards section of `CONTRIBUTING.md` was mirrored, bullet
+for bullet, into `best_practices.md` because that was the file the bot read;
+with no bot there is no reader, and a second copy of a rule set is a drift
+waiting to be found. It is deleted, and CONTRIBUTING.md is the one copy. The
+repo rule "wait for Qodo's review, resolve every thread" becomes the rule it was
+standing in for: CI green, and every open review thread applied or answered
+with a one-line reason and resolved. The README's "Qodo Code Review Evidence"
+section goes as well. It counted reviews for a submission that is over, and a
+section whose first sentence is no longer true is worse than none.
+
+Why not keep it. The bot was installed for an event, the event has passed, and
+the last two pull requests sat without a review from it, which meant a rule
+that gated every merge on a service that had stopped answering. A review bot
+that runs may come back — Cujo is one, on `orders-api` — but that will be a new
+choice with a new entry, not this one restored.
+
+Not a reversal of anything numbered. The bot was never a decision here; it
+predates the file. The entries that lean on `best_practices.md` (26, 35, and
+the ones that name a finding) describe what was true when they were written and
+are left as written.
