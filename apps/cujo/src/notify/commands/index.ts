@@ -7,10 +7,11 @@
  * functions returning the line the invoker sees — testable without a signature,
  * a deferred reply, or an interaction envelope.
  *
- * They route notifications and nothing else. There is no approve command and
- * adding one is a change to the human gate, not a feature (decision 28); the
- * NotificationStore they hold has no way to reach a run's decision, which is
- * what keeps that true rather than remembered.
+ * They route notifications, and one of them forgets a pull request's sessions
+ * (decision 123). There is no approve command and adding one is a change to
+ * the human gate, not a feature (decision 28); the NotificationStore they hold
+ * has no way to reach a run's decision, and `resetSession` is a callback that
+ * cannot either, which is what keeps that true rather than remembered.
  */
 
 import type { Logger } from "@cujo/log";
@@ -19,6 +20,7 @@ import type { GitHubReader } from "../../clients/github";
 import type { UiLinks } from "../../review/links";
 import type { NotificationStore } from "../../store";
 import { authorizationFor, explain } from "../authorization";
+import { type ResetOutcome, reset } from "./reset";
 import { status } from "./status";
 import { test } from "./test";
 import { unwatch } from "./unwatch";
@@ -33,6 +35,11 @@ export interface CommandDeps {
   links: UiLinks;
   /** The server an undeclared repo belongs to, or null for none (decision 40). */
   defaultGuild: string | null;
+  /**
+   * Forget a pull request's sessions (Contract 5). A callback rather than the
+   * run store, so this plane still cannot reach a run's decision.
+   */
+  resetSession: (repo: string, prNumber: number) => ResetOutcome;
 }
 
 export interface CommandInput {
@@ -43,6 +50,7 @@ export interface CommandInput {
   repo: string | null;
   channelId: string | null;
   roleId: string | null;
+  prNumber: number | null;
 }
 
 const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
@@ -89,5 +97,6 @@ export async function runCommand(deps: CommandDeps, input: CommandInput): Promis
     });
   }
   if (input.name === "test") return test(deps, input.guildId, repo);
+  if (input.name === "reset") return reset(deps, { repo, prNumber: input.prNumber });
   return "Unknown command.";
 }

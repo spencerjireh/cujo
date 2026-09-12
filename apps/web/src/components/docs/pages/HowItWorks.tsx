@@ -9,8 +9,8 @@ export function HowItWorks() {
       <Section id="path" title="The path">
         <FlowDiagram />
         <P>
-          GitHub delivers a webhook to the Cujo service, which starts one turn on the TrueForge
-          harness. The harness runs the pull request inside a disposable sandbox. Only the pull
+          GitHub delivers a webhook to the Cujo service, which starts one turn on the agent harness.
+          The harness runs the pull request inside a disposable sandbox. Only the pull
           request&rsquo;s code and its dependency names cross into that sandbox; only JSON reports
           come back. The review is posted through a separate MCP server, which is where the
           credentials live — on the trusted side, and never in the box that ran the code.

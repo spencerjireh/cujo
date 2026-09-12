@@ -160,6 +160,23 @@ export class RunStore {
     return row?.session_id ?? null;
   }
 
+  /**
+   * Forget both of a pull request's sessions (Contract 5, decision 123), so
+   * the next push or `/cujo review` creates fresh ones on the current spec.
+   * Returns how many rows went; the harness keeps its own copy of the old
+   * session and nothing here touches it. The caller refuses while a run on
+   * the review session is unfinished, because that run's turn is live on it.
+   */
+  deleteSessions(repo: string, prNumber: number): number {
+    const review = this.db
+      .prepare("DELETE FROM sessions WHERE repo = ? COLLATE NOCASE AND pr_number = ?")
+      .run(repo, prNumber);
+    const conversation = this.db
+      .prepare("DELETE FROM conversation_sessions WHERE repo = ? COLLATE NOCASE AND pr_number = ?")
+      .run(repo, prNumber);
+    return Number(review.changes) + Number(conversation.changes);
+  }
+
   /** First writer wins, like `putSession`. Returns the id now stored. */
   putConversationSession(repo: string, prNumber: number, sessionId: string): string {
     this.db

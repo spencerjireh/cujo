@@ -52,6 +52,9 @@ describe("the HTTP surface", () => {
       spec: spec({ mcpServers: [{ name: "nope", requireApprovalForTools: [] }] }),
     });
     expect(unknown.status).toBe(400);
+    const model = await call("POST", "/sessions", { spec: spec({ model: { name: "stub/nope" } }) });
+    expect(model.status).toBe(400);
+    expect(model.json.error).toContain("Unknown model");
   });
 
   it("answers 404 for an unknown session and turn", async () => {

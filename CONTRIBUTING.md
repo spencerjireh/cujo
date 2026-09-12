@@ -113,7 +113,7 @@ mirror that a review bot read went with the bot (decision 119).
   without `.catch()`. A webhook or API handler that fails silently is a run that
   vanishes with no trace in the store.
 - No `as any` or `@ts-ignore` without a comment saying why. Webhook payloads,
-  MCP tool inputs, and TrueForge events are validated at the boundary before the
+  MCP tool inputs, and harness events are validated at the boundary before the
   type is trusted; the shape comes from the sender, not from us.
 - A PR that changes behavior ships a test that covers the change, or states why
   it does not. Tests mirror the source tree in `tests/`, use `*.test.ts`, and
@@ -153,7 +153,7 @@ Biome is the style authority (`pnpm lint`, `pnpm format`); source files are
 Unit tests (`*.test.ts`, `pnpm test`) cover pure functions and state
 transformations with synthetic inputs; mock the neighbors, not the module under
 test. Contract tests (`*.contract.test.ts`, `make test-int`) verify that the fakes
-the unit tests rely on match real TrueForge and MCP behavior. When a unit test
+the unit tests rely on match the real harness and MCP behavior. When a unit test
 introduces a new mock assumption, consider whether it needs a contract-test
 counterpart.
 

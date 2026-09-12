@@ -7,10 +7,10 @@
  * inside the agent could not have covered.
  */
 
+import type { AgentSpec } from "@cujo/harness-contract";
 import { createLogger } from "@cujo/log";
-import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
 import { describe, expect, it, vi } from "vitest";
-import type { SessionEvent, StreamEvent } from "../../src/clients/trueforge";
+import type { SessionEvent, StreamEvent } from "../../src/clients/harness";
 import { ConverseService } from "../../src/converse/converse.service";
 import { ConverseRateLimit } from "../../src/converse/rate-limit";
 import type { Projection } from "../../src/review/types";
@@ -32,9 +32,9 @@ const turnDone = (status = "done"): StreamEvent =>
     type: "turn.done",
     id: "td",
     createdAt: at,
-    threadId: null,
+    threadId: "main",
     state: { status, completedAt: at, output: null, requiredActions: [] },
-  }) as StreamEvent;
+  }) as unknown as StreamEvent;
 
 async function* streamOf(events: StreamEvent[]): AsyncGenerator<StreamEvent> {
   for (const event of events) yield event;
@@ -84,13 +84,13 @@ function harness(
   const replies: string[] = [];
   const threadReplies: { commentId: number; body: string }[] = [];
   const lines: Record<string, unknown>[] = [];
-  const created: TrueForgeApi.AgentSpec[] = [];
+  const created: AgentSpec[] = [];
   const started: { sessionId: string; message: string }[] = [];
   const cancelled: string[] = [];
   const service = new ConverseService({
     runs: store.runs,
     harness: {
-      createSession: async (spec: TrueForgeApi.AgentSpec) => {
+      createSession: async (spec: AgentSpec) => {
         created.push(spec);
         return "converse-session";
       },
@@ -118,7 +118,7 @@ function harness(
         return 2;
       },
     },
-    spec: { model: { name: "m" }, mcpServers: [] } as TrueForgeApi.AgentSpec,
+    spec: { model: { name: "m" }, mcpServers: [] } as unknown as AgentSpec,
     limit: new ConverseRateLimit({ limit: over.limit ?? 3, windowMs: 60_000 }),
     turnTimeoutMs: 50,
   });
@@ -346,7 +346,7 @@ describe("ConverseService", () => {
         createComment: async () => 1,
         replyToReviewComment: async () => 2,
       },
-      spec: {} as TrueForgeApi.AgentSpec,
+      spec: {} as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 50,
     });
@@ -478,7 +478,7 @@ describe("ConverseService", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as TrueForgeApi.AgentSpec,
+      spec: {} as AgentSpec,
       limit: new ConverseRateLimit({ limit: 5, windowMs: 60_000 }),
       turnTimeoutMs: 5_000,
     });
@@ -556,7 +556,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as TrueForgeApi.AgentSpec,
+      spec: {} as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 20,
     });
@@ -614,7 +614,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as TrueForgeApi.AgentSpec,
+      spec: {} as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 20,
     });
@@ -671,7 +671,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as TrueForgeApi.AgentSpec,
+      spec: {} as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 20,
     });
@@ -728,7 +728,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as TrueForgeApi.AgentSpec,
+      spec: {} as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 5_000,
     });

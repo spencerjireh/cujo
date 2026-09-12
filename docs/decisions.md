@@ -139,6 +139,8 @@ that is reversed after it was built or shown is noted here rather than deleted
 
 ## 1. Build on stock TrueForge — no fork
 
+**Reversed by 123.** The harness is `apps/harness`, built on the pi coding agent SDK; TrueForge is gone from the deploy.
+
 Use the published `@truefoundry/trueforge` package as-is. The rubric rewards
 using the harness well (real MCP tools, sandbox execution, human approvals), not
 modifying it; no criterion rewards upstream contributions. A fork adds
@@ -147,7 +149,9 @@ configuration and the SDK.
 
 ## 2. Hosted mode on Hetzner via Coolify, gated by Cloudflare Access
 
-**Superseded in part by 34, 49 and 57.** The operator plane is gone
+**Superseded in part by 34, 49 and 57, and the rest by 123.** There is no
+hosted-mode harness and no console left to gate: `apps/harness` is a
+single-process service on a volume. The operator plane is gone
 entirely, and its Access gate with it; the `cujo-harness` console gate
 stands and is now the only one anywhere in this system.
 
@@ -287,6 +291,8 @@ to CI shape).
 
 ## 14. One subagent per check
 
+**Refined by 124.** Still one per check; each is now a nested pi session in `apps/harness`, and its events are durable as they land.
+
 Each check (`tests`, `probes`, `smoke`, `detonation`) runs in a TrueForge
 dynamic subagent with fresh context; only its JSON report returns to the
 parent. This keeps each check's context small and focused, keeps a noisy test
@@ -319,8 +325,9 @@ a retried webhook from double-posting and keeps `github-mcp` write-only.
 
 ## 17. Cujo owns the operator UI; TrueForge is a dependency, not a destination
 
-**Superseded by 27.** The operator UI is `apps/web`; `apps/cujo` is API-only.
-The rule that nobody approves in the TrueForge console still holds.
+**Superseded by 27, and refined by 123.** The operator UI is `apps/web`;
+`apps/cujo` is API-only. There is no harness console at all any more, so the
+rule that nobody approves in one holds by construction.
 
 The human who approves a block does it in Cujo's own UI, not in TrueForge's
 bundled chat. `apps/ingress` grows into `apps/cujo`: one service that receives
@@ -384,6 +391,8 @@ What does not change: the trust boundary, the sandbox contract, the hard rules,
 the two review tools and their gate, and one session per PR.
 
 ## 18. `apps/cujo` is a projection of TrueForge, not a source of truth
+
+**Refined by 123.** Still a projection; the event log it projects is now `apps/harness`'s SQLite table, read whole.
 
 TrueForge keeps the event log. `apps/cujo` stores only what TrueForge cannot
 know — the PR-to-session map, the derived run status, and who approved — and
@@ -1305,6 +1314,8 @@ teaching the reactor which run is newest for a pull request — a store query on
 the fold path to buy back an emoji.
 
 ## 39. A superseded run answers its pending approval
+
+**Refined by 125.** The stale deny is still sent, so the model hears why; the harness no longer refuses a new turn while an approval is pending, it voids the approval instead.
 
 Decision 20 says a superseded run cancels its turn so it cannot post a review
 for a commit nobody is looking at. That was not enough, and the gap made the
@@ -2460,6 +2471,8 @@ runs list**, which repeats a face down a table that is scanned for status.
 
 ## 56. A provider must declare the reasoning efforts it will accept
 
+**Reversed by 127.** The harness clamps an effort against what the model declares; nothing is announced to the provider and nothing refuses boot over it.
+
 Decision 53 added `CUJO_MODEL_REASONING_EFFORT` and shipped it unusable. Setting
 it to `low` made **every** pull request webhook answer 502 —
 `createSession` throwing with `reason: "session_create_failed"` — and no review
@@ -2926,6 +2939,8 @@ for.
 
 ## 64. Nothing says when a compaction happened, so Cujo does not
 
+**Reversed by 129.** Compaction is pi's context-window rule and the harness logs each one; the threshold knob is gone.
+
 `contextManagement` was unset, so the review agent compacted at TrueForge's
 default of 50,000 tokens. The parent collects four full check reports and then
 writes its review body from them, so a compaction in that window produces a
@@ -3266,6 +3281,8 @@ server rendered and must not slide from it.
 
 
 ## 69. Losing the stream is not a verdict; only the watchdog ends a turn
+
+**Refined by 124.** The watchdog rule stands. The four facts below about a wedged session were facts about TrueForge: under `apps/harness` a cancel ends the children with the parent, and a new turn supersedes cleanly.
 
 A run on `orders-api#18` lost its SSE stream. `Runner.consume` spent its three
 resubscribes over twenty-two seconds, injected a synthetic `turn.done`, and the
@@ -6148,6 +6165,8 @@ which is what the previous three attempts were.
 
 ## 113. The sandbox is an interface, reached through MCP and not through the harness
 
+**Refined by 128.** The interface stands; the harness now exposes its five tools to the model by name, with no meta-tool between.
+
 Daytona tier one gives no sandbox-level egress policy, which is why the
 in-sandbox logging proxy became load-bearing — the thing enforcing the trust
 boundary sat on the untrusted side of it. That is the weakest joint in the
@@ -6468,6 +6487,8 @@ the ones that name a finding) describe what was true when they were written and
 are left as written.
 
 ## 120. `sandbox-mcp` says `requireApprovalForTools: []`, because absent means everything
+
+**Premise reversed by 128.** Absent means none on `apps/harness`; the empty list stays because it now means exactly what it says.
 
 Decision 113 gave `sandbox-mcp` no `requireApprovalForTools`, reasoning that
 provisioning a box and running a command in it is what a review *is* and the

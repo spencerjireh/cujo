@@ -1,212 +1,39 @@
 /**
- * Shallow runtime validation for TrueForge SessionEvents (decision 105).
+ * Runtime validation for the harness's session events (decision 105).
  *
- * The SDK exports only TypeScript types, which are erased at runtime. If an
- * upgrade renamed or dropped a field `fold` reads, the run would silently
- * resolve `clean` because evidence went missing — the same failure mode
- * `report-schema.ts` exists to prevent, one layer up (issue #90).
- *
- * Two rules, identical to the report schema's own (decisions 54, 62):
- *
- * **Extras pass through.** `.passthrough()` on every object so a newer SDK's
- * additions survive without a false rejection.
+ * The shapes are the contract's own Zod schemas (`@cujo/harness-contract`),
+ * so this file no longer declares a field list of its own: what `fold.ts`
+ * reads and what the harness writes are the same package. What stays from 105
+ * is the policy:
  *
  * **Warn, never reject.** `safeParse`, and an event that fails is logged as
- * `run.event.invalid` and kept in the fold — never dropped, never fatal.
- * A malformed event should be visible, not silent.
+ * `run.event.invalid` and kept in the fold — never dropped, never fatal. A
+ * malformed event should be visible, not silent.
  *
- * The schema is shallow: it validates only the fields `fold.ts` and
- * `runner.service.ts` actually read, not the full SDK surface. A CI
- * type-assignability test guards the other direction — a compile failure
- * catches an SDK drift that removes a field we declared.
+ * **Unknown types pass.** A type the contract does not name is checked for an
+ * id and a timestamp only, so a harness that is one deploy ahead of this
+ * process does not produce a warning per event.
  */
 
+import { SessionEventSchema as ContractEventSchema } from "@cujo/harness-contract";
 import { z } from "zod";
 
-const Base = {
-  id: z.string(),
-  createdAt: z.string(),
-};
-
-const TurnCreated = z
-  .object({
-    ...Base,
-    type: z.literal("turn.created"),
-    turnId: z.string(),
-    previousTurnId: z.string().nullable().optional(),
-    threadId: z.unknown().optional(),
-    input: z
-      .array(
-        z
-          .object({
-            type: z.string(),
-            toolCallId: z.string().optional(),
-            approval: z.object({ status: z.string() }).passthrough().optional(),
-          })
-          .passthrough(),
-      )
-      .optional(),
-  })
-  .passthrough();
-
-const TurnDone = z
-  .object({
-    ...Base,
-    type: z.literal("turn.done"),
-    threadId: z.unknown().optional(),
-    state: z
-      .object({
-        status: z.enum(["done", "error", "cancelled"]),
-        message: z.string().optional(),
-        reason: z.string().optional(),
-        completedAt: z.string().optional(),
-        metrics: z
-          .object({
-            totalInputTokens: z.number().optional(),
-            totalOutputTokens: z.number().optional(),
-            totalCacheReadTokens: z.number().optional(),
-            totalCacheWriteTokens: z.number().optional(),
-            totalReasoningTokens: z.number().optional(),
-            totalCostInUsd: z.number().optional(),
-          })
-          .passthrough()
-          .optional(),
-        output: z.unknown().optional(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
-
-const ModelMessage = z
-  .object({
-    ...Base,
-    type: z.literal("model.message"),
-    threadId: z.string(),
-    usage: z
-      .object({
-        inputTokens: z.number().optional(),
-        outputTokens: z.number().optional(),
-        cacheReadTokens: z.number().optional(),
-        cacheWriteTokens: z.number().optional(),
-      })
-      .passthrough()
-      .optional(),
-    toolCalls: z
-      .array(
-        z
-          .object({
-            id: z.string(),
-            function: z.object({
-              name: z.string(),
-              arguments: z.string(),
-            }),
-          })
-          .passthrough(),
-      )
-      .optional(),
-    content: z.unknown().optional(),
-    finishReason: z.string().optional(),
-    refusal: z.string().nullable().optional(),
-  })
-  .passthrough();
-
-const ThreadCreated = z
-  .object({
-    ...Base,
-    type: z.literal("thread.created"),
-    threadId: z.string(),
-    title: z.string(),
-  })
-  .passthrough();
-
-const ThreadDone = z
-  .object({
-    ...Base,
-    type: z.literal("thread.done"),
-    threadId: z.string(),
-    state: z
-      .object({
-        status: z.enum(["done", "error"]),
-        error: z.string().optional(),
-        output: z
-          .object({
-            finishReason: z.string().optional(),
-            refusal: z.string().nullable().optional(),
-            content: z.unknown().optional(),
-          })
-          .passthrough()
-          .nullable()
-          .optional(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
-
-const ToolApprovalRequired = z
-  .object({
-    ...Base,
-    type: z.literal("tool.approval_required"),
-    threadId: z.string(),
-    toolCalls: z.array(
-      z
-        .object({
-          id: z.string(),
-          sourceEventId: z.string(),
-        })
-        .passthrough(),
-    ),
-  })
-  .passthrough();
-
-const ToolResponse = z
-  .object({
-    ...Base,
-    type: z.literal("tool.response"),
-    toolCallId: z.string(),
-  })
-  .passthrough();
-
-const SandboxCreated = z
-  .object({
-    ...Base,
-    type: z.literal("sandbox.created"),
-  })
-  .passthrough();
-
-const KNOWN_TYPES = new Set([
-  "turn.created",
-  "turn.done",
-  "model.message",
-  "thread.created",
-  "thread.done",
-  "tool.approval_required",
-  "tool.response",
-  "sandbox.created",
-]);
-
-const KnownEvents = z.discriminatedUnion("type", [
-  TurnCreated,
-  TurnDone,
-  ModelMessage,
-  ThreadCreated,
-  ThreadDone,
-  ToolApprovalRequired,
-  ToolResponse,
-  SandboxCreated,
-]);
+const KNOWN_TYPES = new Set<string>(
+  ContractEventSchema.options.map((option) => option.shape.type.value),
+);
 
 const UnreadBase = z
   .object({
-    ...Base,
+    id: z.string(),
+    createdAt: z.string(),
     type: z.string(),
   })
   .passthrough();
 
 /**
- * Route by type: known types go through the strict discriminated union (so a
- * `turn.created` missing `turnId` is rejected, not swallowed by a loose
- * catch-all); unknown types go through the base-only schema (so a future
- * SDK addition passes without a false rejection).
+ * Route by type: known types go through the contract's discriminated union
+ * (so a `turn.created` missing `turnId` is rejected, not swallowed by a loose
+ * catch-all); unknown types go through the base-only schema.
  */
 export const SessionEventSchema = z.any().superRefine((val, ctx) => {
   if (typeof val !== "object" || val === null) {
@@ -214,14 +41,13 @@ export const SessionEventSchema = z.any().superRefine((val, ctx) => {
     return;
   }
   const type = (val as Record<string, unknown>).type;
-  const schema = typeof type === "string" && KNOWN_TYPES.has(type) ? KnownEvents : UnreadBase;
+  const schema =
+    typeof type === "string" && KNOWN_TYPES.has(type) ? ContractEventSchema : UnreadBase;
   const result = schema.safeParse(val);
   if (!result.success) {
     for (const issue of result.error.issues) ctx.addIssue(issue);
   }
 });
-
-export type ValidatedSessionEvent = z.infer<typeof KnownEvents> | z.infer<typeof UnreadBase>;
 
 /** Long enough to name the path; short enough for a log field. */
 const PROBLEM_MAX = 200;

@@ -1,24 +1,24 @@
 import { C, Cell, LI, Lead, Note, P, Pre, Row, Section, Table, UL } from "@/components/docs/Prose";
 import Link from "next/link";
 
-const REQUIRED = `POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
-GITHUB_APP_ID
+const REQUIRED = `GITHUB_APP_ID
 GITHUB_APP_PRIVATE_KEY     # the PEM text; literal \\n is accepted
 GITHUB_WEBHOOK_SECRET
 CUJO_MODEL                 # <provider name>/<model name>`;
 
 const PROVIDERS = `MODEL_PROVIDER_NAME
-MODEL_PROVIDER_BASE_URL
+MODEL_PROVIDER_BASE_URL             # an OpenAI-compatible chat-completions endpoint
 MODEL_PROVIDER_API_KEY
 MODEL_PROVIDER_MODELS               # <model name>=<provider model id>, comma separated
-MODEL_PROVIDER_REASONING_EFFORTS    # the efforts those models accept
-DAYTONA_API_KEY`;
+MODEL_PROVIDER_CONTEXT_WINDOW       # default 128000
+MODEL_PROVIDER_MAX_TOKENS           # default 16384
+MODEL_PROVIDER_REASONING            # 0 for a model that takes no reasoning effort`;
 
 /**
  * Vendor-neutral on purpose. This board runs on one particular host behind one
  * particular proxy, and none of that is a requirement of the product — naming
  * it here would read as one. What the product actually needs is a container
- * host, a TLS-terminating proxy, a model provider, a Daytona key and a GitHub
+ * host with Docker, a TLS-terminating proxy, a model provider and a GitHub
  * App, and that is what this page names.
  */
 export function SelfHost() {
@@ -33,17 +33,10 @@ export function SelfHost() {
           <Row>
             <Cell head>harness</Cell>
             <Cell>
-              TrueForge — the agent runtime, the sandbox provider, the subagents and the approval
-              gate. Used as published, unforked.
+              The agent harness: sessions, turns, the event log, the subagents and the approval
+              gate, on the pi coding agent SDK. Its state is one SQLite file on a volume.
             </Cell>
-            <Cell>
-              Its console, if you want one. Put your own authentication in front of it: it has none.
-            </Cell>
-          </Row>
-          <Row>
-            <Cell head>postgres, redis</Cell>
-            <Cell>The harness&rsquo;s state.</Cell>
-            <Cell>No</Cell>
+            <Cell>No &mdash; internal only. There is no console.</Cell>
           </Row>
           <Row>
             <Cell head>cujo</Cell>
@@ -64,13 +57,21 @@ export function SelfHost() {
             </Cell>
             <Cell>No — internal only.</Cell>
           </Row>
+          <Row>
+            <Cell head>sandbox-mcp</Cell>
+            <Cell>
+              The MCP server that provisions the sandbox: a container on the host with its egress
+              filtered by a gateway outside it. The one service that holds the Docker socket.
+            </Cell>
+            <Cell>No — internal only.</Cell>
+          </Row>
         </Table>
         <Note>
           Cujo itself has no application-level login. The webhook host carries two signature-gated
           routes; the board&rsquo;s read API answers only on the internal Compose name, where
           anything outside <C>/public</C> is 404 rather than 401. <C>/healthz</C> and <C>/readyz</C>{" "}
-          are ungated operational endpoints. If you expose the harness console, put your own
-          authentication in front of it — it has none of its own.
+          are ungated operational endpoints. The harness and both MCP servers answer to nobody
+          outside the Compose network, and have no authentication of their own.
         </Note>
       </Section>
 
@@ -100,8 +101,10 @@ export function SelfHost() {
         <Lead>Required. The services exit at start without these.</Lead>
         <Pre>{REQUIRED}</Pre>
         <P>
-          Optional, and set together: registering the model provider and the sandbox provider on the
-          harness at boot. Leave them unset to add both in the harness console instead.
+          The model provider, which the service registers on the harness at boot. There is nowhere
+          else to configure one. The three limits apply to every model in the list: the window the
+          harness compacts against, the output cap, and whether a reasoning effort means anything to
+          the model.
         </P>
         <Pre>{PROVIDERS}</Pre>
         <P>
@@ -116,10 +119,10 @@ export function SelfHost() {
       <Section id="traps" title="Two settings that fail confusingly">
         <UL>
           <LI>
-            <C>CUJO_MODEL_REASONING_EFFORT</C> must also appear in{" "}
-            <C>MODEL_PROVIDER_REASONING_EFFORTS</C>. If it does not, the process refuses to start —
-            deliberately, because the alternative was a service that reported healthy and answered
-            502 to every pull request.
+            <C>CUJO_MODEL_REASONING_EFFORT</C> is clamped to what the model can take: a model with{" "}
+            <C>MODEL_PROVIDER_REASONING=0</C> gets none, and <C>xhigh</C> or <C>max</C> fold to{" "}
+            <C>high</C> unless the model maps them. Nothing refuses to start over it; check the
+            harness log for what was actually sent if a review reasons less than you asked.
           </LI>
           <LI>
             A sampling key your provider rejects — <C>CUJO_MODEL_TEMPERATURE</C> on a model that
@@ -134,9 +137,9 @@ export function SelfHost() {
       <Section id="local" title="Trying it locally">
         <Pre>{"cp .env.example .env\nmake up-local"}</Pre>
         <P>
-          That publishes the board on <C>3000</C>, the harness console on <C>8790</C>, the service
-          on <C>8080</C> and the MCP server on <C>8081</C>, all on loopback. The service dispatches
-          on <C>Host</C>, which is what every production request carries too:
+          That publishes the board on <C>3000</C>, the harness on <C>8790</C>, the service on{" "}
+          <C>8080</C> and the MCP servers on <C>8081</C> and <C>8082</C>, all on loopback. The
+          service dispatches on <C>Host</C>, which is what every production request carries too:
         </P>
         <Pre>{"curl -s -H 'Host: cujo' http://localhost:8080/public/runs"}</Pre>
         <P>

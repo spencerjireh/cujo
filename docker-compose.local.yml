@@ -1,31 +1,25 @@
-# Local overlay for docker-compose.yml. Makes the stock hosted-mode stack
-# reachable from the host, which the base file deliberately does not do
-# (in production a reverse proxy terminates TLS and routes to the services on the internal
-# network, so the base file publishes no ports and points PUBLIC_BASE_URL at
-# the production domain).
+# Local overlay for docker-compose.yml. Makes the stack reachable from the
+# host, which the base file deliberately does not do (in production a reverse
+# proxy terminates TLS and routes to the services on the internal network, so
+# the base file publishes no ports).
 #
 # This file changes nothing about how the stack deploys: it is never referenced
 # by the base compose file and is only applied when you pass it explicitly.
 #
-# Published ports bind to 127.0.0.1 (loopback) only, so the services — including
-# unauthenticated Redis and Postgres — are reachable from this machine but not
-# from the local network. On Linux this isolation relies on Docker Engine
+# Published ports bind to 127.0.0.1 (loopback) only, so the services — none of
+# which authenticate — are reachable from this machine but not from the local
+# network. On Linux this isolation relies on Docker Engine
 # >= 28.0; older engines can still route loopback-published ports from the LAN.
 # Docker Desktop (macOS/Windows) runs the engine in a VM and is unaffected.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 #
-# or just `make up-local`. See .env.example for the POSTGRES_* values; a local
-# PUBLIC_BASE_URL is set here so you do not have to edit .env for local runs.
+# or just `make up-local`.
 
 services:
-  server:
-    # Overrides the prod default (https://cujo.spencerjireh.com) so MCP OAuth
-    # callbacks and the webhook URL resolve to your machine.
-    environment:
-      PUBLIC_BASE_URL: http://localhost:8790
+  harness:
     ports:
-      - '127.0.0.1:8790:8790' # TrueForge operator console + API
+      - '127.0.0.1:8790:8790' # the harness API (no console; curl it)
 
   cujo:
     environment:
@@ -71,11 +65,3 @@ services:
   sandbox-mcp:
     ports:
       - '127.0.0.1:8082:8082' # internal MCP server (the sandbox)
-
-  postgres:
-    ports:
-      - '127.0.0.1:5432:5432' # inspect with: psql -h localhost -U cujo cujo
-
-  redis:
-    ports:
-      - '127.0.0.1:6379:6379' # inspect with: redis-cli -h localhost ping

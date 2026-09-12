@@ -1,33 +1,32 @@
-import type { TrueForgeApi } from "@truefoundry/trueforge-sdk";
+import type { SessionEvent, TurnInputItem } from "@cujo/harness-contract";
 import { describe, expect, it, vi } from "vitest";
-import { type Harness, STALE_DENY_REASON, type StreamEvent } from "../../src/clients/trueforge";
+import { type Harness, STALE_DENY_REASON, type StreamEvent } from "../../src/clients/harness";
 import { ANY_RUN, type RunView, Runner } from "../../src/review/runner.service";
 import type { RunRecord } from "../../src/review/types";
 import { Store } from "../../src/store";
 
-type Ev = TrueForgeApi.SessionEvent;
+type Ev = SessionEvent;
 
 const turnCreated = (
   turnId: string,
   previousTurnId: string | null,
   createdAt: string,
-  input?: TrueForgeApi.TurnInputItem[],
+  input?: TurnInputItem[],
 ): Ev => ({
   type: "turn.created",
   id: `tc-${turnId}`,
   createdAt,
-  threadId: null,
+  threadId: "main",
   turnId,
   previousTurnId,
-  state: { status: "running" },
-  ...(input ? { input } : {}),
+  input: input ?? [],
 });
 
 const turnDone = (turnId: string): Ev => ({
   type: "turn.done",
   id: `td-${turnId}`,
   createdAt: "2026-08-27T00:00:00Z",
-  threadId: null,
+  threadId: "main",
   state: { status: "done", completedAt: "2026-08-27T00:00:00Z", output: null, requiredActions: [] },
 });
 
@@ -36,18 +35,14 @@ const reviewCall = (id: string): Ev => ({
   id: `mm-${id}`,
   createdAt: "2026-08-27T00:00:00Z",
   threadId: "main",
+  content: null,
   toolCalls: [
     {
       id,
       type: "function",
       function: { name: "post_advisory_review", arguments: "{}" },
-      toolInfo: {
-        type: "mcp",
-        mcpServerId: "x",
-        mcpServerName: "github-mcp",
-        originalToolName: "n",
-      },
-    } as unknown as TrueForgeApi.ToolCall,
+      toolInfo: { type: "mcp", name: "post_advisory_review", serverName: "github-mcp" },
+    },
   ],
 });
 
@@ -73,7 +68,7 @@ const checkReported = (title: string, threadId = `th-${title}`): Ev[] => [
     threadId,
     title,
     parent: { threadId: "main", toolCallId: "spawn" },
-    agentInfo: {} as TrueForgeApi.AgentInfo,
+    agentInfo: { type: "dynamic", name: title, input: "" },
   },
   {
     type: "thread.done",
@@ -81,6 +76,7 @@ const checkReported = (title: string, threadId = `th-${title}`): Ev[] => [
     createdAt: "2026-08-27T00:00:00Z",
     threadId,
     title,
+    parent: { threadId: "main", toolCallId: "spawn" },
     state: {
       status: "done",
       output: {
@@ -640,7 +636,7 @@ describe("Runner.rehydrate", () => {
 });
 
 describe("Runner.hydrate", () => {
-  it("reads the persisted model.message when the stream only carried a stub", async () => {
+  it("replaces a streamed model.message with the persisted copy of the same id", async () => {
     const store = new Store(":memory:");
     const { run: r } = store.runs.createRun(claim());
     store.runs.updateRun(r.id, { turnIds: ["t1"] });
@@ -649,6 +645,7 @@ describe("Runner.hydrate", () => {
       id: "mm-c1",
       createdAt: "2026-08-27T10:00:02Z",
       threadId: "main",
+      content: null,
     };
     const full = reviewCall("c1");
     const listEvents = vi.fn(async () => [
@@ -1036,7 +1033,7 @@ describe("Runner.approve", () => {
 
   it("records its own resume turn so the fold does not call it external", async () => {
     const { store, runner, subscribe, id } = await blocked();
-    const approval: TrueForgeApi.TurnInputItem = {
+    const approval: TurnInputItem = {
       type: "user.tool_approval",
       threadId: "main",
       toolCallId: "c1",
@@ -1062,7 +1059,7 @@ describe("Runner retries a turn that posted nothing", () => {
     type: "turn.done",
     id: `td-${turnId}`,
     createdAt: "2026-08-27T00:00:00Z",
-    threadId: null,
+    threadId: "main",
     state: { status: "error", message: "model down", completedAt: "2026-08-27T00:00:00Z" },
   });
 
@@ -1070,7 +1067,7 @@ describe("Runner retries a turn that posted nothing", () => {
     type: "turn.done",
     id: `td-${turnId}`,
     createdAt: "2026-08-27T00:00:00Z",
-    threadId: null,
+    threadId: "main",
     state: { status: "cancelled", reason: "client-cancelled", completedAt: "2026-08-27T00:00:00Z" },
   });
 
