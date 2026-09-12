@@ -80,8 +80,18 @@ def state_paths(ctx: Context) -> dict[str, Path]:
         "watcher_pid": ctx.state_dir / "watcher.pid",
         "decoy_backup": ctx.state_dir / "decoy.backup",
         "sensed_lock": ctx.state_dir / "sensed.lock",
+        # One file per check, holding the `runs[]` entries that check recorded.
+        # `sniff.py report` reads them back so the envelope is assembled here
+        # rather than retyped by a model (decision 112).
+        "runs_dir": ctx.state_dir / "runs",
         "envs": ctx.envs_dir,
     }
+
+
+def runs_path(ctx: Context, check: str) -> Path:
+    """This check's entry file. The name is sanitised, because `--check` is argv."""
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in check) or "unnamed"
+    return state_paths(ctx)["runs_dir"] / f"{safe}.jsonl"
 
 
 def decoy_path(ctx: Context) -> Path:

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
+import type { GitHubReader } from "../clients/github";
 import {
   type Harness,
   STALE_DENY_REASON,
@@ -7,10 +8,12 @@ import {
   type StreamEvent,
 } from "../clients/trueforge";
 import type { RunStore } from "../store";
+import { announceEvidenceGaps, announceTimeout } from "./announce";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
 import { validateEvent } from "./event-schema";
 import { isMaliceClaim, isOperationalRule } from "./findings";
 import { fold, lastTurnOutcome, pendingApproval } from "./fold";
+import type { UiLinks } from "./links";
 import { runLogger } from "./start-run";
 import { checkTimings } from "./timings";
 import type { CheckState, PendingApproval, Projection, RunRecord } from "./types";
@@ -68,6 +71,12 @@ export interface RunnerOptions {
   pollIntervalMs?: number;
   /** Backoff before each resubscribe after a dropped stream. */
   retryDelaysMs?: number[];
+  /**
+   * Where a comment links for the evidence (decisions 109, 110). Absent means
+   * no link, which is the same answer `runUrl` gives a private run — the comment
+   * is still worth posting, it just has nowhere to point.
+   */
+  links?: UiLinks;
 }
 
 /**
@@ -166,7 +175,14 @@ export class Runner {
     private readonly harness: Harness,
     private readonly options: RunnerOptions = { turnTimeoutMs: 30 * 60 * 1000 },
     private readonly log: Logger = createLogger({ service: "cujo" }),
-    private readonly github: DismissStaleReviewsDeps["github"] | null = null,
+    // Wider than `dismissStaleReviews` needs by one method, because the two
+    // things the trusted side may say on a pull request both go through it: a
+    // stale review dismissed, and the one comment a run gets when the agent
+    // said nothing (decisions 109, 110). Still a `Pick`, so this class cannot
+    // reach a write nobody has argued for.
+    private readonly github:
+      | (DismissStaleReviewsDeps["github"] & Pick<GitHubReader, "createComment">)
+      | null = null,
   ) {
     this.retryDelaysMs = options.retryDelaysMs ?? [2_000, 5_000, 15_000];
   }
@@ -441,7 +457,102 @@ export class Runner {
           ...errorFields(e),
         });
       });
+      // Separate from the cancel above rather than sequenced after it: that
+      // block returns early when the turn is already finished, and the reports
+      // are worth posting either way.
+      void this.announceTimedOut(runId, run, timedOutTurn).catch((e) => {
+        this.state(runId).log.warn("review.announce.failed", {
+          reason: "turn_timeout",
+          ...errorFields(e),
+        });
+      });
     }
+  }
+
+  /**
+   * Post what the turn did measure before its ceiling, instead of nothing
+   * (decision 109).
+   *
+   * The read back is the whole of it. The stream delivers `model.message` as an
+   * id-only stub, so folding what is in hand would lose every report's text and
+   * the comment would say a check that worked reported nothing. `replayTurn`
+   * already does that read, and already guards the synthetic terminal this
+   * method's caller just appended across the await.
+   */
+  private async announceTimedOut(runId: string, run: RunRecord, turnId: string): Promise<void> {
+    if (!this.github) return;
+    // Falls back to what was persisted when the session cannot be read, because
+    // a thinner comment still beats the silence this exists to end.
+    const projection =
+      (await this.harvest(run, turnId, this.state(runId))) ?? this.store.getProjection(runId);
+    if (!projection) return;
+    // The read back found a review the stream had not delivered yet. Then the
+    // author already has it, and a comment saying the run did not finish would
+    // contradict the thing sitting above it.
+    if (projection.review || projection.gatedReview) return;
+    if (this.state(runId).superseded) return;
+    await announceTimeout(
+      this.announceDeps(runId),
+      this.store.getRun(runId) ?? run,
+      projection,
+      this.options.turnTimeoutMs,
+    );
+  }
+
+  /**
+   * What the turn actually did, read back from the session and folded **without
+   * touching the run's own event list**.
+   *
+   * Deliberately not `replayTurn`. That method replaces `s.events` and keeps
+   * only what arrived *during* its own await, so calling it from the watchdog
+   * path would discard the synthetic terminal `fireWatchdog` appended just
+   * before it — and the fold would go back to `running` with the timer already
+   * spent, which is a run nothing can finish. The comment is a read, so this is
+   * a read: nothing here persists, emits, or mutates.
+   *
+   * The read is what makes the comment true. A stream that never delivered a
+   * terminal event never triggered `hydrate` either, so the events in hand can
+   * hold a report as an id-only stub, and a comment built from those would tell
+   * an author that a check which worked reported nothing.
+   */
+  private async harvest(run: RunRecord, turnId: string, s: RunState): Promise<Projection | null> {
+    try {
+      const items = await this.harness.listEvents(run.sessionId);
+      const own = new Set([...run.turnIds, ...s.subscribedTurnIds, turnId]);
+      const { events } = Runner.selectRunEvents(
+        { ...run, turnIds: [...own] },
+        items,
+        this.foreignTurnIds(run),
+      );
+      if (events.length === 0) return null;
+      return fold(events, { cujoResumeTurnIds: s.cujoResumeTurnIds });
+    } catch (error) {
+      s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
+      return null;
+    }
+  }
+
+  /**
+   * Tell the author when the review that posted had gaps in its evidence
+   * (decision 110).
+   *
+   * Silent unless an operational rule tripped, which is the common case.
+   */
+  private async announceGaps(runId: string, projection: Projection): Promise<void> {
+    if (!this.github) return;
+    const run = this.store.getRun(runId);
+    if (!run || this.state(runId).superseded) return;
+    await announceEvidenceGaps(this.announceDeps(runId), run, projection);
+  }
+
+  private announceDeps(runId: string) {
+    if (!this.github) throw new Error("no github client");
+    return {
+      github: this.github,
+      log: this.state(runId).log,
+      claim: (id: string, kind: string) => this.store.claimAnnouncement(id, kind),
+      links: this.options.links ?? { publicBaseUrl: "" },
+    };
   }
 
   /**
@@ -566,6 +677,12 @@ export class Runner {
           );
         }
       }
+      void this.announceGaps(runId, projection).catch((err) =>
+        this.state(runId).log.warn("review.announce.failed", {
+          reason: "evidence_gap",
+          ...errorFields(err),
+        }),
+      );
     }
   }
 

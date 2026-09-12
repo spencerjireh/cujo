@@ -27,6 +27,8 @@ const BASE_URL = process.env.TRUEFORGE_BASE_URL;
 const STUB_HOST = process.env.CUJO_STUB_MODEL_HOST ?? "host.docker.internal";
 /** How the server container reaches github-mcp (the compose service name). */
 const GITHUB_MCP_URL = process.env.CUJO_GITHUB_MCP_URL ?? "http://github-mcp:8081/mcp";
+/** Registered so bootstrap is complete; never called, since no spec asks for a sandbox. */
+const SANDBOX_MCP_URL = process.env.CUJO_SANDBOX_MCP_URL ?? "http://sandbox-mcp:8082/mcp";
 const PROVIDER = "cujo-contract-stub";
 const MODEL = `${PROVIDER}/stub`;
 const REVIEW_ARGS = JSON.stringify({
@@ -83,8 +85,14 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
           // (decision 56).
           reasoningEfforts: ["none", "low"],
         },
+        // Kept null, and now it changes nothing: no sandbox provider is
+        // registered whatever this holds (decision 113).
         daytonaApiKey: null,
       },
+      // This suite runs with no sandbox at all -- `sandbox: { enabled: false }`
+      // on both specs -- so nothing here calls the server. The URL is still
+      // required, because `bootstrap` registers it.
+      sandboxMcpUrl: SANDBOX_MCP_URL,
     } as unknown as Config;
     harness = new Harness(config);
   });
@@ -96,9 +104,18 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     await stub?.close();
   });
 
-  it("bootstrap registers github-mcp and the model provider, twice without harm", async () => {
+  it("bootstrap registers both MCP servers and the model provider, twice without harm", async () => {
+    // The array is pinned deliberately: it is the one place the *order* and the
+    // *completeness* of bootstrap are asserted against a real server, and
+    // `bootstrapUntilReady` re-applies the whole thing on a retry. It grew a
+    // `sandbox-mcp` entry with decision 113, which is a change to the contract
+    // rather than a drive-by edit to make a test pass.
     const applied = await harness.bootstrap();
-    expect(applied).toEqual(["mcp-server github-mcp", `model-provider ${PROVIDER}`]);
+    expect(applied).toEqual([
+      "mcp-server github-mcp",
+      "mcp-server sandbox-mcp",
+      `model-provider ${PROVIDER}`,
+    ]);
     expect(harness.ready).toBe(true);
     await harness.bootstrap();
     const { data } = await harness.client.settings.modelProviders.list();
@@ -214,10 +231,13 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     return runner;
   };
 
-  it("an advisory review folds to clean, even when github-mcp's GitHub call fails", async () => {
+  it("an advisory review folds to unproven, even when github-mcp's GitHub call fails", async () => {
     const run = runFor("h-adv");
     await active().start(run, reviewMessage("post_advisory_review"));
-    expect(store.runs.getRun(run.id)?.status).toBe("clean");
+    // `unproven` and not `clean`: this turn posts a review without any check
+    // having reported, which is the exact shape decision 107 stops calling
+    // clean. The review still lands, which is what this test is about.
+    expect(store.runs.getRun(run.id)?.status).toBe("unproven");
     const projection = store.runs.getProjection(run.id);
     expect(projection?.review).toMatchObject({
       tool: "post_advisory_review",
@@ -272,7 +292,7 @@ describe.skipIf(!BASE_URL)("TrueForge contract", () => {
     const next = runFor("h-next");
     await active().start(next, reviewMessage("post_advisory_review"));
     expect(store.runs.getProjection(next.id)?.error).toBeNull();
-    expect(store.runs.getRun(next.id)?.status).toBe("clean");
+    expect(store.runs.getRun(next.id)?.status).toBe("unproven");
   });
 
   it("a sub-agent's name is the thread title, and its report trips a hard rule", async () => {

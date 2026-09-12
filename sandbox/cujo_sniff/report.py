@@ -160,6 +160,41 @@ def build_sensor_block(
     }
 
 
+def rollup(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """The envelope's roll-up over every entry of `runs[]`.
+
+    Computed here rather than asked of the model (decision 112). Fourteen
+    `report_invalid` warns across three models in five runs were all one
+    sentence of the rubric being read differently, and the fix for the last of
+    them was to make the rubric more lenient. This removes the asking.
+
+    Each `derived` and `truncated` key is an OR across entries: a report is
+    interesting because something happened in *one* command, and a roll-up that
+    required it in all of them would hide the one that mattered. A sensor counts
+    as armed only when it was armed for every entry, and carries the detail from
+    the first entry it was not, so a reader sees which window was blind.
+    """
+    derived: dict[str, Any] = {}
+    truncated: dict[str, Any] = {}
+    sensors: dict[str, Any] = {}
+    for entry in entries:
+        for key, value in (entry.get("derived") or {}).items():
+            derived[key] = bool(derived.get(key)) or bool(value)
+        for key, value in (entry.get("truncated") or {}).items():
+            truncated[key] = bool(truncated.get(key)) or bool(value)
+        for name, state in (entry.get("sensors") or {}).items():
+            if not isinstance(state, dict):
+                continue
+            armed = bool(state.get("armed"))
+            seen = sensors.get(name)
+            if seen is None:
+                sensors[name] = {"armed": armed, "detail": str(state.get("detail", ""))}
+            elif seen["armed"] and not armed:
+                # The first window it was blind in, which is the one worth naming.
+                sensors[name] = {"armed": False, "detail": str(state.get("detail", ""))}
+    return {"derived": derived, "truncated": truncated, "sensors": sensors}
+
+
 def merge_egress(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     totals: dict[tuple[str, int], int] = {}
     known: dict[tuple[str, int], bool] = {}

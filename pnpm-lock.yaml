@@ -69,6 +69,18 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
 
+  apps/sandbox-mcp:
+    dependencies:
+      '@cujo/log':
+        specifier: workspace:*
+        version: link:../../packages/log
+      '@modelcontextprotocol/sdk':
+        specifier: 1.30.0
+        version: 1.30.0(zod@3.25.76)
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+
   apps/web:
     dependencies:
       '@cujo/brand':

@@ -16,7 +16,10 @@
  * that no scan can see. Both were fixed rather than exempted.
  *
  * It lives here rather than in an app because the vocabulary is this package's
- * and the emitters are spread across three of them.
+ * and the emitters are spread across four of them. A new app has to be added to
+ * `APPS` below, and the failure is loud rather than silent: its events are
+ * declared and nothing appears to emit them, which is exactly the direction this
+ * test exists to catch.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -25,7 +28,7 @@ import { describe, expect, it } from "vitest";
 import { EVENT_NAMES } from "../src/events";
 
 const REPO = join(import.meta.dirname, "../../..");
-const APPS = ["apps/cujo/src", "apps/github-mcp/src", "apps/web/src"];
+const APPS = ["apps/cujo/src", "apps/github-mcp/src", "apps/sandbox-mcp/src", "apps/web/src"];
 
 /**
  * Any receiver ending in `log` or `logger`, so `c.get("log").warn(…)`,

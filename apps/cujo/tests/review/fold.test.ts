@@ -79,6 +79,16 @@ const approvalRequired = (threadId: string, callId: string, sourceEventId: strin
   toolCalls: [{ id: callId, sourceEventId }],
 });
 
+/** A sub-agent that ended without a report, which is what a provider fault looks like. */
+const threadErrored = (threadId: string, message: string, createdAt: string = at): Ev => ({
+  type: "thread.done",
+  id: `thd-${threadId}`,
+  createdAt,
+  threadId,
+  title: threadId,
+  state: { status: "error", error: message },
+});
+
 const toolResponse = (toolCallId: string): Ev => ({
   type: "tool.response",
   id: "tr",
@@ -142,6 +152,8 @@ describe("fold", () => {
   it("is clean when the turn ends without an approval", () => {
     const p = fold([
       turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", '```json\n{"check":"tests"}\n```'),
       reviewCall("call-0", "post_advisory_review", review),
       toolResponse("call-0"),
       turnDone(),
@@ -149,6 +161,117 @@ describe("fold", () => {
     expect(p.status).toBe("clean");
     expect(p.review?.tool).toBe("post_advisory_review");
     expect(p.review?.comments).toHaveLength(1);
+  });
+
+  it("is unproven when a review posts and not one check reported", () => {
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    // The review is real and so is the absence of anything behind it. `clean`
+    // was the opposite claim, and none of the four `check_missing` warns the
+    // fold raised could move it, because no `warn` ever moves a status.
+    expect(p.status).toBe("unproven");
+    expect(p.review?.tool).toBe("post_advisory_review");
+    // On `p.findings` and not `p.hardRuleHits`: `missingCheckFindings` is merged
+    // at `turn.done` only, because until the turn ends a check is late and not
+    // missing.
+    // Three, not four: `REQUIRED_CHECKS` leaves detonation out, because it runs
+    // on a changed manifest rather than on every pull request.
+    expect(p.findings.filter((f) => f.rule === "check_missing")).toHaveLength(3);
+    expect(p.findings.every((f) => f.severity !== "critical")).toBe(true);
+  });
+
+  it("is unproven when a check ran and errored without a report", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadErrored("th-tests", "429 rate limited"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    // A thread that existed is not evidence; a report is.
+    expect(p.status).toBe("unproven");
+    expect(p.checks).toHaveLength(1);
+    expect(p.checks[0]?.report).toBeNull();
+  });
+
+  it("is clean when only detonation reported, because no suite was inferred", () => {
+    // Decision 87: the three suite checks are inapplicable rather than missing
+    // when nothing inferred a test command, and detonation's report is evidence
+    // like any other. Folding that to `unproven` would punish the one case the
+    // rubric is explicitly allowed to take.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-det", "detonation"),
+      threadDone("th-det", '```json\n{"check":"detonation"}\n```'),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("clean");
+  });
+
+  it("lets a contradiction outrank unproven, so a blocking review still says so", () => {
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_blocking_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    // No check reported here either, but a REQUEST_CHANGES is on the pull
+    // request and that is the louder fact. The rung order is what guarantees it.
+    expect(p.status).toBe("blocked_unattended");
+  });
+
+  it("counts one attempt per check on the common path", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", '```json\n{"check":"tests"}\n```'),
+    ]);
+    expect(p.checks[0]?.attempts).toBe(1);
+  });
+
+  it("counts the second thread with a check's name as a second attempt", () => {
+    // Decision 108: the rubric respawns a sub-agent that errored, and the count
+    // is the only record that it did. Both threads stay in `checks`, because the
+    // first one holds the fault the retry was for.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests-1", "tests"),
+      threadErrored("th-tests-1", "429 rate limited"),
+      threadCreated("th-tests-2", "tests"),
+      threadDone("th-tests-2", '```json\n{"check":"tests"}\n```'),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks.map((c) => c.attempts)).toEqual([1, 2]);
+    expect(p.checks[0]?.status).toBe("error");
+    expect(p.checks[1]?.report).toEqual({ check: "tests" });
+    // The retry answered, so `tests` is not missing and the run is not unproven.
+    expect(p.findings.some((f) => f.rule === "check_missing" && f.check === "tests")).toBe(false);
+    expect(p.status).toBe("clean");
+  });
+
+  it("still calls a check missing when both attempts failed", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests-1", "tests"),
+      threadErrored("th-tests-1", "429 rate limited"),
+      threadCreated("th-tests-2", "tests"),
+      threadErrored("th-tests-2", "429 rate limited"),
+      reviewCall("call-0", "post_advisory_review", review),
+      toolResponse("call-0"),
+      turnDone(),
+    ]);
+    expect(p.checks.map((c) => c.attempts)).toEqual([1, 2]);
+    expect(p.findings.some((f) => f.rule === "check_missing" && f.check === "tests")).toBe(true);
+    expect(p.status).toBe("unproven");
   });
 
   it("derives the inline comments from a review that sent none", () => {

@@ -139,26 +139,33 @@ export function buildAgentSpec(
     | "modelReasoningEffort"
     | "modelTemperature"
     | "modelMaxTokens"
-    | "sniffTarballUrl"
     | "compactionThresholdTokens"
   >,
   rubric = loadRubric(),
 ): TrueForgeApi.AgentSpec {
   return {
     model: modelRef(config),
-    instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
+    instructions: rubric,
     // The one gated tool, and the one line that decides what a human is asked
     // about. `post_blocking_review` is deliberately not here: blocking a merge
     // on a broken test is mechanical and reversible, and asking about it is
     // ceremony. Only the accusation waits (decision 42).
-    mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
+    // `sandbox-mcp` is ungated on purpose: provisioning a box and running a
+    // command in it is what the review *is*, and the gate is for the one
+    // irreversible thing — an accusation reaching a pull request (42).
+    mcpServers: [
+      { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
+      { name: "sandbox-mcp" },
+    ],
     config: {
-      // `fileDownloads` is on by default and would let a file written inside
-      // the box be fetched back out through the harness's download endpoint.
-      // Nothing in this design ever does that — a check report comes back as
-      // text on a thread event — so the crossing is closed rather than left
-      // open because nobody has asked.
-      sandbox: { enabled: true, fileDownloads: false },
+      // Off, because the harness no longer provisions anything (decision 113).
+      // The agent reaches a sandbox through `sandbox-mcp`, which is the door
+      // around `SandboxProviderManifest`'s `type: "daytona"` string literal.
+      //
+      // `fileDownloads` went with it and is not missed: it was off anyway, and
+      // the endpoint it named belongs to a sandbox the harness owned. Nothing
+      // reaches into the new one except through the five tools.
+      sandbox: { enabled: false },
       // Raised well above the harness default of 50,000. The parent holds four
       // full check reports and then writes the review body from them, so a
       // compaction in between is a review argued from a summary of the
@@ -193,21 +200,24 @@ export function buildAgentSpec(
  * paraphrase the report it was handed.
  */
 export function buildConverseSpec(
-  config: Pick<
-    Config,
-    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sniffTarballUrl"
-  >,
+  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
   rubric = loadRubric("CONVERSE.md"),
 ): TrueForgeApi.AgentSpec {
   return {
     model: modelRef(config),
-    instructions: rubric.replaceAll("{{CUJO_SNIFF_TARBALL_URL}}", config.sniffTarballUrl),
-    mcpServers: [],
+    instructions: rubric,
+    // `sandbox-mcp` and nothing else. Conversation has no write tool and is
+    // never the Runner (47), and that is unchanged: `github-mcp` is absent here,
+    // so there is no tool on this session that can reach a pull request.
+    // Re-execution is still the whole point of it, which is why the sandbox
+    // tools are present at all.
+    mcpServers: [{ name: "sandbox-mcp" }],
     config: {
-      // Closed here too, and for the same reason. No `contextManagement`: this
-      // answers one question against a brief already collected, so it never
-      // holds the evidence a compaction would summarise away.
-      sandbox: { enabled: true, fileDownloads: false },
+      // Off here too, for the reason it is off above: the harness provisions no
+      // sandbox any more (decision 113). No `contextManagement`: this answers one
+      // question against a brief already collected, so it never holds the
+      // evidence a compaction would summarise away.
+      sandbox: { enabled: false },
       askUserQuestions: { enabled: false },
       generativeUi: { enabled: false },
       // Lower than the review's 150: this answers one question against a brief

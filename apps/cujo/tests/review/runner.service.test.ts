@@ -59,6 +59,41 @@ const approvalRequired = (callId: string): Ev => ({
   toolCalls: [{ id: callId, sourceEventId: "none" }],
 });
 
+/**
+ * A check that reported. Runs in this file are about the Runner's plumbing
+ * rather than the status ladder, but a review with no check behind it folds
+ * `unproven` rather than `clean` (decision 107), so a fixture that means to
+ * describe a finished review has to carry one.
+ */
+const checkReported = (title: string, threadId = `th-${title}`): Ev[] => [
+  {
+    type: "thread.created",
+    id: `thc-${threadId}`,
+    createdAt: "2026-08-27T00:00:00Z",
+    threadId,
+    title,
+    parent: { threadId: "main", toolCallId: "spawn" },
+    agentInfo: {} as TrueForgeApi.AgentInfo,
+  },
+  {
+    type: "thread.done",
+    id: `thd-${threadId}`,
+    createdAt: "2026-08-27T00:00:00Z",
+    threadId,
+    title,
+    state: {
+      status: "done",
+      output: {
+        type: "model.message",
+        id: `out-${threadId}`,
+        createdAt: "2026-08-27T00:00:00Z",
+        threadId,
+        content: `\`\`\`json\n{"check":"${title}"}\n\`\`\``,
+      },
+    },
+  },
+];
+
 /** The claim every test here makes; only the head SHA ever varies. */
 const claim = (headSha = "h") => ({
   repo: "o/r",
@@ -144,6 +179,7 @@ describe("Runner.start", () => {
     async function* stream(): AsyncIterable<StreamEvent> {
       seenAtFirstEvent = store.runs.getRun(r.id)?.turnIds ?? [];
       yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
+      for (const event of checkReported("tests")) yield event as StreamEvent;
       yield reviewCall("c1");
       yield turnDone("t1");
     }
@@ -164,6 +200,7 @@ describe("Runner.start", () => {
     const { run: r } = store.runs.createRun(claim());
     const events = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      ...checkReported("tests"),
       reviewCall("c1"),
       turnDone("t1"),
     ];
@@ -195,6 +232,7 @@ describe("Runner.start", () => {
     const { run: r } = store.runs.createRun(claim());
     const events = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      ...checkReported("tests"),
       reviewCall("c1"),
       turnDone("t1"),
     ];
@@ -615,6 +653,7 @@ describe("Runner.hydrate", () => {
     const full = reviewCall("c1");
     const listEvents = vi.fn(async () => [
       { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
+      ...checkReported("tests").map((event) => ({ turnId: "t1", event })),
       { turnId: "t1", event: full },
       // Another run's turn on the same session must not leak in.
       { turnId: "t9", event: { ...full, id: "mm-c1", threadId: "main" } },
@@ -625,7 +664,15 @@ describe("Runner.hydrate", () => {
     });
     await runner.consume(
       r.id,
-      streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), stub, turnDone("t1")]),
+      // The check is in the stream as well as in the read-back: `hydrate`
+      // refreshes events by id and never appends, so an event only `listEvents`
+      // knows about would not reach the fold at all.
+      streamOf([
+        turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+        ...(checkReported("tests") as StreamEvent[]),
+        stub,
+        turnDone("t1"),
+      ]),
     );
     expect(listEvents).toHaveBeenCalledTimes(1);
     expect(store.runs.getRun(r.id)?.status).toBe("clean");
@@ -643,9 +690,110 @@ describe("Runner.hydrate", () => {
     });
     await runner.consume(
       r.id,
-      streamOf([turnCreated("t1", null, "2026-08-27T10:00:01Z"), reviewCall("c1"), turnDone("t1")]),
+      streamOf([
+        turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+        ...(checkReported("tests") as StreamEvent[]),
+        reviewCall("c1"),
+        turnDone("t1"),
+      ]),
     );
     expect(store.runs.getRun(r.id)?.status).toBe("clean");
+  });
+});
+
+/**
+ * What a timed-out run tells the pull request (decision 109).
+ *
+ * The run keeps `status: "error"` — Cujo did fall over — and the change is that
+ * the author stops seeing nothing. Runs `b5724912`, `c7bf0e13` and `ced0c934`
+ * each gave a pull request half an hour of silence with completed reports in
+ * hand.
+ */
+describe("Runner, on a turn that timed out", () => {
+  /** Opens the turn and then stops yielding, so only the watchdog can end it. */
+  async function* hangsAfterOpening(): AsyncIterable<StreamEvent> {
+    yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  function timingOut(createComment = vi.fn(async () => 7)) {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    // The whole turn as the session holds it: `tests` reported, nothing else
+    // did, and no review tool was ever called.
+    const whole = [turnCreated("t1", null, "2026-08-27T10:00:01Z"), ...checkReported("tests")];
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        // A stream that opens and then hangs, so only the watchdog ends it.
+        subscribe: async () => hangsAfterOpening(),
+        listEvents: vi.fn(async () => whole.map((event) => ({ turnId: "t1", event }))),
+        listTurns: vi.fn(async () => [{ id: "t1", state: { status: "running" } }]),
+        cancelTurn: vi.fn(async () => {}),
+      } as unknown as Harness,
+      { turnTimeoutMs: 5, retryDelaysMs: [0], pollIntervalMs: 1, links: { publicBaseUrl: "" } },
+      undefined,
+      { createComment } as unknown as never,
+    );
+    return { store, r, runner, createComment };
+  }
+
+  it("posts what the turn did measure, instead of nothing", async () => {
+    const { store, r, runner, createComment } = timingOut();
+    await runner.start(r, "review it");
+    await vi.waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
+    expect(createComment).toHaveBeenCalledWith(
+      "o/r",
+      1,
+      expect.stringContaining("did not finish this review"),
+    );
+    expect(createComment).toHaveBeenCalledWith(
+      "o/r",
+      1,
+      expect.stringContaining("`tests` reported"),
+    );
+    // The run is still an error. The comment does not soften that.
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
+    expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+  });
+
+  it("records the comment, so a restart does not post a second one", async () => {
+    const { store, r, runner, createComment } = timingOut();
+    await runner.start(r, "review it");
+    await vi.waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
+    expect(store.runs.announcementOf(r.id)).toBe("turn_timeout");
+    // The claim is what stops it, so the second attempt never reaches GitHub.
+    expect(store.runs.claimAnnouncement(r.id, "turn_timeout")).toBe(false);
+  });
+
+  it("says nothing when the read back finds a review the stream had not", async () => {
+    // Then the author already has the review, and a comment saying the run did
+    // not finish would contradict the thing sitting above it.
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const createComment = vi.fn(async () => 7);
+    const whole = [
+      turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      ...checkReported("tests"),
+      reviewCall("c1"),
+    ];
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => hangsAfterOpening(),
+        listEvents: vi.fn(async () => whole.map((event) => ({ turnId: "t1", event }))),
+        listTurns: vi.fn(async () => [{ id: "t1", state: { status: "running" } }]),
+        cancelTurn: vi.fn(async () => {}),
+      } as unknown as Harness,
+      { turnTimeoutMs: 5, retryDelaysMs: [0], pollIntervalMs: 1 },
+      undefined,
+      { createComment } as unknown as never,
+    );
+    await runner.start(r, "review it");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(createComment).not.toHaveBeenCalled();
   });
 });
 
@@ -655,6 +803,7 @@ describe("Runner.consume", () => {
     const { run: r } = store.runs.createRun(claim());
     const events: StreamEvent[] = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      ...(checkReported("tests") as StreamEvent[]),
       reviewCall("c1"),
       turnDone("t1"),
     ];
@@ -671,6 +820,7 @@ describe("Runner.consume", () => {
     const { run: r } = store.runs.createRun(claim());
     const events: StreamEvent[] = [
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      ...(checkReported("tests") as StreamEvent[]),
       reviewCall("c1"),
       turnDone("t1"),
     ];
@@ -715,6 +865,7 @@ describe("Runner.consume", () => {
     it("waits for the turn, then folds the verdict it really reached", async () => {
       const whole = [
         turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+        ...checkReported("tests"),
         reviewCall("c1"),
         turnDone("t1"),
       ];
@@ -940,7 +1091,12 @@ describe("Runner retries a turn that posted nothing", () => {
   it("starts one more turn, with the same message, and folds the second one", async () => {
     const { store, r, runner, startTurn } = runnerOver([
       [turnCreated("t1", null, "2026-08-27T10:00:01Z"), errorDone("t1")],
-      [turnCreated("t2", "t1", "2026-08-27T10:05:00Z"), reviewCall("c1"), turnDone("t2")],
+      [
+        turnCreated("t2", "t1", "2026-08-27T10:05:00Z"),
+        ...checkReported("tests"),
+        reviewCall("c1"),
+        turnDone("t2"),
+      ],
     ]);
     await runner.start(r, "review it");
     expect(startTurn).toHaveBeenCalledTimes(2);

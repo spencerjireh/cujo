@@ -91,6 +91,78 @@ def test_a_real_run_report_matches_the_examples_run_shape(cli: Cli, home_dir: Pa
     assert actual == expected
 
 
+@pytest.mark.harness
+def test_an_assembled_envelope_matches_the_examples_envelope_shape(
+    cli: Cli, home_dir: Path
+) -> None:
+    """What `sniff.py report` prints, against the whole example (decision 112).
+
+    The sub-agent used to build this by hand and got it wrong
+    (`runs.0.schema_version: Required (+31 more)`), so the producer is now
+    `sniff.py` and the producer is what this file tests. Same join as the run
+    report above, one level up: every key the example has, the command has.
+    """
+    example = json.loads(EXAMPLE.read_text())
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        # Two runs, so the roll-up is over something rather than passed through,
+        # and each with a read, a write and a spawn so no list is empty.
+        script = (
+            "import subprocess, sys;"
+            "open('read-me.txt', 'w').write('x');"
+            "open('read-me.txt').read();"
+            "subprocess.run([sys.executable, '-c', 'pass'])"
+        )
+        for _ in range(2):
+            cli(
+                [
+                    "run",
+                    "--check",
+                    "tests",
+                    "--cwd",
+                    str(home_dir),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    script,
+                ]
+            )
+        envelope = cli(
+            [
+                "report",
+                "--check",
+                "tests",
+                # The per-check half, which is all the sub-agent still supplies.
+                "--extra",
+                # The example's own test ids, because `base` and `head` are maps
+                # keyed by test id and `keys_of` reads a map's keys as shape.
+                json.dumps(
+                    {
+                        "base": example["base"],
+                        "head": example["head"],
+                        "base_pass_head_fail": example["base_pass_head_fail"],
+                    }
+                ),
+            ]
+        )
+    finally:
+        cli(["teardown"])
+
+    expected = keys_of(example)
+    actual = keys_of(envelope)
+    # `egress` needs a host the sandbox can be made to dial, which a hermetic
+    # test cannot promise; its shape is pinned in test_report.py instead.
+    for block in (expected, actual):
+        block.pop("egress", None)
+        for run in ("runs",):
+            if isinstance(block.get(run), dict):
+                block[run].pop("egress", None)
+    assert actual == expected
+    # And the two properties the command exists to guarantee.
+    assert len(envelope["runs"]) == 2
+    assert all(r["schema_version"] == SCHEMA_VERSION for r in envelope["runs"])
+
+
 def test_the_envelope_rolls_up_the_same_blocks_each_run_carries(example: dict[str, Any]) -> None:
     """`apps/cujo` reads the top level and each `runs[]` entry as the same shape.
 

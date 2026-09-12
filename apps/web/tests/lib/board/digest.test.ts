@@ -83,16 +83,22 @@ describe("digestFrom", () => {
     expect(Object.keys(digest.checks)).toEqual(["probes"]);
   });
 
-  it("takes the earlier thread when two carry one check's name", () => {
+  it("takes the later thread when two carry one check's name, because that is a retry", () => {
+    // Decision 108: the rubric respawns a sub-agent that errored, so the later
+    // thread is the attempt that answered. Taking the earlier one would put a
+    // provider fault on the row of a check that went on to succeed.
     const digest = digestFrom(
       subject({
         checks: [
-          check({ title: "tests", startedAt: at(0), endedAt: at(10) }),
-          check({ title: "tests", startedAt: at(0), endedAt: at(90), status: "error" }),
+          check({ title: "tests", startedAt: at(0), endedAt: at(10), status: "error" }),
+          check({ title: "tests", startedAt: at(20), endedAt: at(90) }),
         ],
       }),
     );
-    expect(digest.checks.tests).toEqual({ status: "done", ms: 10_000, sandboxMs: null });
+    expect(digest.checks.tests).toEqual({ status: "done", ms: 70_000, sandboxMs: null });
+    // And the run's duration still covers the failed attempt, because the
+    // envelope is taken over every attempt rather than over the winners.
+    expect(digest.durationMs).toBe(90_000);
   });
 
   it("reports no duration for a check still running", () => {
