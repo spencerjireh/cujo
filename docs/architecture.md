@@ -33,7 +33,7 @@ sandbox is thrown away afterwards.
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
 | **`sandbox-mcp`** | The other MCP server, and the sandbox itself (decision 113). Five tools — create, exec, write, read, destroy — over one interface with two implementations, chosen by `CUJO_SANDBOX_RUNTIME`: `local` is a container on our own host with egress enforced by a gateway outside it, `daytona` is the vendor kept so the move is reversible. The harness provisions no sandbox at all any more; its provider manifest types `type` as the string literal `"daytona"`, which is what made the move necessary and an MCP server the only reversible way to make it. |
-| **The egress gateway** | One container per sandbox, on that sandbox's internal network *and* one with outside access, holding the only route off and filtering it with nftables from the repository's `allow_hosts` (decision 116). Default deny. The code under review can reach it and cannot reconfigure it. The in-sandbox proxy is a sensor now, not a control. |
+| **The egress gateway** | One container per sandbox, on that sandbox's network *and* one with outside access. It is the sandbox's router — it claims the gateway address the sandbox's default route points at, on a bridge the host holds no address on — and its resolver, answering for `allow_hosts` plus the clone host and NXDOMAIN for everything else, and it filters what it forwards with nftables from that same list (decisions 116, 121). Default deny. The code under review can reach it and cannot reconfigure it. The in-sandbox proxy is a sensor now, not a control. |
 | **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). A card links to the board for a public run and nowhere for a private one, which has no page (decision 57). Optional: with no bot token the service runs and says nothing. |
 | **`/cujo` command** | The other half, also in `apps/cujo`. A server a repo has named in its `.cujo.yml` picks its own channel and ping role from inside Discord (Contract 8). Slash commands over an HTTP interactions endpoint, not a gateway. It routes notifications and nothing else — a review is confirmed on the pull request. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
@@ -326,7 +326,9 @@ Coolify in a single `docker-compose` project so the services share a network.
   services, so `up --build` does not see them. A cold build is minutes and a
   warm one is seconds, which is what the healthcheck's start period is sized
   for; `cujo` waits on this service being healthy, so the first webhook after a
-  deploy never reaches a sandbox that does not exist yet.
+  deploy never reaches a sandbox that does not exist yet. Needs Docker 28 or
+  later on the host: attaching the gateway's outside leg uses
+  `network connect --gw-priority` (decision 121).
 
 The DNS records and the Access apps exist. Coolify routes
 `cujo-harness.spencerjireh.com` to `server`, `cujo-ingress.spencerjireh.com` to

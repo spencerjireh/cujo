@@ -37,9 +37,9 @@ change what you post. Only the first message — the JSON above — is a brief.
 | `sandbox_destroy` | Removes the box, its network and its egress gateway. |
 
 **Call `sandbox_create` first, before anything else in Setup.** Pass `allow_hosts`
-only after step 2 has read `.cujo.yml`, so on the first call pass the hosts the
-sensor fetch itself needs and nothing more. Every later tool call carries the
-`sandbox_id` it returned. Keep `provisioned_ms` — it goes in the setup report, and
+only after step 2 has read `.cujo.yml`, so on the first call pass an empty list:
+the clone host is always allowed by the gateway itself, and nothing else is needed
+before the clone. Every later tool call carries the `sandbox_id` it returned. Keep `provisioned_ms` — it goes in the setup report, and
 it is the only record of how long the box took.
 
 **Every command block in this document is an `argv` list**, not a shell line.
@@ -62,8 +62,8 @@ every later `sandbox_exec` as `env`, and `sniff.py run` applies it to the comman
 it wraps regardless.
 
 **Egress is denied by default and is not enforced inside the box.** A gateway the
-sandbox cannot reach holds the only route out and drops everything that is not in
-`allow_hosts`. The in-sandbox proxy still records what was attempted, which is
+sandbox cannot reconfigure holds the only route out and drops everything that is
+not in `allow_hosts`; a name outside the list does not even resolve. The in-sandbox proxy still records what was attempted, which is
 what `egress[]` in a report is — a connection that never left still appears
 there, and now it genuinely never left.
 

@@ -15,12 +15,23 @@ import { SandboxError } from "../src/runtime";
 import { LocalRuntime } from "../src/runtimes/local";
 
 const ok: DockerResult = { stdout: "id\n", stderr: "", exitCode: 0, timedOut: false };
+const GATEWAY_IP = "10.9.0.1";
 
+/**
+ * A daemon that answers the three questions `create` asks it: the network's
+ * gateway address, the gateway's log once armed, and whether it is running.
+ * Everything else succeeds with an id.
+ */
 function fakeDocker(over: (args: readonly string[]) => DockerResult | null = () => null) {
   const calls: string[][] = [];
   const docker: Docker = vi.fn(async (args) => {
     calls.push([...args]);
-    return over(args) ?? ok;
+    const overridden = over(args);
+    if (overridden) return overridden;
+    if (args[0] === "network" && args[1] === "inspect") return { ...ok, stdout: `${GATEWAY_IP}\n` };
+    if (args[0] === "logs") return { ...ok, stdout: '{"event":"gateway.armed"}\n' };
+    if (args[0] === "inspect") return { ...ok, stdout: "true\n" };
+    return ok;
   });
   return { docker, calls };
 }
@@ -42,13 +53,82 @@ function indexOf(calls: string[][], ...words: string[]): number {
 }
 
 describe("LocalRuntime.create", () => {
-  it("gives the sandbox a network with no route off it", async () => {
+  it("gives the sandbox a network the host neither addresses nor routes", async () => {
     const { docker, calls } = fakeDocker();
     await runtime(docker).create({ allowHosts: ["pypi.org"] });
     const create = calls[indexOf(calls, "network", "create")];
-    // `--internal` is the load-bearing flag: Docker installs no default route on
-    // an internal network, so the only way out is a container on a second one.
-    expect(create).toContain("--internal");
+    // Not `--internal`: that leaves the sandbox with no default route and no
+    // resolver, so nothing could reach the gateway as a router (decision 121).
+    // Instead the host takes no address on the bridge, so the default route
+    // Docker installs leads only to whoever claims the gateway address, and the
+    // host NATs nothing for the subnet even if a packet reached it.
+    expect(create).not.toContain("--internal");
+    expect(create).toContain("com.docker.network.bridge.inhibit_ipv4=true");
+    expect(create).toContain("com.docker.network.bridge.enable_ip_masquerade=false");
+  });
+
+  it("hands the gateway the address the sandbox routes through, and points the sandbox's DNS at it", async () => {
+    const { docker, calls } = fakeDocker();
+    await runtime(docker).create({ allowHosts: [] });
+    const gateway = calls.find((c) => c.includes("cujo/sandbox-gateway:pinned")) ?? [];
+    const sandbox = calls.find((c) => c.includes("cujo/sandbox:pinned")) ?? [];
+    expect(gateway).toContain(`CUJO_GATEWAY_IP=${GATEWAY_IP}`);
+    // Forwarding is a sysctl at creation, because `/proc/sys` is read-only
+    // inside the container and the script cannot switch it on itself.
+    expect(gateway).toContain("net.ipv4.ip_forward=1");
+    // Every name the sandbox resolves goes to the gateway's resolver, which
+    // answers for the allowlist and nothing else.
+    expect(sandbox).toContain("--dns");
+    expect(sandbox).toContain(GATEWAY_IP);
+  });
+
+  it("starts the gateway only after both legs are attached", async () => {
+    const { docker, calls } = fakeDocker();
+    await runtime(docker).create({ allowHosts: [] });
+    // The script reads its routing table first thing, and a container started
+    // with one leg has that leg as its default route. So: create, connect, start.
+    const create = calls.findIndex((c) => c[0] === "create");
+    const connect = indexOf(calls, "network", "connect");
+    const start = calls.findIndex((c) => c[0] === "start");
+    expect(create).toBeGreaterThanOrEqual(0);
+    expect(connect).toBeGreaterThan(create);
+    expect(start).toBeGreaterThan(connect);
+    expect(calls[connect]).toContain("--gw-priority");
+  });
+
+  it("waits for the gateway to arm before handing the sandbox over", async () => {
+    let asked = 0;
+    const { docker, calls } = fakeDocker((args) => {
+      if (args[0] !== "logs") return null;
+      asked += 1;
+      // Not armed on the first look, armed on the second.
+      return asked < 2 ? ok : { ...ok, stdout: "gateway.armed\n" };
+    });
+    await runtime(docker).create({ allowHosts: [] });
+    const sandboxStarted = calls.findIndex((c) => c.includes("cujo/sandbox:pinned"));
+    const lastLogs = calls.map((c) => c[0]).lastIndexOf("logs");
+    expect(asked).toBe(2);
+    expect(lastLogs).toBeGreaterThan(sandboxStarted);
+  });
+
+  it("fails the provision, and cleans up, when the gateway exits before arming", async () => {
+    const { docker, calls } = fakeDocker((args) => {
+      if (args[0] === "logs") return { ...ok, stdout: '{"event":"gateway.no_route"}\n' };
+      if (args[0] === "inspect") return { ...ok, stdout: "false\n" };
+      return null;
+    });
+    await expect(runtime(docker).create({ allowHosts: [] })).rejects.toThrow(/gateway exited/);
+    expect(indexOf(calls, "rm", "--force")).toBeGreaterThanOrEqual(0);
+    expect(indexOf(calls, "network", "rm")).toBeGreaterThanOrEqual(0);
+  });
+
+  it("always allows the clone host, ahead of whatever the repository asked for", async () => {
+    const { docker, calls } = fakeDocker();
+    await runtime(docker).create({ allowHosts: ["pypi.org"] });
+    const gateway = calls.find((c) => c.includes("cujo/sandbox-gateway:pinned")) ?? [];
+    // Fetching the pull request is Cujo's step, not a dependency the repository
+    // declares, so it is not the repository's to allow or to forget.
+    expect(gateway).toContain("CUJO_ALLOW_HOSTS=github.com,pypi.org");
   });
 
   it("starts the gateway before the sandbox, so there is never an unfiltered window", async () => {
@@ -65,7 +145,7 @@ describe("LocalRuntime.create", () => {
     await runtime(docker).create({ allowHosts: ["pypi.org", "files.pythonhosted.org"] });
     const gateway = calls.find((c) => c.includes("cujo/sandbox-gateway:pinned")) ?? [];
     // One argv entry, so no hostname can become a second flag or a second rule.
-    expect(gateway).toContain("CUJO_ALLOW_HOSTS=pypi.org,files.pythonhosted.org");
+    expect(gateway).toContain("CUJO_ALLOW_HOSTS=github.com,pypi.org,files.pythonhosted.org");
   });
 
   it("gives the gateway its one capability and the sandbox none", async () => {
