@@ -103,50 +103,17 @@ describe("Harness.bootstrap", () => {
 });
 
 describe("Harness turns", () => {
-  it("creates a session, starts a turn, and answers an approval as a new turn", async () => {
+  it("creates a session and starts a turn", async () => {
     const { calls, fetchImpl } = fakeFetch(() => ({ body: { id: "x1" } }));
     const h = new Harness(config, log, fetchImpl);
     expect(await h.createSession({ model: { name: "p/m" } } as never)).toBe("x1");
     expect(await h.startTurn("s", "hi")).toBe("x1");
-    expect(await h.resume("s", { threadId: "main", toolCallId: "c1" }, "deny")).toBe("x1");
-    expect(await h.resume("s", { threadId: "main", toolCallId: "c1" }, "allow")).toBe("x1");
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
       ["POST", "http://harness:8790/sessions", { spec: { model: { name: "p/m" } } }],
       [
         "POST",
         "http://harness:8790/sessions/s/turns",
         { input: [{ type: "user.message", content: "hi" }] },
-      ],
-      [
-        "POST",
-        "http://harness:8790/sessions/s/turns",
-        {
-          input: [
-            {
-              type: "user.tool_approval",
-              threadId: "main",
-              toolCallId: "c1",
-              approval: {
-                status: "deny",
-                reason: "Rejected by a Cujo operator. Post nothing and stop.",
-              },
-            },
-          ],
-        },
-      ],
-      [
-        "POST",
-        "http://harness:8790/sessions/s/turns",
-        {
-          input: [
-            {
-              type: "user.tool_approval",
-              threadId: "main",
-              toolCallId: "c1",
-              approval: { status: "allow" },
-            },
-          ],
-        },
       ],
     ]);
   });

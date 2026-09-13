@@ -1,6 +1,6 @@
 /**
  * The MCP bridge: every tool an MCP server lists becomes one pi tool of the
- * same name, so the model sees `post_gated_review` and `sandbox_exec` rather
+ * same name, so the model sees `post_blocking_review` and `sandbox_exec` rather
  * than a `call_tool` meta-tool (decision 128). The server's JSON Schema is
  * handed to pi verbatim; pi compiles raw JSON Schema for validation and
  * forwards it unchanged as the provider's `function.parameters`.

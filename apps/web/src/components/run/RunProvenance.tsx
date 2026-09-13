@@ -89,8 +89,8 @@ export function RunProvenance({ run }: { run: Run }) {
     <section aria-label="Operator details">
       <h2 className="mb-1 text-lg">Operator details</h2>
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-        What produced this verdict. None of it authorizes anything: the harness console these name
-        keeps its own gate, and a held finding is answered on the pull request.
+        What produced this verdict. None of it authorizes anything: the harness these name answers
+        only on its own network, and a block is lifted on the pull request.
       </p>
       <Collapsible.Root open={open} onOpenChange={setOpen}>
         <Collapsible.Trigger className="-mx-2 flex w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-sm border-t border-line px-2 py-3 text-left hover:bg-bg-raised">

@@ -23,7 +23,7 @@ const APP_URL = "https://github.com/apps/cujo-guard";
  * Requirements come before the steps. Both of them — public, and branch
  * protection — are things that make Cujo look broken rather than unsupported if
  * you find them out afterwards: a private repository silently has no page, and
- * a REQUEST_CHANGES on an unprotected branch posts and gates nothing.
+ * a block on an unprotected branch posts and holds nothing.
  */
 export function Install() {
   return (
@@ -38,11 +38,12 @@ export function Install() {
           </LI>
           <LI>
             <strong className="font-medium text-fg">
-              Branch protection, if you want a review to actually block.
+              Branch protection, if you want a block to actually hold.
             </strong>{" "}
-            A REQUEST_CHANGES review blocks a merge only where the target branch requires review.
-            Without it the review still posts and still shows as changes requested — it just does
-            not gate anything.
+            Require the <C>cujo/guard</C> status check on the target branch. Without it a block is a
+            REQUEST_CHANGES review and a failed check on the commit, both visible and neither
+            holding the merge; a review alone can be dismissed by anyone with write access, which is
+            why the check exists.
           </LI>
         </UL>
       </Section>
@@ -124,7 +125,7 @@ export function Install() {
       </Section>
 
       <Section id="app" title="What the App asks for">
-        <Lead>Four permissions and four event subscriptions, and one of them looks wrong.</Lead>
+        <Lead>Five permissions and four event subscriptions, and one of them looks wrong.</Lead>
         <Table head={["Permission", "Why"]}>
           <Row>
             <Cell head>Contents: read</Cell>
@@ -136,14 +137,25 @@ export function Install() {
           </Row>
           <Row>
             <Cell head>Pull requests: write</Cell>
-            <Cell>Post the review, the inline comments, the reaction and the replies.</Cell>
+            <Cell>
+              Post the review, the inline comments, the reaction and the replies, and dismiss the
+              review when a maintainer lifts a block.
+            </Cell>
+          </Row>
+          <Row>
+            <Cell head>Checks: write</Cell>
+            <Cell>
+              Write the <C>cujo/guard</C> check run on each commit it reviews. This is the merge
+              lock; an installation that has not approved it gets reviews and reactions and no
+              check.
+            </Cell>
           </Row>
           <Row>
             <Cell head>Issues: read</Cell>
             <Cell>
               Delivery only. No code here reads an issue — GitHub releases the <C>issue_comment</C>{" "}
               event on this permission and on nothing else, even for a comment on a pull request,
-              and that event is how <C>/cujo confirm</C> arrives.
+              and that event is how <C>/cujo dismiss</C> arrives.
             </Cell>
           </Row>
         </Table>

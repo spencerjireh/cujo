@@ -8,10 +8,10 @@
  * a deferred reply, or an interaction envelope.
  *
  * They route notifications, and one of them forgets a pull request's sessions
- * (decision 123). There is no approve command and adding one is a change to
- * the human gate, not a feature (decision 28); the NotificationStore they hold
- * has no way to reach a run's decision, and `resetSession` is a callback that
- * cannot either, which is what keeps that true rather than remembered.
+ * (decision 123). There is no dismiss command and adding one is a change to
+ * the unlock, not a feature (decisions 28, 138); the NotificationStore they
+ * hold has no way to reach a run's dismissal, and `resetSession` is a callback
+ * that cannot either, which is what keeps that true rather than remembered.
  */
 
 import type { Logger } from "@cujo/log";
@@ -37,7 +37,7 @@ export interface CommandDeps {
   defaultGuild: string | null;
   /**
    * Forget a pull request's sessions (Contract 5). A callback rather than the
-   * run store, so this plane still cannot reach a run's decision.
+   * run store, so this plane still cannot reach a run's dismissal.
    */
   resetSession: (repo: string, prNumber: number) => ResetOutcome;
 }

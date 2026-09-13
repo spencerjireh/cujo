@@ -123,10 +123,10 @@ describe("host dispatch", () => {
 
 describe("the approve route, which is gone", () => {
   it("serves no approve route on any plane", async () => {
-    // Deleted with decision 49. A held finding is answered with `/cujo confirm`
-    // on the pull request, where the principal is repo write and the trail is a
-    // GitHub login — one gate, one place. A second one that still worked would
-    // be the one nobody audits.
+    // Deleted with decision 49. A block is lifted with `/cujo dismiss` on the
+    // pull request, where the principal is repo write and the trail is a
+    // GitHub login — one unlock, one place. A second one that still worked
+    // would be the one nobody audits.
     const approve = vi.fn();
     const runner = { view: () => null, start: vi.fn(), approve } as unknown as Runner;
     const { app } = build({ runner });

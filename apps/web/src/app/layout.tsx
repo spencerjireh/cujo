@@ -104,7 +104,7 @@ export function SiteFooter() {
           <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">What this is</h2>
           <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
             A read-only view of Cujo&rsquo;s reviews of public pull requests. It writes nothing and
-            decides nothing — a held finding is confirmed on the pull request itself.
+            decides nothing — a block is lifted on the pull request itself.
           </p>
         </div>
         <div>

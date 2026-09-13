@@ -333,7 +333,7 @@ describe("webhook", () => {
         action: "created",
         repository: { full_name: "o/r" },
         issue: { number: 7, pull_request: { url: "https://api.github.com/…/pulls/7" } },
-        comment: { id: 55, body: "/cujo confirm", user: { login: "maintainer" } },
+        comment: { id: 55, body: "/cujo dismiss", user: { login: "maintainer" } },
         ...over,
       });
 
@@ -367,7 +367,7 @@ describe("webhook", () => {
         prNumber: 7,
         commentId: 55,
         actor: "maintainer",
-        body: "/cujo confirm",
+        body: "/cujo dismiss",
       });
     });
 
@@ -395,7 +395,7 @@ describe("webhook", () => {
         commentEvent({ repository: { full_name: 42 } }),
         commentEvent({ issue: { number: "7", pull_request: {} } }),
         commentEvent({ comment: { id: 55, body: null, user: { login: "m" } } }),
-        commentEvent({ comment: { id: 55, body: "/cujo confirm", user: { login: 7 } } }),
+        commentEvent({ comment: { id: 55, body: "/cujo dismiss", user: { login: 7 } } }),
       ];
       for (const body of bad) {
         const { app, handled } = withCommands();
@@ -523,11 +523,11 @@ describe("webhook", () => {
     });
 
     it("never routes a privileged verb through this surface", async () => {
-      // `/cujo confirm` decides a review, and narrowing the surfaces that can
+      // `/cujo dismiss` lifts a block, and narrowing the surfaces that can
       // do that costs nothing: the command belongs on the pull request's own
       // thread, where it is about the run rather than about one line.
       const { app, commands, questions } = withConverse();
-      await send(app, reviewComment({ comment: { id: 88, body: "/cujo confirm", user: null } }));
+      await send(app, reviewComment({ comment: { id: 88, body: "/cujo dismiss", user: null } }));
       expect(commands).toEqual([]);
       expect(questions).toHaveLength(1);
     });
@@ -660,7 +660,7 @@ describe("webhook", () => {
     let done = nextSettled();
     const first = (await (await deliver(app)).json()) as { run_id: string };
     await done;
-    store.runs.updateRun(first.run_id, { status: "blocked_pending" });
+    // Still running: the only status a newer head supersedes (decision 138).
 
     // GitHub now reports h2 as the head.
     pullRequest.mockResolvedValue(prOf("h2"));

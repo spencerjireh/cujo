@@ -31,54 +31,6 @@ function capture() {
   return { log, lines, of: (event: string) => lines.filter((l) => l.event === event) };
 }
 
-describe("the maintainer prompt", () => {
-  function poster() {
-    let posted = "";
-    const github = {
-      listReviews: vi.fn(async () => []),
-      listPullFiles: vi.fn(async () => []),
-      createReview: vi.fn(async (_repo: string, _pr: number, req: { body: string }) => {
-        posted = req.body;
-        return { id: 1, html_url: "https://gh/r/1" };
-      }),
-    } as unknown as GitHubClient;
-    return { github, body: () => posted };
-  }
-
-  it("is appended to the observation that holds an accusation back", async () => {
-    const { log } = capture();
-    const { github, body } = poster();
-    await postReview(
-      github,
-      "COMMENT",
-      "post_advisory_review",
-      { ...input, accusation_follows: true },
-      "",
-      log,
-    );
-    expect(body()).toContain("Reply `/cujo confirm` or `/cujo dismiss`.");
-  });
-
-  it("is absent from the accusation, which cannot ask for it", async () => {
-    // The regression this exists for. The rubric used to quote the sentence for
-    // the agent to reproduce, and it reproduced it on both halves — so the
-    // published accusation asked a maintainer to confirm something they had
-    // already confirmed, since the approval is what let this call run at all.
-    const { log } = capture();
-    const { github, body } = poster();
-    await postReview(github, "REQUEST_CHANGES", "post_gated_review", input, "", log);
-    expect(body()).not.toContain("supply-chain pattern");
-    expect(body()).not.toContain("/cujo confirm");
-  });
-
-  it("is absent from an ordinary review that nothing follows", async () => {
-    const { log } = capture();
-    const { github, body } = poster();
-    await postReview(github, "COMMENT", "post_advisory_review", input, "", log);
-    expect(body()).not.toContain("/cujo confirm");
-  });
-});
-
 describe("review.posted", () => {
   it("records the repo, the tool and what was actually posted", async () => {
     const { log, of } = capture();
@@ -96,24 +48,6 @@ describe("review.posted", () => {
       posted_inline: 0,
       moved_to_body: 0,
     });
-  });
-
-  it("names the gated tool, which posts the same review as the blocking one", async () => {
-    const { log, of } = capture();
-    const github = {
-      listReviews: vi.fn(async () => []),
-      listPullFiles: vi.fn(async () => []),
-      createReview: vi.fn(async () => ({ id: 100, html_url: "https://gh/r/2" })),
-    } as unknown as GitHubClient;
-    await postReview(github, "REQUEST_CHANGES", "post_gated_review", input, "", log);
-    // Both REQUEST_CHANGES tools reach GitHub identically, so the event can no
-    // longer say which one ran; only the name passed in can.
-    expect(github.createReview).toHaveBeenCalledWith(
-      "o/r",
-      7,
-      expect.objectContaining({ event: "REQUEST_CHANGES" }),
-    );
-    expect(of("review.posted")[0]).toMatchObject({ tool: "post_gated_review", review_id: "100" });
   });
 });
 
@@ -135,11 +69,6 @@ describe("the composed body", () => {
     for (const [tool, event, headline] of [
       ["post_advisory_review", "COMMENT", "**Advisory** — no findings above info"],
       ["post_blocking_review", "REQUEST_CHANGES", "**Blocked** — no findings above info"],
-      [
-        "post_gated_review",
-        "REQUEST_CHANGES",
-        "**Accusation, pending confirmation** — no findings above info",
-      ],
     ] as const) {
       const { log } = capture();
       const { github, body } = poster();
@@ -148,24 +77,24 @@ describe("the composed body", () => {
     }
   });
 
-  it("keeps the three appended blocks below everything it composed", async () => {
+  it("keeps the two appended blocks below everything it composed", async () => {
     // The order the review is read in: what happened, then the evidence folds,
-    // then the call to action, then the link, then the marker nobody sees.
+    // then the link, then the marker nobody sees.
     const { log } = capture();
     const { github, body } = poster();
     await postReview(
       github,
       "COMMENT",
       "post_advisory_review",
-      { ...input, accusation_follows: true, run_id: "3f2504e0-4f89-11d3-9a0c-0305e82c3301" },
+      { ...input, run_id: "3f2504e0-4f89-11d3-9a0c-0305e82c3301" },
       "https://cujo.example.com",
       log,
     );
     const at = (needle: string) => body().indexOf(needle);
     expect(at("Machine-readable summary")).toBeGreaterThan(at("**Advisory**"));
-    expect(at("/cujo confirm")).toBeGreaterThan(at("Machine-readable summary"));
-    expect(at("View the full evidence")).toBeGreaterThan(at("/cujo confirm"));
+    expect(at("View the full evidence")).toBeGreaterThan(at("Machine-readable summary"));
     expect(at("<!-- cujo:")).toBeGreaterThan(at("View the full evidence"));
+    expect(body()).not.toContain("/cujo confirm");
   });
 });
 
@@ -205,7 +134,6 @@ describe("a call from a session pinned to the old rubric", () => {
             severity: "warn" as const,
             title: "a finding anchored somewhere else entirely",
             evidence: "",
-            held: false,
             path: "a.py",
             line: 1,
           },
@@ -290,7 +218,6 @@ describe("review.anchor.moved", () => {
             severity: "warn" as const,
             title: "kept",
             evidence: "",
-            held: false,
             path: "a.py",
             line: 2,
           },
@@ -299,7 +226,6 @@ describe("review.anchor.moved", () => {
             severity: "warn" as const,
             title: "file is not in the diff",
             evidence: "",
-            held: false,
             path: "b.py",
             line: 5,
           },
@@ -308,7 +234,6 @@ describe("review.anchor.moved", () => {
             severity: "warn" as const,
             title: "line is outside the hunk",
             evidence: "",
-            held: false,
             path: "a.py",
             line: 99,
           },
@@ -317,7 +242,6 @@ describe("review.anchor.moved", () => {
             severity: "warn" as const,
             title: "no anchor at all",
             evidence: "",
-            held: false,
           },
         ],
       },
@@ -427,16 +351,6 @@ describe("the duplicate review check", () => {
     // second call answers like the first.
     expect(second).toMatchObject({ review_id: 42, html_url: "https://gh/r/42" });
     expect(of("review.duplicate.skipped")).toHaveLength(1);
-  });
-
-  it("lets the malice path post both of its reviews on one head", async () => {
-    // The observation and the accusation. When a run has a broken thing too,
-    // both are REQUEST_CHANGES, so only the tool tells them apart.
-    const { log } = capture();
-    const blocking = reviewMarker("post_blocking_review", "abc1234", RUN);
-    const { github, createReview } = clientWith([botReview(`Body.\n\n${blocking}\n`)]);
-    await postReview(github, "REQUEST_CHANGES", "post_gated_review", input(), "", log);
-    expect(createReview).toHaveBeenCalledTimes(1);
   });
 
   it("lets a re-review of the same head post, because it is a new run", async () => {

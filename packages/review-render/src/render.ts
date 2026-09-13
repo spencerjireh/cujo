@@ -39,10 +39,10 @@ export interface ReviewComment {
 }
 
 /** The tools that post a review. The verdict word is a function of this. */
-export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+export type ReviewTool = "post_advisory_review" | "post_blocking_review";
 
 /** What the headline calls this review. Matched literally, like the severities. */
-export type Verdict = "advisory" | "blocked" | "accusation";
+export type Verdict = "advisory" | "blocked";
 
 export type Severity = "info" | "warn" | "critical";
 
@@ -54,7 +54,6 @@ export interface RenderFinding {
   evidence?: string;
   detail?: string;
   next?: string;
-  held?: boolean;
   path?: string;
   line?: number;
   side?: Side;
@@ -82,7 +81,6 @@ export interface RenderInput {
 
 export interface RenderOptions {
   tool: ReviewTool;
-  accusationFollows: boolean;
   /** The run's page, or null when there is none (private repo, or no board). */
   runUrl: string | null;
   /** `path:line:side` keys `validateAnchors` refused, so the body can say so. */
@@ -92,7 +90,6 @@ export interface RenderOptions {
 /** The shape of a prepared finding: normalized once, read by both phases. */
 interface Prepared extends RenderFinding {
   evidence: string;
-  held: boolean;
   titleTranslated: boolean;
   /** `path:line:side`, or null when this finding has no usable anchor. */
   anchorKey: string | null;
@@ -103,7 +100,6 @@ const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warn: 1, info: 2 
 const VERDICT_WORDS: Record<Verdict, string> = {
   advisory: "Advisory",
   blocked: "Blocked",
-  accusation: "Accusation, pending confirmation",
 };
 
 /** How many unknown hosts the summary line names before it stops counting. */
@@ -181,10 +177,7 @@ function list<T>(value: readonly T[] | undefined): readonly T[] {
  * the body line about the same finding disagreeing about its title — which is
  * exactly the failure that having `comments[]` beside `findings[]` produced.
  */
-function prepareFindings(
-  findings: readonly RenderFinding[],
-  accusationFollows: boolean,
-): Prepared[] {
+function prepareFindings(findings: readonly RenderFinding[]): Prepared[] {
   const prepared: Prepared[] = [];
   const seen = new Set<string>();
 
@@ -236,9 +229,6 @@ function prepareFindings(
         typeof finding.next === "string" && finding.next.trim() !== ""
           ? safeText(finding.next)
           : undefined,
-      // Only meaningful beside `accusation_follows`: a held marker on a review
-      // that holds nothing back would promise a second review nobody will post.
-      held: accusationFollows && finding.held === true,
       titleTranslated: plain.translated,
       path,
       line,
@@ -254,23 +244,19 @@ function prepareFindings(
 
 /** The verdict this tool posts. The one place the word is decided. */
 export function verdictOf(tool: ReviewTool): Verdict {
-  if (tool === "post_gated_review") return "accusation";
-  if (tool === "post_blocking_review") return "blocked";
-  return "advisory";
+  return tool === "post_blocking_review" ? "blocked" : "advisory";
 }
 
 export interface Counts {
   critical: number;
   warn: number;
   info: number;
-  held: number;
 }
 
 export function severityCounts(findings: readonly RenderFinding[]): Counts {
-  const counts: Counts = { critical: 0, warn: 0, info: 0, held: 0 };
+  const counts: Counts = { critical: 0, warn: 0, info: 0 };
   for (const finding of list(findings)) {
     if (isSeverity(finding.severity)) counts[finding.severity] += 1;
-    if (finding.held === true) counts.held += 1;
   }
   return counts;
 }
@@ -288,7 +274,7 @@ export function severityCounts(findings: readonly RenderFinding[]): Counts {
  * must not describe one finding differently.
  */
 export function reviewComments(input: RenderInput): ReviewComment[] {
-  const prepared = prepareFindings(input.findings ?? [], false);
+  const prepared = prepareFindings(input.findings ?? []);
   const comments: ReviewComment[] = [];
   for (const finding of prepared) {
     if (!finding.path || !finding.line) continue;
@@ -348,7 +334,7 @@ function plural(count: number, one: string, many: string): string {
 function isLegacyBody(input: RenderInput, prepared: readonly Prepared[]): boolean {
   if (input.coverage || input.egress) return false;
   if (typeof input.body !== "string") return false;
-  if (prepared.some((f) => f.detail || f.next || f.held)) return false;
+  if (prepared.some((f) => f.detail || f.next)) return false;
   return input.body.trim().includes("\n");
 }
 
@@ -391,8 +377,6 @@ function findingBlock(finding: Prepared, unanchored: ReadonlySet<string>): strin
     const moved = unanchored.has(finding.anchorKey ?? "") ? " (not in this diff)" : "";
     meta.push(`\`${finding.path}:${finding.line}\`${moved}`);
   }
-  if (finding.held) meta.push("held");
-
   const head = `**${finding.title}** · ${meta.join(" · ")}`;
 
   // One line only when it fits on one: evidence spanning lines is a transcript,
@@ -487,7 +471,11 @@ function egressSection(input: readonly EgressHost[]): string {
  *
  * Additive only, in the sense decision 54 gives the phrase: a key may be added,
  * never renamed or removed, and `schema_version` bumps only if that is broken.
- * Absent input is `null` and never a missing key, the same promise
+ * Version 2 is that break: `held` left the counts and the findings with the
+ * gate (decision 138), and a constant zero in its place would have promised a
+ * second review that can no longer come. `verdict` and `tool` also lost a
+ * value each; a narrowing is not a break, but it is named here. Absent input
+ * is `null` and never a missing key, the same promise
  * `PUBLIC_RUN_FIELDS` makes on the board and for the same reason — a consumer
  * should not have to tell "not reported" from "not in this version".
  *
@@ -503,7 +491,7 @@ function machineBlock(
   unanchored: ReadonlySet<string>,
 ): string {
   const payload = {
-    schema_version: 1,
+    schema_version: 2,
     verdict: verdictOf(options.tool),
     tool: options.tool,
     counts,
@@ -516,7 +504,6 @@ function machineBlock(
       evidence: finding.evidence,
       detail: finding.detail ?? null,
       next: finding.next ?? null,
-      held: finding.held,
       anchored: finding.anchorKey !== null && !unanchored.has(finding.anchorKey),
       path: finding.path ?? null,
       line: finding.line ?? null,
@@ -542,7 +529,7 @@ function machineBlock(
  */
 export function renderReviewBody(input: RenderInput, options: RenderOptions): string {
   const unanchored = options.unanchored ?? new Set<string>();
-  const prepared = prepareFindings(input.findings ?? [], options.accusationFollows);
+  const prepared = prepareFindings(input.findings ?? []);
   const counts = severityCounts(prepared);
   const legacy = isLegacyBody(input, prepared);
 
@@ -550,7 +537,7 @@ export function renderReviewBody(input: RenderInput, options: RenderOptions): st
     counts.critical + counts.warn === 0
       ? "no findings above info"
       : `${counts.critical} critical, ${counts.warn} warn`
-  }${counts.held > 0 ? ` (${counts.held} held)` : ""}`;
+  }`;
 
   const blocks: string[] = [headline];
 
@@ -566,14 +553,6 @@ export function renderReviewBody(input: RenderInput, options: RenderOptions): st
   const warn = prepared.filter((f) => f.severity === "warn");
   if (warn.length > 0) {
     blocks.push("### Warn");
-    // Said once, above the findings it governs. Without it a held observation
-    // and "changed code no test covers" are the same word in the same weight,
-    // which is the reading the two-call design exists to prevent.
-    if (counts.held > 0) {
-      blocks.push(
-        "Findings marked *held* are observations. Cujo is not publishing a conclusion about them until a maintainer answers.",
-      );
-    }
     for (const finding of warn) blocks.push(findingBlock(finding, unanchored));
   }
 

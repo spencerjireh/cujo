@@ -1,19 +1,16 @@
-import {
-  MAIN_THREAD,
-  type ModelMessageEvent,
-  type ModelMessageUsage,
-  type SessionEvent,
-  type StreamEvent,
-  type ToolApprovalInput,
-  type ToolCall,
-  type TurnMetrics,
+import type {
+  ModelMessageEvent,
+  ModelMessageUsage,
+  SessionEvent,
+  StreamEvent,
+  ToolCall,
+  TurnMetrics,
 } from "@cujo/harness-contract";
 import { type RenderInput, renderReviewBody, reviewComments } from "@cujo/review-render";
 import {
   agentFindings,
   hardRuleFindings,
   invalidReportFindings,
-  isMaliceClaim,
   mergeFindings,
   missingCheckFindings,
 } from "./findings";
@@ -23,7 +20,6 @@ import {
   type CheckName,
   type DraftedReview,
   type Finding,
-  type PendingApproval,
   type Projection,
   type ReviewComment,
   type ReviewMode,
@@ -32,45 +28,10 @@ import {
 
 export type Event = SessionEvent | StreamEvent;
 
-const REVIEW_TOOLS = new Set(["post_advisory_review", "post_blocking_review", "post_gated_review"]);
-
-/** The one review tool `agent-spec.ts` gates. Its call is a draft, not a post. */
-const GATED_TOOL = "post_gated_review";
-
-/**
- * File a parsed review under what it is. The ungated tools post the moment the
- * model calls them, so their call is the record of a posted review; the gated
- * one is a draft until a human answers. Two slots and not one, because a run
- * on the malice path holds both — the advisory observation is already public
- * while the accusation waits — and a single field would have the second
- * overwrite the record of the first.
- */
-function recordReview(p: Projection, review: DraftedReview): void {
-  if (review.tool === GATED_TOOL) p.gatedReview = review;
-  else p.review = review;
-}
-
-/**
- * The agent findings that may be published. The gated review's `findings[]` is
- * its accusation in list form, and `p.findings` reaches the anonymous board, so
- * it joins only once the review is on the pull request. The hard-rule hits are
- * not held back: those are Cujo's own deterministic observation, which is the
- * half of the design that always publishes.
- *
- * A response is not enough on its own. A **denied** approval also produces a
- * `tool.response` — the refusal — so `gatedResponseSeen` alone would publish
- * the accusation of every review a human turned down, which is the one outcome
- * that must leave nothing behind. The decision is checked first, exactly as the
- * terminal ladder checks it.
- */
-function publishableAgentFindings(p: Projection): Finding[] {
-  const gatedPosted = p.gatedResponseSeen && p.decision !== "deny";
-  return [...agentFindings(p.review), ...(gatedPosted ? agentFindings(p.gatedReview) : [])];
-}
+/** Both tools post the moment the model calls them, so a call is a posted review. */
+const REVIEW_TOOLS = new Set(["post_advisory_review", "post_blocking_review"]);
 
 export interface FoldOptions {
-  /** Turn ids whose resume Cujo itself sent, so they are not "external". */
-  cujoResumeTurnIds?: ReadonlySet<string>;
   /**
    * Which review these events are (decision 135). The events do not say: a
    * diff run's stream is a sandbox run's stream with no checks in it, and
@@ -132,13 +93,8 @@ export function emptyProjection(): Projection {
     turnIds: [],
     checks: [],
     review: null,
-    gatedReview: null,
     hardRuleHits: [],
     findings: [],
-    approval: null,
-    decision: null,
-    externalResume: false,
-    gatedResponseSeen: false,
     error: null,
     summary: null,
     usage: emptyUsage(),
@@ -256,11 +212,7 @@ export function parseReview(call: ToolCall): DraftedReview | null {
   let composedBody = body;
   let comments: ReviewComment[] = sent;
   try {
-    composedBody = renderReviewBody(input, {
-      tool: reviewTool,
-      accusationFollows: args.accusation_follows === true,
-      runUrl: null,
-    });
+    composedBody = renderReviewBody(input, { tool: reviewTool, runUrl: null });
     if (sent.length === 0) comments = reviewComments(input);
   } catch {
     // Fell back to the raw body and the comments the model sent, if any.
@@ -275,23 +227,15 @@ export function parseReview(call: ToolCall): DraftedReview | null {
 export function fold(events: readonly Event[], options: FoldOptions = {}): Projection {
   const p = emptyProjection();
   const messages = new Map<string, ModelMessageEvent>();
-  const cujoResumes = options.cujoResumeTurnIds ?? new Set<string>();
   const diff = options.mode === "diff";
 
   for (const event of events) {
     switch (event.type) {
       case "turn.created": {
         if (!p.turnIds.includes(event.turnId)) p.turnIds.push(event.turnId);
-        // The run's first turn, not its latest: an approval answered or a turn
-        // retried adds another, and the setup window belongs to the first.
+        // The run's first turn, not its latest: a turn retried adds another,
+        // and the setup window belongs to the first.
         p.setup.turnCreatedAt ??= event.createdAt;
-        const approval = event.input?.find(
-          (item): item is ToolApprovalInput => item.type === "user.tool_approval",
-        );
-        if (approval) {
-          p.decision = approval.approval.status;
-          if (!cujoResumes.has(event.turnId)) p.externalResume = true;
-        }
         break;
       }
       case "model.message": {
@@ -316,7 +260,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           if (fresh && p.setup.firstCheckAt === null) p.setup.messages += 1;
           for (const call of event.toolCalls ?? []) {
             const review = parseReview(call);
-            if (review) recordReview(p, review);
+            if (review) p.review = review;
           }
           const text = messageText(event);
           if (text && !(event.toolCalls?.length ?? 0)) p.summary = text;
@@ -376,43 +320,24 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // the report holding the wrapped commands' own durations.
         check.timings = checkTimings(check);
         p.hardRuleHits = [...hardRuleFindings(p.checks), ...invalidReportFindings(p.checks)];
-        p.findings = mergeFindings(p.hardRuleHits, publishableAgentFindings(p));
+        p.findings = mergeFindings(p.hardRuleHits, agentFindings(p.review));
         break;
       }
       case "tool.approval_required": {
+        // Nothing is gated on any spec since decision 138, so a held call is a
+        // session pinned to an older spec (decision 16) or a registration
+        // nobody meant. Either way the turn is suspended waiting for an answer
+        // nothing will send: the run ends here rather than sitting `running`
+        // until the watchdog, and the message names the call so the log says
+        // which spec still asks. Not retried (the same spec asks again).
         const call = event.toolCalls[0];
-        if (!call) break;
-        if (event.threadId !== MAIN_THREAD) {
-          // A subagent was handed the review tool. The design forbids it, so
-          // the run is an error and no approve button is offered.
-          p.status = "error";
-          p.error = `approval requested on thread ${event.threadId}; only main may post reviews`;
-          p.approval = null;
-          break;
-        }
-        p.approval = {
-          threadId: event.threadId,
-          toolCallId: call.id,
-          sourceEventId: call.sourceEventId,
-        };
-        const source = messages.get(call.sourceEventId);
-        const sourceCall = source?.toolCalls?.find((c) => c.id === call.id);
-        if (sourceCall) {
-          const review = parseReview(sourceCall);
-          if (review) recordReview(p, review);
-        }
-        if (p.status !== "error") p.status = "blocked_pending";
+        const source = call ? messages.get(call.sourceEventId) : undefined;
+        const name = source?.toolCalls?.find((c) => c.id === call?.id)?.function.name ?? "a tool";
+        p.status = "error";
+        p.error = `approval requested for ${name}; nothing is gated on this spec`;
         break;
       }
       case "tool.response": {
-        // The held call ran under its own id; after a harness restart the
-        // approved call is made again under a new one (decision 125), so an
-        // allow followed by any response to the gated tool is the review posted.
-        if (p.approval && event.toolCallId === p.approval.toolCallId) {
-          p.gatedResponseSeen = true;
-        } else if (p.decision === "allow" && event.toolName === GATED_TOOL && !event.isError) {
-          p.gatedResponseSeen = true;
-        }
         // How long the sandbox took to provision, read off `sandbox_create`'s
         // own answer (decision 115). `sandbox.created` was a harness event and
         // the harness stopped provisioning, so without this the board's setup
@@ -441,7 +366,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // A diff run had no checks to wait for: nothing is missing from it.
         p.findings = mergeFindings(
           [...p.hardRuleHits, ...(diff ? [] : missingCheckFindings(p.checks))],
-          publishableAgentFindings(p),
+          agentFindings(p.review),
         );
         if (p.status === "error") break;
         if (event.state.status === "error") {
@@ -457,15 +382,13 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         if (diff) {
           // The diff review's own ladder (decision 136), shorter than the
           // sandbox one below because it can reach fewer places: it has no
-          // gate, no hard rule and no check. One tool is permitted. Any other
-          // review tool is the model claiming evidence it does not have, and
-          // the review is already on the pull request by the time this runs,
-          // so the run says so rather than calling it clean. A `critical` on
-          // the advisory is the same claim and lands on the same rung the
-          // sandbox ladder has for it.
-          const other =
-            p.gatedReview?.tool ??
-            (p.review?.tool !== "post_advisory_review" ? p.review?.tool : undefined);
+          // hard rule and no check. One tool is permitted. The other review
+          // tool is the model claiming evidence it does not have, and the
+          // review is already on the pull request by the time this runs, so
+          // the run says so rather than calling it clean. A `critical` on the
+          // advisory is the same claim and lands on the same rung the sandbox
+          // ladder has for it.
+          const other = p.review?.tool !== "post_advisory_review" ? p.review?.tool : undefined;
           if (other) {
             p.status = "error";
             p.error = `diff review called ${other}; only post_advisory_review may post`;
@@ -483,42 +406,20 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           }
           break;
         }
-        if (p.approval) {
-          // A denied call still gets a tool.response (the refusal), so the
-          // decision is checked before the response.
-          if (p.decision === "deny") p.status = "denied";
-          else if (p.gatedResponseSeen) p.status = "blocked_posted";
-          else if (p.decision === "allow") {
-            p.status = "error";
-            p.error = "approval allowed but the review tool never responded";
-          } else p.status = "blocked_pending";
-        } else if (p.hardRuleHits.some(isMaliceClaim) && !p.gatedReview) {
-          // Under-gating: a rule accused the code and the agent published that
-          // conclusion on its own authority, or not at all. This is the one
-          // direction of model error the trusted side can detect — Cujo cannot
-          // tell whether a `post_gated_review` was needed, but it can always
-          // tell when one was — and it is why the rules are re-derived here
-          // (decision 21). Nothing can be prevented: the review is already on
-          // the pull request under the bot's name by the time this runs.
-          const titles = (list: readonly Finding[]) => list.map((f) => f.title).join("; ");
-          p.status = "error";
-          p.error = `malice rule tripped (${titles(
-            p.hardRuleHits.filter(isMaliceClaim),
-          )}) but the agent did not hold the accusation for a human`;
-        } else if (p.review?.tool === "post_blocking_review") {
-          // Cujo blocked the merge on its own authority: a correctness
-          // critical, which nobody was asked about. No approval was ever
-          // raised, so `blocked_posted` cannot be reached from here and
-          // `clean` would be a lie about a REQUEST_CHANGES that posted.
-          p.status = "blocked_unattended";
+        if (p.review?.tool === "post_blocking_review") {
+          // Cujo blocked the merge: REQUEST_CHANGES is on the pull request and
+          // the check run fails on its head (decision 138). Nobody was asked,
+          // and a person lifts it with `/cujo dismiss`, which moves the row
+          // from outside the fold — no event says a block was lifted.
+          p.status = "blocked";
         } else if (
           p.review?.tool === "post_advisory_review" &&
-          !p.gatedReview &&
           p.findings.some((f) => f.severity === "critical")
         ) {
-          // Posted an advisory and nothing else, despite a critical. The
-          // advisory has already posted (it is not gated), so the
-          // contradiction is recorded rather than hidden behind `clean`.
+          // Posted an advisory despite a critical, a hard rule's or its own.
+          // The advisory has already posted, so the contradiction is recorded
+          // rather than hidden behind `clean`; the rules are re-derived here
+          // for exactly this (decision 21), and nothing can be prevented.
           const titles = (list: readonly Finding[]) => list.map((f) => f.title).join("; ");
           p.status = "error";
           p.error =
@@ -527,18 +428,11 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
               : `critical finding (${titles(
                   p.findings.filter((f) => f.severity === "critical"),
                 )}) but the agent posted an advisory review`;
-        } else if (p.gatedReview) {
-          // A gated call that never raised `tool.approval_required` means the
-          // tool is not in `require_approval_for_tools` on this session, so the
-          // accusation posted unattended. Calling that clean would hide a
-          // broken registration, exactly as the no-review case below does.
-          p.status = "error";
-          p.error = "the agent drafted a gated review but no approval was requested";
         } else if (p.review && !p.checks.some((c) => c.isCheck && c.report !== null)) {
           // Posted a review with no evidence behind it. Above `clean` and below
           // every contradiction rung, so it can never mask one: a run that
-          // under-gated or blocked still says so, and only a run with nothing
-          // left to say lands here. Coverage is not a finding, because every
+          // blocked still says so, and only a run with nothing left to say
+          // lands here. Coverage is not a finding, because every
           // operational rule is a `warn` and no `warn` moves the status — which
           // is why `check_missing` firing four times still folded `clean`.
           p.status = "unproven";
@@ -567,8 +461,8 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
  * `status: "error"` with the reason written into `p.error` as prose, so a
  * caller that needs to tell "stopped on purpose" from "failed" would have to
  * match on that sentence — and the one caller that needs it, the turn retry,
- * would start a new turn for a run somebody had just superseded or denied if
- * the wording ever changed.
+ * would start a new turn for a run somebody had just superseded if the
+ * wording ever changed.
  */
 export function lastTurnOutcome(events: readonly Event[]): "done" | "error" | "cancelled" | null {
   let outcome: "done" | "error" | "cancelled" | null = null;
@@ -577,57 +471,4 @@ export function lastTurnOutcome(events: readonly Event[]): "done" | "error" | "c
     outcome = event.state.status;
   }
   return outcome;
-}
-
-/**
- * The approval the session is still waiting on, or null.
- *
- * `fold` cannot answer this. It never clears `approval`, and `decision` does
- * not record which tool call it answered, so a session holding one answered
- * and one outstanding approval folds to both fields set — indistinguishable
- * from an approval that was already dealt with.
- *
- * The question matters because an approval is outstanding on the session, not
- * on the turn that requested it, and the run answers a stale one before the
- * next head's turn as a courtesy to the model (decision 39, refined by 125).
- */
-export function pendingApproval(events: readonly Event[]): PendingApproval | null {
-  let candidate: PendingApproval | null = null;
-  for (const event of events) {
-    switch (event.type) {
-      case "tool.approval_required": {
-        // Read defensively: the events come off the wire, and the answer here
-        // decides whether Cujo sends a deny. A shape that does not carry an
-        // identifiable tool call is no evidence that anything is pending.
-        const call = event.toolCalls?.[0];
-        // Only `main` may hold a review tool call. A request on any other
-        // thread is the design violation `fold` reports as an error, and
-        // answering it is not this function's business.
-        if (!call?.id || event.threadId !== MAIN_THREAD) break;
-        candidate = {
-          threadId: event.threadId,
-          toolCallId: call.id,
-          sourceEventId: call.sourceEventId,
-        };
-        break;
-      }
-      case "turn.created": {
-        const id = candidate?.toolCallId;
-        if (!id) break;
-        // Answered, or voided: a new user message on the session supersedes
-        // whatever was pending (decision 125), and the harness refuses a late
-        // answer to it.
-        const settled = event.input?.some(
-          (item) =>
-            (item.type === "user.tool_approval" && item.toolCallId === id) ||
-            item.type === "user.message",
-        );
-        if (settled) candidate = null;
-        break;
-      }
-      default:
-        break;
-    }
-  }
-  return candidate;
 }

@@ -6,32 +6,31 @@
  * is the dangerous kind. So the status-to-tone map lives here rather than in
  * `StatusBadge`, which is now one of its three readers.
  *
- * Two rules from brand/brand.md decide the map, and neither is cosmetic:
- * amber lands on exactly one status, `blocked_pending`, because that is the one
- * waiting on a person; and red means the pull request is dangerous and never
- * that Cujo fell over, so a run that errors is info blue.
+ * One rule from brand/brand.md decides the map, and it is not cosmetic: red
+ * means the pull request is dangerous and never that Cujo fell over, so a run
+ * that errors is info blue. Amber lands on no status since decision 138 —
+ * brand.md spends it on the thing a person must act on, and a block asks
+ * nobody to; the tone stays for the sweep and the warn marks.
  */
 
 import type { CheckName, DigestCheck, RunStatus, RunSummary, Severity } from "@/lib/api/types";
 import { duration } from "@/lib/format";
 
 /**
- * Six tones, not eight statuses. Several statuses are the same claim about the
- * pull request — `blocked_unattended` and `blocked_posted` differ in who
- * decided, which the *label* says and the colour does not have to. `live` is
- * green and is the one tone that is not a verdict: it says the thing is still
- * executing, and it was inert grey until decision 94, when a running run on a
- * board full of verdicts was the one star nobody could find.
+ * Six tones, not seven statuses. Two statuses are the same claim about the
+ * pull request — `error` and `unproven` both mean no verdict, which the
+ * *label* tells apart and the colour does not have to. `live` is green and is
+ * the one tone that is not a verdict: it says the thing is still executing,
+ * and it was inert grey until decision 94, when a running run on a board full
+ * of verdicts was the one star nobody could find.
  */
 export type Tone = "critical" | "amber" | "info" | "inert" | "bone" | "live";
 
 const STATUS_TONE: Record<RunStatus, Tone> = {
   running: "live",
   clean: "info",
-  blocked_pending: "amber",
-  blocked_unattended: "critical",
-  blocked_posted: "critical",
-  denied: "inert",
+  blocked: "critical",
+  dismissed: "inert",
   // Cujo fell over, which is not a claim about the pull request.
   error: "info",
   // Nor is this one: the review posted and proved nothing, so the same tone as
@@ -123,28 +122,19 @@ export const TONE_PAGE_VAR: Record<Tone, string> = {
 export const STATUS_LABELS: Record<RunStatus, string> = {
   running: "running",
   clean: "clean",
-  blocked_pending: "awaiting approval",
-  blocked_unattended: "blocked",
-  blocked_posted: "blocked",
-  denied: "denied",
+  blocked: "blocked",
+  dismissed: "dismissed",
   error: "error",
   unproven: "unproven",
   superseded: "superseded",
 };
 
 /**
- * The same statuses, for a legend that lists all of them at once.
- *
- * `blocked_unattended` and `blocked_posted` are both "blocked" on a badge,
- * where only one appears and the difference is on the pull request. Side by
- * side in a legend that reads as the same row printed twice, so here they say
- * which one decided: Cujo on its own authority, or a person who confirmed.
+ * The same statuses, for a legend that lists all of them at once. One word
+ * each since decision 138: no two statuses share a label any more, so the
+ * legend is the badge vocabulary and nothing needs a second name.
  */
-export const STATUS_LEGEND: Record<RunStatus, string> = {
-  ...STATUS_LABELS,
-  blocked_unattended: "blocked, unattended",
-  blocked_posted: "blocked, confirmed",
-};
+export const STATUS_LEGEND: Record<RunStatus, string> = { ...STATUS_LABELS };
 
 /** How a single check ended, which is what one segment of a sensor strip draws. */
 export type CheckOutcome = "done" | "error" | "running" | "absent";
@@ -237,8 +227,8 @@ export function checkSentence(
  *
  * `warn` is amber and not its own hue, per brand.md: the product emits three
  * severities and `warn` renders on the `high` ramp, which is the amber one.
- * That puts amber on a second thing in the chamber — a `blocked_pending` core,
- * the sweep, and now a warn mark — and it stays within the restraint the brand
+ * That puts amber on a second thing in the chamber — the sweep, and now a
+ * warn mark — and it stays within the restraint the brand
  * asks for, because a warn mark is a two-pixel quad and a calm run has none.
  */
 export const SEVERITY_TONE: Record<Severity, Tone> = {

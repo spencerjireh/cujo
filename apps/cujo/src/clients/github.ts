@@ -406,9 +406,9 @@ export class GitHubReader {
   }
 
   /**
-   * What can this login do to this repo? The principal behind `/cujo confirm`
-   * (Design 2), so it is the one read that decides whether a stranger may
-   * publish an accusation under the bot's name.
+   * What can this login do to this repo? The principal behind `/cujo dismiss`
+   * (decision 138), so it is the one read that decides whether a stranger may
+   * lift a block under the bot's name.
    *
    * Five answers, and `unknown` is the reason there are five. It is not a
    * refusal — GitHub being unreachable says nothing about who someone is — but

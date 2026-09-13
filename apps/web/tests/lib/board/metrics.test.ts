@@ -89,14 +89,14 @@ describe("boardMetrics", () => {
     expect(metrics.repos).toBe(2);
   });
 
-  it("counts live runs, and the subset waiting on a person", () => {
+  it("counts live runs, and the blocked ones", () => {
     const metrics = boardMetrics([
       row({ id: "a", status: "running" }),
-      row({ id: "b", status: "blocked_pending" }),
+      row({ id: "b", status: "blocked" }),
       row({ id: "c", status: "clean" }),
     ]);
-    expect(metrics.live).toBe(2);
-    expect(metrics.awaitingApproval).toBe(1);
+    expect(metrics.live).toBe(1);
+    expect(metrics.blocked).toBe(1);
   });
 
   it("excludes a run with no digest from every check tally", () => {
@@ -233,7 +233,7 @@ describe("boardMetrics findings", () => {
 
   it("sums by severity and counts the runs that produced any", () => {
     const metrics = boardMetrics([
-      row({ id: "a", status: "blocked_posted", digest: found({ critical: 1, warn: 2 }) }),
+      row({ id: "a", status: "blocked", digest: found({ critical: 1, warn: 2 }) }),
       row({ id: "b", status: "clean", digest: found({ info: 3 }) }),
       row({ id: "c", status: "clean", digest: found({}) }),
     ]);
@@ -260,7 +260,7 @@ describe("boardMetrics findings", () => {
   it("reports the worst severity present and not the most common one", () => {
     const metrics = boardMetrics([
       row({ id: "a", status: "clean", digest: found({ info: 40 }) }),
-      row({ id: "b", status: "blocked_posted", digest: found({ warn: 1 }) }),
+      row({ id: "b", status: "blocked", digest: found({ warn: 1 }) }),
     ]);
     expect(metrics.findings.worst).toBe("warn");
   });

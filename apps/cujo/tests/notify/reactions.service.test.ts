@@ -61,10 +61,10 @@ describe("PrReactor", () => {
 
   it.each([
     ["running", ["eyes"]],
-    ["blocked_pending", ["eyes", "rocket"]],
     ["clean", ["hooray"]],
-    ["blocked_posted", ["-1"]],
-    ["denied", ["+1"]],
+    ["unproven", ["confused"]],
+    ["blocked", ["-1"]],
+    ["dismissed", ["+1"]],
     ["error", ["confused"]],
   ] as [RunStatus, Reaction[]][])("wears %s as %s", async (status, wanted) => {
     const { reactions, calls } = fake();

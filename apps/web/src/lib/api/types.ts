@@ -9,10 +9,8 @@
 export const RUN_STATUSES = [
   "running",
   "clean",
-  "blocked_pending",
-  "blocked_unattended",
-  "blocked_posted",
-  "denied",
+  "blocked",
+  "dismissed",
   "error",
   "unproven",
   "superseded",
@@ -25,9 +23,9 @@ export type CheckName = (typeof CHECK_NAMES)[number];
 export const SEVERITIES = ["critical", "warn", "info"] as const;
 export type Severity = (typeof SEVERITIES)[number];
 
-/** A run is live while the turn can still change it. Nothing else may be approved. */
+/** A run is live while the turn can still change it. */
 export function isLive(status: RunStatus): boolean {
-  return status === "running" || status === "blocked_pending";
+  return status === "running";
 }
 
 /**
@@ -150,7 +148,7 @@ interface ReviewComment {
  * them out, since one is a harness handle and the other is the agent's own
  * unvalidated tool-call payload (decision 34).
  */
-const REVIEW_TOOLS = ["post_advisory_review", "post_blocking_review", "post_gated_review"] as const;
+const REVIEW_TOOLS = ["post_advisory_review", "post_blocking_review"] as const;
 export type ReviewTool = (typeof REVIEW_TOOLS)[number];
 
 export interface DraftedReview {
@@ -221,8 +219,8 @@ export interface RunDigest {
   findings: Record<Severity, number>;
   /**
    * The envelope around the checks, not `updated_at − created_at`: the latter
-   * counts the hours a `blocked_pending` run waited on a person. Null while a
-   * check is still running, and on a run recorded before the stamps existed.
+   * counted the hours a held run once waited on a person. Null while a check
+   * is still running, and on a run recorded before the stamps existed.
    */
   durationMs: number | null;
 }
@@ -258,18 +256,11 @@ export interface Run extends RunSummary {
    */
   session_id?: string;
   turn_ids?: string[];
-  external_resume?: boolean;
   delivery_id?: string | null;
   checks: CheckState[];
   findings: Finding[];
   hard_rule_hits: Finding[];
   review: DraftedReview | null;
-  /**
-   * The accusation held for a human, published only once it posted — before
-   * that, publishing it is exactly what the gate prevents. Absent entirely on
-   * a run that predates the gated tool.
-   */
-  gated_review?: DraftedReview | null;
   /**
    * Who opened the pull request, on the run page only — a list row names the
    * pull request, not the person. Both planes send both, so both are required
@@ -315,21 +306,12 @@ export interface Run extends RunSummary {
 /**
  * Whether `review` is already on the pull request.
  *
- * `review` only ever holds an **ungated** call, and both ungated tools post the
- * moment the model calls them (decision 6). So `blocked_pending` says nothing
- * about this slot: that run is waiting on the *accusation* in `gated_review`
- * while its observation is already public, and `isLive` — which covers both
- * live states — labelled that posted observation "Drafted review".
- *
- * `running` stays conservative, and it is the only state that needs to be: the
- * fold records the call from the model message, which can arrive a moment
- * before the POST it describes comes back.
+ * Both tools post the moment the model calls them (decision 138), so a
+ * recorded call is a posted review on every finished run. `running` stays
+ * conservative, and it is the only state that needs to be: the fold records
+ * the call from the model message, which can arrive a moment before the POST
+ * it describes comes back.
  */
 export function reviewPosted(run: Run): boolean {
   return !!run.review && run.status !== "running";
-}
-
-/** Whether the accusation was confirmed and posted, rather than still waiting. */
-export function gatedReviewPosted(run: Run): boolean {
-  return !!run.gated_review && run.status === "blocked_posted";
 }

@@ -3,11 +3,10 @@
  *
  * The load-bearing rule is that **conversation runs in its own harness
  * session and is never folded into a run.** A second turn on the review's
- * session fails three separate ways: it silently cancels a live review, it is
- * refused with a 422 in exactly the `blocked_pending` state where a maintainer
- * most wants to talk, and it corrupts the projection, because `p.checks`
- * dedupes by thread id so a re-run emits every hard-rule critical twice and can
- * never clear the finding it was meant to correct.
+ * session fails two separate ways: it silently cancels a live review, and it
+ * corrupts the projection, because `p.checks` dedupes by thread id so a
+ * re-run emits every hard-rule critical twice and can never clear the finding
+ * it was meant to correct.
  *
  * For the same reason this does not go through `Runner`. `Runner.refold` writes
  * the run's status unconditionally and emits on `changes`, which drives the

@@ -10,8 +10,8 @@ export default meta;
 
 type Story = StoryObj<typeof VerdictCard>;
 
-/** The accusation held: the run waits on a person. */
-export const AwaitingApproval: Story = { args: { run: run() } };
+/** The block: two hard rules tripped and the merge is held. */
+export const Blocked: Story = { args: { run: run() } };
 
 /** Nothing found, and "0 critical" says so rather than an empty row. */
 export const Clean: Story = {
@@ -20,10 +20,10 @@ export const Clean: Story = {
 
 /** Live: the counts are not a result yet, so the card says so instead. */
 export const Running: Story = {
-  args: { run: run({ status: "running", review: null, gated_review: null }) },
+  args: { run: run({ status: "running", review: null }) },
 };
 
-/** Ended with nothing posted: the run is over and did not block. */
-export const Denied: Story = {
-  args: { run: run({ status: "denied", review: null, gated_review: null }) },
+/** A maintainer lifted the block: the findings stand, the merge does not wait. */
+export const Dismissed: Story = {
+  args: { run: run({ status: "dismissed" }) },
 };
