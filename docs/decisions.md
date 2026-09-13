@@ -139,6 +139,7 @@ reader can tell a live rule from a recorded one before opening it.
 129. [Compaction is pi's context-window rule](#129-compaction-is-pis-context-window-rule)
 130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once)
 131. [A sensed command refuses to open a second window](#131-a-sensed-command-refuses-to-open-a-second-window)
+132. [A token budget in the spec, enforced by the harness](#132-a-token-budget-in-the-spec-enforced-by-the-harness)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -6816,3 +6817,29 @@ the outer window and both reports describe the same rows, the overlap the lock
 exists to prevent. **Detecting the wrapper in `run`'s argv**, which catches
 `sniff.py` by name and nothing that reaches it through a shell.
 
+
+## 132. A token budget in the spec, enforced by the harness
+
+An agent spec may carry `config.tokenBudget`. The harness sums the billed
+tokens of every assistant message in the turn, sub-agents included, and after
+each message ends the turn as `turn.done { status: "error", message: "token
+budget exhausted: N of B" }` once the sum passes the budget. The metrics ride
+on that error the way they ride on every finished state, so an exhausted turn
+still says what it cost.
+
+The number is billed tokens, which is what a provider charges for: the context
+is re-read on every message and counted every time, so a turn holding a large
+brief spends most of its budget on re-reading it. That is the honest unit for
+a cap on spend, and it is the one the accumulator already had. The check runs
+after a message, not during one, so a single message can overrun the budget;
+none can follow it.
+
+The harness enforces it rather than `apps/cujo`, because the client only sees
+usage on the stream after the fact and cannot stop the model between two
+calls; the harness is the one thing that stands between messages. Absent means
+unlimited, which is what every spec written before this said.
+
+Rejected: **`maxTokens` per response**, which bounds one reply and not the
+turn. **`iterationLimit` alone**, which bounds messages and not context: a
+hundred small messages and twelve messages over a huge brief cost the same
+under it and nothing alike in tokens.

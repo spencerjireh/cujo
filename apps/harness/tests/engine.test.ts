@@ -248,6 +248,37 @@ describe("the iteration limit", () => {
   });
 });
 
+describe("the token budget", () => {
+  it("ends the turn as an error once the billed tokens pass the budget", async () => {
+    const { engine } = await up();
+    // The stub bills 15 tokens a message, children included: the first main
+    // message is under, the child's reply and the next main message are not.
+    const sessionId = engine.createSession(
+      spec({ config: { iterationLimit: 10, compaction: { enabled: false }, tokenBudget: 20 } }),
+    );
+    const loop =
+      'CALL create_sub_agent {"name":"x","input":"SAY CALL create_sub_agent {\\"name\\":\\"x\\",\\"input\\":\\"SAY loop\\"}"}';
+    const turnId = await engine.createTurn(sessionId, [{ type: "user.message", content: loop }]);
+    const events = await finished(engine, sessionId, turnId);
+    const done = ofType(events, "turn.done")[0];
+    expect(done?.state.status).toBe("error");
+    if (done?.state.status === "error") {
+      expect(done.state.message).toMatch(/^token budget exhausted: \d+ of 20$/);
+      expect(done.state.metrics?.totalTokens).toBeGreaterThan(20);
+    }
+  });
+
+  it("does not stop a turn that stays under it", async () => {
+    const { engine } = await up();
+    const sessionId = engine.createSession(
+      spec({ config: { iterationLimit: 10, compaction: { enabled: false }, tokenBudget: 20 } }),
+    );
+    const turnId = await engine.createTurn(sessionId, [{ type: "user.message", content: "hi" }]);
+    const events = await finished(engine, sessionId, turnId);
+    expect(ofType(events, "turn.done")[0]?.state.status).toBe("done");
+  });
+});
+
 // The gate needs a bridged server; a fake one avoids MCP here (mcp.test.ts covers the bridge).
 function fakeServer(name: string, tools: ToolDefinition[]): BridgedServer {
   return { name, tools, close: async () => undefined };

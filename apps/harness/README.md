@@ -34,6 +34,11 @@ and either lets the call run or hands the model the deny reason as the tool
 result (decision 125). A new user message ends whatever runs on the session
 first, children included, so there is no wedge (decision 124).
 
+**Two ceilings on a turn, both in the spec.** `config.iterationLimit` bounds
+assistant messages; `config.tokenBudget`, when set, bounds billed tokens summed
+over every message of the turn, children included. Either one ends the turn as
+an `error` naming the ceiling, with the metrics attached (decision 132).
+
 ## Files
 
 | file | holds |
