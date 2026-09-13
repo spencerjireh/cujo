@@ -7,7 +7,7 @@ import { type Harness, collect, finished, harness, ofType, sleep, spec } from ".
 
 const open: Harness[] = [];
 afterEach(async () => {
-  for (const h of open.splice(0)) await h.engine.close();
+  for (const h of open.splice(0)) h.engine.close();
 });
 
 async function up(overrides: Parameters<typeof harness>[0] = {}): Promise<Harness> {
@@ -609,6 +609,74 @@ describe("the gate", () => {
       expect(ofType(events, "turn.done")[0]?.state.status).toBe("done");
       expect(h.store.getApproval(toolCallId)?.status).toBe("allowed");
     });
+  });
+});
+
+describe("shutdown", () => {
+  it("leaves a held approval pending and the run for the next boot", async () => {
+    const calls: string[] = [];
+    const h = await up({
+      connect: async (manifest) =>
+        fakeServer(manifest.name, [
+          tool("post_advisory_review", false, calls),
+          tool("post_gated_review", true, calls),
+        ]),
+    });
+    h.store.putMcpServer({
+      name: "github-mcp",
+      url: "http://github-mcp:8081/mcp",
+      description: "",
+    });
+    const sessionId = h.engine.createSession(
+      spec({
+        mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
+      }),
+    );
+    const first = await h.engine.createTurn(sessionId, [
+      { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+    ]);
+    const toolCallId = ofType(
+      await finished(h.engine, sessionId, first),
+      "tool.approval_required",
+    )[0]?.toolCalls[0]?.id as string;
+    // The process goes down with the call held.
+    h.engine.close();
+    expect(h.store.getApproval(toolCallId)?.status).toBe("pending");
+    expect(h.store.getTurn(first)?.state.status).toBe("done");
+    // The next process answers it through the re-call path.
+    h.engine = new Engine({
+      store: h.store,
+      models: h.models,
+      dataDir: h.dataDir,
+      log: (h.engine as unknown as { log: never }).log,
+      connect: async (manifest) =>
+        fakeServer(manifest.name, [
+          tool("post_advisory_review", false, calls),
+          tool("post_gated_review", true, calls),
+        ]),
+    });
+    h.engine.boot();
+    const second = await h.engine.createTurn(sessionId, [
+      { type: "user.tool_approval", threadId: "main", toolCallId, approval: { status: "allow" } },
+    ]);
+    const events = await finished(h.engine, sessionId, second);
+    expect(calls).toEqual(["post_gated_review"]);
+    expect(ofType(events, "turn.done")[0]?.state.status).toBe("done");
+  });
+
+  it("leaves a running turn running, for boot to end as an error", async () => {
+    const h = await up();
+    const sessionId = h.engine.createSession(spec());
+    const turnId = await h.engine.createTurn(sessionId, [
+      { type: "user.message", content: "SLOW" },
+    ]);
+    await sleep(100);
+    h.engine.close();
+    await sleep(100);
+    expect(h.store.getTurn(turnId)?.state.status).toBe("running");
+    expect(
+      h.store.listTurnEvents(sessionId, turnId).some((i) => i.event.type === "turn.done"),
+    ).toBe(false);
   });
 });
 

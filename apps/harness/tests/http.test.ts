@@ -4,7 +4,7 @@ import { type Harness, harness, spec } from "./helpers";
 
 const open: Harness[] = [];
 afterEach(async () => {
-  for (const h of open.splice(0)) await h.engine.close();
+  for (const h of open.splice(0)) h.engine.close();
 });
 
 async function app() {
