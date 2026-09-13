@@ -7,7 +7,7 @@
 
 import { type Level, createLogger } from "@cujo/log";
 import { vi } from "vitest";
-import type { GitHubReader } from "../../src/clients/github";
+import type { GitHubReader, PullRequestInfo } from "../../src/clients/github";
 import { createApp } from "../../src/http/router";
 import type { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
@@ -29,7 +29,7 @@ function fakeRunner(store: Store): Runner {
   } as unknown as Runner;
 }
 
-export const prOf = (headSha: string) => ({
+export const prOf = (headSha: string): PullRequestInfo => ({
   repo: "o/r",
   prNumber: 7,
   title: "t",
@@ -38,8 +38,10 @@ export const prOf = (headSha: string) => ({
   headSha,
   cloneUrl: "https://github.com/o/r.git",
   changedFiles: ["a.py"],
+  files: [{ path: "a.py", status: "modified", additions: 1, deletions: 0, patch: null }],
   authorLogin: "octocat",
   authorId: 583231,
+  authorIsBot: false,
 });
 
 export function build(
