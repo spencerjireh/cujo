@@ -111,6 +111,35 @@ def test_run_reads_only_its_own_audit_log(cli: Cli, ctx: Context, home_dir: Path
         cli(["teardown"])
 
 
+def test_a_sensed_command_refuses_to_open_a_second_window(cli: Cli, home_dir: Path) -> None:
+    """`run -- sniff.py detonate` (or `run -- sniff.py run`) would wait on its own lock.
+
+    The first detonation on the pi harness did exactly that and sat until the
+    wrapper's timeout killed it, and the report that came back described the
+    timeout rather than the install. The inner command refuses at once, on
+    stderr, so the respawn gets it right (decision 108).
+    """
+    cli(["setup", "--proxy-port", "0"])
+    try:
+        sniff = str(CODE_DIR / "sniff.py")
+        inner = [sys.executable, sniff, "detonate", "--dependency", "x", "--source", "pypi"]
+        report = cli(["run", "--check", "detonation", "--cwd", str(home_dir), "--", *inner])
+        assert report["exit"] != 0
+        assert "already inside a sensed window" in report["stderr_tail"]
+        assert "call it directly" in report["stderr_tail"]
+        assert report["duration_s"] < 30
+        nested_run = [sys.executable, sniff, "run", "--check", "tests", "--", "true"]
+        report = cli(["run", "--check", "tests", "--cwd", str(home_dir), "--", *nested_run])
+        assert report["exit"] != 0
+        assert "already inside a sensed window" in report["stderr_tail"]
+        # Outside a window the same command is still accepted (it fails on the
+        # dependency, which is the point where it used to hang).
+        proc = cli.raw(["detonate", "--dependency", "x", "--source", "pypi"])
+        assert "already inside a sensed window" not in proc.stderr
+    finally:
+        cli(["teardown"])
+
+
 def test_setup_backs_up_real_credentials_and_teardown_restores(
     cli: Cli, ctx: Context, home_dir: Path
 ) -> None:

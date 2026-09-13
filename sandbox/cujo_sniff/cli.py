@@ -23,7 +23,7 @@ from cujo_sniff.policy import DEFAULT_PROXY_PORT, SCHEMA_VERSION
 from cujo_sniff.prepare import cmd_prepare
 from cujo_sniff.report import health, rollup
 from cujo_sniff.reports import read_runs, record_run
-from cujo_sniff.runner import run_sensed, sensor_env
+from cujo_sniff.runner import refuse_nested_window, run_sensed, sensor_env
 from cujo_sniff.sensors.decoy import restore_decoy, seed_decoy, watch_decoy, watched_backend
 from cujo_sniff.sensors.proxy import serve_proxy
 from cujo_sniff.sensors.pyhook import write_pyhook
@@ -100,6 +100,7 @@ def cmd_setup(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
 
 
 def cmd_run(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
+    refuse_nested_window("run")
     if not args.cmd:
         raise SystemExit("run: give the command after `--`")
     cwd = Path(args.cwd or os.getcwd()).resolve()

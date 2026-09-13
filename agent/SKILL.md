@@ -304,7 +304,10 @@ ignored.
 - `detonation`: diff the manifest between base and head to the specifiers that are added
   or version-changed. For each, run
   `python3 /opt/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|auto>`
-  and put its JSON in `runs[]`.
+  **directly, as its own `sandbox_exec`** — never inside `sniff.py run`, and
+  never under `timeout`. It opens its own sensed window and refuses to start
+  inside another's; the install it wraps has its own time budget. Put its JSON
+  in `runs[]`.
 
 When every check is done, the parent runs `python3 /opt/cujo/sniff.py teardown`, which
 stops the sensors and removes the decoy. Then call `sandbox_destroy` with the
