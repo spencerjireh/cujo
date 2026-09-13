@@ -1,9 +1,10 @@
 import { createHmac } from "node:crypto";
 import { createLogger } from "@cujo/log";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitHubReader } from "../../../src/clients/github";
 import { verifySignature } from "../../../src/http/ingress/github-webhook";
 import { createApp } from "../../../src/http/router";
+import { PushDebounce } from "../../../src/review/push-debounce";
 import type { Runner } from "../../../src/review/runner.service";
 import { Store } from "../../../src/store";
 import { HOOK, INTERNAL, build, prOf, req } from "../helpers";
@@ -671,6 +672,69 @@ describe("webhook", () => {
     expect(runner.supersede).not.toHaveBeenCalledWith(second.run_id);
     expect(store.runs.getRun(first.run_id)?.status).toBe("superseded");
     expect(runner.start).toHaveBeenCalledTimes(2);
+  });
+
+  describe("the push window (decision 144)", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("starts one run for three pushes inside the window, on the last head", async () => {
+      const pullRequest = vi.fn(async () => prOf("h3"));
+      const github = { alreadyReviewed: async () => false, pullRequest } as unknown as GitHubReader;
+      const debounce = new PushDebounce(60_000);
+      const { app, runner, store, nextSettled, logged } = build({ github, debounce });
+      const ids: string[] = [];
+      for (const sha of ["h1", "h2", "h3"]) {
+        const res = await deliver(app, headPayload(sha));
+        expect(res.status).toBe(202);
+        ids.push(((await res.json()) as { run_id: string }).run_id);
+        await vi.advanceTimersByTimeAsync(10_000);
+      }
+      // Claimed at the delivery, all three; started, none yet.
+      expect(ids).toHaveLength(3);
+      expect(runner.start).not.toHaveBeenCalled();
+      expect(logged("webhook.debounced")).toHaveLength(3);
+
+      const done = nextSettled();
+      await vi.advanceTimersByTimeAsync(60_000);
+      await done;
+      expect(runner.start).toHaveBeenCalledOnce();
+      expect(store.runs.getRun(ids[2] ?? "")?.status).toBe("running");
+      // The two the window dropped are superseded by the one that started.
+      expect(store.runs.getRun(ids[0] ?? "")?.status).toBe("superseded");
+      expect(store.runs.getRun(ids[1] ?? "")?.status).toBe("superseded");
+    });
+
+    it("starts an opened pull request without waiting", async () => {
+      const debounce = new PushDebounce(60_000);
+      const { app, runner, nextSettled } = build({ debounce });
+      const done = nextSettled();
+      await deliver(app);
+      await done;
+      expect(runner.start).toHaveBeenCalledOnce();
+      expect(debounce.size).toBe(0);
+    });
+
+    it("flush starts what is pending", async () => {
+      const debounce = new PushDebounce(60_000);
+      const { app, runner, nextSettled } = build({ debounce });
+      await deliver(app, headPayload("h"));
+      expect(runner.start).not.toHaveBeenCalled();
+      const done = nextSettled();
+      debounce.flush();
+      await done;
+      expect(runner.start).toHaveBeenCalledOnce();
+      expect(debounce.size).toBe(0);
+    });
+
+    it("starts every push at once when the window is zero", async () => {
+      const { app, runner, nextSettled, logged } = build({ debounce: new PushDebounce(0) });
+      const done = nextSettled();
+      await deliver(app, headPayload("h"));
+      await done;
+      expect(runner.start).toHaveBeenCalledOnce();
+      expect(logged("webhook.debounced")).toHaveLength(0);
+    });
   });
 
   it("does not let a delayed delivery for an older head replace the current run", async () => {

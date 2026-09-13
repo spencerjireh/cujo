@@ -9,6 +9,7 @@ import { type Level, createLogger } from "@cujo/log";
 import { vi } from "vitest";
 import type { GitHubReader, PullRequestInfo } from "../../src/clients/github";
 import { createApp } from "../../src/http/router";
+import type { PushDebounce } from "../../src/review/push-debounce";
 import type { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
 
@@ -62,6 +63,8 @@ export function build(
     converse: { handle: (request: unknown) => Promise<void> };
     /** What every claimed run is stamped with. Null models a deploy without it. */
     provenance: { model: string; rubricSha256: string };
+    /** The push window (decision 144). Absent means every push starts at once. */
+    debounce: PushDebounce;
   }> = {},
 ) {
   const store = new Store(":memory:");
@@ -111,6 +114,7 @@ export function build(
       onSettled: (runId) => settled.shift()?.(runId),
       ...(overrides.prCommands ? { prCommands: overrides.prCommands as never } : {}),
       ...(overrides.converse ? { converse: overrides.converse as never } : {}),
+      ...(overrides.debounce ? { debounce: overrides.debounce } : {}),
     },
     ...(overrides.interactions
       ? {
