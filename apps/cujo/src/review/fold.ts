@@ -14,6 +14,13 @@ import {
   mergeFindings,
   missingCheckFindings,
 } from "./findings";
+import {
+  type LedgerThread,
+  addLedgerMessage,
+  addToolResult,
+  emptyLedger,
+  ledgerThread,
+} from "./ledger";
 import { checkTimings, emptySetup, settleSetup } from "./timings";
 import {
   CHECK_NAMES,
@@ -87,6 +94,9 @@ function addMessageUsage(total: UsageTotals, usage: ModelMessageUsage): void {
   total.outputTokens += usage.outputTokens ?? 0;
   total.cacheReadTokens += usage.cacheReadTokens ?? 0;
   total.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+  if (usage.reasoningTokens !== undefined) {
+    total.reasoningTokens = (total.reasoningTokens ?? 0) + usage.reasoningTokens;
+  }
   total.messages += 1;
 }
 
@@ -123,6 +133,7 @@ export function emptyProjection(): Projection {
     summary: null,
     usage: emptyUsage(),
     setup: emptySetup(),
+    ledger: emptyLedger(),
   };
 }
 
@@ -256,6 +267,22 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
   // the pair is a posted review.
   const pendingReviews = new Map<string, DraftedReview>();
   let postFailure: string | null = null;
+  // The ledger's rows by thread id (decision 141). The map is the fold's, not
+  // the projection's, so a thread id is never stored beside a title; and tool
+  // responses are deduped by id for the same reason messages are.
+  const ledgerRows = new Map<string, LedgerThread>();
+  const toolResponses = new Set<string>();
+  const rowFor = (threadId: string): LedgerThread => {
+    if (threadId === "main") return ledgerThread(p.ledger, ledgerRows, threadId, "main", 1);
+    const check = p.checks.find((c) => c.threadId === threadId);
+    return ledgerThread(
+      p.ledger,
+      ledgerRows,
+      threadId,
+      check?.title ?? "unknown",
+      check?.attempts ?? 1,
+    );
+  };
   const diff = options.mode === "diff";
 
   for (const event of events) {
@@ -279,6 +306,12 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
             check.usage ??= emptyUsage();
             addMessageUsage(check.usage, event.usage);
           }
+        }
+        if (fresh) {
+          // Every message on every thread: turn metrics carry the tokens but
+          // no count, and the ledger row is what says which thread it was.
+          p.usage.messages += 1;
+          addLedgerMessage(rowFor(event.threadId), event.usage);
         }
         messages.set(event.id, event);
         if (event.threadId === "main") {
@@ -323,6 +356,9 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           p.setup.firstCheckAt = event.createdAt ?? null;
           settleSetup(p.setup);
         }
+        // The row exists from the spawn, so the ledger lists threads in the
+        // order they appeared even before any of them has spoken.
+        rowFor(event.threadId);
         break;
       }
       case "thread.done": {
@@ -396,6 +432,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
             p.review = drafted;
             postFailure = null;
           }
+        }
+        if (!toolResponses.has(event.id)) {
+          toolResponses.add(event.id);
+          addToolResult(p.ledger, rowFor(event.threadId), event);
         }
         break;
       }

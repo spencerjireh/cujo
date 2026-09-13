@@ -735,6 +735,115 @@ describe("usage and timings in the fold", () => {
     expect(p.usage).toMatchObject({ inputTokens: 1200, outputTokens: 120, costUsd: 0.75 });
   });
 
+  it("counts every message on every thread on the run total (decision 141)", () => {
+    const p = fold([
+      turnCreated("t1"),
+      message("m0", "main", usage(1, 1)),
+      threadCreated("th-tests", "tests"),
+      message("m1", "th-tests", usage(100, 10)),
+      message("m1", "th-tests", usage(100, 10)),
+      message("m2", "main", undefined),
+      doneWithMetrics({ totalInputTokens: 10 }),
+    ]);
+    expect(p.usage.messages).toBe(3);
+  });
+
+  it("keeps a ledger row per thread, the parent first, titled and never by id", () => {
+    const result = (
+      id: string,
+      threadId: string,
+      content: string,
+      toolName = "sandbox_exec",
+    ): Ev => ({
+      type: "tool.response",
+      id,
+      createdAt: at,
+      threadId,
+      toolCallId: `call-${id}`,
+      toolName,
+      content,
+      isError: false,
+    });
+    const p = fold([
+      turnCreated("t1"),
+      message("m0", "main", {
+        inputTokens: 10,
+        outputTokens: 1,
+        reasoningTokens: 3,
+      } as ModelMessageUsage),
+      result("r0", "main", "x".repeat(300), "create_sub_agent"),
+      threadCreated("th-tests", "tests"),
+      message("m1", "th-tests", usage(100, 10)),
+      result("r1", "th-tests", "y".repeat(5000)),
+      result("r1", "th-tests", "y".repeat(5000)),
+      message("m2", "th-tests", usage(50, 5)),
+      // A second attempt at the same check is its own row, numbered.
+      threadCreated("th-tests-2", "tests"),
+      message("m3", "th-tests-2", usage(7, 7)),
+      turnDone(),
+    ]);
+    expect(p.ledger.threads).toEqual([
+      {
+        title: "main",
+        attempt: 1,
+        messages: 1,
+        inputTokens: 10,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 3,
+        toolResultBytes: 300,
+      },
+      {
+        title: "tests",
+        attempt: 1,
+        messages: 2,
+        inputTokens: 150,
+        outputTokens: 15,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolResultBytes: 5000,
+      },
+      {
+        title: "tests",
+        attempt: 2,
+        messages: 1,
+        inputTokens: 7,
+        outputTokens: 7,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolResultBytes: 0,
+      },
+    ]);
+    expect(p.ledger.largestToolResults).toEqual([
+      { thread: "tests", tool: "sandbox_exec", bytes: 5000, isError: false },
+      { thread: "main", tool: "create_sub_agent", bytes: 300, isError: false },
+    ]);
+    expect(JSON.stringify(p.ledger)).not.toContain("th-tests");
+  });
+
+  it("keeps only the ten largest tool results, largest first", () => {
+    const events: Ev[] = [turnCreated("t1")];
+    for (let i = 1; i <= 12; i += 1) {
+      events.push({
+        type: "tool.response",
+        id: `r${i}`,
+        createdAt: at,
+        threadId: "main",
+        toolCallId: `c${i}`,
+        toolName: "sandbox_exec",
+        content: "z".repeat(i * 10),
+        isError: i === 12,
+      });
+    }
+    const p = fold([...events, turnDone()]);
+    expect(p.ledger.largestToolResults.map((r) => r.bytes)).toEqual([
+      120, 110, 100, 90, 80, 70, 60, 50, 40, 30,
+    ]);
+    expect(p.ledger.largestToolResults[0]?.isError).toBe(true);
+    expect(p.ledger.threads[0]?.toolResultBytes).toBe(780);
+  });
+
   it("leaves cost and reasoning tokens absent until a turn reports them", () => {
     // "No cost reported" and "cost zero" are not the same claim.
     const p = fold([turnCreated("t1"), doneWithMetrics({ totalInputTokens: 10 })]);
