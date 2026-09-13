@@ -124,7 +124,13 @@ const MAX_HOSTS_NAMED = 3;
  * it wholesale would turn every backtick and asterisk the model meant into
  * literal punctuation.
  */
-export function safeText(value: string): string {
+export function safeText(value: unknown): string {
+  // Total over its input. Every value reaching this file was written by a
+  // model, and `apps/cujo` calls it from inside `fold` with no schema in
+  // front: a coverage entry with no `check`, a note that is a number, and the
+  // first gated review on the pi harness took the whole service down on a
+  // `.replace` of `undefined`. A value that is not text renders as nothing.
+  if (typeof value !== "string") return "";
   return (
     value
       // The whole tag where there is one, so the escaped form reads as text
@@ -421,11 +427,19 @@ function coverageSection(coverage: Coverage): string {
   // Every part through `oneLine`, the check name included: a newline inside one
   // would end its list item and the rest of that value would read as another
   // check this review says it ran.
-  const ran = list(coverage.ran).map((entry) => {
+  // An entry that is not an object, or names no check, is a claim nobody made.
+  const entries = (value: unknown) =>
+    list(value as readonly unknown[] | undefined).filter(
+      (entry): entry is { check: string; note?: unknown; reason?: unknown } =>
+        entry !== null &&
+        typeof entry === "object" &&
+        typeof (entry as { check?: unknown }).check === "string",
+    );
+  const ran = entries(coverage.ran).map((entry) => {
     const note = entry.note ? ` — ${oneLine(safeText(entry.note))}` : "";
     return `- ${oneLine(safeText(entry.check))}${note}`;
   });
-  const skipped = list(coverage.skipped).map(
+  const skipped = entries(coverage.skipped).map(
     (entry) => `- ${oneLine(safeText(entry.check))} — ${oneLine(safeText(entry.reason))}`,
   );
   const lines = [ran.length > 0 ? `Ran:\n${ran.join("\n")}` : "Ran: nothing."];
