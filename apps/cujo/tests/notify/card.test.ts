@@ -36,6 +36,8 @@ function run(patch: Partial<RunRecord> = {}): RunRecord {
     deliveryId: null,
     model: null,
     rubricSha256: null,
+    mode: "sandbox",
+    budgetTokens: null,
     prTitle: "a pull request",
     prAuthorLogin: "octocat",
     prAuthorId: 583231,
@@ -428,6 +430,30 @@ describe("buildRunCard", () => {
       for (let i = 1; i < fields.length; i += 1) {
         expect(isSpacer(fields[i - 1]) && isSpacer(fields[i])).toBe(false);
       }
+    });
+
+    it("say a diff run is reading, not running four checks", () => {
+      const sandbox = buildRunCard({
+        run: run({ status: "running" }),
+        projection: projection({ status: "running" }),
+        links: LINKS,
+      });
+      expect(sandbox.embeds?.[0]?.description).toContain("tests, probes");
+      const diff = buildRunCard({
+        run: run({ status: "running", mode: "diff" }),
+        projection: projection({ status: "running" }),
+        links: LINKS,
+      });
+      expect(diff.embeds?.[0]?.description).toBe(
+        "Diff review running: reading the diff against the repository's standards.",
+      );
+      // A finished diff run reads as any finished run: the sentence is true of both.
+      const clean = buildRunCard({
+        run: run({ status: "clean", mode: "diff" }),
+        projection: projection({ status: "clean" }),
+        links: LINKS,
+      });
+      expect(clean.embeds?.[0]?.description).toContain("The advisory review posted.");
     });
 
     it("are absent when there is nothing to separate", () => {

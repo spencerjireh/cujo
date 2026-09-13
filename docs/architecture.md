@@ -19,12 +19,23 @@ runs a package's `setup.py` before any of your own code executes. So all of it
 runs where it holds no credentials and has no path back to our server, and the
 sandbox is thrown away afterwards.
 
+Not every pull request needs running, and since decision 133 Cujo is a diff
+reviewer that can execute rather than a sandbox with a reviewer in it. The
+**diff review** reads the pull request on the trusted side — the diff, cut to a
+cap, and the repository's own standards files at base — on a cheap model with a
+token budget and no sandbox at all, and posts one advisory review whose
+findings are at most `warn`, because a block needs evidence only execution can
+give. The **sandbox review** is everything the paragraphs above describe. A
+repository picks with `mode:` in `.cujo.yml`; a dependency-manifest change or a
+Bot-authored pull request is the sandbox regardless (decision 135).
+
 ## Components
 
 | Piece | Role |
 |-------|------|
 | **`apps/harness`** | The agent harness (decision 123): sessions, turns, the event log, the approval gate and the sub-agent tool, over the pi coding agent SDK for the loop, the provider layer, retry and compaction. Reached only by `apps/cujo` over HTTP. No console, no database service: one SQLite file and the pi transcripts on a volume. The contract between the two is `packages/harness-contract`. |
 | **Cujo agent** | The parent reviewer: a language model, the review rubric as its instructions, a sandbox, subagents, and a GitHub tool. It sets up the sandbox, delegates the checks, merges the findings, and posts. |
+| **Diff reviewer** | The same model family under a second rubric, `agent/DIFF.md`, on a session of its own with `github-mcp` alone and no sandbox (decisions 133, 137). It reads the package `apps/cujo` prepared — the compressed diff, the standards files, what the last review on the pull request said — and posts one `post_advisory_review`. Bounded by a token budget the harness enforces (decision 132). |
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each is a nested pi session (decision 124) that starts with fresh context (the rubric and the sandbox tools, no shared history, no review tool) and returns only a JSON report to the parent; its events are written to the log as they happen, so a parent that times out later loses nothing the child reported. |
 | **The sandbox** | A disposable container where the untrusted PR runs, provisioned by `sandbox-mcp` below. One per turn, destroyed after it. |
 | **`sandbox/`** | The in-sandbox sensor code: `sniff.py` and the `cujo_sniff` package behind it. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check, and each report says which of them was watching while it was produced (decision 54). |
@@ -55,6 +66,11 @@ go in too; they are ours, carry no secret, and are the instrument, not the
 specimen. So does a public run's own id, which is already public and names no
 host — decision 36.) No secret ever enters the sandbox. This is the property the
 whole design protects, so keep it in mind when reading the flow below.
+
+The diff review moves nothing across this line. The diff and the standards
+files reach the model from the trusted side, through the App's own read, and
+the model's session has no sandbox tool to reach for; a diff run is a run in
+which the bridge is never opened.
 
 ## System map
 
@@ -201,11 +217,17 @@ the new head's turn anyway (decision 125).
 
 1. **A PR arrives.** Someone opens or updates a pull request on the protected
    repo. The Cujo GitHub App fires a `pull_request` webhook.
-2. **Cujo wakes the agent.** `apps/cujo` verifies the webhook, reads the PR
-   metadata and changed-file list, and starts one turn in the PR's Cujo
-   session with that context: repo, PR number, base SHA, head SHA, changed
-   files. It stays subscribed to the turn's event stream and folds what it
-   sees into a run the UI can show while the checks are still going.
+2. **Cujo picks the review and wakes the agent.** `apps/cujo` verifies the
+   webhook, reads the PR metadata and changed-file list, and resolves the mode
+   (Contract 1): `CUJO_REVIEW_MODE`, then `mode:` from `.cujo.yml` at base,
+   then the two floors. A **diff** run gets a fresh session on the diff spec
+   and a package prepared in code (Contract 11) — the diff cut to a byte cap,
+   the standards files at base, the previous review's findings — and its turn
+   is one reading and one `post_advisory_review`; steps 3 to 5 never happen.
+   A **sandbox** run starts one turn in the PR's Cujo session with the PR
+   context: repo, PR number, base SHA, head SHA, changed files. Either way it
+   stays subscribed to the turn's event stream and folds what it sees into a
+   run the UI can show while the review is still going.
 3. **Into the sandbox.** The agent provisions a sandbox through `sandbox-mcp`
    and runs two commands. `sniff.py prepare` clones head, adds a worktree at base, and hands
    back `.cujo.yml` from base if the repo has one (policy comes from the target

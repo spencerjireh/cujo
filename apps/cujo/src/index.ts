@@ -11,10 +11,16 @@ import { createApp } from "./http/router";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { PrReactor } from "./notify/reactions.service";
-import { buildAgentSpec, buildConverseSpec, specFingerprint } from "./review/agent-spec";
+import {
+  buildAgentSpec,
+  buildConverseSpec,
+  buildDiffSpec,
+  specFingerprint,
+} from "./review/agent-spec";
 import { PrCommandService } from "./review/commands/pr-command.service";
 import { publicRunId } from "./review/links";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
+import type { DiffReviewDeps } from "./review/start-run";
 import { startRun } from "./review/start-run";
 import type { RunRecord } from "./review/types";
 import { VisibilityService } from "./review/visibility.service";
@@ -68,11 +74,12 @@ async function main(): Promise<void> {
   const runner = new Runner(
     store.runs,
     harness,
-    { turnTimeoutMs: config.turnTimeoutMs, links },
+    { turnTimeoutMs: config.turnTimeoutMs, diffTurnTimeoutMs: config.diffTimeoutMs, links },
     log,
     github,
   );
   const spec = buildAgentSpec(config);
+  const diffSpec = buildDiffSpec(config);
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status
@@ -122,6 +129,19 @@ async function main(): Promise<void> {
   // than from `config`, so the digest is of the string a session would actually
   // be handed, tarball URL substituted and all.
   const provenance = { model: config.model, rubricSha256: specFingerprint(spec) };
+  // The diff review's half of the same (Contract 11): its own spec, so its own
+  // digest and model, plus the budget the spec carries; a fresh session per
+  // run (decision 137); and the three caps `prepare` cuts the package to.
+  const diff: DiffReviewDeps = {
+    deployDefault: config.reviewMode,
+    createSession: () => harness.createSession(diffSpec),
+    provenance: {
+      model: config.diffModel,
+      rubricSha256: specFingerprint(diffSpec),
+      budgetTokens: config.diffBudgetTokens,
+    },
+    caps: { diffBytes: config.diffBytes, standardsFileBytes: 16_000, standardsTotalBytes: 48_000 },
+  };
 
   /**
    * The two statuses that mean a run still owns a live turn on its session.
@@ -226,6 +246,7 @@ async function main(): Promise<void> {
         github,
         store: store.runs,
         runner,
+        diff,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
         ...(reactor ? { onClaimed: (r: RunRecord) => reactor.markClaimed(r) } : {}),
@@ -336,6 +357,7 @@ async function main(): Promise<void> {
       github,
       store: store.runs,
       runner,
+      diff,
       // What the review's footer names. A public run gets its id; anything
       // else gets nothing, since a private run has no page for a stranger
       // reading the pull request to open. `github-mcp` turns the id into a

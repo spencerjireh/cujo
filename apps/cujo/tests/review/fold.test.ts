@@ -881,13 +881,34 @@ describe("usage and timings in the fold", () => {
 
   it("records the cost of a turn that ended in error too", () => {
     // An error turn is exactly the one whose cost is worth seeing, and the
-    // status ladder below breaks out of the case in half a dozen places.
+    // status ladder below breaks out of the case in half a dozen places. The
+    // contract carries metrics on every finished state, and a turn the token
+    // budget ended is the one whose bill matters most (decision 132).
     const p = fold([
       turnCreated("t1"),
-      turnDone({ status: "error", message: "model down", completedAt: at }),
+      turnDone({
+        status: "error",
+        message: "token budget exhausted: 420000 of 400000",
+        completedAt: at,
+        metrics: { totalInputTokens: 400_000, totalOutputTokens: 20_000, totalTokens: 420_000 },
+      }),
     ]);
     expect(p.status).toBe("error");
-    expect(p.usage.messages).toBe(0);
+    expect(p.error).toBe("token budget exhausted: 420000 of 400000");
+    expect(p.usage).toMatchObject({ inputTokens: 400_000, outputTokens: 20_000 });
+  });
+
+  it("records the cost of a cancelled turn", () => {
+    const p = fold([
+      turnCreated("t1"),
+      turnDone({
+        status: "cancelled",
+        reason: "client-cancelled",
+        completedAt: at,
+        metrics: { totalInputTokens: 10, totalOutputTokens: 1 },
+      }),
+    ]);
+    expect(p.usage).toMatchObject({ inputTokens: 10, outputTokens: 1 });
   });
 
   it("puts the timings on the check when its thread ends", () => {
@@ -905,6 +926,121 @@ describe("usage and timings in the fold", () => {
       sandboxMs: 30_000,
       modelMs: 70_000,
     });
+  });
+});
+
+describe("the diff review's ladder (decision 136)", () => {
+  const diff = { mode: "diff" as const };
+  const advisory = (findings: unknown[] = []) =>
+    reviewCall("call-0", "post_advisory_review", { body: "Read it.", findings });
+
+  it("is clean when one advisory posted and no check ever ran", () => {
+    // The sandbox ladder would say `unproven` here; a diff run never had
+    // evidence to post and its record says so (decision 135).
+    const p = fold([turnCreated("t1"), advisory(), toolResponse("call-0"), turnDone()], diff);
+    expect(p.status).toBe("clean");
+    expect(p.checks).toEqual([]);
+    expect(p.findings).toEqual([]);
+  });
+
+  it("adds no check_missing warning, since nothing was meant to run", () => {
+    const events = [turnCreated("t1"), advisory(), toolResponse("call-0"), turnDone()];
+    expect(fold(events, diff).findings.map((f) => f.rule)).toEqual([]);
+    // The same stream read as a sandbox run is a run that lost its checks.
+    const sandbox = fold(events);
+    expect(sandbox.status).toBe("unproven");
+    expect(sandbox.findings.map((f) => f.rule)).toEqual([
+      "check_missing",
+      "check_missing",
+      "check_missing",
+    ]);
+  });
+
+  it("carries the agent's warn and info findings", () => {
+    const p = fold(
+      [
+        turnCreated("t1"),
+        advisory([
+          { check: "diff", severity: "warn", title: "Unpinned dependency", path: "a.ts", line: 2 },
+          { check: "diff", severity: "info", title: "Renames the helper" },
+        ]),
+        toolResponse("call-0"),
+        turnDone(),
+      ],
+      diff,
+    );
+    expect(p.status).toBe("clean");
+    expect(p.findings.map((f) => [f.severity, f.title])).toEqual([
+      ["warn", "Unpinned dependency"],
+      ["info", "Renames the helper"],
+    ]);
+  });
+
+  it("is an error when the advisory carries a critical, the rubric forbids it", () => {
+    // Same rung as the sandbox ladder: the review is already on the pull
+    // request, so the contradiction is recorded rather than clamped (74).
+    const p = fold(
+      [
+        turnCreated("t1"),
+        advisory([{ check: "diff", severity: "critical", title: "Breaks the build" }]),
+        toolResponse("call-0"),
+        turnDone(),
+      ],
+      diff,
+    );
+    expect(p.status).toBe("error");
+    expect(p.error).toBe(
+      "critical finding (Breaks the build) but the agent posted an advisory review",
+    );
+  });
+
+  it("is an error naming the tool when anything but the advisory tool posted", () => {
+    const blocking = fold(
+      [
+        turnCreated("t1"),
+        reviewCall("call-0", "post_blocking_review", { body: "b", findings: [] }),
+        toolResponse("call-0"),
+        turnDone(),
+      ],
+      diff,
+    );
+    expect(blocking.status).toBe("error");
+    expect(blocking.error).toBe(
+      "diff review called post_blocking_review; only post_advisory_review may post",
+    );
+    const gated = fold(
+      [
+        turnCreated("t1"),
+        reviewCall("call-0", "post_gated_review", { body: "b", findings: [] }),
+        toolResponse("call-0"),
+        turnDone(),
+      ],
+      diff,
+    );
+    expect(gated.status).toBe("error");
+    expect(gated.error).toContain("post_gated_review");
+  });
+
+  it("is an error when the turn ended without a review, and keeps a turn error's message", () => {
+    expect(fold([turnCreated("t1"), turnDone()], diff)).toMatchObject({
+      status: "error",
+      error: "turn ended without a review",
+    });
+    expect(
+      fold(
+        [
+          turnCreated("t1"),
+          turnDone({ status: "error", message: "token budget exhausted: 9 of 8", completedAt: at }),
+        ],
+        diff,
+      ),
+    ).toMatchObject({ status: "error", error: "token budget exhausted: 9 of 8" });
+  });
+
+  it("leaves a sandbox run's ladder untouched when no mode is given", () => {
+    const events = [turnCreated("t1"), advisory(), toolResponse("call-0"), turnDone()];
+    expect(fold(events).status).toBe("unproven");
+    expect(fold(events, { mode: "sandbox" }).status).toBe("unproven");
   });
 });
 

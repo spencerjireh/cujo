@@ -1,5 +1,6 @@
 import { REASONING_EFFORTS, type ReasoningEffort } from "@cujo/harness-contract";
 import { type Level, parseLevel } from "@cujo/log";
+import { REVIEW_MODES, type ReviewMode } from "./review/types";
 
 /**
  * Environment for the apps/cujo process. Every name here is fixed by the build
@@ -67,6 +68,27 @@ export interface Config {
   /** Where the agent reaches its sandbox, since the harness no longer has one. */
   sandboxMcpUrl: string;
   turnTimeoutMs: number;
+  /**
+   * The review a pull request gets when its repository declares none
+   * (decision 135): `sandbox` until an operator says otherwise, so an
+   * existing deploy reviews exactly as it did. A repository's `.cujo.yml`
+   * overrides it; the two floors override both.
+   */
+  reviewMode: ReviewMode;
+  /**
+   * The diff review's model, `CUJO_DIFF_MODEL`, falling back to `model`. Its
+   * own setting because the diff review is the cheap path by design (decision
+   * 133), and the model that reads a diff need not be the one that runs a
+   * sandbox. When it differs from `model`, no sampling params are sent with it:
+   * the three above were tuned for the other model.
+   */
+  diffModel: string;
+  /** `config.tokenBudget` on the diff spec (decision 132): billed tokens per run. */
+  diffBudgetTokens: number;
+  /** How long a diff review may take; it reads, so far less than a sandbox run. */
+  diffTimeoutMs: number;
+  /** Bytes of patch text the diff review is handed (Contract 11). */
+  diffBytes: number;
   /** Concurrent public run streams this process will hold (decision 34). */
   publicStreamLimit: number;
   /**
@@ -181,6 +203,22 @@ function count(
   return value;
 }
 
+/**
+ * `CUJO_REVIEW_MODE`, checked at boot for the reason `effort` is: a mode the
+ * code does not know would otherwise reach `resolveMode` as a string and be
+ * stamped on every run. Unset is `sandbox`.
+ */
+function mode(raw: string | undefined): ReviewMode {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "sandbox";
+  if (!(REVIEW_MODES as readonly string[]).includes(trimmed)) {
+    throw new Error(
+      `CUJO_REVIEW_MODE has ${JSON.stringify(raw)}, which is not a review mode. Valid values: ${REVIEW_MODES.join(", ")}.`,
+    );
+  }
+  return trimmed as ReviewMode;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const modelProviderBaseUrl = env.MODEL_PROVIDER_BASE_URL;
   const modelProviderApiKey = env.MODEL_PROVIDER_API_KEY;
@@ -213,6 +251,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // `||`, not `??`: an unset compose optional arrives as the empty string,
     // and an empty URL would reach the sandbox as a `curl` with no argument.
     turnTimeoutMs: Number(env.CUJO_TURN_TIMEOUT_MS ?? 30 * 60 * 1000),
+    reviewMode: mode(env.CUJO_REVIEW_MODE),
+    // `||`: the compose optional arrives empty, and an empty model name is
+    // not a model.
+    diffModel: env.CUJO_DIFF_MODEL || required(env, "CUJO_MODEL"),
+    diffBudgetTokens: count(env.CUJO_DIFF_BUDGET_TOKENS, 400_000),
+    diffTimeoutMs: count(env.CUJO_DIFF_TIMEOUT_MS, 10 * 60 * 1000),
+    diffBytes: count(env.CUJO_DIFF_BYTES, 60_000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
     converseLimit: count(env.CUJO_CONVERSE_LIMIT, 3, { zeroOk: true }),
     converseWindowMs: count(env.CUJO_CONVERSE_WINDOW_MS, 60 * 60 * 1000),

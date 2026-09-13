@@ -195,6 +195,20 @@ const DESCRIPTION: Record<RunStatus, string> = {
 };
 
 /**
+ * `DESCRIPTION`, read through the run's mode. Only `running` differs: the
+ * sandbox sentence lists four checks a diff run never starts, and a card that
+ * said so for the whole run would describe a run that does not exist. A
+ * finished diff run's sentences are the sandbox's own, since what they say —
+ * a review posted, an error — is true of both.
+ */
+function describe(run: Pick<RunRecord, "status" | "mode">): string {
+  if (run.status === "running" && run.mode === "diff") {
+    return "Diff review running: reading the diff against the repository's standards.";
+  }
+  return DESCRIPTION[run.status];
+}
+
+/**
  * A duration the digest also computes, in the few characters a field row has.
  * The words are deliberately plain — `41s`, `1.2s`, `2m03s` — because a
  * compact notation is a second vocabulary to learn and this field already has
@@ -502,7 +516,7 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
   const status = run.status;
   const title = runTitle(run);
 
-  let description = DESCRIPTION[status];
+  let description = describe(run);
   if ((status === "blocked_posted" || status === "denied") && run.approver) {
     description +=
       run.approver === "external"
@@ -632,7 +646,7 @@ export function buildPing(input: PingInput): DiscordMessagePayload {
         : `${critical} critical findings.`;
   const description = blocked
     ? `**Blocked — waiting for a human.** ${counted}`
-    : `Resolved — ${DESCRIPTION[run.status]}`;
+    : `Resolved — ${describe(run)}`;
 
   const embed = clamp({
     title: runTitle(run),

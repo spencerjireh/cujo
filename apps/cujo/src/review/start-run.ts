@@ -11,14 +11,33 @@
 import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { RunStore } from "../store";
-import { buildTurnMessage } from "./agent-spec";
+import { buildDiffTurnMessage, buildTurnMessage, manifestChanged } from "./agent-spec";
+import { resolveMode } from "./mode";
+import { type PrepareCaps, prepareReviewPackage } from "./prepare";
 import type { Runner } from "./runner.service";
-import type { RunRecord } from "./types";
+import type { ReviewMode, RunRecord } from "./types";
+
+/**
+ * What the diff review needs that the sandbox review does not (Contract 11).
+ * Optional on `StartRunDeps` so that a composition without it — every test
+ * that predates the diff review — starts every run as a sandbox run, which
+ * is what those tests assert.
+ */
+export interface DiffReviewDeps {
+  /** `CUJO_REVIEW_MODE`: the mode when the repository declares none. */
+  deployDefault: ReviewMode;
+  /** A fresh harness session on the diff spec, one per run (decision 137). */
+  createSession: () => Promise<string>;
+  /** What the diff spec is, stamped on the run the way the sandbox spec's is. */
+  provenance: { model: string; rubricSha256: string; budgetTokens: number };
+  caps: PrepareCaps;
+}
 
 export interface StartRunDeps {
   github: GitHubReader;
   store: RunStore;
   runner: Runner;
+  diff?: DiffReviewDeps;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -127,12 +146,48 @@ export async function startRun(
         await deps.runner.supersede(old.id);
       }
     }
+    // Which review this is (decision 135): the repository's word from base,
+    // under the two floors, over the deploy default. Read here and not in the
+    // webhook because it needs the pull request — the manifest flag and the
+    // author — and the webhook never reads it. Without diff deps there is one
+    // review, and it is the one every run was claimed as.
+    const { mode, reason } = deps.diff
+      ? resolveMode({
+          deployDefault: deps.diff.deployDefault,
+          declared: await deps.github.declaredMode(run.repo, pr.baseSha),
+          manifestChanged: manifestChanged(pr.changedFiles),
+          authorIsBot: pr.authorIsBot,
+        })
+      : { mode: "sandbox" as const, reason: "deploy_default" as const };
+    log.info("run.mode.resolved", { mode, reason });
+    if (mode === "diff" && deps.diff) {
+      // The row was claimed on the pull request's sandbox session with the
+      // sandbox spec's provenance; a diff run has a session and a spec of its
+      // own (decision 137), so both are corrected before the turn exists, and
+      // the record the runner is handed is the corrected one — `Runner.start`
+      // reads the session id off its argument.
+      const sessionId = await deps.diff.createSession();
+      const pkg = await prepareReviewPackage(
+        { github: deps.github, store: deps.store, caps: deps.diff.caps },
+        pr,
+        run,
+      );
+      const current = deps.store.updateRun(run.id, {
+        sessionId,
+        mode: "diff",
+        ...deps.diff.provenance,
+      });
+      if (!current) throw new Error("run row vanished before its turn started");
+      await deps.runner.start(current, buildDiffTurnMessage(pkg, deps.reviewRunId(current)));
+      return;
+    }
     // No line here: `Runner.start` emits run.turn.started once the harness has
     // returned the turn id, which is both the honest moment and the one that
     // can carry turn_id. Announcing it here as well produced two events per
     // start — and, when the start failed, a run.turn.started immediately
     // followed by run.turn.start.failed, describing a turn that never was.
-    await deps.runner.start(run, buildTurnMessage(pr, deps.reviewRunId(run)));
+    const current = deps.store.updateRun(run.id, { mode: "sandbox" }) ?? run;
+    await deps.runner.start(current, buildTurnMessage(pr, deps.reviewRunId(current)));
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim
     // the head (RunStore.createRun) instead of being refused as a duplicate.
