@@ -500,7 +500,14 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
       session_created: sessionCreated,
       is_public: event.repository.private === false,
     });
-    void startRun(deps, run);
+    // Fire and forget, with a terminal catch: `startRun` handles its own
+    // failures and marks the run, but its own failure path can throw too --
+    // the first gated review on the pi harness did, from inside the fold --
+    // and an unhandled rejection here takes the process down rather than the
+    // run, along with every other run it was following.
+    void startRun(deps, run).catch((error) =>
+      log.error("run.prepare.failed", { run_id: run.id, ...errorFields(error) }),
+    );
     return c.json({ ok: true, run_id: run.id }, 202);
   });
   return app;

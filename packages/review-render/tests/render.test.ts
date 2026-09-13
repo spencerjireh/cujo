@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { RenderFinding, RenderInput, RenderOptions } from "../src/render";
-import { commentBody, renderReviewBody, reviewComments, verdictOf } from "../src/render";
+import { commentBody, renderReviewBody, reviewComments, safeText, verdictOf } from "../src/render";
 
 const RUN = "https://cujo.example.com/runs/8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e";
 
@@ -549,6 +549,33 @@ describe("input a model got wrong", () => {
     // Rendering one anyway would be a claim nobody made.
     expect(bad({ coverage: "tests ran" })).not.toContain("### Coverage");
     expect(bad({ egress: {} })).not.toContain("Egress:");
+  });
+
+  it("survives coverage entries and egress notes that are not the shape they claim", () => {
+    // The shape that took the service down on orders-api #42: a `ran` entry
+    // with a note and no `check`, which reached `.replace` as `undefined`.
+    const over = {
+      coverage: {
+        ran: [{ note: "ran fine" }, null, "tests", { check: "tests", note: 7 }],
+        skipped: [{ check: "smoke" }, { reason: "no boot command" }],
+      },
+      egress: [
+        { host: "pypi.org", known: true, note: 3 },
+        { host: "x.io", known: false, note: null },
+      ],
+      findings: [{ severity: "warn", title: "kept", check: "probes", evidence: 12, detail: [] }],
+    };
+    expect(() => bad(over)).not.toThrow();
+    const body = bad(over);
+    expect(body).toContain("- tests");
+    expect(body).toContain("- smoke");
+    // The note without a check renders nowhere but the raw machine block.
+    expect(body).not.toContain("— ran fine");
+    expect(body).toContain("kept");
+  });
+
+  it("safeText renders anything that is not text as nothing", () => {
+    for (const value of [undefined, null, 7, ["a"], { a: 1 }]) expect(safeText(value)).toBe("");
   });
 
   it("skips a finding that is not an object without losing the rest", () => {
