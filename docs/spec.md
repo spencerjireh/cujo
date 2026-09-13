@@ -749,9 +749,11 @@ every rule here fires on a sensor reporting *false*.
 
 #### `truncated` — where the evidence was cut
 
-Six caps bound what a report can cost: `TAIL_CHARS` on each output tail,
+Seven caps bound what a report can cost: `TAIL_CHARS` on each output tail,
 `MAX_FILES_READ` on `files_read` (a sensitive read is never dropped),
-`MAX_SNAPSHOT_FILES` on each filesystem walk, `HASH_MAX_BYTES` on the file a
+`MAX_FS_CHANGES` on the benign rows of `fs_changes` (a sensitive or
+outside-workspace row is never dropped, and the `derived` flags read the full
+list before the cut, decision 146), `MAX_SNAPSHOT_FILES` on each filesystem walk, `HASH_MAX_BYTES` on the file a
 digest will be taken over, and the JSONL parser itself. `truncated` carries one
 boolean per cap, because a list that was cut is not a list that was empty — and
 because a comparison that was never made must not read like one that came back
@@ -875,10 +877,13 @@ The rules run twice. The rubric tells the agent to apply them, and
 `secret_probe` and `derived` blocks at the top level and inside `runs[]`) and
 derives one `critical` finding per rule per check, with `source: "hard_rule"`.
 A required check (`tests`, `probes`, `smoke`) whose sub-agent thread has not
-returned a report by `turn.done` adds a `warn` finding of its own ("the tests
-check returned no report"): the parent ran it inline, skipped it, or the
-thread failed, and either way the rules had no report to read (seen on the first real
-review, where the model delegated only `smoke`). These findings head the run's
+returned a report by `turn.done`, and any other check whose thread was
+spawned and ended without one (`detonation`, decision 146), adds a `warn`
+finding of its own ("the tests check returned no report"): the parent ran it
+inline, skipped it, or the thread failed, and either way the rules had no
+report to read (seen on the first real review, where the model delegated only
+`smoke`, and on every successful install of 2026-09-13, whose report was too
+large for the model to hand back). These findings head the run's
 `findings` list; the agent's own findings,
 passed as `findings[]` on the review tool call with `source: "agent"`, follow,
 minus any that repeats a hard-rule finding's check and title. If the agent

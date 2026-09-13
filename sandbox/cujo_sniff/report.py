@@ -21,6 +21,7 @@ from cujo_sniff.paths import display_path
 from cujo_sniff.policy import (
     KNOWN_INDEX_HOSTS,
     MAX_FILES_READ,
+    MAX_FS_CHANGES,
     decoy_spellings,
     is_decoy,
     is_noise_read,
@@ -129,6 +130,20 @@ def build_sensor_block(
         e["host"] = scrub(e["host"])
     unknown = any(not e["known"] for e in egress)
     is_install = check == "detonation"
+    # The rows the rules read stay whatever their number; the benign ones are
+    # bounded. The derived flags below read the full list, so a cut here can
+    # hide a path and never a signal (decision 146).
+    kept_changes: list[dict[str, Any]] = []
+    benign_kept = 0
+    dropped_changes = 0
+    for change in fs_changes:
+        if change["sensitive"] or not change["in_workspace"]:
+            kept_changes.append(change)
+        elif benign_kept < MAX_FS_CHANGES:
+            kept_changes.append(change)
+            benign_kept += 1
+        else:
+            dropped_changes += 1
     # Said as what it is. The audited command holds `CUJO_AUDIT_LOG` and can
     # append this row itself, so an armed hook and a command claiming one look
     # identical from here -- as they do for every other sensor, all of which
@@ -138,7 +153,7 @@ def build_sensor_block(
     return {
         "egress": egress,
         "files_read": files_read,
-        "fs_changes": fs_changes,
+        "fs_changes": kept_changes,
         "subprocesses": subprocesses,
         "secret_probe": {
             "decoy_read": decoy_read,
@@ -149,7 +164,11 @@ def build_sensor_block(
             "decoy_in_egress": None,
         },
         "sensors": {**sensors, "audit": health(audit_armed, audit_detail)},
-        "truncated": {**truncated, "files_read": dropped_reads > 0},
+        "truncated": {
+            **truncated,
+            "files_read": dropped_reads > 0,
+            "fs_changes": dropped_changes > 0,
+        },
         "derived": {
             "egress_to_unknown_host": unknown,
             "wrote_outside_workspace": any(not c["in_workspace"] for c in fs_changes),

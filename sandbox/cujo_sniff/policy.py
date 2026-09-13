@@ -28,6 +28,11 @@ DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
 MAX_SCRIPT_CHARS = 8000
 MAX_FILES_READ = 200
+# Benign in-workspace rows of `fs_changes` a report keeps. An install writes
+# every file of a fresh environment and a suite writes its caches; a report
+# that listed them all ran past what a model can hand back (decision 146).
+# Every sensitive or outside-workspace row is kept whatever the count.
+MAX_FS_CHANGES = 200
 MAX_SNAPSHOT_FILES = 200_000
 INTERPRETER_NAMES = frozenset(
     {
