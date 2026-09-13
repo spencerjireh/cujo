@@ -171,6 +171,20 @@ subsequent deliveries (`synchronize`, `ready_for_review`). This is by design:
 the label is a filter on future deliveries, not a retroactive cancellation of
 in-flight runs.
 
+**A push waits out a window before its run starts** (decision 144). A
+`synchronize` claims its run row at the delivery like any other event — that
+is what makes a redelivery a no-op — and answers 202 at once, but the start
+is held for `CUJO_PUSH_DEBOUNCE_MS` (one minute by default; `0` starts every
+push at once), logged as `webhook.debounced`. A newer push on the same pull
+request inside the window drops the older pending start, and the run that
+does start supersedes the rows the dropped ones left, so a burst of pushes is
+one run on the last head rather than one run per push, each cancelled by the
+next after it had spent its setup. The reaction and the check run land at the
+start, not the delivery, so a burst shows one eye on its last head. An
+`opened` or `ready_for_review` starts at once. On shutdown, pending starts
+fire at once: a row left `running` with no turn is an error on the next boot,
+and one that got its turn is followed there.
+
 For a `pull_request` event the `apps/cujo` webhook module:
 
 1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
@@ -369,7 +383,10 @@ no handle with which to restart one. The second thread carries the same check
 name, so `CheckState.attempts` says which attempt a thread was, the digest reads
 the *later* thread for that check's row, and the run's duration spans both. A
 check whose second attempt also failed is still `check_missing`, because that
-rule keys on which titles produced a report.
+rule keys on which titles produced a report. **A report is an answer, whatever
+it says** (decision 143): a sub-agent whose report records a timed-out
+command or a fetch that never finished has answered with a coverage gap, and
+is not respawned — only a sub-agent that returned no report is.
 
 **The parent's install is wrapped in `sniff.py run --check setup` for the lock,
 not for a report.** The proxy and decoy logs are shared and sliced by offset, so
@@ -1085,7 +1102,8 @@ order.
 | `model`, `rubric_sha256` | What produced this verdict: the configured model, and a SHA-256 of the instructions a session would be given — `agent/SKILL.md` after the tarball URL is substituted, so two deploys pointing at different sensor code hash differently. **Both describe the process that claimed the run, not necessarily the session that reviewed it**: the spec is built once at boot and a session is created once per pull request and then kept (decision 16), so a run claimed on an older session carries today's values. A diff run is stamped with the diff spec's pair once its mode resolves, and its session is fresh, so for it the two do describe the session. Unset for a run claimed before the columns existed. Served on both planes: a model name and a digest of a public rubric name no person and authorize nothing. |
 | `mode` | Which review this run is (decision 135): `sandbox` or `diff`. Written by `startRun` once the pull request has been read; a claimed row reads `sandbox` until then, and so does a row from before the column existed, which is the only review there was. Served on both planes, the list included: a `clean` that read the diff and a `clean` that ran it are different claims and a list row shows only the status. |
 | `budget_tokens` | The turn's token budget as stamped at start (decision 132), or unset for a sandbox run and for a run from before the column. Read beside `usage` on the run page. Served on the detail only, with the rest of the cost. |
-| `usage` | What the run cost, summed over every `turn.done` on it, from the harness's `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus its estimated cost in USD when the harness reports one above zero. Cujo keeps no price table — the number is the harness's, or it is absent. Each check carries its own token total beside it, summed from its thread's messages, which is the only way to attribute anything per check. **The key is always present**, and is `null` for a run whose projection was stored before the field existed — null and not zeros, because such a run did not cost nothing, it has no record. The per-check `usage` and `timings` are null on the same terms. |
+| `usage` | What the run cost, summed over every `turn.done` on it, from the harness's `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus its estimated cost in USD when the harness reports one above zero. Cujo keeps no price table — the number is the harness's, or it is absent. Each check carries its own token total beside it, summed from its thread's messages, which is the only way to attribute anything per check. **The key is always present**, and is `null` for a run whose projection was stored before the field existed — null and not zeros, because such a run did not cost nothing, it has no record. The per-check `usage` and `timings` are null on the same terms. `messages` on the run total is every `model.message` on every thread, counted by the fold as they arrive (decision 141), since turn metrics carry no count; the per-check figure carries reasoning tokens when a message reports them. |
+| `ledger` | Where the tokens went (decision 141): `threads[]`, one row per thread in the order they appeared — the parent first, titled `main`, then each sub-agent thread by its title with its `attempt` number — each summed from the `usage` on that thread's own `model.message` events (`messages`, input, output, cache read, cache write, `reasoningTokens` null until a message reports one) plus `toolResultBytes`, the size of every tool result the thread received; and `largestToolResults[]`, the ten largest tool results on the run by bytes, largest first, each as the receiving thread's title, the tool name, the byte count and whether it was an error. Bytes and not tokens, because the harness has no per-call token count and a result's size is what the next message's input carries. Never a thread id and never a result's content: the fold keys its rows by id in a map it does not store, and measures a result rather than copying it. **The key is always present**, `null` for a projection stored before the field existed, on the same terms as `usage`. |
 | `setup` | Where the run went before the first check existed: `turnCreatedAt` (the run's first `turn.created`), `sandboxCreatedAt` (always null since decision 115; `sandboxProvisionedMs` beside it is what the sandbox's own answer reports), `agentStartedAt` (the parent's first `model.message` on `main`), `firstCheckAt` (the first `thread.created` titled for a check), `messages` (the parent's own messages before it, which is the round-trip count setup cost), and `ms`, the span from `agentStartedAt` to `firstCheckAt`. Four stamps and not one duration, because two of the useful spans end outside this object — the claim is `created_at`, and a reader subtracts. `sandboxCreatedAt` is null on a second run for one pull request: the event is session-scoped and a fold sees only its own run's turns, so null says the sandbox was already there, which is why a re-run is faster. `ms` is omitted while either end is missing. **The key is always present**, `null` for a projection stored before the field existed, on the same terms as `usage`. |
 | `created_at`, `updated_at` | Timestamps. |
 
