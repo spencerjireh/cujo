@@ -77,7 +77,8 @@
         "snapshot": false,
         "hashes": false,
         "sensor_logs": false,
-        "script_content": false
+        "script_content": false,
+        "fs_changes": false
       },
       "derived": {
         "egress_to_unknown_host": true,
@@ -113,7 +114,8 @@
         "snapshot": false,
         "hashes": true,
         "sensor_logs": false,
-        "script_content": false
+        "script_content": false,
+        "fs_changes": false
       },
       "derived": {
         "egress_to_unknown_host": false,
@@ -136,7 +138,8 @@
     "snapshot": false,
     "hashes": true,
     "sensor_logs": false,
-    "script_content": false
+    "script_content": false,
+    "fs_changes": false
   },
   "derived": {
     "egress_to_unknown_host": true,

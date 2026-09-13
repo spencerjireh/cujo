@@ -110,6 +110,20 @@ describe("missingCheckFindings says why, not only that", () => {
     expect(f?.evidence).toContain("ended error");
   });
 
+  it("owes a report from every spawned check, detonation included (decision 146)", () => {
+    // A detonation thread that ended without a parseable report was no
+    // finding at all: only the three suite checks were required. The
+    // thread exists, so the gap is real and says so.
+    const found = missingCheckFindings([
+      check("tests", { runs: [] }),
+      check("probes", { runs: [] }),
+      check("smoke", { runs: [] }),
+      { ...check("detonation", null), status: "done", finishReason: "length" },
+    ]);
+    expect(found.map((f) => [f.check, f.rule])).toEqual([["detonation", "check_missing"]]);
+    expect(found[0]?.evidence).toContain("output limit");
+  });
+
   it("keeps the old wording when no thread was ever created", () => {
     // Pass a tests thread so suite checks are applicable (decision 87),
     // then ask about probes which has no thread.

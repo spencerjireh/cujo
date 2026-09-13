@@ -153,6 +153,7 @@ reader can tell a live rule from a recorded one before opening it.
 143. [A timeout is an answer, not a failure](#143-a-timeout-is-an-answer-not-a-failure)
 144. [A push burst is one run](#144-a-push-burst-is-one-run)
 145. [A pinned specifier is detonated once per instance per week](#145-a-pinned-specifier-is-detonated-once-per-instance-per-week)
+146. [A report lists what the rules read, and a spawned check owes one](#146-a-report-lists-what-the-rules-read-and-a-spawned-check-owes-one)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7382,3 +7383,38 @@ hits and is the fallback if the index-host rule proves too strict; **caching
 failed installs**, which are a coverage gap and not a measurement of the
 thing; **a cache the sub-agent queries itself**, which would put a store
 read inside the box.
+
+## 146. A report lists what the rules read, and a spawned check owes one
+
+Every successful detonation on the pi harness ended with `report: null`. The
+sub-agent had done its work — the install ran, the sensors saw it, `sniff.py
+report` printed the envelope — and then copied the envelope into its final
+message as decision 112 asks, and stopped at the model's output limit with
+the JSON half written: 16,837 output tokens on orders-api #46, 26,209 on #42.
+The envelope was that large because `fs_changes` listed every file a fresh
+environment plus a pip install creates, a few thousand rows, uncapped. And
+nothing said so: `check_missing` was owed only by `tests`, `probes` and
+`smoke`, so a detonation with no report was a run that read `clean` on the
+strength of the parent's own sentence about it, with the malice rules —
+`decoy_read`, `egress_to_unknown_host` — never having read a thing. The
+detonation cache (145) could not fill either; there was nothing to write.
+
+Two rules. **`fs_changes` keeps what the rules read.** Every sensitive or
+outside-workspace row stays whatever the count, the `derived` flags are
+computed over the full list before the cut, and the benign in-workspace rows
+are bounded at `MAX_FS_CHANGES`, the same 200 as `files_read`, with
+`truncated.fs_changes` saying a cut happened. A cut can hide a path, never a
+signal. **A spawned check owes a report.** `check_missing` fires for any
+check thread that was created and ended without a report the fold could
+parse, `detonation` included, with the evidence line naming the output
+limit when that is what cut it. The three suite checks are owed whether or
+not they were spawned, as before.
+
+Accepted: a reader of a clean install sees two hundred of its files and a
+flag, not all of them; the board's table says so. Rejected: **raising the
+model's output limit**, which moves the cliff and keeps the cost of copying
+thousands of rows through a model on every install; **reading the report
+off the `sniff.py report` tool result instead of the model's message**,
+which is the right shape and a larger change — the envelope would stop
+crossing through the model at all — and belongs with the per-check rubric in
+the next step, where the output tokens it saves can be measured.

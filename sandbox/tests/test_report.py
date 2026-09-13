@@ -209,3 +209,31 @@ def test_merge_reports_sensor_logs_false_when_all_clean(home_dir: Path) -> None:
     b = _block(home_dir)
     merged = merge_reports([a, b])
     assert merged["truncated"]["sensor_logs"] is False
+
+
+def test_benign_fs_changes_are_bounded_and_the_rules_still_see_everything(home_dir: Path) -> None:
+    """An install writes a whole environment; the report keeps the rows the
+    rules read and a bounded sample of the rest (decision 146)."""
+    benign = [
+        {
+            "path": f"env/lib/site-packages/pkg/file{i}.py",
+            "type": "created",
+            "in_workspace": True,
+            "sensitive": False,
+        }
+        for i in range(1000)
+    ]
+    outside = {"path": "/etc/hosts", "type": "modified", "in_workspace": False, "sensitive": False}
+    secret = {"path": "~/.ssh/id_rsa", "type": "created", "in_workspace": False, "sensitive": True}
+    block = _block(home_dir, fs_changes=[*benign[:600], outside, *benign[600:], secret])
+    kept = block["fs_changes"]
+    assert len(kept) == 200 + 2
+    assert outside in kept
+    assert secret in kept
+    assert block["truncated"]["fs_changes"] is True
+    assert block["derived"]["wrote_outside_workspace"] is True
+    assert block["derived"]["wrote_sensitive"] is True
+    # A short list is untouched and says so.
+    small = _block(home_dir, fs_changes=benign[:3])
+    assert small["fs_changes"] == benign[:3]
+    assert small["truncated"]["fs_changes"] is False
