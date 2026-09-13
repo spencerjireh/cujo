@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { SessionEvent, TurnInputItem } from "@cujo/harness-contract";
+import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
 import type { Harness, StreamEvent } from "../../src/clients/harness";
 import { emptyProjection } from "../../src/review/fold";
@@ -1148,5 +1151,113 @@ describe("Runner.supersede reports whether the turn is confirmed stopped", () =>
     store.runs.updateRun(r.id, { turnIds: ["t1"] });
     expect(await runner.supersede(r.id)).toBe(true);
     expect(await runner.supersede(r.id)).toBe(false);
+  });
+});
+
+describe("Runner writes a finished detonation through to the cache (decision 145)", () => {
+  const EXAMPLE = JSON.parse(
+    readFileSync(
+      join(import.meta.dirname, "../../../../docs/contracts/report.example.json"),
+      "utf8",
+    ),
+  );
+  /** A detonation report with one cacheable entry and one range that is not. */
+  const detonationReport = () => {
+    const { argv: _argv, exit: _exit, ...sensors } = structuredClone(EXAMPLE.runs[0]);
+    const entry = (dependency: string) => ({
+      ...sensors,
+      dependency,
+      source: "pypi",
+      install_ok: true,
+      window_exclusive: true,
+      egress: [{ host: "pypi.org", port: 443, known: true }],
+      secret_probe: { decoy_read: false, decoy_in_egress: false },
+      derived: {
+        egress_to_unknown_host: false,
+        wrote_outside_workspace: false,
+        wrote_sensitive: false,
+        spawned_subprocess: false,
+      },
+    });
+    // A clean envelope: the example's own is adversarial by design.
+    return {
+      schema_version: 1,
+      check: "detonation",
+      runs: [entry("humanize==4.9.0"), entry("rich>=13")],
+      derived: {
+        egress_to_unknown_host: false,
+        wrote_outside_workspace: false,
+        wrote_sensitive: false,
+        spawned_subprocess: false,
+      },
+      sensors: structuredClone(EXAMPLE.runs[0].sensors),
+      truncated: structuredClone(EXAMPLE.truncated),
+    };
+  };
+  const detonationDone = (): Ev[] => {
+    const [created, done] = checkReported("detonation");
+    const output = (done as { state: { output: { content: string } } }).state.output;
+    output.content = `\`\`\`json\n${JSON.stringify(detonationReport())}\n\`\`\``;
+    return [created as Ev, done as Ev];
+  };
+
+  function build(put: (entry: unknown) => void, store = new Store(":memory:")) {
+    const { run: r } = store.runs.createRun(claim());
+    const events: Ev[] = [
+      turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+      ...detonationDone(),
+      reviewCall("c1"),
+      reviewPosted("c1"),
+      turnDone("t1"),
+    ];
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => streamOf(events),
+        listEvents: async () => events.map((event) => ({ turnId: "t1", event })),
+        listTurns: async () => [],
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      createLogger({ service: "cujo", sink: () => {} }),
+      null,
+      { put },
+    );
+    return { store, r, runner };
+  }
+
+  it("writes the cacheable entries once, keyed on the normalised specifier", async () => {
+    const written: unknown[] = [];
+    const { store, r, runner } = build((entry) => written.push(entry));
+    await runner.start(r, "review it");
+    expect(store.runs.getProjection(r.id)?.error).toBeNull();
+    expect(store.runs.getRun(r.id)?.status).toBe("clean");
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatchObject({
+      source: "pypi",
+      specifier: "humanize==4.9.0",
+      runId: r.id,
+      createdAt: "2026-08-27T00:00:00Z",
+    });
+  });
+
+  it("writes nothing again when a later process rehydrates the finished run", async () => {
+    const written: unknown[] = [];
+    const first = build((entry) => written.push(entry));
+    await first.runner.start(first.r, "review it");
+    // A second runner over the same store sees the check as already finished.
+    const again = build((entry) => written.push(entry), first.store);
+    const run = first.store.runs.getRun(first.r.id);
+    if (!run) throw new Error("run vanished");
+    await again.runner.rehydrate(run);
+    expect(written).toHaveLength(1);
+  });
+
+  it("does not fail the fold when the cache write throws", async () => {
+    const { store, r, runner } = build(() => {
+      throw new Error("disk full");
+    });
+    await runner.start(r, "review it");
+    expect(store.runs.getRun(r.id)?.status).toBe("clean");
   });
 });
