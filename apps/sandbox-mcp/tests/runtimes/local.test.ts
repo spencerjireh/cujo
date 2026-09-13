@@ -12,9 +12,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
-import type { Docker, DockerResult } from "../src/docker";
-import { SandboxError } from "../src/runtime";
-import { BASELINE_HOSTS, LocalRuntime } from "../src/runtimes/local";
+import type { Docker, DockerResult } from "../../src/docker";
+import { SandboxError } from "../../src/runtime";
+import { BASELINE_HOSTS, LocalRuntime } from "../../src/runtimes/local";
 
 const ok: DockerResult = { stdout: "id\n", stderr: "", exitCode: 0, timedOut: false };
 const GATEWAY_IP = "10.9.0.1";
