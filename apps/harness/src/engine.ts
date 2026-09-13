@@ -85,7 +85,8 @@ interface Live {
   heldToolCallId: string | null;
   oneShotAllow: { toolName: string; args: unknown } | null;
   iterations: number;
-  limitHit: boolean;
+  /** Why the harness stopped the turn itself, or null: the message of the `error` state. */
+  stopError: string | null;
   metrics: MetricsAccumulator;
   sourceEvents: WeakMap<AssistantMessage, string>;
   lastMainMessage: ModelMessageEvent | null;
@@ -326,7 +327,7 @@ export class Engine {
       heldToolCallId: null,
       oneShotAllow,
       iterations: 0,
-      limitHit: false,
+      stopError: null,
       metrics: new MetricsAccumulator(),
       sourceEvents: new WeakMap<AssistantMessage, string>(),
       lastMainMessage: null,
@@ -391,9 +392,20 @@ export class Engine {
     };
     agent.shouldStopAfterTurn = async () => {
       live.iterations += 1;
-      if (live.iterations < live.spec.config.iterationLimit) return false;
-      live.limitHit = true;
-      return true;
+      const { iterationLimit, tokenBudget } = live.spec.config;
+      if (live.iterations >= iterationLimit) {
+        live.stopError = `iteration limit ${iterationLimit} reached`;
+        return true;
+      }
+      // Billed tokens so far, the last message included: pi fires `message_end`
+      // before it asks, so the accumulator is current here. One message can
+      // overrun the budget; none can follow it.
+      const spent = live.metrics.snapshot().totalTokens ?? 0;
+      if (tokenBudget !== undefined && spent > tokenBudget) {
+        live.stopError = `token budget exhausted: ${spent} of ${tokenBudget}`;
+        return true;
+      }
+      return false;
     };
   }
 
@@ -661,11 +673,11 @@ export class Engine {
         message: last.errorMessage ?? "model error",
         metrics: live.metrics.snapshot(),
       };
-    } else if (live.limitHit) {
+    } else if (live.stopError) {
       state = {
         status: "error",
         completedAt: now(),
-        message: `iteration limit ${live.spec.config.iterationLimit} reached`,
+        message: live.stopError,
         metrics: live.metrics.snapshot(),
       };
     } else {
