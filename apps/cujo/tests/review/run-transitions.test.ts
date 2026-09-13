@@ -14,7 +14,7 @@ import type { Harness, SessionEvent, StreamEvent } from "../../src/clients/harne
 import { Runner } from "../../src/review/runner.service";
 import { Store } from "../../src/store";
 
-// `SessionEvent` through the client wrapper rather than `TrueForgeApi`
+// `SessionEvent` through the client wrapper rather than the contract package
 // direct: `clients/harness.ts` is the only module that should track the
 // contract's shapes, and it already re-exports the ones a test needs.
 type Ev = SessionEvent;
@@ -236,7 +236,7 @@ describe("check.started and check.finished", () => {
 });
 
 describe("a turn start is announced once", () => {
-  it("emits run.turn.started only after TrueForge returns the turn id", async () => {
+  it("emits run.turn.started only after the harness returns the turn id", async () => {
     // startRun used to announce it too, before the turn existed and without a
     // turn_id — two events per start, and on a failure a run.turn.started
     // immediately followed by run.turn.start.failed, describing a turn that
@@ -429,7 +429,7 @@ describe("the paths that were silent", () => {
 });
 
 /**
- * The heal is the one path here that answers a *TrueForge* approval on its own
+ * The heal is the one path here that answers a *harness* approval on its own
  * initiative, so what it says about itself is the only record that it did.
  * These assert the lines, not the behaviour — `runner.service.test.ts` owns
  * the behaviour and takes no sink.

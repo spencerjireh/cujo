@@ -755,7 +755,7 @@ describe("the webhook logs every branch it takes", () => {
   });
 
   it("answers 502 and says why when the session cannot be created", async () => {
-    // Found by driving the real stack: TrueForge refused the model, the
+    // Found by driving the real stack: the harness refused the model, the
     // exception escaped the handler, and the only record was a stack trace on
     // stderr carrying the whole upstream response body — unstructured, and the
     // one thing the standard says never to put in a message.

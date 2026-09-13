@@ -127,7 +127,7 @@ export async function startRun(
         await deps.runner.supersede(old.id);
       }
     }
-    // No line here: `Runner.start` emits run.turn.started once TrueForge has
+    // No line here: `Runner.start` emits run.turn.started once the harness has
     // returned the turn id, which is both the honest moment and the one that
     // can carry turn_id. Announcing it here as well produced two events per
     // start — and, when the start failed, a run.turn.started immediately

@@ -448,7 +448,7 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     if (!sessionId) {
       // Guarded because this is the one call here that reaches another
       // service. Unguarded it escaped the handler, and the only record was a
-      // stack trace on stderr carrying the whole TrueForge response body:
+      // stack trace on stderr carrying the whole harness response body:
       // unstructured, unqueryable, and the one thing the standard says never
       // to put in a message. A 502 also tells the truth a 500 did not — the
       // failure is upstream, and a redelivery is worth trying.
