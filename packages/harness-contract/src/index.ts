@@ -61,6 +61,13 @@ export const AgentSpecSchema = z
       .object({
         /** Assistant messages per turn before the harness ends it as an error. */
         iterationLimit: z.number().int().positive(),
+        /**
+         * Billed tokens per turn before the harness ends it as an error.
+         * Summed over every assistant message of the turn, children included,
+         * so the context is counted again on every message; checked after each
+         * assistant message, so one message can overrun it (decision 132).
+         */
+        tokenBudget: z.number().int().positive().optional(),
         compaction: z.object({ enabled: z.boolean() }).strict(),
       })
       .strict(),
