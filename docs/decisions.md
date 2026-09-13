@@ -18,12 +18,12 @@ reader can tell a live rule from a recorded one before opening it.
 8. [A free-tier model provider for inference; hosted Daytona for the sandbox](#8-a-free-tier-model-provider-for-inference-hosted-daytona-for-the-sandbox)
 9. [Code senses, the agent judges, hard rules guard the dangerous cases](#9-code-senses-the-agent-judges-hard-rules-guard-the-dangerous-cases)
 10. [Sensors: language-agnostic base, Python audit hook on top, TLS later](#10-sensors-language-agnostic-base-python-audit-hook-on-top-tls-later)
-11. [Cujo reviews the whole PR by running it; detonation is one check](#11-cujo-reviews-the-whole-pr-by-running-it-detonation-is-one-check)
+11. [Cujo reviews the whole PR by running it; detonation is one check](#11-cujo-reviews-the-whole-pr-by-running-it-detonation-is-one-check) — narrowed by 133
 12. [Findings with severity, not a single verdict](#12-findings-with-severity-not-a-single-verdict)
-13. [Agent infers repo commands; `.cujo.yml` overrides](#13-agent-infers-repo-commands-cujoyml-overrides)
+13. [Agent infers repo commands; `.cujo.yml` overrides](#13-agent-infers-repo-commands-cujoyml-overrides) — extended by 135
 14. [One subagent per check](#14-one-subagent-per-check) — refined by 124
 15. [No tests means one `warn` and stop](#15-no-tests-means-one-warn-and-stop) — refined by 87
-16. [One session per PR; `apps/cujo` owns idempotency](#16-one-session-per-pr-appscujo-owns-idempotency) — refined by 47
+16. [One session per PR; `apps/cujo` owns idempotency](#16-one-session-per-pr-appscujo-owns-idempotency) — refined by 47, excepted by 137
 17. [Cujo owns the operator UI; TrueForge is a dependency, not a destination](#17-cujo-owns-the-operator-ui-trueforge-is-a-dependency-not-a-destination) — superseded by 27, and refined by 123
 18. [`apps/cujo` is a projection of TrueForge, not a source of truth](#18-appscujo-is-a-projection-of-trueforge-not-a-source-of-truth) — refined by 123
 19. [The sensor script reaches the sandbox by public URL, not by upload](#19-the-sensor-script-reaches-the-sandbox-by-public-url-not-by-upload) — superseded by 46
@@ -78,7 +78,7 @@ reader can tell a live rule from a recorded one before opening it.
 68. [Nothing in the chamber exists that is not a measurement](#68-nothing-in-the-chamber-exists-that-is-not-a-measurement) — amended by 80
 69. [Losing the stream is not a verdict; only the watchdog ends a turn](#69-losing-the-stream-is-not-a-verdict-only-the-watchdog-ends-a-turn) — refined by 124
 70. [Probe scripts are captured by the sensor, not self-reported by the agent](#70-probe-scripts-are-captured-by-the-sensor-not-self-reported-by-the-agent)
-71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision)
+71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision) — extended by 134
 72. [A length cap is spent on the escaped text, not on the text](#72-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
 74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
@@ -140,6 +140,11 @@ reader can tell a live rule from a recorded one before opening it.
 130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once)
 131. [A sensed command refuses to open a second window](#131-a-sensed-command-refuses-to-open-a-second-window)
 132. [A token budget in the spec, enforced by the harness](#132-a-token-budget-in-the-spec-enforced-by-the-harness)
+133. [Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor](#133-cujo-is-a-diff-reviewer-that-can-execute-the-sandbox-is-a-tool-and-a-floor)
+134. [The diff review's package is prepared in code](#134-the-diff-reviews-package-is-prepared-in-code)
+135. [Review mode: deploy default, `.cujo.yml` from base, floors the code enforces](#135-review-mode-deploy-default-cujoyml-from-base-floors-the-code-enforces)
+136. [A diff finding is at most `warn` and always advisory; a `critical` is a contradiction, not clamped](#136-a-diff-finding-is-at-most-warn-and-always-advisory-a-critical-is-a-contradiction-not-clamped)
+137. [A diff run gets its own harness session](#137-a-diff-run-gets-its-own-harness-session)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -261,6 +266,10 @@ the secret leave" — not required for the first working demo.
 
 ## 11. Cujo reviews the whole PR by running it; detonation is one check
 
+**Narrowed by 133.** Every pull request still gets a review; which one is its
+mode. The argument below is the sandbox review's, and it still holds for every
+pull request the floors send there.
+
 The argument for the sandbox — the PR asks you to run a stranger's code —
 applies to every line of a PR, not only a dependency's `setup.py`, and a review
 that cites execution evidence (a test that fails on head, a probe that
@@ -281,6 +290,9 @@ summary and inline comments. The bot never posts a formal APPROVE, so it can
 never satisfy branch protection and wave a bad merge through.
 
 ## 13. Agent infers repo commands; `.cujo.yml` overrides
+
+**Extended by 135.** `mode:` joins the keys, read from base like the rest, and
+by the service rather than the agent.
 
 No setup burden on the target repo: the agent reads `pyproject.toml`,
 `package.json`, `Makefile`, and CI workflows to pick install, test, boot, and
@@ -317,6 +329,9 @@ over falling back to probes and smoke (execution without a baseline) and over
 a diff-only review (which Qodo already provides).
 
 ## 16. One session per PR; `apps/cujo` owns idempotency
+
+**Excepted by 137.** A diff run gets a fresh session each time; the sandbox
+review keeps its per-PR session.
 
 **Refined by 47.** One session per pull request still holds for the review;
 conversation runs in a second session of its own.
@@ -3400,6 +3415,9 @@ field is nullable and optional in the Zod schema, so older reports that
 lack it pass validation unchanged (decision 62 passthrough).
 
 ## 71. The mechanical half of setup is one command, because none of it is a decision
+
+**Extended by 134.** The same principle, applied to the diff review's reading:
+what the model is handed is gathered by code on the trusted side.
 
 Rubric steps 2 through 4 were `git clone`, `git checkout`, `git worktree add`,
 and `cat .cujo.yml`, followed by however many reads it took to find a `test`
@@ -6843,3 +6861,149 @@ Rejected: **`maxTokens` per response**, which bounds one reply and not the
 turn. **`iterationLimit` alone**, which bounds messages and not context: a
 hundred small messages and twelve messages over a huge brief cost the same
 under it and nothing alike in tokens.
+
+## 133. Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor
+
+Decision 11 said every pull request gets the full run: tests, probes, smoke,
+detonation. That was the right claim for a product whose one idea was the
+sandbox, and it is the wrong shape for a reviewer somebody uses on their own
+repositories, where most pull requests are trusted, most have CI, and a
+fifteen-minute run to re-run a suite that already ran is a cost with no reader.
+
+Cujo is now a **diff reviewer that can execute**. The diff review is the
+default a repository may choose: it reads the pull request against the
+repository's own written standards on a cheap model, with no sandbox and a
+token budget, and posts one advisory review. The sandbox review is what it
+was, and it is where the rules send any pull request that needs running — a
+dependency change, a pull request nobody wrote — whatever the repository
+chose. Later slices make the sandbox a tool the reading reaches for (a probe
+to settle a claim the reading could not) rather than a separate review; this
+one gives the reading a path of its own.
+
+What does not change: the sandbox review's design, the hard rules, the gate,
+the trust boundary. A diff run is a run in which the bridge is never opened.
+
+Rejected: **the sandbox review with a "skip the checks" switch**, which would
+keep a fifteen-minute session, a sandbox spec and 150 iterations for a review
+that is one reading and one post. **A separate service**, since the diff review
+is the same webhook, the same run record, the same review tool and the same
+board; only the turn differs.
+
+## 134. The diff review's package is prepared in code
+
+Decision 71 made setup one command because none of it is a decision. The diff
+review's reading has the same shape: which files changed, what their hunks
+are, which of them fit under a cap and in what order, what the repository's
+standards files say, and what the last review on this pull request already
+said. None of that is judgment, and every other reviewer that does it well
+does it in code — ranking and compressing the diff, running static tools first,
+carrying repo memory — so that the model's whole spend is on the judgment.
+
+So `apps/cujo` prepares a **package** (Contract 11) on the trusted side and
+hands it to the model as the turn's one message. The model never lists files,
+never fetches a patch and never opens a standards file. Three consequences the
+design leans on: the cost of a review is bounded by the package's caps rather
+than by what the model decides to look at; the model's session needs no tool
+but the review tool, which is what makes decision 137's session safe; and what
+the model did not read is a list in the package rather than a thing it forgot,
+the way a sensor report says what it could not observe (decision 54).
+
+The standards files are `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` and
+`.github/copilot-instructions.md`, read at **base**: what a pull request may be
+held to is decided by the branch it targets, which is decision 13's argument
+for `.cujo.yml` and holds for the same reason. A read that fails ends the run
+rather than reviewing against nothing, since "no standards" and "GitHub did not
+answer" are different facts.
+
+Rejected: **giving the diff session a read tool**, which is the sandbox review's
+shape with a smaller box and the same unbounded spend. **Sending the whole diff
+and letting compaction cope**, which is what decision 129 does for the sandbox
+review and is wrong here: compaction summarises away exactly the hunks a
+finding would anchor to.
+
+## 135. Review mode: deploy default, `.cujo.yml` from base, floors the code enforces
+
+Which review a pull request gets is a setting with two layers and two floors,
+resolved in `startRun` once the pull request has been read and recorded on the
+run as `mode`.
+
+The layers: `CUJO_REVIEW_MODE` is the instance's answer when a repository gives
+none, and it defaults to `sandbox` so an existing deploy reviews exactly as it
+did; `mode:` in `.cujo.yml` overrides it. The file is read at the pull
+request's **base SHA** — a commit and not the default branch, unlike
+`discord_guild`, because a push to the target branch between the webhook and
+this read must not change the answer, and policy is what the pull request was
+opened against (decision 13). It is matched by the same strict line rule, so a
+typo is no declaration and never costs a review.
+
+The floors override both layers and are code: a changed dependency manifest is
+`sandbox`, and a Bot author is `sandbox`. The declaration is text a repository
+owner controls, which is enough to let it pick the cheaper review; it is not
+enough to let it skip the one review that watches an install, because the pull
+request that adds a hostile dependency is exactly the one whose owner may have
+been talked into `diff`, and a pull request nobody wrote (Dependabot, Renovate,
+a coding agent) is one nobody read. The floors do not read the pull request
+and cannot be argued with, which is decision 9's split applied to entry.
+
+`mode` is published on both planes, the list included: a `clean` that read the
+diff and a `clean` that ran it are different claims, and a list row shows only
+the status. The run page, the record row and the Discord card each say so in
+their own place. No new run status: `clean` and `error` are what a diff run
+reaches, and `unproven` is never reached, because the fold reads a diff run
+under a ladder with no rung for evidence that was never expected.
+
+Rejected: **a per-run `.cujo.yml` read by the agent in the sandbox**, since
+there is no sandbox on the path that needs the answer. **Letting the model
+decide**, which a later slice does within these floors and never past them.
+**Reading the default branch**, for the race above.
+
+## 136. A diff finding is at most `warn` and always advisory; a `critical` is a contradiction, not clamped
+
+A diff review is opinion. A `critical` blocks a merge, and a block needs
+evidence a reader cannot produce: a test that passes on base and fails on head,
+an endpoint that errors, an install that phoned home. The sandbox review
+produces those (decision 9); the diff review cannot, so its rubric offers
+`info` and `warn` only and permits `post_advisory_review` alone. Where reading
+convinces the model the change is broken, that is a `warn` whose `detail` says
+what would prove it — and the later probe slice is what proves it.
+
+The fold enforces the rubric the one way it can, after the fact. A
+`post_blocking_review` or `post_gated_review` from a diff run, or a `critical`
+on its advisory, ends the run `error` naming the tool or the finding. Not
+clamped to `warn` on the board and called `clean`: the review is already on the
+pull request under the bot's name by the time the fold sees it, and decision 74
+says the board must not describe a finding differently from the pull request.
+An `error` row for a review that is fine on the pull request is the cost, and
+it is the same cost the sandbox ladder already pays for the same mistake
+(Contract 3), so the two reviews agree on what disobedience looks like.
+
+Rejected: **clamping**, for decision 74. **Gating the two other tools on the
+diff session**, which would hold a call the rubric forbids for a human to
+answer, and there is nothing to answer.
+
+## 137. A diff run gets its own harness session
+
+Decision 16 keys a session to a pull request so the agent can see what it said
+before, and pins a session to the spec it was created with. The diff review
+cannot share that session: its spec has no sandbox server, a different rubric
+and a token budget, and a session is one spec. So each diff run creates a
+fresh session on the diff spec, records it on the run before the turn starts,
+and its memory of the pull request is the previous review's findings in the
+package (Contract 11) rather than the transcript.
+
+That is the better memory. The outage findings tied a session holding four
+turns to checks thirty times slower than the same checks on a fresh one, and a
+reader's brief that grows with every push is a brief whose cost grows with
+every push. Three hundred tokens of "what was said last time" does what the
+transcript did.
+
+Accepted: the per-PR session row is still claimed at the webhook, before the
+pull request is read, because `session_id` is not nullable and the mode is not
+known yet. On a repository that only ever reads, that is one idle harness
+session per pull request — a row, not a pi session, since the harness opens
+nothing until a turn. Moving the claim after the read is a larger change to
+the webhook path than this slice wants, and the row costs nothing.
+
+Rejected: **one diff session per pull request**, which is decision 16's
+mechanism with the same weight problem and a second table. **Reusing the
+sandbox session with the sandbox spec**, which hands a reading session a box.

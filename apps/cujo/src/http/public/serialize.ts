@@ -75,6 +75,11 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   // `sessionId` above is published on.
   "model",
   "rubricSha256",
+  // Which review this was and what it was allowed to spend (decisions 132,
+  // 135). A mode is a word about the run, and a budget is a number the
+  // usage below is read against; neither names a person.
+  "mode",
+  "budgetTokens",
   // What the run cost and where its time went. The per-check half rides inside
   // `checks`, so only the run total is named here.
   "usage",
@@ -138,6 +143,8 @@ export const PUBLIC_RUN_FIELDS = [
   "delivery_id",
   "model",
   "rubric_sha256",
+  "mode",
+  "budget_tokens",
   "usage",
   "setup",
 ] as const;
@@ -184,6 +191,10 @@ export const PUBLIC_SUMMARY_FIELDS = [
   // The title alone. A list row names the pull request; the author belongs to
   // the page that is about one run, not to a column repeated down a table.
   "pr_title",
+  // A `clean` diff run and a `clean` sandbox run are different claims — one
+  // read the diff, the other ran it — and a list shows only the status. This
+  // is the one field that tells them apart on a row (decision 135).
+  "mode",
   // What the checks reported, reduced (decision 65). A row carrying only a
   // status says a run was blocked; this says which check said so and how long
   // it watched, which is the difference between a verdict and evidence. Its
@@ -306,6 +317,8 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     delivery_id: run.deliveryId,
     model: run.model,
     rubric_sha256: run.rubricSha256,
+    mode: run.mode,
+    budget_tokens: run.budgetTokens,
     // `?? null` for the same reason `publicCheck` has it, and it is not
     // decoration: a projection stored before this field existed deserializes
     // without it, `JSON.stringify` drops an `undefined`, and the key this
@@ -339,6 +352,7 @@ export function serializePublicSummary(row: { run: RunRecord; digest: RunDigest 
     created_at: run.createdAt,
     updated_at: run.updatedAt,
     pr_title: run.prTitle,
+    mode: run.mode,
     // One nested field and not three loose ones. `checks` at the top level
     // would collide with the detail route's `checks`, which is the same word
     // for a different shape — the array of what each check said, against this

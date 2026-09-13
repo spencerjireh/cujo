@@ -45,6 +45,8 @@ const EVERY_RUN_FIELD: Record<keyof RunRecord, true> = {
   deliveryId: true,
   model: true,
   rubricSha256: true,
+  mode: true,
+  budgetTokens: true,
   prTitle: true,
   prAuthorLogin: true,
   prAuthorId: true,
@@ -177,6 +179,8 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
     deliveryId: "SENTINEL_deliveryId",
     model: "SENTINEL_model",
     rubricSha256: "SENTINEL_rubricSha256",
+    mode: "diff",
+    budgetTokens: 424242,
     prTitle: "SENTINEL_prTitle",
     prAuthorLogin: "SENTINEL_prAuthorLogin",
     prAuthorId: 4242,
@@ -327,6 +331,13 @@ describe("serializePublicRun", () => {
     ]) {
       expect(json).toContain(kept);
     }
+  });
+
+  it("publishes the mode and the budget, on the detail and the mode on the row", () => {
+    const detail = serializePublicRun(sentinelView());
+    expect(detail.mode).toBe("diff");
+    expect(detail.budget_tokens).toBe(424242);
+    expect(serializePublicSummary(sentinelRow()).mode).toBe("diff");
   });
 });
 

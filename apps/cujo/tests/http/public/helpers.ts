@@ -33,6 +33,8 @@ export function runOf(overrides: Partial<RunRecord> = {}): RunRecord {
     deliveryId: null,
     model: null,
     rubricSha256: null,
+    mode: "sandbox",
+    budgetTokens: null,
     prTitle: null,
     prAuthorLogin: null,
     prAuthorId: null,

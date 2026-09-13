@@ -7,7 +7,12 @@ vi.mock("@cujo/gh-app-auth", () => ({
   getAppJwt: vi.fn(async () => "app_jwt"),
 }));
 
-import { COMMENT_BODY_CAP, GitHubReader, parseDeclaredGuild } from "../../src/clients/github";
+import {
+  COMMENT_BODY_CAP,
+  GitHubReader,
+  parseDeclaredGuild,
+  parseDeclaredMode,
+} from "../../src/clients/github";
 
 type Route = (url: URL) => { status?: number; body: unknown };
 
@@ -37,7 +42,16 @@ describe("GitHubReader.pullRequest", () => {
       if (url.pathname.endsWith("/files")) {
         const page = Number(url.searchParams.get("page"));
         const count = page === 1 ? 100 : 3;
-        return { body: Array.from({ length: count }, (_, i) => ({ filename: `p${page}-${i}` })) };
+        return {
+          body: Array.from({ length: count }, (_, i) => ({
+            filename: `p${page}-${i}`,
+            status: "modified",
+            additions: i,
+            deletions: 1,
+            // The first file of each page has no patch: a binary, as GitHub sends it.
+            ...(i === 0 ? {} : { patch: `@@ -1 +1 @@\n-a\n+b${i}` }),
+          })),
+        };
       }
       return { body: pr };
     });
@@ -52,8 +66,19 @@ describe("GitHubReader.pullRequest", () => {
       cloneUrl: "https://github.com/o/r.git",
       authorLogin: "octocat",
       authorId: 583231,
+      authorIsBot: false,
     });
     expect(info.changedFiles).toHaveLength(103);
+    expect(info.files).toHaveLength(103);
+    expect(info.files[0]).toEqual({
+      path: "p1-0",
+      status: "modified",
+      additions: 0,
+      deletions: 1,
+      patch: null,
+    });
+    expect(info.files[1]?.patch).toBe("@@ -1 +1 @@\n-a\n+b1");
+    expect(info.files.map((f) => f.path)).toEqual(info.changedFiles);
     expect(calls.map((u) => u.pathname + u.search)).toEqual([
       "/repos/o/r/pulls/7",
       "/repos/o/r/pulls/7/files?per_page=100&page=1",
@@ -70,6 +95,17 @@ describe("GitHubReader.pullRequest", () => {
     const info = await new GitHubReader("1", "pem", impl).pullRequest("o/r", 7);
     expect(info.authorLogin).toBeNull();
     expect(info.authorId).toBeNull();
+  });
+
+  it("marks a pull request a GitHub App account opened", async () => {
+    const { impl } = fakeFetch((url) =>
+      url.pathname.endsWith("/files")
+        ? { body: [] }
+        : { body: { ...pr, user: { login: "dependabot[bot]", id: 49699333, type: "Bot" } } },
+    );
+    const info = await new GitHubReader("1", "pem", impl).pullRequest("o/r", 7);
+    expect(info.authorIsBot).toBe(true);
+    expect(info.authorLogin).toBe("dependabot[bot]");
   });
 
   it("throws with the status on a failed read", async () => {
@@ -133,6 +169,63 @@ describe("parseDeclaredGuild", () => {
     expect(parseDeclaredGuild("smoke:\n  discord_guild: 222222222222222222")).toBeNull();
     // A near-miss key name must not match.
     expect(parseDeclaredGuild("my_discord_guild: 222222222222222222")).toBeNull();
+  });
+});
+
+describe("parseDeclaredMode", () => {
+  it("reads the two words, quoted or not, with a trailing comment", () => {
+    expect(parseDeclaredMode("mode: diff")).toBe("diff");
+    expect(parseDeclaredMode('mode: "sandbox"')).toBe("sandbox");
+    expect(parseDeclaredMode("mode: 'diff'  # reads, does not run")).toBe("diff");
+    expect(parseDeclaredMode("test: uv run pytest\r\nmode: diff\r\n")).toBe("diff");
+  });
+
+  it("reads anything else as no declaration", () => {
+    expect(parseDeclaredMode("mode: fast")).toBeNull();
+    expect(parseDeclaredMode("mode: diff sandbox")).toBeNull();
+    expect(parseDeclaredMode("")).toBeNull();
+    expect(parseDeclaredMode("smoke:\n  mode: diff")).toBeNull();
+    expect(parseDeclaredMode("review_mode: diff")).toBeNull();
+  });
+});
+
+describe("GitHubReader.declaredMode and readFile", () => {
+  function fakeRefFetch(file: { status: number; body: string }) {
+    const paths: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      paths.push(`${url.pathname}${url.search}`);
+      return new Response(file.body, { status: file.status });
+    });
+    return { impl: impl as unknown as typeof fetch, paths };
+  }
+
+  it("reads .cujo.yml at the ref it is given, which is the base commit", async () => {
+    const { impl, paths } = fakeRefFetch({ status: 200, body: "mode: diff\n" });
+    expect(await new GitHubReader("1", "pem", impl).declaredMode("o/r", "abc123")).toBe("diff");
+    // Not the default branch: the target branch may move between the webhook
+    // and this read, and policy is what the pull request was opened against.
+    expect(paths).toEqual(["/repos/o/r/contents/.cujo.yml?ref=abc123"]);
+  });
+
+  it("is null with no file, and throws when GitHub refuses", async () => {
+    const missing = fakeRefFetch({ status: 404, body: "" });
+    expect(await new GitHubReader("1", "pem", missing.impl).declaredMode("o/r", "abc")).toBeNull();
+    const down = fakeRefFetch({ status: 500, body: "" });
+    await expect(
+      new GitHubReader("1", "pem", down.impl).declaredMode("o/r", "abc"),
+    ).rejects.toThrow("returned 500");
+  });
+
+  it("reads any file's text at a ref, or null when it is not there", async () => {
+    const { impl, paths } = fakeRefFetch({ status: 200, body: "# Standards\n" });
+    const reader = new GitHubReader("1", "pem", impl);
+    expect(await reader.readFile("o/r", "CONTRIBUTING.md", "abc")).toBe("# Standards\n");
+    expect(paths).toEqual(["/repos/o/r/contents/CONTRIBUTING.md?ref=abc"]);
+    const missing = fakeRefFetch({ status: 404, body: "" });
+    expect(
+      await new GitHubReader("1", "pem", missing.impl).readFile("o/r", "AGENTS.md", "abc"),
+    ).toBeNull();
   });
 });
 

@@ -56,3 +56,19 @@ export const NoTitleOrAuthor: Story = {
 export const OpenedByABot: Story = {
   args: { run: run({ pr_author_login: "dependabot[bot]", pr_author_id: 49699333 }) },
 };
+
+/**
+ * A diff run (decision 135): the chip beside the badge is what tells this
+ * `clean` from the one above, which ran four checks.
+ */
+export const DiffReview: Story = {
+  args: {
+    run: run({
+      status: "clean",
+      mode: "diff",
+      checks: [],
+      budget_tokens: 400_000,
+      summary: "Read against CONTRIBUTING.md. Two warnings, both anchored.",
+    }),
+  },
+};

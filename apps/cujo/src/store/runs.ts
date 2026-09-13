@@ -13,7 +13,7 @@
 
 import { randomUUID } from "node:crypto";
 import { deriveDigest } from "../review/digest";
-import type { Projection, RunDigest, RunRecord, RunStatus } from "../review/types";
+import type { Projection, ReviewMode, RunDigest, RunRecord, RunStatus } from "../review/types";
 import { type Db, TERMINAL_STATUSES_SQL } from "./db";
 import type { NotificationStore } from "./notifications";
 
@@ -31,6 +31,8 @@ interface RunRow {
   delivery_id: string | null;
   model: string | null;
   rubric_sha256: string | null;
+  mode: string | null;
+  budget_tokens: number | null;
   created_at: string;
   updated_at: string;
   /** From the join below, not from `runs`. Null until the PR read completed. */
@@ -89,6 +91,10 @@ function toRecord(row: RunRow): RunRecord {
     deliveryId: row.delivery_id,
     model: row.model,
     rubricSha256: row.rubric_sha256,
+    // NULL is a row from before the column existed, and every one of those
+    // was a sandbox run; a claimed row says the same until `startRun` decides.
+    mode: row.mode === "diff" ? "diff" : "sandbox",
+    budgetTokens: row.budget_tokens,
     prTitle: row.pr_title,
     prAuthorLogin: row.pr_author_login,
     prAuthorId: row.pr_author_id,
@@ -451,21 +457,61 @@ export class RunStore {
     return rows.map(toRecord);
   }
 
+  /**
+   * Every run on a pull request, newest first, terminal ones included. What
+   * the diff review reads to learn what it already said about this pull
+   * request (Contract 11): the previous run's findings are its memory, since
+   * a diff run has a fresh session (decision 137). Same casing rule as
+   * `latestRunForPr`, of which this is the list form.
+   */
+  runsForPr(repo: string, prNumber: number, limit: number): RunRecord[] {
+    const rows = this.db
+      .prepare(
+        `${RUN_SELECT} WHERE runs.repo = ? COLLATE NOCASE AND runs.pr_number = ? ORDER BY runs.created_at DESC, runs.rowid DESC LIMIT ?`,
+      )
+      .all(repo, prNumber, limit) as RunRow[];
+    return rows.map(toRecord);
+  }
+
+  /**
+   * `sessionId`, `mode`, `model`, `rubricSha256` and `budgetTokens` exist for
+   * one caller: `startRun` deciding, after the pull request has been read,
+   * that this run is a diff review on a session and a spec of its own
+   * (decisions 135, 137). The row was claimed with the process's sandbox
+   * defaults, and this is where they are corrected. `runs_head` does not
+   * index `session_id`, so the change cannot collide with anything.
+   */
   updateRun(
     id: string,
-    patch: { status?: RunStatus; turnIds?: string[]; approver?: string; decidedAt?: string },
+    patch: {
+      status?: RunStatus;
+      turnIds?: string[];
+      approver?: string;
+      decidedAt?: string;
+      sessionId?: string;
+      mode?: ReviewMode;
+      model?: string;
+      rubricSha256?: string;
+      budgetTokens?: number | null;
+    },
   ): RunRecord | null {
     const current = this.getRun(id);
     if (!current) return null;
     this.db
       .prepare(
-        "UPDATE runs SET status = ?, turn_ids = ?, approver = ?, decided_at = ?, updated_at = ? WHERE id = ?",
+        "UPDATE runs SET status = ?, turn_ids = ?, approver = ?, decided_at = ?, session_id = ?, " +
+          "mode = ?, model = ?, rubric_sha256 = ?, budget_tokens = ?, updated_at = ? WHERE id = ?",
       )
       .run(
         patch.status ?? current.status,
         JSON.stringify(patch.turnIds ?? current.turnIds),
         patch.approver ?? current.approver,
         patch.decidedAt ?? current.decidedAt,
+        patch.sessionId ?? current.sessionId,
+        patch.mode ?? current.mode,
+        patch.model ?? current.model,
+        patch.rubricSha256 ?? current.rubricSha256,
+        patch.budgetTokens === undefined ? current.budgetTokens : patch.budgetTokens,
         new Date().toISOString(),
         id,
       );

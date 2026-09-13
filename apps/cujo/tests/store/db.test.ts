@@ -38,11 +38,25 @@ describe("the migration ladder", () => {
     expect(MIGRATIONS[9]).toContain("DROP INDEX IF EXISTS runs_head");
     expect(MIGRATIONS[9]).toContain("CREATE UNIQUE INDEX runs_head");
     expect(MIGRATIONS[9]).toContain("unproven");
+    expect(MIGRATIONS[10]).toBe("ALTER TABLE runs ADD COLUMN mode TEXT");
+    expect(MIGRATIONS[11]).toBe("ALTER TABLE runs ADD COLUMN budget_tokens INTEGER");
   });
 
   it("has no gaps, since index i takes user_version i to i + 1", () => {
     expect(MIGRATIONS.every((statement) => typeof statement === "string" && statement.length > 0));
-    expect(MIGRATIONS).toHaveLength(10);
+    expect(MIGRATIONS).toHaveLength(12);
+  });
+
+  /**
+   * Same again. A NULL mode is a run from before there were two reviews, and
+   * `toRecord` reads it as `sandbox`; a NULL budget is a turn that had none.
+   * A default would stamp both on rows that were never given either.
+   */
+  it("adds mode and budget_tokens without a default", () => {
+    for (const i of [10, 11]) {
+      expect(MIGRATIONS[i]).not.toMatch(/DEFAULT/i);
+      expect(MIGRATIONS[i]).not.toMatch(/NOT NULL/i);
+    }
   });
 
   /**

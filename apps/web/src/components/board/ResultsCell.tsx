@@ -87,34 +87,46 @@ export function ResultsCell({
 
   return (
     <span className="flex items-center gap-3">
-      <span className="flex items-center gap-1">
-        <span className="sr-only">
-          {CHECK_NAMES.map((name) => checkLine(run, name)).join(", ")}
+      {/* A diff run started no check (decision 135), so four `absent`
+          squares would say the same thing `check_missing` says of a sandbox
+          run that lost its checks, and mean the opposite. One word instead. */}
+      {run.mode === "diff" ? (
+        <span
+          className="rounded-[1px] border border-line px-1 font-mono text-[10px] leading-4 text-fg-muted"
+          title="A diff review: the diff was read, no check ran."
+        >
+          diff
         </span>
-        {CHECK_NAMES.map((name) => (
-          <Tooltip.Root key={name} delayDuration={150}>
-            <Tooltip.Trigger asChild>
-              {/* A button and not a span: a tooltip a keyboard cannot reach
+      ) : (
+        <span className="flex items-center gap-1">
+          <span className="sr-only">
+            {CHECK_NAMES.map((name) => checkLine(run, name)).join(", ")}
+          </span>
+          {CHECK_NAMES.map((name) => (
+            <Tooltip.Root key={name} delayDuration={150}>
+              <Tooltip.Trigger asChild>
+                {/* A button and not a span: a tooltip a keyboard cannot reach
                   is a tooltip half the readers never see. `relative z-10`
                   lifts it over the row's stretched link. */}
-              <button
-                type="button"
-                aria-label={checkLine(run, name)}
-                className={`relative z-10 h-3 w-2 rounded-[1px] ${SEGMENT[checkOutcome(checksOf(run)[name])]}`}
-              />
-            </Tooltip.Trigger>
-            <Tooltip.Portal>
-              <Tooltip.Content
-                side="top"
-                sideOffset={6}
-                className="z-30 rounded-sm border border-line bg-bg-raised px-2 py-1 font-mono text-xs text-fg shadow-sm"
-              >
-                {checkLine(run, name)}
-              </Tooltip.Content>
-            </Tooltip.Portal>
-          </Tooltip.Root>
-        ))}
-      </span>
+                <button
+                  type="button"
+                  aria-label={checkLine(run, name)}
+                  className={`relative z-10 h-3 w-2 rounded-[1px] ${SEGMENT[checkOutcome(checksOf(run)[name])]}`}
+                />
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content
+                  side="top"
+                  sideOffset={6}
+                  className="z-30 rounded-sm border border-line bg-bg-raised px-2 py-1 font-mono text-xs text-fg shadow-sm"
+                >
+                  {checkLine(run, name)}
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          ))}
+        </span>
+      )}
 
       {total === 0 ? (
         <span className="font-mono text-xs text-fg-muted">none found</span>

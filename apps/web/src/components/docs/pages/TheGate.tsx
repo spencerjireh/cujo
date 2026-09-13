@@ -155,6 +155,12 @@ export function TheGate() {
             A superseded run writes no reaction at all. The run that replaced it is about to say
             what the pull request should show.
           </LI>
+          <LI>
+            A diff review reaches three of these: <C>running</C>, <C>clean</C> and <C>error</C>. Its{" "}
+            <C>clean</C> is an advisory review with findings of at most <C>warn</C>, and never{" "}
+            <C>unproven</C>, since it never had evidence to post; the run page and the record mark
+            it <C>diff review</C> so the two kinds of <C>clean</C> are not confused.
+          </LI>
         </UL>
         <P>
           What each state looks like on the board is on{" "}

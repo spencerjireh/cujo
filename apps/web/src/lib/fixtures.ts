@@ -229,6 +229,8 @@ export function run(over: Partial<Run> = {}): Run {
     },
     model: "claude-sonnet-5",
     rubric_sha256: "9f2c41ba7d6e5308c1aa4bf0d2e79c3518ab6e40f7c92d15b8ae3c6104d7f2b9",
+    mode: "sandbox",
+    budget_tokens: null,
     // Before T0, because setup is the window *before* the first check and the
     // four lanes above start two seconds in. The proportions are decision 67's
     // own PR 17 reading — 84 seconds from the turn to the first check, most of

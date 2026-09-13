@@ -3,12 +3,17 @@ import type { Config } from "../../src/config";
 import {
   buildAgentSpec,
   buildConverseSpec,
+  buildDiffSpec,
+  buildDiffTurnMessage,
   buildTurnMessage,
   isDocsOnly,
+  isDocsPath,
+  isLockfilePath,
   loadRubric,
   manifestChanged,
   specFingerprint,
 } from "../../src/review/agent-spec";
+import type { ReviewPackage } from "../../src/review/prepare";
 
 describe("manifestChanged", () => {
   it("matches dependency manifests and lockfiles at any depth", () => {
@@ -102,6 +107,8 @@ describe("buildTurnMessage", () => {
       authorLogin: null,
 
       authorId: null,
+      files: [],
+      authorIsBot: false,
     });
     expect(message.startsWith("Review this pull request. Input:\n```json\n")).toBe(true);
     const json = /```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "";
@@ -131,6 +138,8 @@ describe("buildTurnMessage", () => {
     authorLogin: null,
 
     authorId: null,
+    files: [],
+    authorIsBot: false,
   };
 
   const payloadOf = (message: string) =>
@@ -360,6 +369,149 @@ describe("the runtime config both specs run under", () => {
     for (const spec of [buildAgentSpec(config, "r"), buildConverseSpec(config, "r")]) {
       expect(Object.keys(spec.config).sort()).toEqual(["compaction", "iterationLimit"]);
     }
+    // The diff review is the one spec with a budget (decision 132).
+    expect(Object.keys(buildDiffSpec(diffConfig, "r").config).sort()).toEqual([
+      "compaction",
+      "iterationLimit",
+      "tokenBudget",
+    ]);
+  });
+});
+
+const diffConfig = {
+  model: "p/m",
+  modelReasoningEffort: "low",
+  modelTemperature: null,
+  modelMaxTokens: null,
+  diffModel: "p/m",
+  diffBudgetTokens: 400_000,
+} as unknown as Config;
+
+describe("buildDiffSpec", () => {
+  it("has github-mcp alone, ungated, and no sandbox at all", () => {
+    const spec = buildDiffSpec(diffConfig, "r");
+    expect(spec.mcpServers).toEqual([{ name: "github-mcp", requireApprovalForTools: [] }]);
+    expect(JSON.stringify(spec)).not.toContain("sandbox");
+  });
+
+  it("does not compact, iterates little, and carries the budget", () => {
+    const spec = buildDiffSpec(diffConfig, "r");
+    expect(spec.config.compaction).toEqual({ enabled: false });
+    expect(spec.config.iterationLimit).toBe(12);
+    expect(spec.config.tokenBudget).toBe(400_000);
+  });
+
+  it("sends the review model's params when it is the review model, and none otherwise", () => {
+    expect(buildDiffSpec(diffConfig, "r").model).toEqual({
+      name: "p/m",
+      params: { reasoningEffort: "low" },
+    });
+    // A different model was never tried with those params; they stay home.
+    expect(buildDiffSpec({ ...diffConfig, diffModel: "p/flash" }, "r").model).toEqual({
+      name: "p/flash",
+    });
+  });
+
+  it("loads its own rubric, which names the advisory tool and no other", () => {
+    const rubric = loadRubric("DIFF.md");
+    expect(buildDiffSpec(diffConfig).instructions).toBe(rubric);
+    expect(rubric).toContain("post_advisory_review");
+    // The two other tools appear only in the sentence that forbids them.
+    for (const forbidden of ["post_blocking_review", "post_gated_review"]) {
+      expect(rubric.match(new RegExp(forbidden, "g"))?.length).toBe(1);
+    }
+    expect(rubric).not.toContain("sandbox_create");
+    expect(rubric).not.toContain("sniff.py");
+  });
+
+  it("carries no server-side secret either", () => {
+    const json = JSON.stringify(
+      buildDiffSpec({ ...diffConfig, MODEL_PROVIDER_API_KEY: "sk-leak" } as unknown as Config, "r"),
+    );
+    expect(json).not.toContain("sk-leak");
+  });
+});
+
+describe("isDocsPath and isLockfilePath", () => {
+  it("tell prose and lockfiles from source", () => {
+    expect(isDocsPath("docs/spec.md")).toBe(true);
+    expect(isDocsPath("LICENSE")).toBe(true);
+    expect(isDocsPath("requirements.txt")).toBe(false);
+    expect(isDocsPath("src/a.ts")).toBe(false);
+    expect(isLockfilePath("pnpm-lock.yaml")).toBe(true);
+    expect(isLockfilePath("services/api/uv.lock")).toBe(true);
+    expect(isLockfilePath("package.json")).toBe(false);
+  });
+});
+
+describe("buildDiffTurnMessage", () => {
+  const pkg: ReviewPackage = {
+    pr: {
+      repo: "o/r",
+      prNumber: 7,
+      title: "Fix rounding",
+      body: "Rounds after the discount.",
+      baseSha: "b".repeat(40),
+      headSha: "h".repeat(40),
+      changedFiles: ["app/orders.py", "README.md"],
+    },
+    diff: {
+      kept: [
+        {
+          path: "app/orders.py",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+          patch: "@@ -1 +1 @@\n-a\n+b",
+        },
+      ],
+      omitted: [
+        { path: "README.md", status: "modified", additions: 9, deletions: 0, reason: "over_cap" },
+      ],
+      bytes: 19,
+      cap: 20,
+    },
+    standards: [{ path: "CONTRIBUTING.md", text: "## Standards\n- Pin.", truncated: false }],
+    previousFindings: [{ severity: "warn", title: "old", path: "app/orders.py", line: 3 }],
+  };
+  const payloadOf = (message: string) =>
+    JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
+
+  it("wraps the package in the same fence, with the standards, the diff and the memory", () => {
+    const message = buildDiffTurnMessage(pkg, "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e");
+    expect(message.startsWith("Review this pull request by reading it. Input:\n```json\n")).toBe(
+      true,
+    );
+    expect(payloadOf(message)).toEqual({
+      repo: "o/r",
+      pr_number: 7,
+      pr_title: "Fix rounding",
+      pr_body: "Rounds after the discount.",
+      base_sha: "b".repeat(40),
+      head_sha: "h".repeat(40),
+      manifest_changed: false,
+      run_id: "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e",
+      standards: pkg.standards,
+      diff: { files: pkg.diff.kept, omitted: pkg.diff.omitted, bytes: 19, cap: 20 },
+      previous_findings: pkg.previousFindings,
+    });
+  });
+
+  it("omits run_id and docs_only when neither applies, and carries them when they do", () => {
+    const plain = payloadOf(buildDiffTurnMessage(pkg));
+    expect(plain).not.toHaveProperty("run_id");
+    expect(plain).not.toHaveProperty("docs_only");
+    const docs = payloadOf(
+      buildDiffTurnMessage({ ...pkg, pr: { ...pkg.pr, changedFiles: ["README.md"] } }),
+    );
+    expect(docs.docs_only).toBe(true);
+  });
+
+  it("sends no clone URL, no hostname and no author into the turn", () => {
+    const message = buildDiffTurnMessage(pkg, "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e");
+    expect(message).not.toContain("clone_url");
+    expect(message).not.toContain("github.com");
+    expect(message).not.toContain("author");
   });
 });
 

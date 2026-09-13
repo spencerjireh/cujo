@@ -172,6 +172,12 @@ export interface DraftedReview {
  * optional: `apps/cujo` withholds them by construction, so a type that still
  * mentioned them would describe a payload nothing produces.
  */
+/**
+ * The two reviews (decision 133). `sandbox` runs the pull request; `diff`
+ * reads it against the repository's standards and never provisions a box.
+ */
+export type ReviewMode = "sandbox" | "diff";
+
 export interface RunSummary {
   id: string;
   repo: string;
@@ -180,6 +186,13 @@ export interface RunSummary {
   status: RunStatus;
   created_at: string;
   updated_at: string;
+  /**
+   * Which review this was (decision 135). On both planes because a list of
+   * `clean` rows cannot otherwise tell a run that read the diff from one that
+   * ran it, and those are different claims. Optional only for a `run` frame
+   * from a release that predates it; a row from the API always carries it.
+   */
+  mode?: ReviewMode;
   /**
    * What the pull request calls itself. Both planes send it on every row, so
    * it is required here and nullable rather than optional: null is a run
@@ -283,6 +296,12 @@ export interface Run extends RunSummary {
    */
   model?: string | null;
   rubric_sha256?: string | null;
+  /**
+   * What the turn was allowed to spend, in billed tokens (decision 132), read
+   * beside `usage`. Null on a sandbox run, which carries no budget, and on a
+   * run from before the column; optional for the reason `usage` is.
+   */
+  budget_tokens?: number | null;
   /**
    * The setup window (decision 67). Optional and nullable for the two different
    * reasons `usage` above carries: absent is a `run` frame from a release that

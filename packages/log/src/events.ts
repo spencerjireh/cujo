@@ -89,6 +89,7 @@ export const EVENT_NAMES = [
   "run.supersede.deferred",
   "run.approval.reraised",
   "run.prepare.failed",
+  "run.mode.resolved",
   "run.turn.started",
   "run.turn.start.failed",
   "run.turn.timeout",

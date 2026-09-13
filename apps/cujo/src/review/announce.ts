@@ -112,8 +112,18 @@ export function timeoutBody(
   projection: Projection,
   timeoutMs: number,
 ): string {
-  const { reported, unfinished } = coverage(projection);
   const minutes = Math.round(timeoutMs / 60_000);
+  if (run.mode === "diff") {
+    // A diff run has no checks to have measured, so the sandbox wording below
+    // — which check hung, what the others reported — would describe a run
+    // that never existed. What there is to say is short.
+    const lines = [
+      `**Cujo did not finish this review.** The diff review reached its ${minutes} minute ceiling before a review was posted, so nothing was.`,
+      "Push again, or comment `/cujo review`, to read it from a clean session.",
+    ];
+    return lines.join("\n\n") + evidenceLink(links, run);
+  }
+  const { reported, unfinished } = coverage(projection);
   const lines = [
     `**Cujo did not finish this review.** The turn reached its ${minutes} minute ceiling`,
     unfinished.length > 0

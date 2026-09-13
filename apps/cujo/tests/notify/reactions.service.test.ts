@@ -17,6 +17,8 @@ const run = (status: RunStatus, id = "run-1"): RunRecord => ({
   deliveryId: null,
   model: null,
   rubricSha256: null,
+  mode: "sandbox",
+  budgetTokens: null,
   prTitle: null,
   prAuthorLogin: null,
   prAuthorId: null,

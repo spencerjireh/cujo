@@ -6,6 +6,12 @@ GITHUB_APP_PRIVATE_KEY     # the PEM text; literal \\n is accepted
 GITHUB_WEBHOOK_SECRET
 CUJO_MODEL                 # <provider name>/<model name>`;
 
+const DIFF = `CUJO_REVIEW_MODE          # sandbox (default) or diff, when a repo declares none
+CUJO_DIFF_MODEL           # <provider name>/<model name>; unset means CUJO_MODEL
+CUJO_DIFF_BUDGET_TOKENS   # billed tokens per diff run, default 400000
+CUJO_DIFF_TIMEOUT_MS      # default 600000
+CUJO_DIFF_BYTES           # bytes of diff the model is handed, default 60000`;
+
 const PROVIDERS = `MODEL_PROVIDER_NAME
 MODEL_PROVIDER_BASE_URL             # an OpenAI-compatible chat-completions endpoint
 MODEL_PROVIDER_API_KEY
@@ -114,6 +120,13 @@ export function SelfHost() {
           rest — turn timeout, conversation limits, the public stream cap, the pull request reaction
           switch — have working defaults.
         </P>
+        <P>
+          The diff review has its own five, all optional. The model must be one of{" "}
+          <C>MODEL_PROVIDER_MODELS</C>; a cheap one is the point. The budget is billed tokens, with
+          the context counted again on every message, and a run that passes it ends in <C>error</C>{" "}
+          with the count on its record.
+        </P>
+        <Pre>{DIFF}</Pre>
       </Section>
 
       <Section id="traps" title="Two settings that fail confusingly">
