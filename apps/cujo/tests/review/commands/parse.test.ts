@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MENTION_BODY_CAP, parseCommand, parseMention } from "../../src/review/parse-command";
+import { MENTION_BODY_CAP, parseCommand, parseMention } from "../../../src/review/commands/parse";
 
 const verbOf = (body: string) => {
   const parsed = parseCommand(body);

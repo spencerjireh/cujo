@@ -13,7 +13,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Logger, errorFields } from "@cujo/log";
 import { type Context, Hono } from "hono";
 import type { ConverseService } from "../../converse/converse.service";
-import type { PrCommandService } from "../../review/pr-command.service";
+import type { PrCommandService } from "../../review/commands/pr-command.service";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
 import type { RequestEnv } from "../request-log";

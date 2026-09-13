@@ -80,6 +80,7 @@ src/
     ingress/        INTERNET. A signature is the only gate. Cannot approve.
     public/         INTERNET, no gate. Read-only, public repos, no operator named.
   review/           a PR becomes a run: start, follow, fold, hard rules
+    commands/       /cujo confirm, dismiss, review from a PR comment: the human gate
   converse/         @cujo-guard: its own session, no write tool, never Runner
   notify/           Discord cards, pings, /cujo commands, the PR reaction
   clients/          the only outbound IO; imports from nothing else here
