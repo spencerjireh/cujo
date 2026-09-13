@@ -6,6 +6,7 @@ import { absoluteTime, shortSha } from "@/lib/format";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { type ReactNode, useState } from "react";
 import { RunLedger } from "./RunLedger";
+import { ThreadLedger } from "./ThreadLedger";
 
 /**
  * What this run was, in handles.
@@ -104,6 +105,7 @@ export function RunProvenance({ run }: { run: Run }) {
               the operator's number a reader is likeliest to want, and the
               handles are the ones they copy. */}
           <RunLedger usage={run.usage} budget={run.budget_tokens} />
+          <ThreadLedger ledger={run.ledger} />
           <dl>
             {run.mode ? <Entry label="mode">{run.mode}</Entry> : null}
             {typeof run.budget_tokens === "number" ? (

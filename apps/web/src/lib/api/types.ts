@@ -47,6 +47,37 @@ export interface UsageTotals {
 }
 
 /**
+ * Where a run's tokens went, thread by thread (decision 141): one row per
+ * thread summed from that thread's own messages, and the largest tool results
+ * by byte size. A thread is named by its title — `main` for the parent — and
+ * never by a harness id. `reasoningTokens` is null when no message on the
+ * thread reported one.
+ */
+export interface LedgerThread {
+  title: string;
+  attempt: number;
+  messages: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number | null;
+  toolResultBytes: number;
+}
+
+interface LedgerToolResult {
+  thread: string;
+  tool: string;
+  bytes: number;
+  isError: boolean;
+}
+
+export interface RunLedger {
+  threads: LedgerThread[];
+  largestToolResults: LedgerToolResult[];
+}
+
+/**
  * Where one check's wall time went.
  *
  * `sandboxMs` is what `sniff.py` reported for its own runs inside the sandbox,
@@ -301,6 +332,12 @@ export interface Run extends RunSummary {
    * rather than a lane of length zero.
    */
   setup?: SetupTimings | null;
+  /**
+   * The token ledger (decision 141). Optional and nullable for the reasons
+   * `usage` is: absent is an older frame, null is a run the fold recorded
+   * before the field existed.
+   */
+  ledger?: RunLedger | null;
 }
 
 /**
