@@ -305,19 +305,25 @@ function suiteChecksInapplicable(checks: readonly CheckState[]): boolean {
 }
 
 export function missingCheckFindings(checks: readonly CheckState[]): Finding[] {
-  if (suiteChecksInapplicable(checks)) {
-    return [];
-  }
   const seen = new Set(checks.filter((c) => c.isCheck && c.report !== null).map((c) => c.title));
   const byTitle = new Map(checks.filter((c) => c.isCheck).map((c) => [c.title, c]));
-  return REQUIRED_CHECKS.filter((name) => !seen.has(name)).map((name) => ({
-    source: "hard_rule",
-    check: name,
-    severity: "warn",
-    rule: "check_missing",
-    title: `the ${name} check returned no report`,
-    evidence: missingEvidence(byTitle.get(name)),
-  }));
+  // The three suite checks are owed whenever a suite ran; any other check
+  // that was spawned is owed too, because a thread titled for a check that
+  // ended with nothing the fold could parse is a gap in the evidence
+  // whatever its name (decision 146). `detonation` had no rule here, and a
+  // report too large for the model to hand back was silently no report.
+  const owed = new Set<string>(suiteChecksInapplicable(checks) ? [] : REQUIRED_CHECKS);
+  for (const title of byTitle.keys()) owed.add(title);
+  return [...owed]
+    .filter((name) => !seen.has(name))
+    .map((name) => ({
+      source: "hard_rule",
+      check: name,
+      severity: "warn",
+      rule: "check_missing",
+      title: `the ${name} check returned no report`,
+      evidence: missingEvidence(byTitle.get(name)),
+    }));
 }
 
 function isSeverity(value: unknown): value is Severity {
