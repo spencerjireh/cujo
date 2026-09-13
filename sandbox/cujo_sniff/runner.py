@@ -244,6 +244,28 @@ def capture_script(argv: list[str], cwd: Path) -> tuple[str | None, bool]:
     return content, len(raw) > MAX_SCRIPT_CHARS or escaped_over
 
 
+NESTED_WINDOW_ENV = "CUJO_SENSED_WINDOW"
+
+
+def refuse_nested_window(command: str) -> None:
+    """Fail at once when a window-opening command runs inside another's window.
+
+    `run` and `detonate` each take the exclusive sensor lock for the length of
+    one command. Wrapping one in the other -- `sniff.py run -- sniff.py detonate`
+    was the first thing a model did on the pi harness -- makes the inner one
+    wait on the lock the outer one holds, for the full lock timeout or until
+    whatever wrapped it gives up, and the report that comes back is the
+    wrapper's, describing a timeout. A refusal here costs nothing and says what
+    to do instead; the sub-agent's one respawn (decision 108) then gets the
+    command right.
+    """
+    if os.environ.get(NESTED_WINDOW_ENV):
+        raise SystemExit(
+            f"{command}: already inside a sensed window. `sniff.py {command}` opens its "
+            "own; call it directly, never wrapped in `sniff.py run`."
+        )
+
+
 def run_sensed(
     ctx: Context, argv: list[str], *, check: str, workspace_roots: list[Path], cwd: Path
 ) -> dict[str, Any]:
@@ -261,7 +283,9 @@ def run_sensed(
     with sensed_window(ctx) as exclusive:
         offsets = {k: file_size(paths[k]) for k in ("proxy_log", "decoy_log")}
         before = snapshot(workspace_roots, **walk)
-        env = {**os.environ, **sensor_env(ctx, config, audit_log)}
+        # The marker `refuse_nested_window` reads: a sensed command that itself
+        # opens a window would wait on the lock this one holds.
+        env = {**os.environ, **sensor_env(ctx, config, audit_log), NESTED_WINDOW_ENV: "1"}
         started = time.monotonic()
         try:
             proc = subprocess.run(
