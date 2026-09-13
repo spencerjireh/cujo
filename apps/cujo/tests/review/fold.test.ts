@@ -305,6 +305,56 @@ describe("fold", () => {
     expect(p.error).toBe("turn ended without a review");
   });
 
+  it("records no review from a call GitHub refused, and ends error naming it (decision 140)", () => {
+    // orders-api #44: the App had opened the pull request, so every
+    // `post_blocking_review` came back 422 and nothing reached the PR. The
+    // response is the record, not the call — a `blocked` here would fail the
+    // check run over a review nobody can read.
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", '```json\n{"check":"tests"}\n```'),
+      reviewCall("call-0", "post_blocking_review", review),
+      {
+        ...toolResponse("call-0", "post_blocking_review", true),
+        content: "GitHub 422: Review cannot be requested\n  at post()",
+      } as Ev,
+      turnDone(),
+    ]);
+    expect(p.review).toBeNull();
+    expect(p.status).toBe("error");
+    expect(p.error).toBe(
+      "review post failed: post_blocking_review — GitHub 422: Review cannot be requested",
+    );
+  });
+
+  it("records the call that posted when an earlier one was refused", () => {
+    const p = fold([
+      turnCreated("t1"),
+      threadCreated("th-tests", "tests"),
+      threadDone("th-tests", '```json\n{"check":"tests"}\n```'),
+      reviewCall("call-0", "post_blocking_review", review),
+      toolResponse("call-0", "post_blocking_review", true),
+      reviewCall("call-1", "post_blocking_review", review),
+      toolResponse("call-1"),
+      turnDone(),
+    ]);
+    expect(p.review?.tool).toBe("post_blocking_review");
+    expect(p.status).toBe("blocked");
+    expect(p.error).toBeNull();
+  });
+
+  it("records no review from a call with no response, since the turn died mid-call", () => {
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-0", "post_advisory_review", review),
+      turnDone(),
+    ]);
+    expect(p.review).toBeNull();
+    expect(p.status).toBe("error");
+    expect(p.error).toBe("turn ended without a review");
+  });
+
   it("is an error when a tool call is held, since nothing is gated (decision 138)", () => {
     // A session pinned to an older spec still gates a name. The turn is
     // suspended waiting for an answer nothing will send, so the run ends here
