@@ -122,6 +122,9 @@ services:
       # (decision 138)? The merge lock. Needs `checks: write` on the App; only
       # an explicit 0 turns it off.
       CUJO_PR_CHECKS: ${CUJO_PR_CHECKS:-1}
+      # How long a push waits before its run starts, so a burst of pushes is
+      # one run on the last head (decision 144). 0 starts every push at once.
+      CUJO_PUSH_DEBOUNCE_MS: ${CUJO_PUSH_DEBOUNCE_MS:-60000}
       # One turn, stream retries included. The harness has no timeout of its
       # own; this watchdog is what ends a review that hangs.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}

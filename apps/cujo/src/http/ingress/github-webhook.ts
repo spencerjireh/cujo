@@ -14,6 +14,7 @@ import { type Logger, errorFields } from "@cujo/log";
 import { type Context, Hono } from "hono";
 import type { ConverseService } from "../../converse/converse.service";
 import type { PrCommandService } from "../../review/commands/pr-command.service";
+import type { PushDebounce } from "../../review/push-debounce";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
 import type { RequestEnv } from "../request-log";
@@ -67,6 +68,11 @@ export interface WebhookDeps extends StartRunDeps {
    * given. Optional so a test can compose this route without them.
    */
   provenance?: { model: string; rubricSha256: string };
+  /**
+   * Holds a `synchronize` start for the push window (decision 144). Absent
+   * means every delivery starts at once, which is what a test wants.
+   */
+  debounce?: Pick<PushDebounce, "schedule">;
 }
 
 interface IssueCommentEvent {
@@ -518,9 +524,24 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     // the first gated review on the pi harness did, from inside the fold --
     // and an unhandled rejection here takes the process down rather than the
     // run, along with every other run it was following.
-    void startRun(deps, run).catch((error) =>
-      log.error("run.prepare.failed", { run_id: run.id, ...errorFields(error) }),
-    );
+    const fire = () =>
+      void startRun(deps, run).catch((error) =>
+        log.error("run.prepare.failed", { run_id: run.id, ...errorFields(error) }),
+      );
+    // A push waits out the window so a burst starts one run, on its last
+    // head; an opened or readied pull request has nothing to wait for. The
+    // row above is claimed either way, so a redelivery is still a no-op and
+    // the run the window drops is superseded by the one that starts.
+    if (event.action === "synchronize" && deps.debounce?.schedule(`${repo}#${prNumber}`, fire)) {
+      log.info("webhook.debounced", {
+        repo,
+        pr_number: prNumber,
+        head_sha: headSha,
+        run_id: run.id,
+      });
+    } else if (event.action !== "synchronize" || !deps.debounce) {
+      fire();
+    }
     return c.json({ ok: true, run_id: run.id }, 202);
   });
   return app;
