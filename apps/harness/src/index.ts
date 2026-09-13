@@ -44,13 +44,11 @@ async function main(): Promise<void> {
     stopping = true;
     log.info("service.stopping", { reason });
     server.close();
-    void engine
-      .close()
-      .catch((error) => log.error("service.fatal", { reason: "close", ...errorFields(error) }))
-      .finally(() => {
-        store.close();
-        process.exit(0);
-      });
+    // Turns and held approvals are left for the next boot (decision 130,
+    // decision 125); only the pi sessions are dropped.
+    engine.close();
+    store.close();
+    process.exit(0);
   };
   process.on("SIGTERM", shutdown("sigterm"));
   process.on("SIGINT", shutdown("sigint"));
