@@ -28,7 +28,7 @@ reader can tell a live rule from a recorded one before opening it.
 18. [`apps/cujo` is a projection of TrueForge, not a source of truth](#18-appscujo-is-a-projection-of-trueforge-not-a-source-of-truth) — refined by 123
 19. [The sensor script reaches the sandbox by public URL, not by upload](#19-the-sensor-script-reaches-the-sandbox-by-public-url-not-by-upload) — superseded by 46
 20. [One run, one turn chain; the newest head supersedes the rest](#20-one-run-one-turn-chain-the-newest-head-supersedes-the-rest) — superseded in part by 39
-21. [The hard rules are re-derived in `apps/cujo`, not only in the rubric](#21-the-hard-rules-are-re-derived-in-appscujo-not-only-in-the-rubric)
+21. [The hard rules are re-derived in `apps/cujo`, not only in the rubric](#21-the-hard-rules-are-re-derived-in-appscujo-not-only-in-the-rubric) — amended by 140
 22. [A brand system in `brand/`: guard dog, amber, dark and light](#22-a-brand-system-in-brand-guard-dog-amber-dark-and-light)
 23. [Discord is notified by `apps/cujo`, not by the agent, and it notifies only](#23-discord-is-notified-by-appscujo-not-by-the-agent-and-it-notifies-only) — amended by 138
 24. [The repo-to-channel binding lives in the store, not the environment](#24-the-repo-to-channel-binding-lives-in-the-store-not-the-environment) — superseded by 28, then by 31
@@ -137,7 +137,7 @@ reader can tell a live rule from a recorded one before opening it.
 127. [Reasoning effort is clamped by the harness, not declared by the provider](#127-reasoning-effort-is-clamped-by-the-harness-not-declared-by-the-provider)
 128. [MCP tools are exposed by name, and only exact names are gated](#128-mcp-tools-are-exposed-by-name-and-only-exact-names-are-gated) — amended by 138
 129. [Compaction is pi's context-window rule](#129-compaction-is-pis-context-window-rule)
-130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once) — amended by 138
+130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once) — amended by 138 and 140
 131. [A sensed command refuses to open a second window](#131-a-sensed-command-refuses-to-open-a-second-window)
 132. [A token budget in the spec, enforced by the harness](#132-a-token-budget-in-the-spec-enforced-by-the-harness)
 133. [Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor](#133-cujo-is-a-diff-reviewer-that-can-execute-the-sandbox-is-a-tool-and-a-floor) — amended by 138
@@ -147,6 +147,7 @@ reader can tell a live rule from a recorded one before opening it.
 137. [A diff run gets its own harness session](#137-a-diff-run-gets-its-own-harness-session)
 138. [The block is a check run, and the human decision is the unlock](#138-the-block-is-a-check-run-and-the-human-decision-is-the-unlock)
 139. [Seven run states; the gate's three are migrated](#139-seven-run-states-the-gates-three-are-migrated)
+140. [A review is what posted, not what was called](#140-a-review-is-what-posted-not-what-was-called)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7133,3 +7134,53 @@ the state that needed them.
 Rejected: **leaving old rows as they were**, which every status map — the
 card, the reaction, the check, the board — would have had to carry a default
 for. **`blocked_pending` → `blocked`**, for the reason in the table.
+
+## 140. A review is what posted, not what was called
+
+The fold recorded a review from the model's tool call, read off
+`model.message` before the tool ran. That was a fair reading while both
+review tools posted the moment they were called; it stopped being one the
+day GitHub said no. On orders-api #44 — a pull request the App itself had
+opened, so a REQUEST_CHANGES from the App was a review of its own change —
+GitHub answered 422 to every `post_blocking_review`, the agent tried once
+more with an empty "Probe run." payload, and the run ended `blocked`: the
+`cujo/guard` check failed on the head, the reaction went to 👎, and the pull
+request carried no review at all. Before decision 138 that was a wrong board
+row. After it, it is a held merge with nothing on the pull request to explain
+it, which is the one shape the block must never take.
+
+So the review is recorded from the call's `tool.response`, and only when that
+response is not an error. The call is parsed as before and held by its id;
+the response either promotes it to `review` or leaves `review` null and the
+refusal in hand. A turn that ends with a refused post and no later success
+ends `error` — `review post failed: <tool> — <first line of the refusal>` —
+which the check run writes as `neutral`, the reaction as 😕 and the card as an
+error, all of which are true: nothing was posted and the run did not reach
+its verdict. Not `blocked`, for the reason above; not `clean`, which is the
+same lie in the other direction. A later call in the same turn that GitHub
+accepts records its review and the earlier refusal no longer matters, which
+is what a model that retries deserves.
+
+The retry (decision 130) does not run for it. A refusal is a property of the
+head and the account, not of the turn: the same call from a fresh sandbox
+gets the same 422, and a second run would be a second sandbox for one line
+of text the first run already has. So `retryTurn` excludes the error by its
+prefix, next to the token budget (132) and the held call (138).
+
+Amends 21: re-deriving the verdict in `apps/cujo` now reads the response as
+well as the call, because the call alone does not say what the pull request
+carries. Amends 130: one more error class the retry leaves alone.
+
+Accepted: **a call with no response at all** — a turn that died mid-call —
+records no review and ends `error` as before, "turn ended without a review",
+and that one the retry does take, since a dead turn is exactly what decision
+130 is for. **The contract tests changed meaning**: against a github-mcp
+with placeholder credentials the real tool fails, which used to fold to a
+review that "still lands" and now folds to the refusal. That is the point.
+
+Rejected: **recording the refusal on the projection** as its own field, which
+would have widened the public run row for a sentence the `error` column
+already carries. **Retrying with a fresh turn**, above. **Treating the
+duplicate answer as a failure**: `github-mcp` answers a second call for the
+same head with the review already there, as a normal result, and that is a
+posted review.
