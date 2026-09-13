@@ -241,5 +241,11 @@ describe("loadConfig", () => {
         15 * 60 * 1000,
       );
     });
+
+    it("reads the push window, one minute by default and zero to start every push", () => {
+      expect(loadConfig(base).pushDebounceMs).toBe(60_000);
+      expect(loadConfig({ ...base, CUJO_PUSH_DEBOUNCE_MS: "0" }).pushDebounceMs).toBe(0);
+      expect(loadConfig({ ...base, CUJO_PUSH_DEBOUNCE_MS: "nope" }).pushDebounceMs).toBe(60_000);
+    });
   });
 });

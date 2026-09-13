@@ -115,7 +115,7 @@ reader can tell a live rule from a recorded one before opening it.
 105. [SessionEvents are validated at the boundary](#105-sessionevents-are-validated-at-the-boundary)
 106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
 107. [A run that proved nothing is `unproven`, not `clean`](#107-a-run-that-proved-nothing-is-unproven-not-clean)
-108. [A failed check is respawned once, by the rubric, and the run records it](#108-a-failed-check-is-respawned-once-by-the-rubric-and-the-run-records-it)
+108. [A failed check is respawned once, by the rubric, and the run records it](#108-a-failed-check-is-respawned-once-by-the-rubric-and-the-run-records-it) — amended by 143
 109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review) — amended by 138
 110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
 111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
@@ -148,6 +148,10 @@ reader can tell a live rule from a recorded one before opening it.
 138. [The block is a check run, and the human decision is the unlock](#138-the-block-is-a-check-run-and-the-human-decision-is-the-unlock)
 139. [Seven run states; the gate's three are migrated](#139-seven-run-states-the-gates-three-are-migrated)
 140. [A review is what posted, not what was called](#140-a-review-is-what-posted-not-what-was-called)
+141. [The run keeps a token ledger per thread](#141-the-run-keeps-a-token-ledger-per-thread)
+142. [Exec output is bounded at the tool, and the rest stays in the box](#142-exec-output-is-bounded-at-the-tool-and-the-rest-stays-in-the-box)
+143. [A timeout is an answer, not a failure](#143-a-timeout-is-an-answer-not-a-failure)
+144. [A push burst is one run](#144-a-push-burst-is-one-run)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7184,3 +7188,133 @@ already carries. **Retrying with a fresh turn**, above. **Treating the
 duplicate answer as a failure**: `github-mcp` answers a second call for the
 same head with the review already there, as a normal result, and that is a
 posted review.
+
+## 141. The run keeps a token ledger per thread
+
+On 2026-09-13 the instance spent $0.93 on sixteen runs, and the board could
+say only two things about where: the run's total, from the harness's turn
+metrics, and each check's share, summed from its own thread's messages. The
+difference between them — the parent's cost — was 50 to 75% of every sandbox
+run's input, and nothing named it. The parent holds the rubric, the brief and
+every report, and a model bills its whole context on every message, so the
+parent is the expensive thread by construction; but "by construction" is not a
+number, and the tool results that made its context large were not listed
+anywhere. A run cannot be made cheaper on purpose from that.
+
+So the fold keeps a ledger on the projection: one row per thread in the order
+threads appeared, the parent titled `main`, each summed from the `usage` on
+its own `model.message` events and carrying the byte size of every tool
+result it received; and the ten largest tool results on the run, by bytes,
+with the receiving thread's title, the tool's name and whether it was an
+error. Bytes and not tokens, because the harness has no per-call token count
+and a result's size is what the next message's input carries. Titles and not
+thread ids, because the public plane serves this and a harness handle is
+withheld there (decision 34): the fold keys its rows by id in a map it does
+not store, so no id ever sits beside a title. A result is measured and never
+copied.
+
+Two corrections ride along. `usage.messages` on the run total read zero on
+every run page, because turn metrics carry no count and nothing else
+incremented it; it is now every message on every thread, counted as they
+arrive. And the per-check sum ignored `reasoningTokens` on a message; it now
+carries them when a message reports them, absent otherwise (decision 54's
+rule).
+
+Accepted: the ledger fills late and in a jump, like `usage` — the streamed
+message is a stub and the counts land with the persisted copy — and a
+projection stored before the field rehydrates without it, so the key is
+always present and null there. Rejected: **putting the parent's sum on
+`usage`**, which is a different producer with a different meaning (the
+harness's total, summed over turns); **per-call token counts**, which the
+contract does not carry and the provider does not give.
+
+## 142. Exec output is bounded at the tool, and the rest stays in the box
+
+A tool result is context the model re-reads on every message after it. A
+`pytest -v` over a hundred tests, a verbose install, or a fetch retried with
+its progress printed each land whole in a sub-agent's context, and the
+sub-agent's next ten messages each pay for them again. `sandbox_exec`
+returned each stream up to the 8 MB the docker call would buffer, and the
+rubric's only advice was that there is no shell to pipe through.
+
+So `sandbox_exec` bounds each stream at 32 KB. Above that it returns the
+first 8 KB and the last 24 KB — a command's opening lines say what ran and
+its closing lines say how it ended — around a marker that gives the total
+size and names the file in the box that holds all of it; the whole stream is
+written there through the runtime's own `writeFile`, which streams over
+stdin and lands on no host filesystem. Reading the middle is then a choice
+made with `sandbox_read_file`, bounded by `max_bytes` as every read is. A
+write that fails still clips: the marker says the rest was not kept, and the
+model gets a bounded result either way.
+
+The size is set by what must survive. `sniff.py run` already caps a wrapped
+command's output at 4000 characters per stream, and what it prints is one
+JSON line — the report, the sensor block, the escaped tails — that the
+sub-agent must copy verbatim into its final message. Those lines run past 10
+KB, and a cap that cut one in the middle would cut the evidence. 32 KB is
+above any report the sensors produce and below any output worth carrying
+whole; the ledger (decision 141) is what says whether the reports themselves
+are the cost, which this bound does not touch.
+
+Rejected: **a `max_bytes` argument on the call**, which exists on
+`sandbox_read_file` and which the model does not remember to pass; **the tail
+alone**, which loses the line that says which tool and version ran;
+**capping inside `sniff.py`**, which already does its part and cannot see a
+command run outside it.
+
+## 143. A timeout is an answer, not a failure
+
+Decision 108 respawns a sub-agent once when it comes back with an error
+instead of a report, because a provider fault mid-check is the one failure
+the parent can undo. The rubric said "an error instead of a report", and the
+model read a report that recorded an error as one. On orders-api #42 the
+added dependency was a `git+` URL whose fetch hangs by design; `detonation`
+timed out, reported the timeout, and was spawned again to time out again —
+two attempts of 130k to 230k input tokens each, on two runs, for one line of
+evidence the first attempt already had.
+
+A report is an answer, whatever it says. A command that timed out, an install
+that hung, a fetch that never finished: each is a measurement, recorded as a
+coverage gap (decision 54), and a second attempt at a thing that hangs by
+design buys a second wait and the same gap. The rubric now says so beside the
+respawn rule: respawn only the sub-agent that returned no report at all.
+Nothing in `apps/cujo` changes — the fold records attempts as before, and
+nothing on the trusted side ever respawned anything.
+
+Amends 108: its rule stands for the case it was written for, the sub-agent
+that died; it never meant the sub-agent that reported a death.
+
+## 144. A push burst is one run
+
+Three of the six runs orders-api #42 got on 2026-09-13 were cancelled by the
+push after them, and each had already spent its setup and most of a check:
+860k input tokens on the largest, for a review nobody saw. A push claims a
+run at the delivery (decision 16) and the run started at once; the next push
+superseded it wherever it was.
+
+The row is still claimed at the delivery — that is what makes a redelivery a
+no-op and gives the audit trail its head — but the start now waits out a
+window, one minute by default, and a newer push on the same pull request
+inside the window drops the older pending start. The run that does start
+supersedes the rows the dropped ones left behind, through the same loop that
+supersedes live runs, so nothing new is needed to keep the store honest. The
+reaction and the check run land at the start rather than the delivery, so a
+burst shows one eye on its last head; an `opened` or `ready_for_review` has
+nothing to wait for and starts at once. On shutdown, pending starts fire at
+once: a row left `running` with no turn is an error on the next boot, which
+is the window a claimed-but-unstarted run always had, and one that got its
+turn is followed there.
+
+A minute, because that is the shape of a burst: a fix, a lint fix, a rebase.
+Longer delays every review by that much for the common single push; shorter
+misses the second commit. `CUJO_PUSH_DEBOUNCE_MS` moves it, and `0` restores
+a start per push.
+
+Rejected: **provisioning the sandbox from `apps/cujo` before the agent
+starts**, so a supersede in the first minute would cost a container and no
+tokens — it adds a crossing the architecture forbids (the agent reaches a box
+only through the five `sandbox-mcp` tools, and `apps/cujo` has no MCP
+client), for a saving the window already gets. **Not claiming the row until
+the window closes**, which would make a redelivery inside the window a
+second run. **Cancelling the pending start on shutdown**, which loses a
+review the next boot could have followed.

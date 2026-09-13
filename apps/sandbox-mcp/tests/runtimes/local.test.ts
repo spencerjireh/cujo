@@ -298,6 +298,25 @@ describe("LocalRuntime.exec", () => {
   });
 });
 
+describe("LocalRuntime.writeFile", () => {
+  it("creates the parent directory and streams the contents over stdin", async () => {
+    const { docker, calls } = fakeDocker();
+    const r = runtime(docker);
+    const box = await r.create({ allowHosts: [] });
+    await r.writeFile(box.id, "/tmp/cujo-state/exec/1-stdout.log", "the whole output");
+    const write = calls[indexOf(calls, "exec", "--interactive")] ?? [];
+    expect(write).toContain('mkdir -p "$(dirname "$1")" && cat > "$1"');
+    expect(write.at(-1)).toBe("/tmp/cujo-state/exec/1-stdout.log");
+    // Through stdin: the contents are an option to the docker call, never an
+    // argument and never a host file.
+    expect(write.join(" ")).not.toContain("the whole output");
+    const call = (docker as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => (c[0] as string[])[1] === "--interactive",
+    );
+    expect((call?.[1] as { stdin?: string })?.stdin).toBe("the whole output");
+  });
+});
+
 describe("LocalRuntime.destroy", () => {
   it("removes the sandbox, the gateway and the network", async () => {
     const { docker, calls } = fakeDocker();

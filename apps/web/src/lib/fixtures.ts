@@ -243,6 +243,77 @@ export function run(over: Partial<Run> = {}): Run {
       messages: 5,
       ms: 32_000,
     },
+    // The parent first, then the checks in spawn order, with the parent the
+    // largest row: on a real run it holds the rubric, the brief and every
+    // report, and re-reads them on each of its messages (decision 141). The
+    // check rows agree with the per-check `usage` above.
+    ledger: {
+      threads: [
+        {
+          title: "main",
+          attempt: 1,
+          messages: 14,
+          inputTokens: 9_600,
+          outputTokens: 2_000,
+          cacheReadTokens: 73_000,
+          cacheWriteTokens: 4_300,
+          reasoningTokens: null,
+          toolResultBytes: 61_440,
+        },
+        {
+          title: "tests",
+          attempt: 1,
+          messages: 8,
+          inputTokens: 18_400,
+          outputTokens: 1_900,
+          cacheReadTokens: 142_000,
+          cacheWriteTokens: 9_100,
+          reasoningTokens: null,
+          toolResultBytes: 48_128,
+        },
+        {
+          title: "probes",
+          attempt: 1,
+          messages: 5,
+          inputTokens: 9_200,
+          outputTokens: 840,
+          cacheReadTokens: 61_000,
+          cacheWriteTokens: 0,
+          reasoningTokens: null,
+          toolResultBytes: 12_288,
+        },
+        {
+          title: "smoke",
+          attempt: 1,
+          messages: 4,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          reasoningTokens: null,
+          toolResultBytes: 6_144,
+        },
+        {
+          title: "detonation",
+          attempt: 1,
+          messages: 0,
+          inputTokens: 24_600,
+          outputTokens: 3_400,
+          cacheReadTokens: 210_000,
+          cacheWriteTokens: 14_000,
+          reasoningTokens: 1_200,
+          toolResultBytes: 30_720,
+        },
+      ],
+      largestToolResults: [
+        { thread: "tests", tool: "sandbox_exec", bytes: 31_744, isError: false },
+        { thread: "main", tool: "create_sub_agent", bytes: 22_528, isError: false },
+        { thread: "detonation", tool: "sandbox_exec", bytes: 19_456, isError: false },
+        { thread: "main", tool: "create_sub_agent", bytes: 14_336, isError: false },
+        { thread: "tests", tool: "sandbox_exec", bytes: 9_216, isError: true },
+        { thread: "probes", tool: "sandbox_read_file", bytes: 8_192, isError: false },
+      ],
+    },
     ...over,
   };
 }

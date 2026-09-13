@@ -93,6 +93,35 @@ const readShape = {
 
 const destroyShape = { sandbox_id: sandboxId };
 
+/**
+ * How much of one stream `sandbox_exec` hands back (decision 142).
+ *
+ * A tool result is context the model re-reads on every message after it, so
+ * an unbounded `pytest -v` or a verbose install is paid for many times over.
+ * Above the cap the head and the tail come back — a command's opening lines
+ * say what ran, its closing lines say how it ended — and the whole output is
+ * written into the box, where `sandbox_read_file` can fetch any of it on
+ * purpose. The cap is well above what `sniff.py` prints: its reports are one
+ * JSON line the sub-agent must copy verbatim, and a cut in their middle would
+ * be a cut in the evidence.
+ */
+const EXEC_STREAM_CAP = 32 * 1024;
+const EXEC_HEAD = 8 * 1024;
+const EXEC_TAIL = 24 * 1024;
+const EXEC_LOG_DIR = "/tmp/cujo-state/exec";
+const EXEC_DESCRIPTION = [
+  "Run one command as a list of arguments. No shell, so no pipelines, no",
+  "redirection and no `&&`. Returns exit code, stdout, stderr and duration.",
+  `A stream over ${EXEC_STREAM_CAP} bytes comes back as its head and tail with a`,
+  "marker naming the file in the sandbox that holds all of it.",
+].join(" ");
+
+/** Head and tail of a stream over the cap, with the marker between them. */
+function clipped(text: string, total: number, path: string | null): string {
+  const where = path ? `sandbox_read_file ${path} for the rest` : "the rest was not kept";
+  return `${text.slice(0, EXEC_HEAD)}\n[cujo: truncated, ${total} bytes total; ${where}]\n${text.slice(-EXEC_TAIL)}`;
+}
+
 function asToolResult(result: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(result) }],
@@ -119,6 +148,9 @@ export function registerSandboxTools(
   runtime: SandboxRuntime,
   log: Logger = createLogger({ service: "sandbox-mcp" }),
 ): void {
+  // Names the log files of clipped output; per process, which is enough
+  // because the path only has to be unique within one box's lifetime.
+  let execSerial = 0;
   server.registerTool(
     "sandbox_create",
     {
@@ -159,9 +191,7 @@ export function registerSandboxTools(
     "sandbox_exec",
     {
       title: "Run a command in a sandbox",
-      description:
-        "Run one command as a list of arguments. No shell, so no pipelines, no " +
-        "redirection and no `&&`. Returns exit code, stdout, stderr and duration.",
+      description: EXEC_DESCRIPTION,
       inputSchema: execShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
@@ -176,11 +206,28 @@ export function registerSandboxTools(
           env: args.env,
           timeoutMs: args.timeout_ms,
         });
+        const serial = ++execSerial;
+        const bound = async (stream: "stdout" | "stderr"): Promise<string> => {
+          const text = result[stream];
+          const total = Buffer.byteLength(text, "utf8");
+          if (total <= EXEC_STREAM_CAP) return text;
+          const path = `${EXEC_LOG_DIR}/${serial}-${stream}.log`;
+          try {
+            await runtime.writeFile(args.sandbox_id, path, text);
+            log.info("sandbox.exec.clipped", { stream, bytes: total, path });
+            return clipped(text, total, path);
+          } catch (error) {
+            // The clip still happens: a log that could not be written is a
+            // reason to say so, not a reason to hand back the whole stream.
+            log.warn("sandbox.exec.clip_unsaved", { stream, bytes: total, ...errorFields(error) });
+            return clipped(text, total, null);
+          }
+        };
         return asToolResult({
           ok: true,
           exit_code: result.exitCode,
-          stdout: result.stdout,
-          stderr: result.stderr,
+          stdout: await bound("stdout"),
+          stderr: await bound("stderr"),
           duration_ms: result.durationMs,
           timed_out: result.timedOut,
         });

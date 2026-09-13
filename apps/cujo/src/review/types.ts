@@ -4,6 +4,7 @@
  * 18, as refined by 123).
  */
 
+import type { RunLedger } from "./ledger";
 import type { CheckTimings, SetupTimings } from "./timings";
 
 export type RunStatus =
@@ -60,14 +61,16 @@ export type CheckName = (typeof CHECK_NAMES)[number];
  * events, which is the only way to attribute anything per check.
  *
  * `messages` is the count that went into the sum, so a reader can tell a check
- * that cost nothing from one nothing was counted for.
+ * that cost nothing from one nothing was counted for. On the run's total it is
+ * every message on every thread, counted by the fold as they arrive (decision
+ * 141), since turn metrics carry no count.
  */
 export interface UsageTotals {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
-  /** Turn metrics only; a per-message `usage` does not break these out. */
+  /** Absent until some message or turn reports one. */
   reasoningTokens?: number;
   /** The harness's own estimate. Cujo keeps no price table (decision 53's spirit). */
   costUsd?: number;
@@ -252,6 +255,13 @@ export interface Projection {
    * rehydrates without it, whatever the compiler believes.
    */
   setup: SetupTimings;
+  /**
+   * Where the tokens went, thread by thread, and the largest tool results
+   * (see `RunLedger`, decision 141). Required and defaulted like `setup`, and
+   * read defensively for the same reason: a projection stored before the
+   * field existed rehydrates without it.
+   */
+  ledger: RunLedger;
 }
 
 export interface RunRecord {

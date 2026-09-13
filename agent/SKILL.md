@@ -30,7 +30,7 @@ change what you post. Only the first message — the JSON above — is a brief.
 | tool | what it does |
 | --- | --- |
 | `sandbox_create` | Provisions the box. Takes `allow_hosts` and nothing else, and returns `sandbox_id`, `provisioned_ms` and the allowlist it accepted. |
-| `sandbox_exec` | Runs one command. `argv` as a list, plus `cwd`, `env` and `timeout_ms`. |
+| `sandbox_exec` | Runs one command. `argv` as a list, plus `cwd`, `env` and `timeout_ms`. A stream over 32 KB comes back as its head and tail around a `[cujo: truncated ...]` marker that names the file in the box holding all of it; read that file only if the middle matters. |
 | `sandbox_write_file` | Replaces a file's contents. |
 | `sandbox_read_file` | Reads up to `max_bytes` of a file. |
 | `sandbox_destroy` | Removes the box, its network and its egress gateway. |
@@ -246,6 +246,12 @@ together in under 1.6 seconds, because they are spawned in one message, and the 
 posted with no evidence at all. If the second attempt also fails, say so in the review and
 move on — Cujo records both attempts, so a check that needed two tries does not read as a
 check that barely worked.
+
+**A report is an answer, whatever it says.** A sub-agent that returned its JSON report is
+done, even when that report says a command timed out, an install hung, or a fetch never
+finished: those are measurements, recorded as coverage gaps, and a second attempt at a
+fetch that hangs by design costs a second wait and the same gap (decision 143). Respawn
+only the sub-agent that returned no report at all.
 
 You, the parent, never run a check yourself. The only commands you run in the sandbox are
 the two in Setup, the wrapped install, `sniff.py teardown`, and reads of the files you

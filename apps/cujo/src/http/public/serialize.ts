@@ -85,6 +85,11 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   // and a count of the parent's own messages: it names no person, and every
   // stamp in it is a time at which this public run did something.
   "setup",
+  // Where the tokens went, thread by thread (decision 141). Thread titles,
+  // counts and byte sizes; a thread id never reaches it (the fold keys its
+  // rows by id in a map it does not store) and a tool result's content is
+  // measured, not copied.
+  "ledger",
 ];
 
 /**
@@ -132,6 +137,7 @@ export const PUBLIC_RUN_FIELDS = [
   "budget_tokens",
   "usage",
   "setup",
+  "ledger",
 ] as const;
 
 /**
@@ -234,6 +240,34 @@ function publicCheck(check: CheckState) {
 }
 
 /**
+ * The ledger, shaped field by field like every other object here. Typed off
+ * `Projection` rather than imported from `review/ledger`, which the import
+ * allowlist does not name and need not: the shape is the contract.
+ */
+function publicLedger(ledger: Projection["ledger"] | undefined) {
+  if (!ledger) return null;
+  return {
+    threads: ledger.threads.map((thread) => ({
+      title: thread.title,
+      attempt: thread.attempt,
+      messages: thread.messages,
+      inputTokens: thread.inputTokens,
+      outputTokens: thread.outputTokens,
+      cacheReadTokens: thread.cacheReadTokens,
+      cacheWriteTokens: thread.cacheWriteTokens,
+      reasoningTokens: thread.reasoningTokens ?? null,
+      toolResultBytes: thread.toolResultBytes,
+    })),
+    largestToolResults: ledger.largestToolResults.map((result) => ({
+      thread: result.thread,
+      tool: result.tool,
+      bytes: result.bytes,
+      isError: result.isError,
+    })),
+  };
+}
+
+/**
  * One check of a digest, shaped rather than passed through — which is the whole
  * point, because passing `digest.checks` through by reference is what let a new
  * field reach the wire unclassified.
@@ -308,6 +342,8 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     // derived here: `settleSetup` lives in `review/timings`, and this module
     // may not import it (the import allowlist in serialize.test.ts).
     setup: projection.setup ?? null,
+    // Null before the field existed, like the two above.
+    ledger: publicLedger(projection.ledger),
   };
 }
 
