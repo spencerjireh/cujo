@@ -33,12 +33,12 @@ import type { RunStore } from "../store";
 import type { ConverseRateLimit } from "./rate-limit";
 
 /** What the reply is posted through, and where the question came from. */
-export type ConverseSurface =
+type ConverseSurface =
   | { kind: "issue" }
   /** A reply inside a review thread, which is a different GitHub endpoint. */
   | { kind: "review_thread"; commentId: number };
 
-export interface ConverseGitHub {
+interface ConverseGitHub {
   permissionFor(
     repo: string,
     login: string,

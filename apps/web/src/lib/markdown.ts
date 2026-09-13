@@ -61,7 +61,7 @@ export function toHtml(markdown: string, breaks = false): string {
   return marked.parse(markdown, { async: false, gfm: true, breaks });
 }
 
-export function sanitize(html: string): string {
+function sanitize(html: string): string {
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,

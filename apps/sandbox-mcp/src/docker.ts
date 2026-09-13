@@ -21,7 +21,7 @@ export interface DockerResult {
   timedOut: boolean;
 }
 
-export interface DockerOptions {
+interface DockerOptions {
   /** Bound on one docker invocation, not on the command inside a container. */
   timeoutMs?: number;
   /** Bytes of each stream to keep. A runaway build log must not be unbounded. */

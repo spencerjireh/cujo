@@ -20,10 +20,11 @@ pnpm workspace (Node >= 24, `corepack enable && pnpm install`) for `apps/*` and
 
 ```bash
 pnpm lint          # biome check .
+pnpm knip          # unused files, exports, and dependencies (knip.json lists the two deliberate exceptions)
 pnpm format        # biome format --write .
 pnpm typecheck     # tsc --noEmit in every workspace
 pnpm test          # vitest run in every workspace
-pnpm build         # tsup in apps/cujo and apps/github-mcp, next build in apps/web
+pnpm build         # tsup in the four Node services, next build in apps/web
 
 uv sync && uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```

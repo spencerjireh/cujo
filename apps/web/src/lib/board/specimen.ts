@@ -36,7 +36,7 @@ import {
 } from "./tone";
 import type { CheckOutcome } from "./tone";
 
-export interface SpecimenBar {
+interface SpecimenBar {
   name: CheckName;
   outcome: CheckOutcome;
   tone: Tone;
@@ -66,7 +66,7 @@ export interface SpecimenBar {
 }
 
 /** One finding, as a satellite on the orbit outside the rings. Worst first. */
-export interface SpecimenMark {
+interface SpecimenMark {
   severity: Severity;
   tone: Tone;
 }

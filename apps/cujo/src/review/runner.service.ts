@@ -105,11 +105,7 @@ function durationOf(check: CheckState): { duration_ms?: number } {
  * and the human wording moves to `detail`, so the UI keeps its message and a
  * query can still ask how often a resume failed.
  */
-export type ApproveRefusal =
-  | "no_such_run"
-  | "not_blocked_pending"
-  | "already_decided"
-  | "resume_failed";
+type ApproveRefusal = "no_such_run" | "not_blocked_pending" | "already_decided" | "resume_failed";
 
 export type ApproveResult = { ok: true } | { ok: false; reason: ApproveRefusal; detail: string };
 

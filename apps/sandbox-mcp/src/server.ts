@@ -56,7 +56,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return text.length === 0 ? undefined : JSON.parse(text);
 }
 
-export function createMcpServer(runtime: SandboxRuntime, log?: Logger): McpServer {
+function createMcpServer(runtime: SandboxRuntime, log?: Logger): McpServer {
   const server = new McpServer({ name: "cujo-sandbox-mcp", version: "0.1.0" });
   registerSandboxTools(server, runtime, log);
   return server;

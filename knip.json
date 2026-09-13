@@ -1,0 +1,9 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": ["apps/cujo/tests/eval/capture.ts"],
+  "workspaces": {
+    "apps/web": {
+      "ignoreDependencies": ["sharp"]
+    }
+  }
+}

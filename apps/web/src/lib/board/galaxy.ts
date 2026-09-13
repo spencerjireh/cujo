@@ -60,7 +60,7 @@ export const BAND_FLATTEN = 0.66;
 const JITTER_ANGLE = (3 * Math.PI) / 180;
 const JITTER_RADIUS = 0.1;
 /** The widest a jittered radius can be, as a factor. What the band's edge uses. */
-export const BAND_REACH = 1 + JITTER_RADIUS;
+const BAND_REACH = 1 + JITTER_RADIUS;
 /**
  * How far a run may sit off its layer's depth, either way. A third of the
  * spacing: two thirds of it between the nearest stars of two layers is what

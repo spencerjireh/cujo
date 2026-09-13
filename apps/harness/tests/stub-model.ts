@@ -28,7 +28,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { Models } from "../src/model";
 
-export const STUB_PROVIDER = "stub";
+const STUB_PROVIDER = "stub";
 export const STUB_MODEL = `${STUB_PROVIDER}/stub`;
 
 export interface Request {
