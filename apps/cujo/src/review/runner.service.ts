@@ -4,7 +4,9 @@ import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { Harness, SessionEvent, StreamEvent } from "../clients/harness";
 import type { RunStore } from "../store";
+import type { DetonationCacheStore } from "../store/detonations";
 import { announceEvidenceGaps, announceTimeout } from "./announce";
+import { cacheableDetonations } from "./detonation-cache";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
 import { validateEvent } from "./event-schema";
 import { isMaliceClaim, isOperationalRule } from "./findings";
@@ -163,6 +165,8 @@ export class Runner {
     private readonly github:
       | (DismissStaleReviewsDeps["github"] & Pick<GitHubReader, "createComment">)
       | null = null,
+    /** Where a finished detonation's reusable entries go (decision 145). */
+    private readonly detonations: Pick<DetonationCacheStore, "put"> | null = null,
   ) {
     this.retryDelaysMs = options.retryDelaysMs ?? [2_000, 5_000, 15_000];
   }
@@ -243,7 +247,7 @@ export class Runner {
         ...(projection.error ? { error_message: projection.error } : {}),
       });
     }
-    this.reportChecks(s, projection);
+    this.reportChecks(runId, s, projection);
     this.store.putProjection(runId, projection);
     this.store.updateRun(runId, { status: projection.status, turnIds: projection.turnIds });
     this.emitChange(runId);
@@ -274,7 +278,7 @@ export class Runner {
    * so a run rehydrated hours later still reports the time the check actually
    * took, not the time since the restart.
    */
-  private reportChecks(s: RunState, projection: Projection): void {
+  private reportChecks(runId: string, s: RunState, projection: Projection): void {
     for (const check of projection.checks) {
       if (!check.isCheck) continue;
       const seen = s.reportedChecks.get(check.threadId);
@@ -294,6 +298,12 @@ export class Runner {
         status: check.status,
         ...durationOf(check),
       });
+      // Once per thread, here, because this branch runs exactly once per
+      // finished thread and not on rehydrate (the map above is seeded from
+      // the stored projection). A cache write must never cost a fold.
+      if (check.title === "detonation" && check.status === "done" && this.detonations) {
+        this.cacheDetonations(runId, s, check);
+      }
     }
     for (const finding of projection.hardRuleHits) {
       if (!finding.rule) continue;
@@ -310,6 +320,25 @@ export class Runner {
             ? "operational"
             : "correctness",
       });
+    }
+  }
+
+  /** The reusable entries of one finished detonation thread, into the cache. */
+  private cacheDetonations(runId: string, s: RunState, check: CheckState): void {
+    try {
+      const entries = cacheableDetonations({ checks: [check] });
+      const createdAt = check.endedAt ?? new Date().toISOString();
+      for (const entry of entries) {
+        this.detonations?.put({ ...entry, runId, createdAt });
+      }
+      if (entries.length > 0) {
+        s.log.info("run.detonation.cache.written", {
+          count: entries.length,
+          dependencies: entries.map((e) => `${e.source} ${e.specifier}`).join(", "),
+        });
+      }
+    } catch (error) {
+      s.log.warn("run.detonation.cache.failed", errorFields(error));
     }
   }
 

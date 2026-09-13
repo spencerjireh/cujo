@@ -80,6 +80,7 @@ async function main(): Promise<void> {
     { turnTimeoutMs: config.turnTimeoutMs, diffTurnTimeoutMs: config.diffTimeoutMs, links },
     log,
     github,
+    store.detonations,
   );
   const spec = buildAgentSpec(config);
   const diffSpec = buildDiffSpec(config);
@@ -272,6 +273,7 @@ async function main(): Promise<void> {
         store: store.runs,
         runner,
         diff,
+        detonations: store.detonations,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
         onClaimed,
@@ -383,6 +385,7 @@ async function main(): Promise<void> {
       store: store.runs,
       runner,
       diff,
+      detonations: store.detonations,
       // What the review's footer names. A public run gets its id; anything
       // else gets nothing, since a private run has no page for a stranger
       // reading the pull request to open. `github-mcp` turns the id into a

@@ -84,6 +84,7 @@ export const FIELD_NAMES = [
   "findings",
   "runs_restamped",
   "bytes",
+  "count",
   // Booleans.
   "ready",
   "is_public",
@@ -93,6 +94,8 @@ export const FIELD_NAMES = [
   "error_message",
   "error_stack",
   "problem",
+  // Dependency specifiers: text out of a pull request's own manifest.
+  "dependencies",
   // Names a person.
   "actor",
 ] as const;
@@ -188,12 +191,14 @@ export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   findings: "count",
   runs_restamped: "count",
   bytes: "count",
+  count: "count",
   ready: "flag",
   is_public: "flag",
   session_created: "flag",
   error_message: "text",
   error_stack: "text",
   problem: "text",
+  dependencies: "text",
   actor: "pii",
 };
 
