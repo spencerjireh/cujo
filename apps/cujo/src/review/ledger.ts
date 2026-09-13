@@ -18,7 +18,24 @@
  * rehydrated run computes exactly what the live one did.
  */
 
-import type { ModelMessageUsage, ToolResponseEvent } from "@cujo/harness-contract";
+/**
+ * The slices of two contract events this module reads, spelled here rather
+ * than imported: `apps/web` type-checks its way from `review/types` into this
+ * file, and its image installs no `@cujo/harness-contract`. Structural
+ * typing keeps the fold's call sites checked against the real events.
+ */
+interface MessageUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+interface ToolResult {
+  toolName: string;
+  content: string;
+  isError: boolean;
+}
 
 /** How many tool results the ledger keeps. Enough to see the shape, not a transcript. */
 const LARGEST_TOOL_RESULTS = 10;
@@ -88,7 +105,7 @@ export function ledgerThread(
 }
 
 /** One model message's usage onto its thread's row. Mutates, like `addMessageUsage`. */
-export function addLedgerMessage(row: LedgerThread, usage: ModelMessageUsage | undefined): void {
+export function addLedgerMessage(row: LedgerThread, usage: MessageUsage | undefined): void {
   row.messages += 1;
   if (!usage) return;
   row.inputTokens += usage.inputTokens ?? 0;
@@ -105,11 +122,7 @@ export function addLedgerMessage(row: LedgerThread, usage: ModelMessageUsage | u
  * into the run's list. The list stays sorted and bounded, so the insertion is
  * the whole cost.
  */
-export function addToolResult(
-  ledger: RunLedger,
-  row: LedgerThread,
-  event: Pick<ToolResponseEvent, "toolName" | "content" | "isError">,
-): void {
+export function addToolResult(ledger: RunLedger, row: LedgerThread, event: ToolResult): void {
   const bytes = Buffer.byteLength(event.content, "utf8");
   row.toolResultBytes += bytes;
   const entry: LedgerToolResult = {
