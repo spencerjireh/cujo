@@ -212,7 +212,11 @@ For a `pull_request` event the `apps/cujo` webhook module:
    name, PR number, base SHA, head SHA, the changed-file list, and — only when
    the repo is public — `run_id`, which the agent passes back to the review
    tool (Contract 4). An id and not a URL: the payload reaches an agent that
-   is about to read a stranger's pull request, so it names no host. For a
+   is about to read a stranger's pull request, so it names no host. When a
+   manifest changed, also `detonation_cached` (decision 145): for each exact
+   specifier the manifest hunks add that this instance detonated within seven
+   days, the entry that run recorded, its `cached_at`, and its `run_id` only
+   when that run is public. Omitted when there is none. For a
    **diff** run, creates a fresh session on the diff spec (decision 137),
    prepares the package (Contract 11), stamps the run with the diff spec's
    model, rubric digest and budget and the new session, and starts one turn
@@ -434,7 +438,29 @@ so no report is folded from it and it is never evidence.
   }
   ```
 
-  plus the shared sensor block below.
+  plus the shared sensor block below, and `resolved` — what the install said
+  the specifier became (`humanize==4.9.0`), read best effort after the sensed
+  window closed and `null` on any doubt or a failed install.
+
+  **One detonation per exact specifier per instance per week** (decision
+  145). A specifier that names one immutable thing — a registry version
+  (`name==X`, `name@X`, `module@vX.Y.Z`, `name:X`) or a git commit
+  (`git+url@<40 hex>`) — is looked up on the trusted side before the turn
+  starts, in a table keyed on `(source, normalised specifier)` with a
+  seven-day TTL enforced on read. A hit reaches the agent in the brief; the
+  parent writes the brief's array verbatim to
+  `/tmp/cujo-state/detonation-cache.json`, and the sub-agent runs
+  `sniff.py detonate --dependency <spec> --source <src> --cached <that file>`,
+  which records the earlier entry as this run's, marked `cached_from_run`
+  and `cached_at`, and installs nothing; a specifier the file lacks exits
+  non-zero with nothing recorded and is detonated the ordinary way. The
+  model assembles nothing (decision 112 holds). When a `detonation` check
+  finishes, `apps/cujo` writes back every entry that may serve another run:
+  `install_ok` under an exclusive window, no `derived` flag and no decoy
+  read, every egress host on the sensors' own index list (so nothing one
+  repository's allowlist permitted can ride into another), an exact
+  specifier, and not itself a cached copy. Ranges, tags, branches and bare
+  names are never cached.
 
 ### The report
 
@@ -487,7 +513,9 @@ for `tests`, `probes[]`, `endpoints[]` and `log_tail` for `smoke`.
 Each entry of `runs[]` is what `sniff.py run` printed: `schema_version`, `argv`,
 `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail`, and the
 sensor block below. A `detonate` entry carries `dependency`, `source`,
-`install_ok` and `duration_s` in place of `argv` and `exit`.
+`install_ok`, `duration_s` and `resolved` in place of `argv` and `exit`, and,
+when it was copied from an earlier run (decision 145), `cached_from_run` and
+`cached_at`.
 
 The sensor block itself, the same on every check so the hard rules read one
 shape regardless of which one ran: `egress[]`, `files_read[]`, `fs_changes[]`,

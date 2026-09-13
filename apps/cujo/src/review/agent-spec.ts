@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentSpec, ModelParams, ReasoningEffort } from "@cujo/harness-contract";
 import type { PullRequestInfo } from "../clients/github";
 import type { Config } from "../config";
+import type { CachedDetonation } from "./detonation-cache";
 import type { ReviewPackage } from "./prepare";
 
 const MANIFESTS = [
@@ -272,7 +273,11 @@ export function buildConverseSpec(
  * request can choose the host the review's footer points at; `github-mcp` owns
  * that.
  */
-export function buildTurnMessage(pr: PullRequestInfo, runId = ""): string {
+export function buildTurnMessage(
+  pr: PullRequestInfo,
+  runId = "",
+  cached: readonly CachedDetonation[] = [],
+): string {
   const docsOnly = isDocsOnly(pr.changedFiles);
   const payload = {
     repo: pr.repo,
@@ -286,6 +291,10 @@ export function buildTurnMessage(pr: PullRequestInfo, runId = ""): string {
     manifest_changed: manifestChanged(pr.changedFiles),
     ...(docsOnly ? { docs_only: true } : {}),
     ...(runId ? { run_id: runId } : {}),
+    // Detonations this instance already ran for exact specifiers this head
+    // adds (decision 145). Omitted when empty, like the two above, so a
+    // brief with nothing cached reads as it always did.
+    ...(cached.length > 0 ? { detonation_cached: cached } : {}),
   };
   return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }

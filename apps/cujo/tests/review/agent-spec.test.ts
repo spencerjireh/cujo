@@ -175,6 +175,20 @@ describe("buildTurnMessage", () => {
     const payload = payloadOf(buildTurnMessage(pr));
     expect("docs_only" in payload).toBe(false);
   });
+
+  it("carries detonation_cached only when there is one (decision 145)", () => {
+    expect("detonation_cached" in payloadOf(buildTurnMessage(pr, "", []))).toBe(false);
+    const cached = [
+      {
+        dependency: "humanize==4.9.0",
+        source: "pypi" as const,
+        run_id: null,
+        cached_at: "2026-09-10T00:00:00.000Z",
+        report: { dependency: "humanize==4.9.0", install_ok: true },
+      },
+    ];
+    expect(payloadOf(buildTurnMessage(pr, "", cached)).detonation_cached).toEqual(cached);
+  });
 });
 
 describe("buildAgentSpec", () => {
