@@ -1,7 +1,7 @@
 /**
  * Answering `@cujo-guard` on a pull request (Design 3, decision 47).
  *
- * The load-bearing rule is that **conversation runs in its own TrueForge
+ * The load-bearing rule is that **conversation runs in its own harness
  * session and is never folded into a run.** A second turn on the review's
  * session fails three separate ways: it silently cancels a live review, it is
  * refused with a 422 in exactly the `blocked_pending` state where a maintainer

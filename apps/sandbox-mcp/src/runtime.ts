@@ -1,14 +1,15 @@
 /**
  * What a sandbox is, as an interface.
  *
- * The whole reason this file exists is one string literal. TrueForge's SDK types
- * its sandbox provider as `type: "daytona"` — not a union, and the wire
- * serializer uses `stringLiteral("daytona")`, so casting past the type is
- * rejected at runtime too. `auth` is `DaytonaSandboxProviderAuth` directly, there
- * is no image field anywhere in the SDK, and the provider is a singleton per
- * tenant with only `get()` and `createOrUpdate()`. On that shape you cannot drop
- * Daytona and keep the harness, and you cannot register a second provider and
- * switch (decision 113).
+ * The whole reason this file exists was one string literal. TrueForge's SDK
+ * typed its sandbox provider as `type: "daytona"` — not a union, and the wire
+ * serializer used `stringLiteral("daytona")`, so casting past the type was
+ * rejected at runtime too. `auth` was `DaytonaSandboxProviderAuth` directly,
+ * there was no image field anywhere in the SDK, and the provider was a singleton
+ * per tenant with only `get()` and `createOrUpdate()`. On that shape you could
+ * not drop Daytona and keep the harness, and you could not register a second
+ * provider and switch (decision 113). TrueForge is gone (decision 123); the
+ * rule below outlived its cause.
  *
  * So nothing here may name a vendor. No API key, no auto-archive interval, no
  * exec timeout named after somebody's knob. A runtime is five operations and a

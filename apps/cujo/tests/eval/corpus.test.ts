@@ -17,7 +17,7 @@
  * to paste.
  *
  * The file name matters: `apps/cujo/vitest.config.ts` excludes
- * `**\/*.contract.test.ts`, because those need a live TrueForge server. Naming
+ * `**\/*.contract.test.ts`, because those need a live harness. Naming
  * this `eval.contract.test.ts` would have CI skip it in silence.
  */
 

@@ -1,6 +1,7 @@
 /**
- * The sandbox MCP server: the door around the harness's `type: "daytona"`
- * literal (decision 113).
+ * The sandbox MCP server: the door that was built around TrueForge's
+ * `type: "daytona"` literal (decision 113) and kept after 123, because a
+ * runtime the rest of the process cannot name is worth having on its own.
  *
  * `CUJO_SANDBOX_RUNTIME` picks an implementation. `local` is a container on this
  * host with egress enforced by a gateway outside it; `daytona` is the old vendor
