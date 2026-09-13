@@ -217,28 +217,36 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
     return runner;
   };
 
-  it("an advisory review folds to unproven, even when github-mcp's GitHub call fails", async () => {
+  it("an advisory review whose GitHub call fails folds to error, with no review (decision 140)", async () => {
+    // github-mcp holds placeholder credentials here, so the real MCP tool
+    // runs and GitHub refuses it. That refusal is a `tool.response` with
+    // `isError`, and the fold records a review only from a response that is
+    // not one: nothing reached the pull request, so the run says so and is
+    // not retried — the same head gets the same refusal.
     const run = runFor("h-adv");
     await active().start(run, reviewMessage("post_advisory_review"));
-    // `unproven` and not `clean`: this turn posts a review without any check
-    // having reported, which is the exact shape decision 107 stops calling
-    // clean. The review still lands, which is what this test is about.
-    expect(store.runs.getRun(run.id)?.status).toBe("unproven");
+    expect(store.runs.getRun(run.id)?.status).toBe("error");
     const projection = store.runs.getProjection(run.id);
-    expect(projection?.review).toMatchObject({
-      tool: "post_advisory_review",
-      body: "Tests: fine.",
-    });
+    expect(projection?.review).toBeNull();
+    expect(projection?.error?.startsWith("review post failed: post_advisory_review")).toBe(true);
     expect(projection?.summary).toBe("posted");
+    expect(store.runs.getRun(run.id)?.turnIds).toHaveLength(1);
   });
 
-  it("a blocking review folds to blocked with nobody asked (decision 138)", async () => {
+  it("a blocking review whose GitHub call fails folds to error, not blocked", async () => {
+    // The check run reads this: `blocked` would fail `cujo/guard` over a
+    // review nobody can read, which is what orders-api #44 did.
     const run = runFor("h-blk");
     await active().start(run, reviewMessage("post_blocking_review"));
-    expect(store.runs.getRun(run.id)?.status).toBe("blocked");
-    expect(store.runs.getProjection(run.id)?.review?.tool).toBe("post_blocking_review");
-    expect(store.runs.getRun(run.id)?.turnIds).toHaveLength(1);
-    // A newer head supersedes it in the store alone: nothing is live to cancel.
+    expect(store.runs.getRun(run.id)?.status).toBe("error");
+    expect(store.runs.getProjection(run.id)?.review).toBeNull();
+    expect(
+      store.runs
+        .getProjection(run.id)
+        ?.error?.startsWith("review post failed: post_blocking_review"),
+    ).toBe(true);
+    // A newer head supersedes a finished run in the store alone: nothing is
+    // live to cancel.
     expect(await active().supersede(run.id)).toBe(true);
     expect(store.runs.getRun(run.id)?.status).toBe("superseded");
   });

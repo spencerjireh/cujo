@@ -47,6 +47,22 @@ const reviewCall = (id: string): Ev => ({
   ],
 });
 
+/**
+ * GitHub's answer to that call. A review is recorded from its response, not
+ * its call (decision 140), so a fixture that means "a review posted" carries
+ * both.
+ */
+const reviewPosted = (id: string, isError = false): Ev => ({
+  type: "tool.response",
+  id: `tr-${id}`,
+  createdAt: "2026-08-27T00:00:00Z",
+  threadId: "main",
+  toolCallId: id,
+  toolName: "post_advisory_review",
+  content: isError ? "GitHub 422: Review cannot be requested" : "{}",
+  isError,
+});
+
 const approvalRequired = (callId: string): Ev => ({
   type: "tool.approval_required",
   id: `ar-${callId}`,
@@ -182,6 +198,7 @@ describe("Runner.start", () => {
       yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
       for (const event of checkReported("tests")) yield event as StreamEvent;
       yield reviewCall("c1");
+      yield reviewPosted("c1");
       yield turnDone("t1");
     }
     const startTurn = vi.fn(async () => "t1");
@@ -203,6 +220,7 @@ describe("Runner.start", () => {
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       ...checkReported("tests"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const runner = new Runner(
@@ -235,6 +253,7 @@ describe("Runner.start", () => {
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       ...checkReported("tests"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const subscribe = vi.fn(async () => streamOf(events));
@@ -388,6 +407,7 @@ describe("Runner.rehydrate", () => {
       // Run b's turn chains from a's last turn because the session is shared.
       { turnId: "t2", event: turnCreated("t2", "t1", "2026-08-27T11:00:00Z") },
       { turnId: "t2", event: reviewCall("c2") },
+      { turnId: "t2", event: reviewPosted("c2") },
       { turnId: "t2", event: turnDone("t2") },
     ]);
     const runner = new Runner(store.runs, { listEvents } as unknown as Harness, {
@@ -471,6 +491,7 @@ describe("Runner.hydrate", () => {
       { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
       ...checkReported("tests").map((event) => ({ turnId: "t1", event })),
       { turnId: "t1", event: full },
+      { turnId: "t1", event: reviewPosted("c1") },
       // Another run's turn on the same session must not leak in.
       { turnId: "t9", event: { ...full, id: "mm-c1", threadId: "main" } },
       { turnId: "t1", event: turnDone("t1") },
@@ -487,6 +508,7 @@ describe("Runner.hydrate", () => {
         turnCreated("t1", null, "2026-08-27T10:00:01Z"),
         ...(checkReported("tests") as StreamEvent[]),
         stub,
+        reviewPosted("c1"),
         turnDone("t1"),
       ]),
     );
@@ -510,6 +532,7 @@ describe("Runner.hydrate", () => {
         turnCreated("t1", null, "2026-08-27T10:00:01Z"),
         ...(checkReported("tests") as StreamEvent[]),
         reviewCall("c1"),
+        reviewPosted("c1"),
         turnDone("t1"),
       ]),
     );
@@ -630,6 +653,7 @@ describe("Runner, on a turn that timed out", () => {
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       ...checkReported("tests"),
       reviewCall("c1"),
+      reviewPosted("c1"),
     ];
     const runner = new Runner(
       store.runs,
@@ -658,6 +682,7 @@ describe("Runner.consume", () => {
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       ...(checkReported("tests") as StreamEvent[]),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const subscribe = vi.fn(async () => streamOf(events));
@@ -675,6 +700,7 @@ describe("Runner.consume", () => {
       turnCreated("t1", null, "2026-08-27T10:00:01Z"),
       ...(checkReported("tests") as StreamEvent[]),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const subscribe = vi.fn(async () => streamOf(events));
@@ -720,6 +746,7 @@ describe("Runner.consume", () => {
         turnCreated("t1", null, "2026-08-27T10:00:01Z"),
         ...checkReported("tests"),
         reviewCall("c1"),
+        reviewPosted("c1"),
         turnDone("t1"),
       ];
       const { store, r, runner, subscribe, opening } = lost({
@@ -975,6 +1002,7 @@ describe("Runner retries a turn that posted nothing", () => {
         turnCreated("t2", "t1", "2026-08-27T10:05:00Z"),
         ...checkReported("tests"),
         reviewCall("c1"),
+        reviewPosted("c1"),
         turnDone("t2"),
       ],
     ]);
@@ -1012,12 +1040,33 @@ describe("Runner retries a turn that posted nothing", () => {
       [
         turnCreated("t1", null, "2026-08-27T10:00:01Z"),
         reviewCall("c1"),
+        reviewPosted("c1"),
         turnDone("t1"),
         errorDone("t1b"),
       ],
     ]);
     await runner.start(r, "review it");
     expect(startTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a post GitHub refused, which the same head would refuse again", async () => {
+    // orders-api #44: a 422 on every call. A second sandbox buys the same
+    // answer, so the run ends `error` naming the refusal (decision 140).
+    const { store, r, runner, startTurn } = runnerOver([
+      [
+        turnCreated("t1", null, "2026-08-27T10:00:01Z"),
+        reviewCall("c1"),
+        reviewPosted("c1", true),
+        turnDone("t1"),
+      ],
+    ]);
+    await runner.start(r, "review it");
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(store.runs.getRun(r.id)).toMatchObject({ status: "error" });
+    expect(store.runs.getProjection(r.id)?.error).toBe(
+      "review post failed: post_advisory_review — GitHub 422: Review cannot be requested",
+    );
+    expect(store.runs.getProjection(r.id)?.review).toBeNull();
   });
 
   it("does not retry a run a newer head superseded", async () => {

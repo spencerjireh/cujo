@@ -28,8 +28,32 @@ import {
 
 export type Event = SessionEvent | StreamEvent;
 
-/** Both tools post the moment the model calls them, so a call is a posted review. */
+/**
+ * The two tools that post a review. A call is not a posted review: GitHub can
+ * refuse one (a 422 on an App's own pull request did, decision 140), so the
+ * review is recorded from the call's `tool.response`, and only when that is
+ * not an error.
+ */
 const REVIEW_TOOLS = new Set(["post_advisory_review", "post_blocking_review"]);
+
+/**
+ * Prefix of the `error` a run ends with when its review tool was called and
+ * GitHub refused the post. `retryTurn` matches on it: the refusal is
+ * deterministic for the same head, so a retry is a second sandbox for the
+ * same answer (decision 140).
+ */
+export const REVIEW_POST_FAILED = "review post failed: ";
+
+/** One line of a refused post, short enough for a status row. */
+function postFailureText(tool: string, content: string): string {
+  const line =
+    content
+      .split("\n")
+      .find((l) => l.trim() !== "")
+      ?.trim() ?? "";
+  const capped = line.length > 200 ? `${line.slice(0, 200)}…` : line;
+  return `${REVIEW_POST_FAILED}${tool}${capped ? ` — ${capped}` : ""}`;
+}
 
 export interface FoldOptions {
   /**
@@ -227,6 +251,11 @@ export function parseReview(call: ToolCall): DraftedReview | null {
 export function fold(events: readonly Event[], options: FoldOptions = {}): Projection {
   const p = emptyProjection();
   const messages = new Map<string, ModelMessageEvent>();
+  // Review calls parsed off `model.message`, waiting for their response. The
+  // call carries the arguments and the response carries the outcome, and only
+  // the pair is a posted review.
+  const pendingReviews = new Map<string, DraftedReview>();
+  let postFailure: string | null = null;
   const diff = options.mode === "diff";
 
   for (const event of events) {
@@ -260,7 +289,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           if (fresh && p.setup.firstCheckAt === null) p.setup.messages += 1;
           for (const call of event.toolCalls ?? []) {
             const review = parseReview(call);
-            if (review) p.review = review;
+            if (review) pendingReviews.set(call.id, review);
           }
           const text = messageText(event);
           if (text && !(event.toolCalls?.length ?? 0)) p.summary = text;
@@ -353,6 +382,21 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           const ms = provisionedMs(event.content);
           if (ms !== undefined) p.setup.sandboxProvisionedMs = ms;
         }
+        // The review, once GitHub has answered. A refused post leaves
+        // `review` null and the refusal in hand for the ladder: the pull
+        // request carries nothing, so the run must not say it does. A later
+        // call that succeeds records its review and the earlier refusal no
+        // longer matters.
+        const drafted = pendingReviews.get(event.toolCallId);
+        if (drafted) {
+          pendingReviews.delete(event.toolCallId);
+          if (event.isError) {
+            postFailure = postFailureText(event.toolName, event.content);
+          } else {
+            p.review = drafted;
+            postFailure = null;
+          }
+        }
         break;
       }
       case "turn.done": {
@@ -402,7 +446,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
             p.status = "clean";
           } else {
             p.status = "error";
-            p.error = "turn ended without a review";
+            p.error = postFailure ?? "turn ended without a review";
           }
           break;
         }
@@ -440,9 +484,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           p.status = "clean";
         } else {
           // A turn that never called a review tool posted nothing; calling
-          // that clean would hide a broken github-mcp registration.
+          // that clean would hide a broken github-mcp registration. A turn
+          // whose call GitHub refused posted nothing either, and says why.
           p.status = "error";
-          p.error = "turn ended without a review";
+          p.error = postFailure ?? "turn ended without a review";
         }
         break;
       }

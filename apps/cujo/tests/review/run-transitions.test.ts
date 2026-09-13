@@ -55,6 +55,22 @@ const reviewCall = (id: string): Ev => ({
   ],
 });
 
+/**
+ * GitHub's answer to that call. A review is recorded from its response, not
+ * its call (decision 140), so a fixture that means "a review posted" carries
+ * both.
+ */
+const reviewPosted = (id: string, isError = false): Ev => ({
+  type: "tool.response",
+  id: `tr-${id}`,
+  createdAt: at,
+  threadId: "main",
+  toolCallId: id,
+  toolName: "post_advisory_review",
+  content: isError ? "GitHub 422: Review cannot be requested" : "{}",
+  isError,
+});
+
 const threadCreated = (threadId: string, title: string, createdAt: string = at): Ev => ({
   type: "thread.created",
   id: `thc-${threadId}`,
@@ -124,6 +140,7 @@ describe("run.status.changed", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", at),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -149,6 +166,7 @@ describe("run.status.changed", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", at),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -163,6 +181,7 @@ describe("check.started and check.finished", () => {
       threadCreated("sub-1", "tests", "2026-08-27T10:00:00Z"),
       threadDone("sub-1", "2026-08-27T10:00:04Z"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -183,6 +202,7 @@ describe("check.started and check.finished", () => {
       threadCreated("sub-9", "some other thread"),
       threadDone("sub-9", at),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -198,6 +218,7 @@ describe("check.started and check.finished", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", "2026-08-27T10:00:02Z"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const first = build(events);
@@ -238,6 +259,7 @@ describe("a turn start is announced once", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", at),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -258,6 +280,7 @@ describe("a transition is announced before it is persisted", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", "2026-08-27T10:00:03Z"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const store = new Store(":memory:");
@@ -432,6 +455,7 @@ describe("check.hard_rule.tripped", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${failingReport}\n\`\`\``),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -456,6 +480,7 @@ describe("check.hard_rule.tripped", () => {
       threadCreated("sub-1", "probes"),
       threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${maliceReport}\n\`\`\``),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -477,6 +502,7 @@ describe("check.hard_rule.tripped", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${unarmedReport}\n\`\`\``),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -493,6 +519,7 @@ describe("check.hard_rule.tripped", () => {
       threadCreated("sub-2", "probes"),
       threadDone("sub-2", "2026-08-27T10:00:03Z"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -507,6 +534,7 @@ describe("check.hard_rule.tripped", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", "2026-08-27T10:00:02Z", `\`\`\`json\n${failingReport}\n\`\`\``),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const first = build(events);
@@ -543,6 +571,7 @@ describe("run.setup.completed", () => {
       threadDone("sub-1", "2026-08-27T10:00:02Z"),
       threadDone("sub-2", "2026-08-27T10:00:03Z"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
@@ -557,6 +586,7 @@ describe("run.setup.completed", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", "2026-08-27T10:00:02Z"),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ];
     const first = build(events);
@@ -600,6 +630,7 @@ describe("run.status.changed carries error_message", () => {
       threadCreated("sub-1", "tests"),
       threadDone("sub-1", at),
       reviewCall("c1"),
+      reviewPosted("c1"),
       turnDone("t1"),
     ]);
     await runner.start(run, "review it");
