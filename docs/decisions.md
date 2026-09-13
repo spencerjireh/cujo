@@ -136,6 +136,7 @@ that is reversed after it was built or shown is noted here rather than deleted
 128. [MCP tools are exposed by name, and only exact names are gated](#128-mcp-tools-are-exposed-by-name-and-only-exact-names-are-gated)
 129. [Compaction is pi's context-window rule](#129-compaction-is-pis-context-window-rule)
 130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once)
+131. [A sensed command refuses to open a second window](#131-a-sensed-command-refuses-to-open-a-second-window)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -6787,4 +6788,29 @@ boot with `turn.done { status: "error", message: "harness restarted" }`, not
 as `cancelled`. The fold treats every cancel as final and Cujo's retry refuses
 it; an error is the one outcome that lets Cujo start the turn over once. A
 restart mid-review is then one lost attempt, not a lost review.
+
+## 131. A sensed command refuses to open a second window
+
+`sniff.py run` and `sniff.py detonate` each hold the exclusive sensor lock for
+the length of one command (decision 111's window). The first detonation on the
+pi harness (orders-api #42) was `sniff.py run --check detonation -- timeout 90
+python3 sniff.py detonate ...`: the model wrapped the one command that wraps
+itself. The inner `detonate` waited on the lock the outer `run` held, for the
+900 seconds the lock allows or until the `timeout` killed it; what came back
+was the wrapper's report of a timeout, with no install and no egress, so the
+malice rule had nothing to trip on and the run ended `blocked_unattended` on a
+correctness reading of an unvetted dependency. The gate was never reached.
+
+So a window-opening command run inside another's window now refuses at once,
+on stderr, saying what to do instead. `run_sensed` marks its child with
+`CUJO_SENSED_WINDOW`, and `run` and `detonate` exit on it before touching the
+lock. The refusal is what makes decision 108's single respawn worth having: a
+sub-agent that gets a sentence back gets the command right the second time,
+where one that gets a timeout repeats it. The rubric says the same thing in
+words, and the words alone were not enough for this model.
+
+Rejected: **a re-entrant lock**, which would make the inner report a slice of
+the outer window and both reports describe the same rows, the overlap the lock
+exists to prevent. **Detecting the wrapper in `run`'s argv**, which catches
+`sniff.py` by name and nothing that reaches it through a shell.
 

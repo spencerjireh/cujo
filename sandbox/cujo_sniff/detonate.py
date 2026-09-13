@@ -20,7 +20,7 @@ from cujo_sniff.context import Context, state_paths
 from cujo_sniff.policy import SCHEMA_VERSION
 from cujo_sniff.report import merge_reports
 from cujo_sniff.reports import record_run
-from cujo_sniff.runner import run_sensed
+from cujo_sniff.runner import refuse_nested_window, run_sensed
 from cujo_sniff.scrub import scrub
 
 
@@ -72,6 +72,7 @@ def _gem_install_cmds(env_dir: Path, spec: str) -> list[list[str]]:
 
 
 def cmd_detonate(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
+    refuse_nested_window("detonate")
     spec = args.dependency
     source = args.source if args.source != "auto" else detect_source(spec)
     spec_clean = spec.removeprefix("npm:").removeprefix("gem:").removeprefix("go:")
