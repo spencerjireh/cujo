@@ -14,12 +14,12 @@
  */
 
 import type { Logger } from "@cujo/log";
-import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "../clients/github";
-import type { Reaction } from "../clients/github-reactions";
-import type { RunStore } from "../store/runs";
-import { type CommandVerb, authorizeCommand } from "./command-authorization";
-import { parseCommand } from "./parse-command";
-import type { ApproveResult, Runner } from "./runner.service";
+import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "../../clients/github";
+import type { Reaction } from "../../clients/github-reactions";
+import type { RunStore } from "../../store/runs";
+import type { ApproveResult, Runner } from "../runner.service";
+import { type CommandVerb, authorizeCommand } from "./authorization";
+import { parseCommand } from "./parse";
 
 /** The reads and writes this needs, named so the tests can be plain objects. */
 interface PrCommandGitHub {

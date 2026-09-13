@@ -12,8 +12,8 @@ import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { PrReactor } from "./notify/reactions.service";
 import { buildAgentSpec, buildConverseSpec, specFingerprint } from "./review/agent-spec";
+import { PrCommandService } from "./review/commands/pr-command.service";
 import { publicRunId } from "./review/links";
-import { PrCommandService } from "./review/pr-command.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
 import { startRun } from "./review/start-run";
 import type { RunRecord } from "./review/types";
@@ -134,12 +134,12 @@ async function main(): Promise<void> {
    * `/cujo review` (decision 63): claim the current head and start a turn on it.
    *
    * The same pieces the webhook route uses, composed once here so
-   * `pr-command.service.ts` stays a policy module. Two differences from a
-   * webhook claim, and both are the point of the verb: the head's existing run
-   * is reclaimed, because `runs_head` is unique and a finished run is exactly
-   * what a re-review displaces; and `startRun` is forced past the
-   * already-reviewed guard, which exists to stop a redelivery reviewing the
-   * same commit twice and would otherwise refuse this every time.
+   * `review/commands/pr-command.service.ts` stays a policy module. Two
+   * differences from a webhook claim, and both are the point of the verb: the
+   * head's existing run is reclaimed, because `runs_head` is unique and a
+   * finished run is exactly what a re-review displaces; and `startRun` is
+   * forced past the already-reviewed guard, which exists to stop a redelivery
+   * reviewing the same commit twice and would otherwise refuse this every time.
    */
   const startReview = async (input: {
     repo: string;

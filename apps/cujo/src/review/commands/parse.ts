@@ -18,7 +18,7 @@
  * an invisible one hands a stranger the gate.
  */
 
-import type { CommandVerb } from "./command-authorization";
+import type { CommandVerb } from "./authorization";
 
 export type CommandParse =
   | { kind: "none" }

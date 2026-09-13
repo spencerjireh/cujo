@@ -10,10 +10,10 @@
 
 import { createLogger } from "@cujo/log";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BOT_LOGIN } from "../../src/clients/github";
-import { PrCommandService } from "../../src/review/pr-command.service";
-import type { ApproveResult } from "../../src/review/runner.service";
-import type { RunRecord } from "../../src/review/types";
+import { BOT_LOGIN } from "../../../src/clients/github";
+import { PrCommandService } from "../../../src/review/commands/pr-command.service";
+import type { ApproveResult } from "../../../src/review/runner.service";
+import type { RunRecord } from "../../../src/review/types";
 
 const HEAD = "abcdef1234567890";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type RepoPermission, authorizeCommand } from "../../src/review/command-authorization";
+import { type RepoPermission, authorizeCommand } from "../../../src/review/commands/authorization";
 
 const ask = (over: Partial<Parameters<typeof authorizeCommand>[0]> = {}) =>
   authorizeCommand({
