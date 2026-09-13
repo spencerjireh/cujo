@@ -36,6 +36,13 @@ export type RunStatus =
   /** A newer head on the same PR replaced this run before it finished. */
   | "superseded";
 
+/**
+ * The two reviews (decision 133). `sandbox` runs the pull request; `diff`
+ * reads it. A run is one or the other for its whole life.
+ */
+export const REVIEW_MODES = ["sandbox", "diff"] as const;
+export type ReviewMode = (typeof REVIEW_MODES)[number];
+
 export const CHECK_NAMES = ["tests", "probes", "smoke", "detonation"] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
 
@@ -318,6 +325,21 @@ export interface RunRecord {
    */
   model: string | null;
   rubricSha256: string | null;
+  /**
+   * Which review this run is (decision 135): `sandbox` clones the pull
+   * request into a box and runs the four checks; `diff` reads the diff against
+   * the repository's own standards on the trusted side and never provisions
+   * a sandbox. Resolved in `startRun` once the pull request has been read,
+   * so a claimed row says `sandbox` until then, and a row from before the
+   * column existed reads as `sandbox` too — the only review there was.
+   */
+  mode: ReviewMode;
+  /**
+   * The turn's token budget as stamped at start (decision 132), or null when
+   * the spec carried none — every sandbox run, and every run from before the
+   * column existed. Read beside `usage` on the run page.
+   */
+  budgetTokens: number | null;
   prTitle: string | null;
   prAuthorLogin: string | null;
   prAuthorId: number | null;

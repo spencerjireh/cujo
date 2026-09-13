@@ -52,12 +52,23 @@ export function RunView({ id }: { id: string }) {
           Live updates are unavailable right now. Reload to see the latest.
         </p>
       ) : null}
-      <ChecksTimeline
-        checks={run.checks}
-        findings={run.findings}
-        setup={run.setup}
-        onSelect={(check) => setPicked((was) => ({ check, nonce: (was?.nonce ?? 0) + 1 }))}
-      />
+      {/* A diff run has no checks to draw (decision 135): the timeline would
+          be four empty lanes, and the reports section an empty list. One
+          sentence says what the page would otherwise leave a reader to infer
+          from a blank. */}
+      {run.mode === "diff" ? (
+        <p className="max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+          A diff review. No check ran; the findings are the model's reading of the diff against the
+          repository's standards, and a finding here is at most a warning.
+        </p>
+      ) : (
+        <ChecksTimeline
+          checks={run.checks}
+          findings={run.findings}
+          setup={run.setup}
+          onSelect={(check) => setPicked((was) => ({ check, nonce: (was?.nonce ?? 0) + 1 }))}
+        />
+      )}
       <FindingsList findings={run.findings} status={run.status} />
       {run.review ? (
         <ReviewPanel
@@ -81,7 +92,7 @@ export function RunView({ id }: { id: string }) {
           findings={run.findings}
         />
       ) : null}
-      <CheckReports checks={run.checks} picked={picked} />
+      {run.mode === "diff" ? null : <CheckReports checks={run.checks} picked={picked} />}
       {/* Last before the decision, and folded: what the run cost and what
           produced it are context for the verdict, never an argument for it,
           and they are the operator's context rather than the author's. */}

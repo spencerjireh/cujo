@@ -100,6 +100,8 @@ const claim = (headSha = "h") => ({
   deliveryId: null,
   model: null,
   rubricSha256: null,
+  mode: "sandbox",
+  budgetTokens: null,
 });
 
 function run(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -116,6 +118,8 @@ function run(overrides: Partial<RunRecord> = {}): RunRecord {
     prAuthorId: null,
     model: null,
     rubricSha256: null,
+    mode: "sandbox",
+    budgetTokens: null,
     status: "running",
     approver: null,
     decidedAt: null,
@@ -762,6 +766,43 @@ describe("Runner, on a turn that timed out", () => {
     expect(store.runs.announcementOf(r.id)).toBe("turn_timeout");
     // The claim is what stops it, so the second attempt never reaches GitHub.
     expect(store.runs.claimAnnouncement(r.id, "turn_timeout")).toBe(false);
+  });
+
+  it("bounds a diff run by the diff ceiling and tells the pull request in diff words", async () => {
+    // The diff window is the short one; with the sandbox window alone this
+    // run would still be waiting when the test ended.
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    const diffRun = store.runs.updateRun(r.id, { mode: "diff", sessionId: "s-diff" }) as RunRecord;
+    const createComment = vi.fn(async () => 7);
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: async () => "t1",
+        subscribe: async () => hangsAfterOpening(),
+        listEvents: vi.fn(async () => [
+          { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
+        ]),
+        listTurns: vi.fn(async () => [{ id: "t1", state: { status: "running" } }]),
+        cancelTurn: vi.fn(async () => {}),
+      } as unknown as Harness,
+      {
+        turnTimeoutMs: 60_000,
+        diffTurnTimeoutMs: 5,
+        retryDelaysMs: [0],
+        pollIntervalMs: 1,
+        links: { publicBaseUrl: "" },
+      },
+      undefined,
+      { createComment } as unknown as never,
+    );
+    await runner.start(diffRun, "read it");
+    await vi.waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
+    const body = String((createComment.mock.calls[0] as unknown[])?.[2]);
+    expect(body).toContain("The diff review reached its 0 minute ceiling");
+    expect(body).toContain("/cujo review");
+    expect(body).not.toContain("checks");
+    expect(store.runs.getRun(r.id)?.status).toBe("error");
   });
 
   it("says nothing when the read back finds a review the stream had not", async () => {

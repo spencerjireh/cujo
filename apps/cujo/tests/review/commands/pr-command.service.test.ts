@@ -34,6 +34,8 @@ const run = (over: Partial<RunRecord> = {}): RunRecord => ({
   prAuthorId: null,
   model: null,
   rubricSha256: null,
+  mode: "sandbox",
+  budgetTokens: null,
   createdAt: "2026-08-29T00:00:00Z",
   updatedAt: "2026-08-29T00:00:00Z",
   ...over,

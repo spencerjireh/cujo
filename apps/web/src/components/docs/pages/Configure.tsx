@@ -1,7 +1,8 @@
 import { C, Cell, LI, Lead, Note, P, Pre, Row, Section, Table, UL } from "@/components/docs/Prose";
 import Link from "next/link";
 
-const EXAMPLE = `install: uv sync
+const EXAMPLE = `mode: diff
+install: uv sync
 test: uv run pytest
 boot: uv run uvicorn app:app --port 8000
 smoke:
@@ -34,10 +35,11 @@ export function Configure() {
 
       <Section id="two-readers" title="Two readers, and two branches">
         <Lead>
-          Five of these keys are read by the agent from the pull request&rsquo;s{" "}
-          <strong className="font-medium text-fg">base</strong> tree. The sixth is read by the
-          service from the repository&rsquo;s{" "}
-          <strong className="font-medium text-fg">default branch</strong>. Neither is read from the
+          Six of these keys are read from the pull request&rsquo;s{" "}
+          <strong className="font-medium text-fg">base</strong> tree — five by the agent in the
+          sandbox, and <C>mode</C> by the service before there is a sandbox. The seventh is read by
+          the service from the repository&rsquo;s{" "}
+          <strong className="font-medium text-fg">default branch</strong>. None is read from the
           pull request&rsquo;s own code.
         </Lead>
         <P>
@@ -55,6 +57,18 @@ export function Configure() {
 
       <Section id="keys" title="The keys">
         <Table head={["Key", "Read from", "Meaning"]}>
+          <Row>
+            <Cell head>mode</Cell>
+            <Cell>base</Cell>
+            <Cell>
+              Which review a pull request gets: <C>sandbox</C> runs it (the four checks below), and{" "}
+              <C>diff</C> reads it against the repository&rsquo;s own standards files on a cheap
+              model, with no sandbox and findings of at most <C>warn</C>. Absent means the
+              instance&rsquo;s default, which is <C>sandbox</C> unless the operator changed it. Two
+              floors override either answer: a pull request that changes a dependency manifest, or
+              one a Bot account opened, is always the sandbox.
+            </Cell>
+          </Row>
           <Row>
             <Cell head>install</Cell>
             <Cell>base</Cell>
@@ -104,9 +118,9 @@ export function Configure() {
           </Row>
         </Table>
         <P>
-          <C>discord_guild</C> is extracted by a single strict line match rather than parsed as
-          YAML, so a malformed value is not an error — it simply means the repository has declared
-          nothing. A configuration typo must never cost a review.
+          <C>mode</C> and <C>discord_guild</C> are extracted by a single strict line match rather
+          than parsed as YAML, so a malformed value is not an error — it simply means the repository
+          has declared nothing. A configuration typo must never cost a review.
         </P>
       </Section>
 

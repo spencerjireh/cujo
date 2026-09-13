@@ -42,6 +42,8 @@ function run(over: Partial<RunRecord> = {}): RunRecord {
     prAuthorId: null,
     model: null,
     rubricSha256: null,
+    mode: "sandbox",
+    budgetTokens: null,
     status: "error",
     approver: null,
     decidedAt: null,

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentSpec, ModelParams, ReasoningEffort } from "@cujo/harness-contract";
 import type { PullRequestInfo } from "../clients/github";
 import type { Config } from "../config";
+import type { ReviewPackage } from "./prepare";
 
 const MANIFESTS = [
   /(^|\/)requirements[^/]*\.txt$/,
@@ -42,11 +43,21 @@ const DOCS_BASENAMES =
  */
 export function isDocsOnly(files: readonly string[]): boolean {
   if (files.length === 0) return false;
-  return files.every((f) => {
-    if (MANIFESTS.some((re) => re.test(f))) return false;
-    const base = f.split("/").pop() ?? "";
-    return DOCS_EXTENSIONS.test(base) || DOCS_BASENAMES.test(base);
-  });
+  return files.every(isDocsPath);
+}
+
+/** One file of `isDocsOnly`'s rule; the diff review ranks by it (Contract 11). */
+export function isDocsPath(path: string): boolean {
+  if (MANIFESTS.some((re) => re.test(path))) return false;
+  const base = path.split("/").pop() ?? "";
+  return DOCS_EXTENSIONS.test(base) || DOCS_BASENAMES.test(base);
+}
+
+/** A dependency lockfile: never worth a model's reading, always worth naming. */
+export function isLockfilePath(path: string): boolean {
+  return /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock|poetry\.lock)$/.test(
+    path,
+  );
 }
 
 /**
@@ -167,6 +178,51 @@ export function buildAgentSpec(
 }
 
 /**
+ * The diff review (decision 133, Contract 11): the parent reads a prepared
+ * package and posts one advisory review, on a session with no sandbox.
+ *
+ * `github-mcp` and nothing else, ungated. There is no `sandbox-mcp` on this
+ * session, so the untrusted text this agent reads — the diff, the standards
+ * files — can at most waste a model turn; it cannot provision a box or run a
+ * command. Nothing is gated because the only tool the rubric permits is
+ * `post_advisory_review`, which was never gated; a call to either other tool
+ * is caught by the fold, not held by the harness.
+ *
+ * The model is `diffModel`. When it is the review model, the same params go
+ * with it; when it is a different model, none do — the three sampling settings
+ * were tuned for the other one, and `modelRef`'s warning about a rejected key
+ * applies twice over to a model nobody has tried them on.
+ */
+export function buildDiffSpec(
+  config: Pick<
+    Config,
+    | "model"
+    | "modelReasoningEffort"
+    | "modelTemperature"
+    | "modelMaxTokens"
+    | "diffModel"
+    | "diffBudgetTokens"
+  >,
+  rubric = loadRubric("DIFF.md"),
+): AgentSpec {
+  return {
+    model: config.diffModel === config.model ? modelRef(config) : { name: config.diffModel },
+    instructions: rubric,
+    mcpServers: [{ name: "github-mcp", requireApprovalForTools: [] }],
+    config: {
+      // Off: the package is the whole context and it was cut to a cap before
+      // the model saw it, so an overflow is a misconfigured cap and worth
+      // failing loudly, not a brief to summarise away.
+      compaction: { enabled: false },
+      // One reading and one call. The ceiling is for a model that loops on a
+      // refused anchor; the budget below is the one that bounds the spend.
+      iterationLimit: 12,
+      tokenBudget: config.diffBudgetTokens,
+    },
+  };
+}
+
+/**
  * The agent that answers `@cujo-guard` (Design 3).
  *
  * Two differences from the reviewer, and both are the design:
@@ -238,4 +294,35 @@ export function buildTurnMessage(pr: PullRequestInfo, runId = ""): string {
     ...(runId ? { run_id: runId } : {}),
   };
   return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+}
+
+/**
+ * The diff review's single user message (Contract 11): the package `prepare`
+ * built, under the same fence and the same `run_id` rule as above. No
+ * `clone_url` — this session has nothing to clone with and the URL would be
+ * the one host name in the brief — and no author: the review is about the
+ * change, and a login in the brief is a person for the model to address.
+ */
+export function buildDiffTurnMessage(pkg: ReviewPackage, runId = ""): string {
+  const docsOnly = isDocsOnly(pkg.pr.changedFiles);
+  const payload = {
+    repo: pkg.pr.repo,
+    pr_number: pkg.pr.prNumber,
+    pr_title: pkg.pr.title,
+    pr_body: pkg.pr.body,
+    base_sha: pkg.pr.baseSha,
+    head_sha: pkg.pr.headSha,
+    manifest_changed: manifestChanged(pkg.pr.changedFiles),
+    ...(docsOnly ? { docs_only: true } : {}),
+    ...(runId ? { run_id: runId } : {}),
+    standards: pkg.standards,
+    diff: {
+      files: pkg.diff.kept,
+      omitted: pkg.diff.omitted,
+      bytes: pkg.diff.bytes,
+      cap: pkg.diff.cap,
+    },
+    previous_findings: pkg.previousFindings,
+  };
+  return `Review this pull request by reading it. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }

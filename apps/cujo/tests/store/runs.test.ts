@@ -137,6 +137,55 @@ describe("run store", () => {
     expect(store.runs.latestRunForPr("other/repo", 7)).toBeNull();
   });
 
+  it("lists a pull request's runs newest first, in any state, up to a limit", () => {
+    const store = new Store(":memory:");
+    const first = store.runs.createRun(head).run;
+    const second = store.runs.createRun({ ...head, headSha: "h2" }).run;
+    const third = store.runs.createRun({ ...head, headSha: "h3" }).run;
+    store.runs.updateRun(first.id, { status: "superseded" });
+    store.runs.updateRun(second.id, { status: "clean" });
+    expect(store.runs.runsForPr("O/R", 7, 10).map((r) => r.id)).toEqual([
+      third.id,
+      second.id,
+      first.id,
+    ]);
+    expect(store.runs.runsForPr("o/r", 7, 2).map((r) => r.id)).toEqual([third.id, second.id]);
+    expect(store.runs.runsForPr("o/r", 8, 10)).toEqual([]);
+  });
+
+  it("claims a run as a sandbox review with no budget, and lets startRun correct both", () => {
+    // NULL in both new columns reads as the only review there used to be.
+    const store = new Store(":memory:");
+    const run = store.runs.createRun(head).run;
+    expect(run.mode).toBe("sandbox");
+    expect(run.budgetTokens).toBeNull();
+    const moved = store.runs.updateRun(run.id, {
+      sessionId: "s-diff",
+      mode: "diff",
+      model: "p/flash",
+      rubricSha256: "abc",
+      budgetTokens: 400_000,
+    });
+    expect(moved).toMatchObject({
+      sessionId: "s-diff",
+      mode: "diff",
+      model: "p/flash",
+      rubricSha256: "abc",
+      budgetTokens: 400_000,
+      status: "running",
+    });
+    // A patch that names none of them leaves them alone; a null budget clears it.
+    expect(store.runs.updateRun(run.id, { status: "blocked_pending" })).toMatchObject({
+      sessionId: "s-diff",
+      mode: "diff",
+      budgetTokens: 400_000,
+    });
+    expect(store.runs.updateRun(run.id, { budgetTokens: null })?.budgetTokens).toBeNull();
+    // The head is still claimed under the new session: `runs_head` never
+    // indexed `session_id`, so the move collides with nothing.
+    expect(store.runs.createRun(head).created).toBe(false);
+  });
+
   it("finds the run for one commit, whatever order the deliveries arrived in", () => {
     // The hazard this exists for: a delivery for an older head that arrives
     // late is the newest row, so insertion order is not commit order and a

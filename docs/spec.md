@@ -12,6 +12,13 @@ and an action.
   one that changes a dependency manifest. A PR whose changed files are all
   documentation receives a full run but the agent uses advisory mode
   (`docs_only: true` in the turn payload) rather than blocking.
+- **Two reviews (decision 133).** The trigger is the same; what a run does is
+  its `mode`. `sandbox` runs the pull request (Contracts 2 to 4). `diff` reads
+  it (Contract 11): no sandbox, a cheap model, a token budget, one advisory
+  review with findings of at most `warn`. The mode is resolved in Contract 1
+  from the deploy default, the repository's `.cujo.yml` at base, and two
+  floors: a dependency-manifest change or a Bot-authored pull request is
+  always `sandbox`.
 - **Ecosystem:** any the agent recognises. The agent infers how to install,
   test, and boot the repo from what it finds (`pyproject.toml`, `package.json`,
   `Makefile`, CI workflows). A `.cujo.yml` in the target repo overrides the
@@ -163,17 +170,38 @@ For a `pull_request` event the `apps/cujo` webhook module:
 
 1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
    anything unsigned or mismatched.
-2. Reads the PR metadata and the changed-file list with the App installation
-   token (Contents: read, Pull requests: read).
-3. Finds or creates the harness session for this PR (see Contract 5) and
-   starts one turn with a single user message: repo full name, PR number, base
-   SHA, head SHA, the changed-file list, and — only when the repo is public —
-   `run_id`, which the agent passes back to the review tool (Contract 4). An id
-   and not a URL: the payload reaches an agent that is about to read a
-   stranger's pull request, so it names no host.
-4. Records a run (see Contract 6) and stays subscribed to the turn's event
+2. Reads the PR metadata and the changed files — paths and, for the diff
+   review, their hunks — with the App installation token (Contents: read,
+   Pull requests: read), and whether GitHub calls the author a Bot.
+3. Resolves the **mode** (decision 135), after the read and before any turn,
+   and logs `run.mode.resolved` with the reason. In order: `CUJO_REVIEW_MODE`,
+   the instance's answer when the repository gives none; then `mode:` in
+   `.cujo.yml` read at the pull request's **base SHA** — the target branch's
+   policy, never the pull request's (decision 13), and a commit rather than a
+   branch name so a push to the target between the webhook and this read
+   cannot change the answer; then the two floors, which code enforces
+   whatever either said: a changed dependency manifest is `sandbox`, because
+   the install is the one thing the sandbox exists to watch and the pull
+   request that adds a hostile dependency is the one whose owner may have
+   been talked into `diff`; and a Bot author is `sandbox`, because a pull
+   request nobody wrote is one nobody read. `mode:` is matched by the same
+   strict line rule as `discord_guild`, so a malformed value is no
+   declaration and never costs a review. A read that fails ends the run in
+   `error` rather than guessing.
+4. For a **sandbox** run, finds or creates the harness session for this PR
+   (see Contract 5) and starts one turn with a single user message: repo full
+   name, PR number, base SHA, head SHA, the changed-file list, and — only when
+   the repo is public — `run_id`, which the agent passes back to the review
+   tool (Contract 4). An id and not a URL: the payload reaches an agent that
+   is about to read a stranger's pull request, so it names no host. For a
+   **diff** run, creates a fresh session on the diff spec (decision 137),
+   prepares the package (Contract 11), stamps the run with the diff spec's
+   model, rubric digest and budget and the new session, and starts one turn
+   with the package as its single message; the pull request's own session
+   row is untouched.
+5. Records a run (see Contract 6) and stays subscribed to the turn's event
    stream, folding events into that run until `turn.done`.
-5. Reacts on the pull request with an eye, once this run is known to be the
+6. Reacts on the pull request with an eye, once this run is known to be the
    one worth starting and before the turn exists (Contract 9). A head the bot
    already reviewed, and a delayed delivery for a head that is no longer
    current, are both released before this point and get no reaction — one pull
@@ -1012,7 +1040,13 @@ posts and shows as changes-requested, but does not gate the merge.
 
 ## Contract 5 — one session per PR, no double-posting
 
-- A PR maps to one Cujo session, keyed by repo and PR number.
+- A PR maps to one Cujo session, keyed by repo and PR number. **A diff run is
+  the exception** (decision 137): each gets a fresh session on the diff spec,
+  because a session is pinned to the spec it was created with and the diff
+  spec has no sandbox; its memory of the pull request is the previous
+  review's findings in the package (Contract 11), not the transcript. The
+  per-PR session row is still claimed for the pull request and stays idle
+  on a repository that only ever reads.
 - On `synchronize` (new commits), the session runs a fresh turn against the new
   head SHA rather than opening a new session. The earlier turns stay in the
   session, so the agent can see what it said before.
@@ -1089,7 +1123,9 @@ list in order.
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 55). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
-| `model`, `rubric_sha256` | What produced this verdict: the configured model, and a SHA-256 of the instructions a session would be given — `agent/SKILL.md` after the tarball URL is substituted, so two deploys pointing at different sensor code hash differently. **Both describe the process that claimed the run, not necessarily the session that reviewed it**: the spec is built once at boot and a session is created once per pull request and then kept (decision 16), so a run claimed on an older session carries today's values. Unset for a run claimed before the columns existed. Served on both planes: a model name and a digest of a public rubric name no person and authorize nothing. |
+| `model`, `rubric_sha256` | What produced this verdict: the configured model, and a SHA-256 of the instructions a session would be given — `agent/SKILL.md` after the tarball URL is substituted, so two deploys pointing at different sensor code hash differently. **Both describe the process that claimed the run, not necessarily the session that reviewed it**: the spec is built once at boot and a session is created once per pull request and then kept (decision 16), so a run claimed on an older session carries today's values. A diff run is stamped with the diff spec's pair once its mode resolves, and its session is fresh, so for it the two do describe the session. Unset for a run claimed before the columns existed. Served on both planes: a model name and a digest of a public rubric name no person and authorize nothing. |
+| `mode` | Which review this run is (decision 135): `sandbox` or `diff`. Written by `startRun` once the pull request has been read; a claimed row reads `sandbox` until then, and so does a row from before the column existed, which is the only review there was. Served on both planes, the list included: a `clean` that read the diff and a `clean` that ran it are different claims and a list row shows only the status. |
+| `budget_tokens` | The turn's token budget as stamped at start (decision 132), or unset for a sandbox run and for a run from before the column. Read beside `usage` on the run page. Served on the detail only, with the rest of the cost. |
 | `usage` | What the run cost, summed over every `turn.done` on it, from the harness's `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus its estimated cost in USD when the harness reports one above zero. Cujo keeps no price table — the number is the harness's, or it is absent. Each check carries its own token total beside it, summed from its thread's messages, which is the only way to attribute anything per check. **The key is always present**, and is `null` for a run whose projection was stored before the field existed — null and not zeros, because such a run did not cost nothing, it has no record. The per-check `usage` and `timings` are null on the same terms. |
 | `setup` | Where the run went before the first check existed: `turnCreatedAt` (the run's first `turn.created`), `sandboxCreatedAt` (always null since decision 115; `sandboxProvisionedMs` beside it is what the sandbox's own answer reports), `agentStartedAt` (the parent's first `model.message` on `main`), `firstCheckAt` (the first `thread.created` titled for a check), `messages` (the parent's own messages before it, which is the round-trip count setup cost), and `ms`, the span from `agentStartedAt` to `firstCheckAt`. Four stamps and not one duration, because two of the useful spans end outside this object — the claim is `created_at`, and a reader subtracts. `sandboxCreatedAt` is null on a second run for one pull request: the event is session-scoped and a fold sees only its own run's turns, so null says the sandbox was already there, which is why a re-run is faster. `ms` is omitted while either end is missing. **The key is always present**, `null` for a projection stored before the field existed, on the same terms as `usage`. |
 | `created_at`, `updated_at` | Timestamps. |
@@ -1100,14 +1136,20 @@ Status moves on events from the session's turn streams, with one exception
 | Status | Set when |
 |--------|----------|
 | `running` | The run was claimed; the first turn is being started. |
-| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted, and at least one check returned a report. |
+| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted, and at least one check returned a report. On a diff run: the advisory review posted, full stop — it never had a check, and the run's `mode` is what says so. |
 | `unproven` | `turn.done` on a posted review with **no check report at all** (decision 107). The review is real and the evidence behind it is absent, which `clean` claimed the opposite of. Not `error`: Cujo ran and posted, it just had nothing to show. Terminal, so `TERMINAL_STATUSES_SQL` names it and the partial index excludes it. The one exception is decision 87's: when no suite was inferred and `detonation` reported alone, that is `clean`. |
 | `blocked_unattended` | `turn.done` on an ungated `post_blocking_review`: Cujo blocked the merge on its own authority, for a correctness critical, and no human was asked. `approver` is null and stays null. |
 | `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
 | `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
 | `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
-| `error` | `turn.done` with an error state, the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read or the turn start failed) and so never had a turn, or the turn ended on an advisory review while a hard rule had tripped (Contract 3). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
+| `error` | `turn.done` with an error state — including `token budget exhausted: N of B` from the harness (decision 132), which is never retried because the same brief would spend the same tokens — the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read, the mode read, or the turn start failed) and so never had a turn, the turn ended on an advisory review while a hard rule had tripped (Contract 3), or a diff run called any review tool but `post_advisory_review`, or posted a `critical` on it (Contract 11). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
 | `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. A run that was waiting on a human also has its approval denied, so the session can take the newer head's turn (decision 39). |
+
+`unproven` is never reached by a diff run: the fold folds a diff run under its
+own ladder (Contract 11), which has no rung for missing evidence because none
+was expected. The watchdog window is the mode's: `CUJO_TURN_TIMEOUT_MS` for a
+sandbox run, `CUJO_DIFF_TIMEOUT_MS` for a diff run, in every place the window
+is named.
 
 **A timed-out run says what it measured** (decision 109). The watchdog's
 synthetic terminal leaves `status: "error"`, and the reports that did land are
@@ -1263,6 +1305,7 @@ emitters.
 
 | Event | Level | Fields | When |
 |-------|-------|--------|------|
+| `run.mode.resolved` | info | `mode`, `reason` | Once per run, after the pull request is read and before its turn starts. `reason` is `declared`, `deploy_default`, `manifest_floor` or `bot_floor` (Contract 1). |
 | `run.status.changed` | info | `from`, `to`, `error_message`? | Each status transition. `error_message` is present only when `to` is `error` and the projection carries an error string; omitted on clean endings. |
 | `check.started` | info | `check`, `thread_id` | A sub-agent thread whose title matches a check name moves to running. |
 | `check.finished` | info | `check`, `thread_id`, `status`, `duration_ms`? | A check thread reaches a terminal state. |
@@ -1830,6 +1873,56 @@ are still answered 200.
 **Every outcome speaks**, as with `/cujo`: a refusal nobody can see is
 indistinguishable from a delivery that never arrived. The one exception is a
 comment that does not mention Cujo at all, which is silence by design.
+
+## Contract 11 — the diff review
+
+The review that reads (decision 133). Everything the model sees is gathered by
+code on the trusted side before the turn starts (decision 134), so the cost of
+a review is a number rather than a guess and the model never lists files,
+fetches a patch or opens a standards file itself.
+
+**The package** is the turn's single user message, under the same fence and the
+same `run_id` rule as Contract 1's:
+
+| Key | What it is |
+|-----|------------|
+| `repo`, `pr_number`, `pr_title`, `pr_body`, `base_sha`, `head_sha`, `manifest_changed`, `docs_only`?, `run_id`? | As in Contract 1. No `clone_url`: the session has nothing to clone with, and the URL would be the one host name in the brief. No author: a login in the brief is a person for the model to address. |
+| `standards[]` | The repository's own instruction files at the **base** commit, in this order: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/copilot-instructions.md`. Each is `{path, text, truncated}`, cut on a line at 16 KB, and the set is cut at 48 KB (a file past the line is dropped whole). Base and not head for the reason `.cujo.yml` is (decision 13): a pull request that rewrites CONTRIBUTING.md to permit itself has changed nothing until it is merged. A missing file is skipped; a read that failed ends the run in `error`, because "the repo has no standards" and "GitHub did not answer" are different facts. |
+| `diff` | `{files, omitted, bytes, cap}`. `files` is every changed file whose hunks fit under `CUJO_DIFF_BYTES`, as `{path, status, additions, deletions, patch}`, kept **whole** — a hunk cut mid-line is a line the model will anchor a finding to and `github-mcp` will refuse. Order is rank, then GitHub's order: source, then prose (`isDocsPath`), then generated and vendored paths, then lockfiles. `omitted` lists every file not given, with its counts and a `reason`: `no_patch` (a binary, a rename, or a file GitHub would not diff) or `over_cap`. The model is told what it did not read, the way a sensor report says what it could not observe (decision 54). |
+| `previous_findings[]` | The agent findings of the newest earlier run on this pull request whose review posted, as `{severity, title, path?, line?}`; hard-rule findings are left out, since a diff run cannot reproduce them. A diff run has a fresh session (decision 137), so this is its whole memory, and the rubric tells it not to say the same thing twice. |
+
+**The session** is the diff spec (`buildDiffSpec`): `agent/DIFF.md` as its
+instructions, `github-mcp` as its only MCP server and ungated, no compaction, an
+iteration limit of 12, and `config.tokenBudget` set to `CUJO_DIFF_BUDGET_TOKENS`
+(decision 132). The model is `CUJO_DIFF_MODEL`, falling back to `CUJO_MODEL`; when
+it differs, no sampling params go with it, since the three were tuned for the
+other model.
+
+**What it may say.** Findings carry `check: "diff"` and a severity of `info` or
+`warn`; `critical` is not available, because a block needs evidence a reader
+cannot produce, and the sandbox review is what produces it (decision 136). A
+`critical` on the advisory is a contradiction: the review is already on the pull
+request, so the run ends `error` naming it, exactly as a sandbox run does for the
+same mistake (Contract 3) — not clamped, because the board must not describe a
+finding differently from the pull request (decision 74). Anchors must be lines
+in the patches given; `github-mcp` validates them as it does for any review. The
+only tool is `post_advisory_review`, called once, with `coverage.ran` empty,
+`coverage.skipped` naming all four checks with the reason `diff review; no
+execution` plus one entry per omitted-file group, `egress: []`, and `run_id`
+passed through. A call to either other review tool ends the run `error` naming
+the tool.
+
+**The fold** reads a diff run under its own ladder, selected by the run's
+`mode`: no `check_missing` findings, no `unproven`, and `clean` on a posted
+advisory. The rungs above it — a turn error, a cancel — are the shared ones.
+
+**Bounds.** The token budget is billed tokens summed over the turn, context
+re-read counted on every message; the harness checks after each assistant
+message, so one message can overrun it and none can follow. A run that
+exhausts it ends `error` with the count, keeps its `usage`, and is not
+retried. The watchdog window is `CUJO_DIFF_TIMEOUT_MS`, and a diff run that
+reaches it posts the timeout comment in diff words: no checks to name, push
+again or `/cujo review`.
 
 ## Stretch — remediation
 

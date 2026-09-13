@@ -40,7 +40,19 @@ const SLICES: Slice[] = [
   { key: "cacheWriteTokens", label: "written to cache", className: "bg-fg-muted opacity-30" },
 ];
 
-export function RunLedger({ usage }: { usage?: UsageTotals | null }) {
+export function RunLedger({
+  usage,
+  budget,
+}: {
+  usage?: UsageTotals | null;
+  /**
+   * What the turn was allowed to spend, in billed tokens (decision 132). With
+   * one, the bar is drawn against it and the unspent remainder is track; a
+   * run past it — the harness checks after a message, so one message can
+   * overrun — fills the bar and says so in the line beneath.
+   */
+  budget?: number | null;
+}) {
   // Absent, not zeroed. A run recorded before the field existed did not cost
   // nothing — it has no record, and drawing four empty bars would say the
   // first thing while meaning the second (decision 54).
@@ -49,6 +61,7 @@ export function RunLedger({ usage }: { usage?: UsageTotals | null }) {
   const counts = SLICES.map((slice) => ({ ...slice, value: Number(usage[slice.key] ?? 0) }));
   const total = counts.reduce((sum, slice) => sum + slice.value, 0);
   if (total === 0) return null;
+  const scale = budget && budget > total ? budget : total;
 
   return (
     <div aria-label="What this run cost" className="border-line border-t pt-4">
@@ -56,17 +69,27 @@ export function RunLedger({ usage }: { usage?: UsageTotals | null }) {
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
         What the run spent to reach the verdict. Context for it, never an argument for it.
       </p>
-      <div className="flex h-2 w-full gap-px overflow-hidden" aria-hidden="true">
+      <div
+        className={`flex h-2 w-full gap-px overflow-hidden ${budget ? "bg-bg-raised" : ""}`}
+        aria-hidden="true"
+      >
         {counts.map((slice) =>
           slice.value > 0 ? (
             <span
               key={slice.key}
               className={`min-w-0.5 ${slice.className}`}
-              style={{ width: `${(slice.value / total) * 100}%` }}
+              style={{ width: `${(slice.value / scale) * 100}%` }}
             />
           ) : null,
         )}
       </div>
+      {budget ? (
+        <p className="mt-2 font-mono text-xs text-fg-muted">
+          {compactCount(total)} of {compactCount(budget)} budget (
+          {Math.round((total / budget) * 100)}%)
+          {total > budget ? " · over budget; the turn was ended" : ""}
+        </p>
+      ) : null}
       <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-xs sm:grid-cols-4">
         {counts.map((slice) => (
           <div key={slice.key}>

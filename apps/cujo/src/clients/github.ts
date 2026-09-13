@@ -5,6 +5,21 @@ import {
   normalisePrivateKey,
 } from "@cujo/gh-app-auth";
 import { type Logger, createLogger } from "@cujo/log";
+import type { ReviewMode } from "../review/types";
+
+/**
+ * One changed file as GitHub lists it. `patch` is the unified hunks for that
+ * file and null when GitHub sends none: a binary, a file it considers too
+ * large, or a pure rename. The diff review reads these (Contract 11); the
+ * sandbox review reads only the paths and clones the rest.
+ */
+export interface PullRequestFile {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch: string | null;
+}
 
 export interface PullRequestInfo {
   repo: string;
@@ -15,6 +30,8 @@ export interface PullRequestInfo {
   headSha: string;
   cloneUrl: string;
   changedFiles: string[];
+  /** The same files with their hunks; `changedFiles` is their paths. */
+  files: PullRequestFile[];
   /**
    * Who opened the pull request. Both null for a deleted account, which GitHub
    * reports as no `user` at all — the same case `pullRequestHead` already
@@ -26,6 +43,13 @@ export interface PullRequestInfo {
    */
   authorLogin: string | null;
   authorId: number | null;
+  /**
+   * GitHub's own `user.type === "Bot"`: a GitHub App's installation account,
+   * which is what Dependabot, Renovate and the coding agents open pull
+   * requests as. One of the two floors on the review mode (decision 135):
+   * a pull request nobody wrote is one nobody read either, so it runs.
+   */
+  authorIsBot: boolean;
 }
 
 /** The bot the App posts as in production. Other consumers that do not yet
@@ -77,6 +101,18 @@ export function parseDeclaredGuild(yaml: string): string | null {
     yaml.replace(/\r\n?/g, "\n"),
   );
   return match?.[1] ?? null;
+}
+
+/**
+ * Pull `mode` out of a `.cujo.yml` the same way, and for the same reason. Two
+ * words are the whole value space (`REVIEW_MODES`); anything else on the line
+ * is not a declaration and reads as none.
+ */
+export function parseDeclaredMode(yaml: string): ReviewMode | null {
+  const match = /^mode:[ \t]*["']?(sandbox|diff)["']?[ \t]*(?:#.*)?$/m.exec(
+    yaml.replace(/\r\n?/g, "\n"),
+  );
+  return match?.[1] === "diff" ? "diff" : match?.[1] === "sandbox" ? "sandbox" : null;
 }
 
 /**
@@ -153,16 +189,29 @@ export class GitHubReader {
       body: string | null;
       base: { sha: string; repo: { clone_url: string } };
       head: { sha: string };
-      user: { login: string; id: number } | null;
+      user: { login: string; id: number; type?: string } | null;
     }>(repo, `/repos/${repo}/pulls/${prNumber}`);
-    const changedFiles: string[] = [];
+    const files: PullRequestFile[] = [];
     for (let page = 1; page <= 30; page++) {
-      const files = await this.get<{ filename: string }[]>(
-        repo,
-        `/repos/${repo}/pulls/${prNumber}/files?per_page=100&page=${page}`,
+      const batch = await this.get<
+        {
+          filename: string;
+          status: string;
+          additions: number;
+          deletions: number;
+          patch?: string;
+        }[]
+      >(repo, `/repos/${repo}/pulls/${prNumber}/files?per_page=100&page=${page}`);
+      files.push(
+        ...batch.map((f) => ({
+          path: f.filename,
+          status: f.status,
+          additions: f.additions,
+          deletions: f.deletions,
+          patch: f.patch ?? null,
+        })),
       );
-      changedFiles.push(...files.map((f) => f.filename));
-      if (files.length < 100) break;
+      if (batch.length < 100) break;
     }
     return {
       repo,
@@ -173,9 +222,11 @@ export class GitHubReader {
       headSha: pr.head.sha,
       // The base repo's public clone URL; the sandbox gets no token.
       cloneUrl: pr.base.repo.clone_url,
-      changedFiles,
+      changedFiles: files.map((f) => f.path),
+      files,
       authorLogin: pr.user?.login ?? null,
       authorId: pr.user?.id ?? null,
+      authorIsBot: pr.user?.type === "Bot",
     };
   }
 
@@ -407,6 +458,28 @@ export class GitHubReader {
     } catch {
       return "unknown";
     }
+  }
+
+  /**
+   * The review mode a repo declares in `.cujo.yml` at `ref`, which is the pull
+   * request's base commit: policy comes from the branch the pull request
+   * targets, never from the pull request (decision 13), and a branch name
+   * would let a push to the target between the webhook and this read change
+   * the answer. Null is "declares none"; a read that failed throws, as
+   * `declaredGuild` does, and for the same reason. Uncached: one read per run.
+   */
+  async declaredMode(repo: string, ref: string): Promise<ReviewMode | null> {
+    const yaml = await this.rawFile(repo, ".cujo.yml", ref);
+    return yaml === null ? null : parseDeclaredMode(yaml);
+  }
+
+  /**
+   * A file's text at a ref, or null when it is not there. What the diff review
+   * reads a repository's standards files with (Contract 11): the App's own
+   * read on the trusted side, never the sandbox's copy.
+   */
+  readFile(repo: string, path: string, ref: string): Promise<string | null> {
+    return this.rawFile(repo, path, ref);
   }
 
   /** A file's bytes at a ref, or null when it is not there. */

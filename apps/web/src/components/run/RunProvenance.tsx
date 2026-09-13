@@ -74,6 +74,7 @@ export function RunProvenance({ run }: { run: Run }) {
   // seven characters name one — and left whole where it does not: a session id
   // is what a reader takes to the console.
   const summary = [
+    run.mode === "diff" ? "diff review" : null,
     run.model,
     run.rubric_sha256 ? `rubric ${shortSha(run.rubric_sha256)}` : null,
     run.session_id ? `session ${run.session_id}` : null,
@@ -102,8 +103,12 @@ export function RunProvenance({ run }: { run: Run }) {
           {/* Inside the fold with the handles, and above them: the cost is
               the operator's number a reader is likeliest to want, and the
               handles are the ones they copy. */}
-          <RunLedger usage={run.usage} />
+          <RunLedger usage={run.usage} budget={run.budget_tokens} />
           <dl>
+            {run.mode ? <Entry label="mode">{run.mode}</Entry> : null}
+            {typeof run.budget_tokens === "number" ? (
+              <Entry label="budget">{run.budget_tokens.toLocaleString("en-US")} tokens</Entry>
+            ) : null}
             {run.model ? <Entry label="model">{run.model}</Entry> : null}
             {run.rubric_sha256 ? <Entry label="rubric">{run.rubric_sha256}</Entry> : null}
             {run.session_id ? <Entry label="session">{run.session_id}</Entry> : null}

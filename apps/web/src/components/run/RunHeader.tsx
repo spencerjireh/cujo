@@ -110,6 +110,16 @@ export function RunHeader({ run }: { run: Run }) {
               </a>
             </h1>
             <StatusBadge status={run.status} />
+            {/* Which review this was (decision 135). Beside the verdict and
+                not under it: a `clean` that read the diff and a `clean` that
+                ran it are different claims, and the badge alone says the same
+                word for both. Absent on a sandbox run, which is what every run
+                was, and on a frame from before the field. */}
+            {run.mode === "diff" ? (
+              <span className="inline-flex items-center rounded-md border border-line px-2 py-0.5 font-mono text-xs text-fg-muted">
+                diff review
+              </span>
+            ) : null}
           </div>
           {run.pr_title ? (
             <p className="mt-1 font-mono text-xs text-fg-muted">

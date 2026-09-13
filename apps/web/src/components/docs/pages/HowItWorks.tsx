@@ -29,11 +29,26 @@ export function HowItWorks() {
               , and reacts on the pull request.
             </P>
           </Step>
-          <Step n={2} title="One turn starts, with the pull request as its context.">
+          <Step n={2} title="The service picks the review, and one turn starts.">
             <P>
-              Repository, number, base and head SHA, the changed-file list, and whether a dependency
-              manifest is among them. The service stays subscribed to the turn&rsquo;s event stream
-              and folds what it sees into a run you can watch while the checks are still going.
+              There are two reviews. The <strong className="font-medium text-fg">sandbox</strong>{" "}
+              review, steps 3 to 5 below, runs the pull request. The{" "}
+              <strong className="font-medium text-fg">diff</strong> review reads it: the service
+              compresses the diff, reads the repository&rsquo;s own standards files —{" "}
+              <C>AGENTS.md</C>, <C>CLAUDE.md</C>, <C>CONTRIBUTING.md</C>,{" "}
+              <C>.github/copilot-instructions.md</C> — at the base commit, and hands both to a cheap
+              model on a session with no sandbox and a token budget. It posts one advisory review
+              with findings of at most <C>warn</C>, because a block needs evidence only execution
+              can give. Which review a pull request gets is <C>mode</C> in{" "}
+              <Link href="/docs/configure" className="text-accent underline underline-offset-4">
+                <C>.cujo.yml</C>
+              </Link>
+              , read from base; a dependency-manifest change or a Bot author is always the sandbox.
+            </P>
+            <P>
+              Either way the turn&rsquo;s context is the repository, the number, base and head SHA,
+              and the changed-file list. The service stays subscribed to the turn&rsquo;s event
+              stream and folds what it sees into a run you can watch while it is still going.
             </P>
           </Step>
           <Step n={3} title="Into the sandbox.">

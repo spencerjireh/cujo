@@ -29,9 +29,21 @@ first, somewhere it can do no harm, and tells you what it saw.
 
 ## How it works
 
+Cujo is a diff reviewer that can execute (decision 133). There are two
+reviews, and a repository picks with `mode:` in its `.cujo.yml`. The **diff**
+review reads the pull request on the trusted side: the service compresses the
+diff, reads the repository's own standards files (`AGENTS.md`, `CLAUDE.md`,
+`CONTRIBUTING.md`, `.github/copilot-instructions.md`) at the base commit, and
+hands both to a cheap model on a session with no sandbox and a token budget.
+It posts one advisory review with findings of at most `warn`, because a block
+needs evidence only execution can give. The **sandbox** review, below, runs
+the pull request. A dependency-manifest change or a Bot-authored pull request
+is always the sandbox, whatever the file says.
+
 1. The Cujo GitHub App receives the `pull_request` webhook. `apps/cujo`
-   verifies the signature and starts one agent turn with the PR context: repo,
-   PR number, base and head SHAs, changed files.
+   verifies the signature, reads the pull request, resolves the mode, and
+   starts one agent turn with the PR context: repo, PR number, base and head
+   SHAs, changed files — and, for a diff run, the diff and the standards.
 2. The agent provisions a sandbox, clones both SHAs, seeds a decoy
    secret, and starts a logging proxy. Then it spawns one subagent per check:
    `tests` (the suite on base and head), `probes` (agent-written scripts against
@@ -120,7 +132,10 @@ curl -s -H 'Host: cujo' http://localhost:8080/public/runs
 
 `MODEL_PROVIDER_*` names an OpenAI-compatible endpoint and the models on it;
 `apps/cujo` registers it on the harness at start, and there is nowhere else to
-configure one. A self-hosted instance needs
+configure one. `CUJO_REVIEW_MODE` is the review a repository gets when it
+declares none, and `CUJO_DIFF_MODEL`, `CUJO_DIFF_BUDGET_TOKENS`,
+`CUJO_DIFF_TIMEOUT_MS` and `CUJO_DIFF_BYTES` are the diff review's own model,
+budget, ceiling and reading cap. A self-hosted instance needs
 its own GitHub App, so that the private key is yours. Permissions are Contents
 read, Metadata read, Pull requests write and Issues read, events are
 `pull_request`, `issue_comment`, `pull_request_review_comment` and

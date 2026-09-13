@@ -2,7 +2,7 @@ import { HomeMark } from "@/components/brand/HomeMark";
 import { RunView } from "@/components/run/RunView";
 import { ApiError } from "@/lib/api/client";
 import { runOptions } from "@/lib/api/queries";
-import { STATUS_LINE } from "@/lib/api/status-line";
+import { statusLine } from "@/lib/api/status-line";
 import type { Run } from "@/lib/api/types";
 import { getQueryClient } from "@/lib/query-client";
 import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
@@ -42,8 +42,8 @@ export async function generateMetadata({
   const heading = `${run.repo} #${run.pr_number}`;
   const title = run.pr_title ? `${heading} — ${run.pr_title}` : heading;
   const critical = run.findings.filter((f) => f.severity === "critical").length;
-  const description =
-    critical > 0 ? `${STATUS_LINE[run.status]} ${critical} critical.` : STATUS_LINE[run.status];
+  const line = statusLine(run.status, run.mode);
+  const description = critical > 0 ? `${line} ${critical} critical.` : line;
 
   return {
     title,
