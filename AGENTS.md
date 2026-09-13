@@ -20,10 +20,11 @@ pnpm workspace (Node >= 24, `corepack enable && pnpm install`) for `apps/*` and
 
 ```bash
 pnpm lint          # biome check .
+pnpm knip          # unused files, exports, and dependencies (knip.json lists the two deliberate exceptions)
 pnpm format        # biome format --write .
 pnpm typecheck     # tsc --noEmit in every workspace
 pnpm test          # vitest run in every workspace
-pnpm build         # tsup in apps/cujo and apps/github-mcp, next build in apps/web
+pnpm build         # tsup in the four Node services, next build in apps/web
 
 uv sync && uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```
@@ -79,6 +80,7 @@ src/
     ingress/        INTERNET. A signature is the only gate. Cannot approve.
     public/         INTERNET, no gate. Read-only, public repos, no operator named.
   review/           a PR becomes a run: start, follow, fold, hard rules
+    commands/       /cujo confirm, dismiss, review from a PR comment: the human gate
   converse/         @cujo-guard: its own session, no write tool, never Runner
   notify/           Discord cards, pings, /cujo commands, the PR reaction
   clients/          the only outbound IO; imports from nothing else here
@@ -98,8 +100,8 @@ field to `Projection` or `RunRecord` fails its test until classified.
 
 `apps/harness` is the harness: sessions, turns, the event log, the approval
 gate and the `create_sub_agent` tool over pi, with the eight-operation contract
-in `packages/harness-contract`. `apps/web` is the UI and holds no secrets and
-no state; `apps/github-mcp` is the MCP server whose one destructive tool is
+in `packages/harness-contract` (`apps/harness/README.md` has the file map).
+`apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the MCP server whose one destructive tool is
 the entire human gate; `agent/SKILL.md` is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
 entry point and `cujo_sniff/` as the package behind it. Report shapes live in
 `docs/spec.md` Contract 2.

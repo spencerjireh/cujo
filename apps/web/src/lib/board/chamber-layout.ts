@@ -55,7 +55,7 @@ export const RING_MIN = RING_MAX * 0.29;
 export const RING_TUBE = 0.007;
 
 /** Below this many runs the camera comes in, so one run is not a distant dot. */
-export const SPARSE_BELOW = 4;
+const SPARSE_BELOW = 4;
 
 /**
  * How sparse the record is, 0 to 1.

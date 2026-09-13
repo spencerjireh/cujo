@@ -57,9 +57,9 @@ describe("invalidReportFindings", () => {
   });
 
   it("adds nothing to a report that carries the envelope and one rule's field", () => {
-    // The shape `tests/contract/trueforge.contract.test.ts` sends through a
+    // The shape `tests/contract/harness.contract.test.ts` sends through a
     // live sub-agent, asserted here because that suite is excluded from
-    // `pnpm test` — it needs a running TrueForge — so nothing else in CI would
+    // `pnpm test` — it needs a running harness — so nothing else in CI would
     // catch this fixture drifting out of the schema.
     const report = {
       check: "tests",

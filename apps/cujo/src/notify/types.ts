@@ -5,7 +5,7 @@
  *
  * Separate from the run projection in `review/types.ts` because these are
  * operator data, not run state — they outlive any single run, they are written
- * by an operator or a slash command rather than derived from TrueForge events,
+ * by an operator or a slash command rather than derived from harness events,
  * and nothing here is part of what a review concludes. The only thing crossing
  * over is `RunStatus`, which the card's dedupe key is expressed in.
  */

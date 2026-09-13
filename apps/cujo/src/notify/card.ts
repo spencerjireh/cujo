@@ -139,7 +139,7 @@ function stripOnly(input: string): string {
  * markdown at all: `footer.text`, like `author.name`, draws a backslash
  * rather than defusing one, so `some_login` must not be escaped there.
  */
-export function plainText(input: string, max: number): string {
+function plainText(input: string, max: number): string {
   return truncate(stripOnly(input), max);
 }
 

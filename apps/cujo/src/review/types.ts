@@ -1,11 +1,10 @@
 /**
  * The run projection (docs/spec.md Contract 6). Everything here is derived from
- * TrueForge events; TrueForge stays the source of truth (decision 18).
+ * harness events; the harness's event log stays the source of truth (decision
+ * 18, as refined by 123).
  */
 
 import type { CheckTimings, SetupTimings } from "./timings";
-
-export type { CheckTimings, SetupTimings };
 
 export type RunStatus =
   | "running"
@@ -44,7 +43,7 @@ export type CheckName = (typeof CHECK_NAMES)[number];
  * What a stretch of a run cost, in tokens.
  *
  * Two producers fill this in and they are not interchangeable. The run's total
- * comes from `TurnStateDone.metrics`, which TrueForge computes for the whole
+ * comes from `TurnStateDone.metrics`, which the harness computes for the whole
  * turn and is the only place `reasoningTokens` and `costUsd` exist. A check's
  * share comes from summing the `usage` on its own thread's `model.message`
  * events, which is the only way to attribute anything per check.
@@ -59,7 +58,7 @@ export interface UsageTotals {
   cacheWriteTokens: number;
   /** Turn metrics only; a per-message `usage` does not break these out. */
   reasoningTokens?: number;
-  /** TrueForge's own estimate. Cujo keeps no price table (decision 53's spirit). */
+  /** The harness's own estimate. Cujo keeps no price table (decision 53's spirit). */
   costUsd?: number;
   messages: number;
 }
@@ -178,7 +177,7 @@ export interface Finding {
 }
 
 /** The three review tools (Contract 4). Two of them post REQUEST_CHANGES. */
-export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
 
 export interface DraftedReview {
   tool: ReviewTool;
@@ -244,7 +243,7 @@ export interface Projection {
    * more than one turn whenever an approval was answered or a turn was retried.
    *
    * Taken from `TurnStateDone.metrics` rather than added up from the messages,
-   * because TrueForge computes it and is the only side that knows the reasoning
+   * because the harness computes it and is the only side that knows the reasoning
    * tokens and the cost. Every field of `TurnMetrics` is optional there, so
    * anything absent contributes nothing rather than a zero.
    *

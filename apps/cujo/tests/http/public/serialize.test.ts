@@ -115,8 +115,8 @@ describe("the public field allowlist", () => {
   });
 
   it("publishes the harness and GitHub handles, which it used to withhold", () => {
-    // Decision 57. They authorize nothing on their own: the TrueForge console
-    // these name keeps its own Access application, and `delivery_id` is what
+    // Decision 57. They authorize nothing on their own: the harness they name
+    // answers only on the compose network, and `delivery_id` is what
     // correlates a board page with a log line.
     for (const field of ["sessionId", "turnIds", "externalResume", "deliveryId"] as const) {
       expect(PUBLIC_SOURCE_FIELDS).toContain(field);

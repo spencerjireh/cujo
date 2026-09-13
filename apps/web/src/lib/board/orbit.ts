@@ -32,7 +32,7 @@ export interface Vec3 {
   z: number;
 }
 
-export interface Point2 {
+interface Point2 {
   x: number;
   y: number;
 }
@@ -95,7 +95,7 @@ export const SATELLITE_SLOTS = 6;
 export const SATELLITE_ORBIT = 1.12;
 
 /** Segments per full ring, for the flat drawings. */
-export const RING_STEPS = 64;
+const RING_STEPS = 64;
 
 function normalize(v: Vec3): Vec3 {
   const length = Math.hypot(v.x, v.y, v.z) || 1;

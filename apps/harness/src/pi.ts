@@ -32,7 +32,7 @@ export interface PiSessionOptions {
 }
 
 /** A loader that loads nothing and answers every question with "none". */
-export function emptyResourceLoader(systemPrompt: string): ResourceLoader {
+function emptyResourceLoader(systemPrompt: string): ResourceLoader {
   // Memoized: createAgentSession asks twice, and the runner it builds must
   // see the same runtime object both times.
   const extensions: LoadExtensionsResult = {

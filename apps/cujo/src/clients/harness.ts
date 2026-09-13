@@ -12,13 +12,12 @@ import type { Config } from "../config";
 
 export type { SessionEvent, StreamEvent };
 export type {
-  ToolApprovalRequiredEvent,
   TurnCreatedEvent,
   TurnDoneEvent,
 } from "@cujo/harness-contract";
 
 /** A human looked at the drafted block and said no. */
-export const OPERATOR_DENY_REASON = "Rejected by a Cujo operator. Post nothing and stop.";
+const OPERATOR_DENY_REASON = "Rejected by a Cujo operator. Post nothing and stop.";
 
 /**
  * Nobody said no. The approval is answered only as a courtesy to the model

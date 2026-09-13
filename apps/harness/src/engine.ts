@@ -24,7 +24,6 @@ import {
   type ToolApprovalRequiredEvent,
   type Turn,
   type TurnInputItem,
-  type TurnMetrics,
   type TurnStateFinished,
 } from "@cujo/harness-contract";
 import { type Logger, errorFields } from "@cujo/log";
@@ -802,7 +801,7 @@ function sandboxToolsOf(servers: BridgedServer[]): ToolDefinition[] {
 }
 
 /** JSON with sorted keys, so two argument objects compare by value. */
-export function stable(value: unknown): string {
+function stable(value: unknown): string {
   return JSON.stringify(sortKeys(value));
 }
 
@@ -817,5 +816,3 @@ function sortKeys(value: unknown): unknown {
   }
   return value;
 }
-
-export type { TurnMetrics };

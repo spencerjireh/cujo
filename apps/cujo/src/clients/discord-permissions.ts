@@ -13,9 +13,9 @@ import type { DiscordRole, PermissionOverwrite } from "./discord";
 
 /** The permission bits Cujo needs, and the one that overrides all of them. */
 const ADMINISTRATOR = 1n << 3n;
-export const VIEW_CHANNEL = 1n << 10n;
+const VIEW_CHANNEL = 1n << 10n;
 export const SEND_MESSAGES = 1n << 11n;
-export const EMBED_LINKS = 1n << 14n;
+const EMBED_LINKS = 1n << 14n;
 /** A card is an embed in a channel, so all three are needed to post one. */
 export const REQUIRED_PERMISSIONS = VIEW_CHANNEL | SEND_MESSAGES | EMBED_LINKS;
 

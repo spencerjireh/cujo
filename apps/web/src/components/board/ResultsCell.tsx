@@ -3,6 +3,7 @@
 import { Chevron } from "@/components/icons/Chevron";
 import { CHECK_NAMES, type CheckName, type RunSummary } from "@/lib/api/types";
 import {
+  type CheckOutcome,
   OUTCOME_TONE,
   SEVERITY_ORDER,
   SEVERITY_TONE,
@@ -14,7 +15,6 @@ import {
   findingTotal,
 } from "@/lib/board/tone";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { SEGMENT } from "./SensorStrip";
 
 /**
  * One cell that says how a run went: which checks ran, and what they found.
@@ -33,13 +33,28 @@ import { SEGMENT } from "./SensorStrip";
  * every click on a row reaches.
  */
 
+/**
+ * A check that reported is the plain foreground, not a severity colour: four
+ * of these on nearly every row would otherwise make the colour that means
+ * "fine" the loudest thing in the table. Colour is left for the one segment
+ * that is not fine. The four outcomes are drawn as four different things and
+ * never as shades of one, because `absent` is not a weaker `error`: a check
+ * that never appeared is what the hard rule `check_missing` exists for.
+ */
+const SEGMENT: Record<CheckOutcome, string> = {
+  done: "bg-fg",
+  error: "bg-sev-critical",
+  running: "animate-pulse bg-sev-live",
+  absent: "bg-line",
+};
+
 /** A check and the sentence its square speaks. */
-export function checkLine(run: RunSummary, name: CheckName): string {
+function checkLine(run: RunSummary, name: CheckName): string {
   return checkSentence(name, checksOf(run)[name]);
 }
 
 /** The per-severity counts, worst first, zeros left out. */
-export function severityLine(run: RunSummary): string {
+function severityLine(run: RunSummary): string {
   const counts = run.digest?.findings;
   if (!counts) return "";
   return SEVERITY_ORDER.filter((severity) => counts[severity] > 0)

@@ -146,7 +146,7 @@ export const findings: Finding[] = [
  * `detonationChecks`, because a fixture that computes its own expected value
  * proves nothing about the shape it is standing in for.
  */
-export const detonationDigest: RunDigest = {
+const detonationDigest: RunDigest = {
   checks: {
     // Four different execution shares, matching `detonationChecks` above,
     // because the specimen draws that split as the solid part of an arm and a
@@ -162,7 +162,7 @@ export const detonationDigest: RunDigest = {
   durationMs: 156_000,
 };
 
-export const summary: RunSummary = {
+const summary: RunSummary = {
   id: "run-1",
   repo: "spencerjireh/orders-api",
   pr_number: 42,

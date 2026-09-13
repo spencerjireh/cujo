@@ -138,7 +138,7 @@ export interface Finding {
   side?: "LEFT" | "RIGHT";
 }
 
-export interface ReviewComment {
+interface ReviewComment {
   path: string;
   line: number;
   side?: "LEFT" | "RIGHT";
@@ -150,11 +150,7 @@ export interface ReviewComment {
  * them out, since one is a harness handle and the other is the agent's own
  * unvalidated tool-call payload (decision 34).
  */
-export const REVIEW_TOOLS = [
-  "post_advisory_review",
-  "post_blocking_review",
-  "post_gated_review",
-] as const;
+const REVIEW_TOOLS = ["post_advisory_review", "post_blocking_review", "post_gated_review"] as const;
 export type ReviewTool = (typeof REVIEW_TOOLS)[number];
 
 export interface DraftedReview {

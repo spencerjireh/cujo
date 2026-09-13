@@ -278,7 +278,7 @@ describe("Runner.start", () => {
 
   /**
    * The session-level wedge: an approval nobody will decide is left pending,
-   * and TrueForge refuses every later user message until it is answered.
+   * and the harness refuses every later user message until it is answered.
    */
   it("clears a stale approval the session was holding, then starts the turn", async () => {
     const store = new Store(":memory:");

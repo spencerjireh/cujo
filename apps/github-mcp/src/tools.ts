@@ -26,7 +26,7 @@ import {
 import { appendMovedComments, validateAnchors } from "./diff";
 import type { ExistingReview, GitHubClient } from "./github";
 
-export const reviewInputShape = {
+const reviewInputShape = {
   repo: z
     .string()
     .regex(/^[^/\s]+\/[^/\s]+$/, 'repo must be "owner/name"')

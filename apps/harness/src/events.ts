@@ -46,10 +46,7 @@ export function textOf(message: AssistantMessage): string {
     .join("");
 }
 
-export function toolCallsOf(
-  message: AssistantMessage,
-  serverOf: MapperOptions["serverOf"],
-): ToolCall[] {
+function toolCallsOf(message: AssistantMessage, serverOf: MapperOptions["serverOf"]): ToolCall[] {
   const calls: ToolCall[] = [];
   for (const part of message.content) {
     if (part.type !== "toolCall") continue;
@@ -66,7 +63,7 @@ export function toolCallsOf(
   return calls;
 }
 
-export function usageOf(usage: Usage): ModelMessageUsage {
+function usageOf(usage: Usage): ModelMessageUsage {
   return {
     inputTokens: usage.input,
     outputTokens: usage.output,

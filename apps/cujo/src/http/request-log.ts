@@ -41,7 +41,7 @@ export const GENERATED_RAY_PREFIX = "cujo-";
  * Set by this process and never trusted from outside: `router.ts` overwrites
  * it on every delegation, so a client sending its own is ignored.
  */
-export const RAY_HEADER = "x-cujo-ray";
+const RAY_HEADER = "x-cujo-ray";
 
 /**
  * Cloudflare's own request id. Decision 33 makes the origin Cloudflare-only, so
@@ -64,7 +64,7 @@ export function rayFrom(header: string | undefined): string {
  * run in the log, which is why the parameter is required rather than defaulted
  * at the call sites that matter.
  */
-export function rayOf(
+function rayOf(
   request: { header(name: string): string | undefined },
   trustForwarded: boolean,
 ): string {

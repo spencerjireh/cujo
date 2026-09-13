@@ -13,7 +13,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Logger, errorFields } from "@cujo/log";
 import { type Context, Hono } from "hono";
 import type { ConverseService } from "../../converse/converse.service";
-import type { PrCommandService } from "../../review/pr-command.service";
+import type { PrCommandService } from "../../review/commands/pr-command.service";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
 import type { RequestEnv } from "../request-log";
@@ -448,7 +448,7 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     if (!sessionId) {
       // Guarded because this is the one call here that reaches another
       // service. Unguarded it escaped the handler, and the only record was a
-      // stack trace on stderr carrying the whole TrueForge response body:
+      // stack trace on stderr carrying the whole harness response body:
       // unstructured, unqueryable, and the one thing the standard says never
       // to put in a message. A 502 also tells the truth a 500 did not — the
       // failure is upstream, and a redelivery is worth trying.

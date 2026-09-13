@@ -72,7 +72,7 @@ export interface FoldOptions {
   cujoResumeTurnIds?: ReadonlySet<string>;
 }
 
-export function emptyUsage(): UsageTotals {
+function emptyUsage(): UsageTotals {
   return {
     inputTokens: 0,
     outputTokens: 0,
