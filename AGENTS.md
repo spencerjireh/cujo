@@ -99,8 +99,8 @@ field to `Projection` or `RunRecord` fails its test until classified.
 
 `apps/harness` is the harness: sessions, turns, the event log, the approval
 gate and the `create_sub_agent` tool over pi, with the eight-operation contract
-in `packages/harness-contract`. `apps/web` is the UI and holds no secrets and
-no state; `apps/github-mcp` is the MCP server whose one destructive tool is
+in `packages/harness-contract` (`apps/harness/README.md` has the file map).
+`apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the MCP server whose one destructive tool is
 the entire human gate; `agent/SKILL.md` is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
 entry point and `cujo_sniff/` as the package behind it. Report shapes live in
 `docs/spec.md` Contract 2.
