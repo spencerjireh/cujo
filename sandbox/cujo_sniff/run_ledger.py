@@ -1,4 +1,7 @@
-"""Where each check's `runs[]` entries are kept between commands.
+"""The run ledger: where each check's `runs[]` entries are kept between commands.
+
+Not to be confused with `report.py`, which folds sensor rows into the block one
+entry carries; this file only stores and returns whole entries.
 
 A sub-agent runs several wrapped commands and then has to hand back every entry,
 in order and whole. It was asked to copy them out of stdout and it paraphrased,
