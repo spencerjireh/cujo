@@ -348,8 +348,20 @@ export class LocalRuntime implements SandboxRuntime {
     const box = this.box(id);
     // Through stdin rather than `docker cp` from a host temp file: nothing the
     // caller sends ever lands on this host's filesystem.
+    // `mkdir -p` of the parent first: the clipped-output logs go under a
+    // directory nothing else creates, and a write is the only thing that
+    // needs it to exist.
     const result = await this.docker(
-      ["exec", "--interactive", box.container, "sh", "-c", 'cat > "$1"', "sh", path],
+      [
+        "exec",
+        "--interactive",
+        box.container,
+        "sh",
+        "-c",
+        'mkdir -p "$(dirname "$1")" && cat > "$1"',
+        "sh",
+        path,
+      ],
       { stdin: contents },
     );
     if (result.exitCode !== 0) {
