@@ -36,6 +36,29 @@ const DEFAULT_CONNECT_DELAYS_MS = [
   1000, 2000, 5000, 10000, 20000, 30000, 30000, 30000, 30000, 30000,
 ];
 
+/**
+ * How long one tool call may take before the client gives up on it. The MCP
+ * SDK's default is 60 seconds, which is shorter than a dependency install: the
+ * first gated review on this harness lost both detonation attempts to
+ * "Request timed out at tool layer". `sandbox_exec` accepts up to thirty
+ * minutes and the sandbox enforces that itself, so the client waits one
+ * minute past it; a review that hangs is ended by Cujo's own watchdog, not by
+ * this. A tool that names its own `timeout_ms` gets that plus the minute.
+ */
+export const TOOL_CALL_TIMEOUT_MS = 31 * 60 * 1000;
+const TOOL_CALL_MARGIN_MS = 60 * 1000;
+
+export function callTimeoutMs(params: unknown): number {
+  const named =
+    params && typeof params === "object" && "timeout_ms" in params
+      ? (params as { timeout_ms?: unknown }).timeout_ms
+      : undefined;
+  if (typeof named === "number" && Number.isFinite(named) && named > 0) {
+    return Math.min(named + TOOL_CALL_MARGIN_MS, TOOL_CALL_TIMEOUT_MS);
+  }
+  return TOOL_CALL_TIMEOUT_MS;
+}
+
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export async function connectServer(
@@ -91,10 +114,11 @@ export function toolDefinitionOf(
     parameters: parameters as unknown as TSchema,
     ...(options.gatedTools.includes(tool.name) ? { executionMode: "sequential" as const } : {}),
     async execute(_toolCallId, params) {
-      const result = await client.callTool({
-        name: tool.name,
-        arguments: (params ?? {}) as Record<string, unknown>,
-      });
+      const result = await client.callTool(
+        { name: tool.name, arguments: (params ?? {}) as Record<string, unknown> },
+        undefined,
+        { timeout: callTimeoutMs(params) },
+      );
       const text = textOf(result.content);
       // Throwing is the only way to mark a pi tool result as an error.
       if (result.isError) throw new Error(text || `${serverName}/${tool.name} failed`);

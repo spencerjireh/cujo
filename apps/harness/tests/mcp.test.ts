@@ -5,7 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { registerReviewTools } from "../../github-mcp/src/tools";
 import { registerSandboxTools } from "../../sandbox-mcp/src/tools";
-import { type BridgedServer, connectServer } from "../src/mcp";
+import {
+  type BridgedServer,
+  TOOL_CALL_TIMEOUT_MS,
+  callTimeoutMs,
+  connectServer,
+  toolDefinitionOf,
+} from "../src/mcp";
 import { type Host, host } from "./mcp-host";
 
 const log = createLogger({ service: "harness", level: "error", sink: () => undefined });
@@ -59,6 +65,38 @@ describe("the MCP bridge", () => {
     expect((echo?.parameters as Record<string, unknown>).$schema).toBeUndefined();
     expect(echo?.executionMode).toBeUndefined();
     expect(server.tools.find((tool) => tool.name === "fail")?.executionMode).toBe("sequential");
+  });
+
+  it("waits past the SDK's minute for a tool call, and past a named timeout", () => {
+    expect(TOOL_CALL_TIMEOUT_MS).toBe(31 * 60 * 1000);
+    expect(callTimeoutMs({})).toBe(TOOL_CALL_TIMEOUT_MS);
+    expect(callTimeoutMs({ timeout_ms: 5 * 60 * 1000 })).toBe(6 * 60 * 1000);
+    expect(callTimeoutMs({ timeout_ms: 40 * 60 * 1000 })).toBe(TOOL_CALL_TIMEOUT_MS);
+    expect(callTimeoutMs({ timeout_ms: "x" })).toBe(TOOL_CALL_TIMEOUT_MS);
+  });
+
+  it("passes that timeout to the client on every call", async () => {
+    const calls: unknown[][] = [];
+    const client = {
+      callTool: async (...args: unknown[]) => {
+        calls.push(args);
+        return { content: [{ type: "text", text: "ok" }] };
+      },
+    };
+    const tool = toolDefinitionOf(
+      "sandbox-mcp",
+      { name: "sandbox_exec", inputSchema: { type: "object" } },
+      client as never,
+      { gatedTools: [] },
+    );
+    await tool.execute(
+      "c1",
+      { argv: ["sleep"], timeout_ms: 120_000 },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(calls[0]?.[2]).toEqual({ timeout: 180_000 });
   });
 
   it("calls through and returns the text content", async () => {
