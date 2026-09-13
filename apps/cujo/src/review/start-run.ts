@@ -11,10 +11,13 @@
 import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { RunStore } from "../store";
+import type { DetonationCacheStore } from "../store/detonations";
 import { buildDiffTurnMessage, buildTurnMessage, manifestChanged } from "./agent-spec";
+import { lookupCachedDetonations } from "./detonation-cache";
 import { resolveMode } from "./mode";
 import { type PrepareCaps, prepareReviewPackage } from "./prepare";
 import type { Runner } from "./runner.service";
+import { addedSpecifiers } from "./specifiers";
 import type { ReviewMode, RunRecord } from "./types";
 
 /**
@@ -38,6 +41,11 @@ export interface StartRunDeps {
   store: RunStore;
   runner: Runner;
   diff?: DiffReviewDeps;
+  /**
+   * The detonation cache (decision 145). Optional so a composition without
+   * it — every test that predates the cache — briefs the agent as before.
+   */
+  detonations?: Pick<DetonationCacheStore, "get">;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -187,7 +195,20 @@ export async function startRun(
     // start — and, when the start failed, a run.turn.started immediately
     // followed by run.turn.start.failed, describing a turn that never was.
     const current = deps.store.updateRun(run.id, { mode: "sandbox" }) ?? run;
-    await deps.runner.start(current, buildTurnMessage(pr, deps.reviewRunId(current)));
+    // What this instance already detonated for the exact specifiers this
+    // head adds, handed to the agent in its brief (decision 145). Only when a
+    // manifest changed, which is the only case `detonation` runs at all.
+    const cached =
+      deps.detonations && manifestChanged(pr.changedFiles)
+        ? lookupCachedDetonations(deps.detonations, addedSpecifiers(pr.files), new Date())
+        : [];
+    if (cached.length > 0) {
+      log.info("run.detonation.cached", {
+        count: cached.length,
+        dependencies: cached.map((c) => `${c.source} ${c.dependency}`).join(", "),
+      });
+    }
+    await deps.runner.start(current, buildTurnMessage(pr, deps.reviewRunId(current), cached));
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim
     // the head (RunStore.createRun) instead of being refused as a duplicate.

@@ -32,6 +32,8 @@ function harness(over: {
   declared?: "sandbox" | "diff" | null;
   declaredError?: Error;
   diff?: Partial<DiffReviewDeps> | null;
+  /** Wire the detonation cache with these entries (decision 145). */
+  cache?: Record<string, unknown>;
 }) {
   const store = new Store(":memory:");
   const run = store.runs.createRun({
@@ -69,6 +71,23 @@ function harness(over: {
     caps: { diffBytes: 60_000, standardsFileBytes: 16_000, standardsTotalBytes: 48_000 },
     ...over.diff,
   };
+  const asked: string[] = [];
+  const detonations = {
+    get: (source: string, specifier: string) => {
+      asked.push(`${source} ${specifier}`);
+      const report = over.cache?.[`${source} ${specifier}`];
+      return report
+        ? {
+            source: source as "pypi",
+            specifier,
+            report,
+            runId: "run-earlier",
+            runIsPublic: true,
+            createdAt: "2026-09-10T00:00:00.000Z",
+          }
+        : null;
+    },
+  };
   const deps: StartRunDeps = {
     github,
     store: store.runs,
@@ -76,8 +95,17 @@ function harness(over: {
     log,
     reviewRunId: (r: RunRecord) => r.id,
     ...(over.diff === null ? {} : { diff }),
+    ...(over.cache ? { detonations } : {}),
   };
-  return { store, run, runner, github, createSession, deps, lines };
+  return { store, run, runner, github, createSession, deps, lines, asked };
+}
+
+/** The brief `Runner.start` was handed, parsed. */
+function briefOf(runner: Runner): Record<string, unknown> {
+  const start = runner.start as unknown as { mock: { calls: unknown[][] } };
+  const message = String(start.mock.calls[0]?.[1]);
+  const fenced = message.slice(message.indexOf("```json\n") + 8, message.lastIndexOf("```"));
+  return JSON.parse(fenced) as Record<string, unknown>;
 }
 
 describe("startRun picks the review", () => {
@@ -157,6 +185,45 @@ describe("startRun picks the review", () => {
       mode: "sandbox",
       reason: "manifest_floor",
     });
+  });
+
+  it("hands the sandbox brief the cached detonations for the pins this head adds", async () => {
+    const report = { dependency: "humanize==4.9.0", source: "pypi", install_ok: true };
+    const h = harness({
+      cache: { "pypi humanize==4.9.0": report },
+      pr: pr({
+        changedFiles: ["requirements.txt"],
+        files: [
+          {
+            path: "requirements.txt",
+            status: "modified",
+            additions: 2,
+            deletions: 0,
+            patch: "@@ -1,1 +1,3 @@\n flask==3.0.0\n+humanize==4.9.0\n+rich>=13",
+          },
+        ],
+      }),
+    });
+    await startRun(h.deps, h.run);
+    // Only the exact pin is asked for; the range never reaches the store.
+    expect(h.asked).toEqual(["pypi humanize==4.9.0"]);
+    expect(briefOf(h.runner).detonation_cached).toEqual([
+      {
+        dependency: "humanize==4.9.0",
+        source: "pypi",
+        run_id: "run-earlier",
+        cached_at: "2026-09-10T00:00:00.000Z",
+        report,
+      },
+    ]);
+    expect(h.lines.find((l) => l.event === "run.detonation.cached")).toMatchObject({ count: 1 });
+  });
+
+  it("asks the cache nothing when no manifest changed", async () => {
+    const h = harness({ cache: { "pypi humanize==4.9.0": { install_ok: true } } });
+    await startRun(h.deps, h.run);
+    expect(h.asked).toEqual([]);
+    expect("detonation_cached" in briefOf(h.runner)).toBe(false);
   });
 
   it("floors a Bot author to the sandbox", async () => {

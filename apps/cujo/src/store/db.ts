@@ -250,6 +250,18 @@ export const SCHEMA = `
     title TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+  -- One detonation per exact specifier per instance per week (decision 145).
+  -- \`run_id\` names the run that produced the entry and carries no REFERENCES
+  -- on purpose: an entry outlives its run, and \`deleteRun\` must not take it.
+  -- The TTL is enforced on read, so there is no sweeper and no column for it.
+  CREATE TABLE IF NOT EXISTS detonation_cache (
+    source TEXT NOT NULL,
+    specifier TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source, specifier)
+  );
 `;
 
 /**
