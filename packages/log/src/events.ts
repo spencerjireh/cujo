@@ -9,7 +9,7 @@
  *
  * Names are `plane.thing.happened`, past tense, lowercase. The plane prefix is
  * the same split the file tree uses (decision 32), so `webhook.*` is
- * signature-gated ingress, `approve.*` is a human decision made on the pull
+ * signature-gated ingress, `dismiss.*` is a human decision made on the pull
  * request, and `public.*` is anonymous — which means a query can ask about a
  * trust plane without knowing which file emitted the line.
  *
@@ -86,8 +86,6 @@ export const EVENT_NAMES = [
   "run.claimed",
   "run.skipped",
   "run.superseded",
-  "run.supersede.deferred",
-  "run.approval.reraised",
   "run.prepare.failed",
   "run.mode.resolved",
   "run.turn.started",
@@ -106,16 +104,9 @@ export const EVENT_NAMES = [
   "run.rehydrate.failed",
   "run.event.invalid",
   "run.poll.failed",
-  "run.poll.adopted",
   "run.subscriber.threw",
   "run.cancel.failed",
   "run.status.changed",
-  // Answering an approval nobody is going to decide, so the session can take
-  // another turn (decision 39). Cujo denying on its own behalf, never a human
-  // decision — those are `approve.*` and must stay tellable apart.
-  "run.approval.cleared",
-  "run.approval.clear.failed",
-  "run.approval.clear.skipped",
   "check.started",
   "check.finished",
   // A hard rule tripped on a check's report (decision 21). One line per rule
@@ -125,9 +116,10 @@ export const EVENT_NAMES = [
   // The run's first check started, which means sandbox setup completed and
   // sensors are armed. Logged once per run, on the first `check.started`.
   "run.setup.completed",
-  // The one place a human decides: `/cujo confirm` on the pull request.
-  "approve.applied",
-  "approve.rejected",
+  // The one place a human decides: `/cujo dismiss` on the pull request lifts
+  // a block (decision 138).
+  "dismiss.applied",
+  "dismiss.rejected",
   // `/cujo reset` from Discord (Contract 5, decision 123): a pull request's
   // sessions forgotten, or refused because a run is still on one.
   "session.reset",
@@ -148,6 +140,11 @@ export const EVENT_NAMES = [
   // under Discord both inflates Discord failure counts and hides which
   // outbound integration actually broke.
   "reaction.failed",
+  // The `cujo/guard` check run on the head commit, the merge lock (decision
+  // 138). A GitHub write like the reaction, and named apart from it for the
+  // same reason.
+  "check_run.written",
+  "check_run.failed",
   // Background reconciliation and outbound reads.
   "visibility.swept",
   "visibility.sweep.failed",

@@ -59,11 +59,10 @@ const defaultSleep = (ms: number): Promise<void> =>
  * ping. Both ping steps therefore have their own durable marker, and each is
  * retried until it lands.
  *
- * - blocked and no `pingMessageId`: the ping was never sent, and a blocked run
+ * - blocked and no `pingMessageId`: the ping was never sent, and a block
  *   nobody was told about is the failure this whole feature exists to prevent.
  * - no longer blocked, a ping exists, and it has not been resolved: the
- *   channel is still showing an actionable alert for a run that can no longer
- *   be decided.
+ *   channel is still showing an alert for a block that is no longer there.
  */
 function owesWork(run: RunRecord, row: RunDiscordMessage | null): boolean {
   // A run that errored before it ever had a turn is re-claimed by the next
@@ -71,7 +70,7 @@ function owesWork(run: RunRecord, row: RunDiscordMessage | null): boolean {
   // beside the real one.
   if (run.status === "error" && run.turnIds.length === 0) return false;
   if (row?.lastNotifiedStatus !== run.status) return true;
-  if (run.status === "blocked_pending") return !row.pingMessageId;
+  if (run.status === "blocked") return !row.pingMessageId;
   return Boolean(row.pingMessageId) && !row.pingResolved;
 }
 
@@ -208,7 +207,7 @@ export class DiscordNotifier {
       write();
     }
 
-    if (run.status === "blocked_pending") {
+    if (run.status === "blocked") {
       if (pingMessageId) return;
       // The role belongs to the channel it was configured for. The card's
       // channel is pinned to the run, so a repo re-bound to another server
@@ -223,8 +222,9 @@ export class DiscordNotifier {
       return;
     }
 
-    // The run left blocked_pending, so the ping points at a decision nobody
-    // can still make. Edit it rather than leave a dead link in the channel.
+    // The run left `blocked` — dismissed, or superseded by a newer commit —
+    // so the ping points at a block that is gone. Edit it rather than leave a
+    // stale alert in the channel.
     const ping = pingMessageId;
     if (ping && !pingResolved) {
       const resolved = buildPing({ run, projection, links, roleId: null });

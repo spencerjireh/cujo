@@ -37,14 +37,29 @@ describe("the migration ladder", () => {
     expect(MIGRATIONS[8]).not.toContain("unproven");
     expect(MIGRATIONS[9]).toContain("DROP INDEX IF EXISTS runs_head");
     expect(MIGRATIONS[9]).toContain("CREATE UNIQUE INDEX runs_head");
-    expect(MIGRATIONS[9]).toContain("unproven");
+    // 10 once interpolated the shared constant. It is frozen to the list it
+    // ran with, so the constant can move on (13 did) without rewriting it.
+    expect(MIGRATIONS[9]).toContain(
+      "('superseded', 'error', 'clean', 'unproven', 'blocked_unattended', 'blocked_posted', 'denied')",
+    );
     expect(MIGRATIONS[10]).toBe("ALTER TABLE runs ADD COLUMN mode TEXT");
     expect(MIGRATIONS[11]).toBe("ALTER TABLE runs ADD COLUMN budget_tokens INTEGER");
+    expect(MIGRATIONS[12]).toContain("DROP INDEX IF EXISTS runs_head");
+    expect(MIGRATIONS[12]).toContain(
+      "UPDATE runs SET status = 'blocked' WHERE status IN ('blocked_unattended', 'blocked_posted')",
+    );
+    expect(MIGRATIONS[12]).toContain(
+      "UPDATE runs SET status = 'dismissed' WHERE status = 'denied'",
+    );
+    expect(MIGRATIONS[12]).toContain(
+      "UPDATE runs SET status = 'error' WHERE status = 'blocked_pending'",
+    );
+    expect(MIGRATIONS[12]).toContain("DROP TABLE IF EXISTS run_cujo_turns");
   });
 
   it("has no gaps, since index i takes user_version i to i + 1", () => {
     expect(MIGRATIONS.every((statement) => typeof statement === "string" && statement.length > 0));
-    expect(MIGRATIONS).toHaveLength(12);
+    expect(MIGRATIONS).toHaveLength(13);
   });
 
   /**
@@ -125,9 +140,14 @@ describe("the migration ladder", () => {
    * to compile and nothing throws; the next run on the same head is simply
    * refused as a duplicate of one that is actually finished.
    */
-  it("rebuilds the head index so a terminal unproven run stops blocking the head", () => {
+  it("rebuilds the head index over the current terminal list, spelled out", () => {
+    // The newest index rebuild carries the same list as the constant, as a
+    // literal: the next terminal status is migration 14, never an edit here.
     expect(TERMINAL_STATUSES_SQL).toContain("'unproven'");
-    expect(MIGRATIONS[9]).toContain(TERMINAL_STATUSES_SQL);
+    expect(TERMINAL_STATUSES_SQL).toContain("'blocked'");
+    expect(TERMINAL_STATUSES_SQL).toContain("'dismissed'");
+    expect(TERMINAL_STATUSES_SQL).not.toContain("blocked_");
+    expect(MIGRATIONS[12]).toContain(`WHERE status NOT IN ${TERMINAL_STATUSES_SQL}`);
     // And the fresh-database schema says the same thing, or the two diverge.
     expect(SCHEMA).toContain(TERMINAL_STATUSES_SQL);
   });
@@ -238,6 +258,68 @@ describe("migrating a database that predates this release", () => {
       // And running it twice changes nothing, which is what a restart does.
       new Store(path).close();
       expect(userVersion(path)).toBe(MIGRATIONS.length);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  /**
+   * The gate's three statuses on a database that ran everything up to 12
+   * (decision 139). Seeded by hand at that version: the map is the fact under
+   * test, and so is the index being dropped before the UPDATEs — two
+   * `blocked_unattended` rows on one head were legal and both become
+   * `blocked`, which the old index would have refused as two active runs.
+   */
+  it("migrates the gate's statuses and frees their heads", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cujo-gate-"));
+    const path = join(dir, "cujo.db");
+    try {
+      const db = new DatabaseSync(path);
+      db.exec(SCHEMA.replace(TERMINAL_STATUSES_SQL, "('superseded', 'error', 'clean')"));
+      const at = "2026-09-01T00:00:00.000Z";
+      const insert = db.prepare(
+        "INSERT INTO runs (id, repo, pr_number, head_sha, session_id, status, created_at, updated_at) VALUES (?, 'o/r', 1, ?, 's', ?, ?, ?)",
+      );
+      insert.run("a", "h1", "blocked_unattended", at, at);
+      insert.run("b", "h2", "blocked_posted", at, at);
+      insert.run("c", "h3", "denied", at, at);
+      insert.run("d", "h4", "blocked_pending", at, at);
+      insert.run("e", "h5", "clean", at, at);
+      db.prepare(
+        "INSERT INTO run_discord_messages (run_id, channel_id, message_id, last_notified_status, updated_at) VALUES ('d', 'c', 'm', 'blocked_pending', ?)",
+      ).run(at);
+      db.exec("PRAGMA user_version = 12");
+      db.close();
+
+      new Store(path).close();
+
+      const after = new DatabaseSync(path);
+      const status = (id: string) =>
+        (after.prepare("SELECT status FROM runs WHERE id = ?").get(id) as { status: string })
+          .status;
+      expect([status("a"), status("b"), status("c"), status("d"), status("e")]).toEqual([
+        "blocked",
+        "blocked",
+        "dismissed",
+        "error",
+        "clean",
+      ]);
+      expect(
+        (
+          after
+            .prepare(
+              "SELECT last_notified_status AS s FROM run_discord_messages WHERE run_id = 'd'",
+            )
+            .get() as { s: string }
+        ).s,
+      ).toBe("error");
+      // Every migrated row is terminal, so each head is free for a new run.
+      after
+        .prepare(
+          "INSERT INTO runs (id, repo, pr_number, head_sha, session_id, status, created_at, updated_at) VALUES ('f', 'o/r', 1, 'h1', 's', 'running', ?, ?)",
+        )
+        .run(at, at);
+      expect(userVersion(path)).toBe(MIGRATIONS.length);
+      after.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

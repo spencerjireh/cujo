@@ -303,14 +303,14 @@ function tool(name: string, gated: boolean, calls: string[] = []): ToolDefinitio
 
 describe("the gate", () => {
   const gatedSpec = () =>
-    spec({ mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }] });
+    spec({ mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["gated_tool"] }] });
 
   async function gatedHarness(calls: string[] = []) {
     const h = await up({
       connect: async (manifest) =>
         fakeServer(manifest.name, [
           tool("post_advisory_review", false, calls),
-          tool("post_gated_review", true, calls),
+          tool("gated_tool", true, calls),
         ]),
     });
     h.store.putMcpServer({
@@ -326,14 +326,14 @@ describe("the gate", () => {
     const { engine } = await gatedHarness(calls);
     const sessionId = engine.createSession(gatedSpec());
     const turnId = await engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"malice"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"malice"}' },
     ]);
     const events = await finished(engine, sessionId, turnId);
     const required = ofType(events, "tool.approval_required")[0];
     expect(required?.threadId).toBe("main");
     const message = ofType(events, "model.message")[0];
     expect(required?.toolCalls[0]?.sourceEventId).toBe(message?.id);
-    expect(message?.toolCalls?.[0]?.function.name).toBe("post_gated_review");
+    expect(message?.toolCalls?.[0]?.function.name).toBe("gated_tool");
     const done = ofType(events, "turn.done")[0];
     expect(done?.state.status).toBe("done");
     if (done?.state.status === "done") expect(done.state.requiredActions).toHaveLength(1);
@@ -346,7 +346,7 @@ describe("the gate", () => {
     const { engine, store } = await gatedHarness(calls);
     const sessionId = engine.createSession(gatedSpec());
     const first = await engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"malice"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"malice"}' },
     ]);
     const paused = await finished(engine, sessionId, first);
     const toolCallId = ofType(paused, "tool.approval_required")[0]?.toolCalls[0]?.id as string;
@@ -357,8 +357,8 @@ describe("the gate", () => {
     expect(ofType(events, "turn.created")[0]?.previousTurnId).toBe(first);
     const response = ofType(events, "tool.response")[0];
     expect(response?.toolCallId).toBe(toolCallId);
-    expect(response?.content).toContain('"posted":"post_gated_review"');
-    expect(calls).toEqual(["post_gated_review"]);
+    expect(response?.content).toContain('"posted":"gated_tool"');
+    expect(calls).toEqual(["gated_tool"]);
     expect(ofType(events, "turn.done")[0]?.state.status).toBe("done");
     expect(store.getApproval(toolCallId)?.status).toBe("allowed");
   });
@@ -368,7 +368,7 @@ describe("the gate", () => {
     const { engine, stub } = await gatedHarness(calls);
     const sessionId = engine.createSession(gatedSpec());
     const first = await engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"malice"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"malice"}' },
     ]);
     const paused = await finished(engine, sessionId, first);
     const toolCallId = ofType(paused, "tool.approval_required")[0]?.toolCalls[0]?.id as string;
@@ -398,7 +398,7 @@ describe("the gate", () => {
     const sessionId = engine.createSession(gatedSpec());
     const both = JSON.stringify([
       { name: "post_advisory_review", args: { body: "observation" } },
-      { name: "post_gated_review", args: { body: "accusation" } },
+      { name: "gated_tool", args: { body: "accusation" } },
     ]);
     const turnId = await engine.createTurn(sessionId, [
       { type: "user.message", content: `CALLS ${both}` },
@@ -413,7 +413,7 @@ describe("the gate", () => {
     const { engine } = await gatedHarness();
     const sessionId = engine.createSession(gatedSpec());
     const first = await engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"m"}' },
     ]);
     const toolCallId = ofType(await finished(engine, sessionId, first), "tool.approval_required")[0]
       ?.toolCalls[0]?.id as string;
@@ -434,7 +434,7 @@ describe("the gate", () => {
     const { engine, store } = await gatedHarness();
     const sessionId = engine.createSession(gatedSpec());
     const first = await engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"m"}' },
     ]);
     const toolCallId = ofType(await finished(engine, sessionId, first), "tool.approval_required")[0]
       ?.toolCalls[0]?.id as string;
@@ -456,7 +456,7 @@ describe("the gate", () => {
     const { engine } = await gatedHarness();
     const sessionId = engine.createSession(gatedSpec());
     const first = await engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"m"}' },
     ]);
     const toolCallId = ofType(await finished(engine, sessionId, first), "tool.approval_required")[0]
       ?.toolCalls[0]?.id as string;
@@ -475,7 +475,7 @@ describe("the gate", () => {
     const { engine, store } = await gatedHarness();
     const sessionId = engine.createSession(gatedSpec());
     const first = await engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"m"}' },
     ]);
     const toolCallId = ofType(await finished(engine, sessionId, first), "tool.approval_required")[0]
       ?.toolCalls[0]?.id as string;
@@ -491,7 +491,7 @@ describe("the gate", () => {
       const h = await gatedHarness(calls);
       const sessionId = h.engine.createSession(gatedSpec());
       const first = await h.engine.createTurn(sessionId, [
-        { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+        { type: "user.message", content: 'CALL gated_tool {"body":"m"}' },
       ]);
       const toolCallId = ofType(
         await finished(h.engine, sessionId, first),
@@ -505,7 +505,7 @@ describe("the gate", () => {
         connect: async (manifest) =>
           fakeServer(manifest.name, [
             tool("post_advisory_review", false, calls),
-            tool("post_gated_review", true, calls),
+            tool("gated_tool", true, calls),
           ]),
       });
       h.engine.boot();
@@ -520,7 +520,7 @@ describe("the gate", () => {
       const events = await finished(h.engine, sessionId, second);
       expect(calls).toEqual([]);
       expect(ofType(events, "model.message")[0]?.content).toContain(
-        "rejected your post_gated_review call",
+        "rejected your gated_tool call",
       );
       expect(h.store.getApproval(toolCallId)?.status).toBe("denied");
     });
@@ -530,7 +530,7 @@ describe("the gate", () => {
       const h = await gatedHarness(calls);
       const sessionId = h.engine.createSession(gatedSpec());
       const first = await h.engine.createTurn(sessionId, [
-        { type: "user.message", content: 'CALL post_gated_review {"body":"m","mutate":true}' },
+        { type: "user.message", content: 'CALL gated_tool {"body":"m","mutate":true}' },
       ]);
       const toolCallId = ofType(
         await finished(h.engine, sessionId, first),
@@ -544,7 +544,7 @@ describe("the gate", () => {
         connect: async (manifest) =>
           fakeServer(manifest.name, [
             tool("post_advisory_review", false, calls),
-            tool("post_gated_review", true, calls),
+            tool("gated_tool", true, calls),
           ]),
       });
       h.engine.boot();
@@ -565,7 +565,7 @@ describe("the gate", () => {
       const h = await gatedHarness(calls);
       const sessionId = h.engine.createSession(gatedSpec());
       const first = await h.engine.createTurn(sessionId, [
-        { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+        { type: "user.message", content: 'CALL gated_tool {"body":"m"}' },
       ]);
       const toolCallId = ofType(
         await finished(h.engine, sessionId, first),
@@ -581,7 +581,7 @@ describe("the gate", () => {
         connect: async (manifest) =>
           fakeServer(manifest.name, [
             tool("post_advisory_review", false, calls),
-            tool("post_gated_review", true, calls),
+            tool("gated_tool", true, calls),
           ]),
       });
       h.engine.boot();
@@ -590,9 +590,9 @@ describe("the gate", () => {
       ]);
       // The model, told to repeat itself, repeats itself; the gate lets that one through.
       const events = await finished(h.engine, sessionId, second);
-      expect(calls).toEqual(["post_gated_review"]);
+      expect(calls).toEqual(["gated_tool"]);
       const response = ofType(events, "tool.response")[0];
-      expect(response?.toolName).toBe("post_gated_review");
+      expect(response?.toolName).toBe("gated_tool");
       expect(response?.toolCallId).not.toBe(toolCallId);
       expect(ofType(events, "tool.approval_required")).toHaveLength(0);
       // The dangling call got exactly one synthetic result, and the model saw it.
@@ -619,7 +619,7 @@ describe("shutdown", () => {
       connect: async (manifest) =>
         fakeServer(manifest.name, [
           tool("post_advisory_review", false, calls),
-          tool("post_gated_review", true, calls),
+          tool("gated_tool", true, calls),
         ]),
     });
     h.store.putMcpServer({
@@ -629,11 +629,11 @@ describe("shutdown", () => {
     });
     const sessionId = h.engine.createSession(
       spec({
-        mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
+        mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["gated_tool"] }],
       }),
     );
     const first = await h.engine.createTurn(sessionId, [
-      { type: "user.message", content: 'CALL post_gated_review {"body":"m"}' },
+      { type: "user.message", content: 'CALL gated_tool {"body":"m"}' },
     ]);
     const toolCallId = ofType(
       await finished(h.engine, sessionId, first),
@@ -652,7 +652,7 @@ describe("shutdown", () => {
       connect: async (manifest) =>
         fakeServer(manifest.name, [
           tool("post_advisory_review", false, calls),
-          tool("post_gated_review", true, calls),
+          tool("gated_tool", true, calls),
         ]),
     });
     h.engine.boot();
@@ -660,7 +660,7 @@ describe("shutdown", () => {
       { type: "user.tool_approval", threadId: "main", toolCallId, approval: { status: "allow" } },
     ]);
     const events = await finished(h.engine, sessionId, second);
-    expect(calls).toEqual(["post_gated_review"]);
+    expect(calls).toEqual(["gated_tool"]);
     expect(ofType(events, "turn.done")[0]?.state.status).toBe("done");
   });
 

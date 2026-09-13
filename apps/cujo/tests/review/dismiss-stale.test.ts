@@ -59,15 +59,7 @@ describe("dismissStaleReviews", () => {
   });
 
   it("does NOT dismiss when projection status is not clean", async () => {
-    for (const status of [
-      "error",
-      "blocked_pending",
-      "blocked_unattended",
-      "blocked_posted",
-      "denied",
-      "superseded",
-      "running",
-    ] as const) {
+    for (const status of ["error", "blocked", "dismissed", "superseded", "running"] as const) {
       const d = deps([{ id: 123, commitId: "old-sha", state: "CHANGES_REQUESTED" }]);
       await dismissStaleReviews(d, run(), projection({ status }));
       expect(d.github.pullRequestHead).not.toHaveBeenCalled();

@@ -12,7 +12,7 @@ export function Board() {
         <P>
           There is no account, no login and no credential anywhere on it — not because one was
           removed from the page, but because the authenticated plane it belonged to was deleted. A
-          held finding is answered on the pull request, and nothing here can answer one.
+          block is lifted on the pull request, and nothing here can lift one.
         </P>
       </Section>
 
@@ -59,12 +59,13 @@ export function Board() {
             remove it.
           </LI>
           <LI>
-            <strong className="font-medium text-fg">A held accusation, before it posts.</strong>{" "}
-            Publishing it here early is precisely what{" "}
-            <Link href="/docs/the-gate" className="text-accent underline underline-offset-4">
-              the gate
-            </Link>{" "}
-            prevents.
+            <strong className="font-medium text-fg">Who lifted a block.</strong> The dismissal names
+            its login on the pull request and on the commit&rsquo;s check, where the people it
+            concerns can read it; this board says only that{" "}
+            <Link href="/docs/blocking" className="text-accent underline underline-offset-4">
+              it was lifted
+            </Link>
+            .
           </LI>
         </UL>
       </Section>

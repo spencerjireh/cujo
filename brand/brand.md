@@ -72,8 +72,9 @@ validated by the review tool's schema, so they are not editorial — an edit tha
 renames one is a code change, not a copy change.
 
 Run statuses take their colour from the same ramp, and two rules decide which.
-Amber lands on exactly one status, `blocked_pending`, because that is the one
-waiting on a person. Red means the pull request is dangerous and never that Cujo
+Amber lands on no status: it marks the thing a person must act on, and since
+decision 138 no run waits on anyone — a block holds the merge whether or not a
+person lifts it. Red means the pull request is dangerous and never that Cujo
 fell over, so a run that errors is `info` blue. Green is `live` and lands on
 exactly one thing: a run, or a check, that is still executing. It is not a
 severity and never means "passed"; a finished clean run is `info` blue.
@@ -92,9 +93,9 @@ redefined for dark. The page around it stays on the palette above.
 | `--chamber-fg` | `#ede6da` | Type inside it — the dark `--fg`, unchanged |
 | `--chamber-fg-muted` | `#a39b90` | Labels inside it — dark `--fg-muted` |
 | `--chamber-critical` | `#ff5c45` | A blocked run, and a check that errored |
-| `--chamber-amber` | `#f2a900` | `blocked_pending`, and the light that reads the stars |
+| `--chamber-amber` | `#f2a900` | The light that reads the stars, and a warn mark |
 | `--chamber-info` | `#66b0f0` | A clean run, and a run that errored |
-| `--chamber-inert` | `#958d82` | Superseded and denied |
+| `--chamber-inert` | `#958d82` | Superseded and dismissed |
 | `--chamber-live` | `#4fd18b` | A running run's core, and a check still running |
 
 Blue is a verdict in the chamber and nothing else, so a check still running is
@@ -115,8 +116,8 @@ each moves a shape, and never recolours one.
 The four signal colours are the dark severity ramp, pinned rather than
 inherited: what is drawn inside the chamber must not change hue when the page
 around it goes light, and a specimen must agree with the badge for the same run.
-Amber lands on exactly two things — a `blocked_pending` specimen and the gate
-the sweep is reading — which is the same restraint the palette above asks for.
+Amber lands on exactly two things — the sweep reading the stars, and a warn
+mark — which is the same restraint the palette above asks for.
 
 ### Contrast (WCAG, text on `--bg`)
 

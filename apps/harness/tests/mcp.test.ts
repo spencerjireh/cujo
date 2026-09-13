@@ -179,7 +179,6 @@ describe("the MCP bridge", () => {
     expect(names).toEqual([
       "post_advisory_review",
       "post_blocking_review",
-      "post_gated_review",
       "sandbox_create",
       "sandbox_exec",
       "sandbox_write_file",
@@ -199,13 +198,6 @@ describe("the MCP bridge", () => {
         head_sha: "abcdef1",
         body: "x",
         findings: [],
-      },
-      post_gated_review: {
-        repo: "o/r",
-        pr_number: 1,
-        head_sha: "abcdef1",
-        body: "x",
-        run_id: "6f1a3b2c-0d4e-4f5a-8b6c-7d8e9f0a1b2c",
       },
       sandbox_create: { allow_hosts: ["github.com"] },
       sandbox_exec: { sandbox_id: "s", argv: ["ls"] },

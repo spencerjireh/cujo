@@ -59,13 +59,8 @@ const EVERY_PROJECTION_FIELD: Record<keyof Projection, true> = {
   turnIds: true,
   checks: true,
   review: true,
-  gatedReview: true,
   hardRuleHits: true,
   findings: true,
-  approval: true,
-  decision: true,
-  externalResume: true,
-  gatedResponseSeen: true,
   error: true,
   summary: true,
   usage: true,
@@ -108,19 +103,16 @@ describe("the public field allowlist", () => {
     expect(classified).toHaveLength(new Set(classified).size);
   });
 
-  it("withholds the fields that name a person, and the state of the gate", () => {
+  it("withholds the fields that name a person", () => {
     expect(WITHHELD_SOURCE_FIELDS).toContain("approver");
     expect(WITHHELD_SOURCE_FIELDS).toContain("decidedAt");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("approval");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("decision");
-    expect(WITHHELD_SOURCE_FIELDS).toContain("gatedResponseSeen");
   });
 
   it("publishes the harness and GitHub handles, which it used to withhold", () => {
     // Decision 57. They authorize nothing on their own: the harness they name
     // answers only on the compose network, and `delivery_id` is what
     // correlates a board page with a log line.
-    for (const field of ["sessionId", "turnIds", "externalResume", "deliveryId"] as const) {
+    for (const field of ["sessionId", "turnIds", "deliveryId"] as const) {
       expect(PUBLIC_SOURCE_FIELDS).toContain(field);
       expect(WITHHELD_SOURCE_FIELDS).not.toContain(field);
     }
@@ -172,7 +164,7 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
     headSha: "SENTINEL_headSha",
     sessionId: "SENTINEL_sessionId",
     turnIds: ["SENTINEL_turnIds"],
-    status: "blocked_pending",
+    status: "dismissed",
     approver: "SENTINEL_approver",
     decidedAt: "SENTINEL_decidedAt",
     isPublic: true,
@@ -189,7 +181,7 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
   };
   const projection: Projection = {
     ...emptyProjection(),
-    status: "blocked_pending",
+    status: "dismissed",
     turnIds: ["SENTINEL_projectionTurnIds"],
     checks: [
       {
@@ -211,14 +203,6 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
       comments: [{ path: "a.py", line: 1, body: "SENTINEL_comment" }],
       findings: ["SENTINEL_rawAgentFinding"],
     },
-    gatedReview: {
-      tool: "post_gated_review",
-      toolCallId: "SENTINEL_gatedToolCallId",
-      body: "SENTINEL_gatedBody",
-      composedBody: "SENTINEL_composedGatedBody",
-      comments: [{ path: "a.py", line: 2, body: "SENTINEL_gatedComment" }],
-      findings: ["SENTINEL_rawGatedFinding"],
-    },
     hardRuleHits: [
       {
         source: "hard_rule",
@@ -237,12 +221,6 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
         evidence: "SENTINEL_evidence",
       },
     ],
-    approval: {
-      threadId: "SENTINEL_approvalThreadId",
-      toolCallId: "SENTINEL_approvalToolCallId",
-      sourceEventId: "SENTINEL_sourceEventId",
-    },
-    externalResume: true,
     error: "SENTINEL_error",
     summary: "SENTINEL_summary",
   };
@@ -277,9 +255,6 @@ describe("serializePublicRun", () => {
       // fact and stay unread, so a leak here would mean the serializer started
       // reading the projection where it should read the record.
       "SENTINEL_projectionTurnIds",
-      "SENTINEL_approvalThreadId",
-      "SENTINEL_approvalToolCallId",
-      "SENTINEL_sourceEventId",
       // Shaped out of the review: a harness handle and the agent's own
       // unvalidated tool-call payload.
       "SENTINEL_toolCallId",
@@ -287,29 +262,9 @@ describe("serializePublicRun", () => {
       // Nested one level down, inside a check. The top-level key assertions
       // cannot see this one, which is the reason this sweep exists.
       "SENTINEL_threadId",
-      // The accusation, on a run that is still `blocked_pending`. Publishing
-      // this is exactly what the gate prevents, and the audience here had no
-      // way to allow it.
-      "SENTINEL_gatedBody",
-      "SENTINEL_gatedComment",
-      "SENTINEL_gatedToolCallId",
-      "SENTINEL_rawGatedFinding",
     ]) {
       expect(json).not.toContain(leaked);
     }
-  });
-
-  it("publishes the held review once a human confirmed it", () => {
-    const view = sentinelView();
-    view.run.status = "blocked_posted";
-    view.projection.status = "blocked_posted";
-    const json = JSON.stringify(serializePublicRun(view));
-    // On the pull request now, so withholding it would hide the review the
-    // board exists to show. Its harness handle and raw findings stay out.
-    expect(json).toContain("SENTINEL_gatedBody");
-    expect(json).toContain("SENTINEL_gatedComment");
-    expect(json).not.toContain("SENTINEL_gatedToolCallId");
-    expect(json).not.toContain("SENTINEL_rawGatedFinding");
   });
 
   it("still carries the findings, the review body and the check reports", () => {

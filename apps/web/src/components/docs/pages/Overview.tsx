@@ -44,12 +44,12 @@ export function Overview() {
           </LI>
         </UL>
         <P>
-          Most reviews post unattended, including the ones that block a merge. Exactly one kind
-          waits for a person:{" "}
-          <Link href="/docs/the-gate" className="text-accent underline underline-offset-4">
-            an accusation
+          Every review posts unattended, including the ones that block a merge. The one human
+          decision is the unlock:{" "}
+          <Link href="/docs/blocking" className="text-accent underline underline-offset-4">
+            a maintainer lifts a block
           </Link>
-          .
+          , and nothing else waits for anyone.
         </P>
       </Section>
 

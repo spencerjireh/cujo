@@ -13,8 +13,9 @@
 
 It clones a PR into a throwaway sandbox, runs the tests on base and head,
 probes the changed code, boots the app, installs any new dependency in
-isolation, and posts a review that cites what happened. A review that would
-block the merge waits for a human to confirm it.
+isolation, and posts a review that cites what happened. A review that blocks
+the merge does so at once, through a check run nobody can dismiss; a
+maintainer lifts it on the pull request.
 
 <p align="center">
   <img alt="The board. Each star is one run, colour is the verdict, rings are checks, dots are findings." src="brand/readme/screenshot-board.jpg" width="800">
@@ -55,12 +56,13 @@ is always the sandbox, whatever the file says.
    a severity: `info`, `warn`, or `critical`. Hard rules force `critical` on a
    regression, a decoy-secret read, a sensitive write, or unknown egress during
    an install; the agent cannot downgrade those.
-4. With no `critical` finding, the review posts automatically as
-   `cujo-guard[bot]`: a summary of what ran plus inline comments. A
-   correctness `critical`, a test that passes on base and fails on head,
-   requests changes on Cujo's own authority. Any other `critical` is the
-   model's judgment, so that review pauses until a human answers
-   `/cujo confirm` on the pull request.
+4. With no `critical` finding, the review posts as a comment from
+   `cujo-guard[bot]`: a summary of what ran plus inline comments. Any
+   `critical` requests changes on Cujo's own authority, and the `cujo/guard`
+   check run on the commit fails, which is what holds the merge under branch
+   protection. Nobody is asked. A maintainer with write access lifts the
+   block with `/cujo dismiss` on the pull request; the author cannot, and a
+   bot account cannot (decision 138).
 
 <p align="center">
   <img alt="A run page. Four checks on one time axis, then the findings, worst first." src="brand/readme/screenshot-run.jpg" width="800">
@@ -70,7 +72,8 @@ No secret ever enters the sandbox. PR code and dependency names go in; JSON
 reports come out.
 
 The board carries a user-facing manual at `/docs` — installing it, `.cujo.yml`,
-what each check measures, the gate, Discord, and running your own instance.
+what each check measures, blocking and the unlock, Discord, and running your
+own instance.
 
 Start with [docs/architecture.md](docs/architecture.md) for the mental model,
 then [docs/spec.md](docs/spec.md) for the contracts the code follows. The docs
@@ -81,8 +84,8 @@ are canonical: a design change lands there first.
 Cujo runs on its own agent harness, `apps/harness`, built on the
 [pi coding agent SDK](https://github.com/badlogic/pi-mono) for the agent loop,
 the provider layer, retries and compaction. The harness itself is sessions,
-turns, an event log, the approval gate that holds an accusation for a human,
-and the tool that spawns one sub-agent per check; the contract between it and
+turns, an event log, an approval gate no spec uses since decision 138, and the
+tool that spawns one sub-agent per check; the contract between it and
 the rest of Cujo is `packages/harness-contract`
 ([decision 123](docs/decisions.md#123-the-harness-is-ours-built-on-pi-and-the-contract-is-a-package)).
 Cujo is the agent, the rubric, the in-sandbox sensor script, and the service
@@ -101,8 +104,9 @@ around them: `apps/cujo` is the harness's only client, and the board in
    [cujo-install-check#1](https://github.com/spencerjireh/cujo-install-check/pull/1):
    reaction after 5 s, a `REQUEST_CHANGES` review for the broken test after
    1 m 41 s, and the run on the board.
-3. Protect the branch if a review should block. A `REQUEST_CHANGES` review
-   only gates a merge where the target branch requires review.
+3. Protect the branch if a block should hold: require the `cujo/guard`
+   status check on the target branch. A review alone can be dismissed by
+   anyone with write access; the check cannot.
 
 Cujo infers the install, test and boot commands from the repository's own build
 files. A `.cujo.yml` overrides what it got wrong, and a `cujo:skip` label or a
@@ -137,7 +141,7 @@ declares none, and `CUJO_DIFF_MODEL`, `CUJO_DIFF_BUDGET_TOKENS`,
 `CUJO_DIFF_TIMEOUT_MS` and `CUJO_DIFF_BYTES` are the diff review's own model,
 budget, ceiling and reading cap. A self-hosted instance needs
 its own GitHub App, so that the private key is yours. Permissions are Contents
-read, Metadata read, Pull requests write and Issues read, events are
+read, Metadata read, Pull requests write, Checks write and Issues read, events are
 `pull_request`, `issue_comment`, `pull_request_review_comment` and
 `repository`, and the webhook posts to `/webhook` with the secret from
 `GITHUB_WEBHOOK_SECRET`. For a laptop, `cloudflared tunnel --url
@@ -162,7 +166,7 @@ make test-int                              # apps/cujo against a real harness
 
 `make test-int` runs `apps/cujo` against a real harness from the compose file
 with a stub model provider, checking what the unit tests assume — turn ids,
-replay, chaining, cancel, the approval gate, resume, the fold of real events.
+replay, chaining, cancel, the fold of real events.
 `make test-int-down` stops it.
 
 ## License

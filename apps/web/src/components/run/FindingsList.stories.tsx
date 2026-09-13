@@ -12,12 +12,12 @@ export default meta;
 type Story = StoryObj<typeof FindingsList>;
 
 /** Presorted by the API: critical first, then warn, then info. */
-export const Mixed: Story = { args: { findings, status: "blocked_pending" } };
+export const Mixed: Story = { args: { findings, status: "blocked" } };
 
 export const OnlyCritical: Story = {
   args: {
     findings: findings.filter((finding) => finding.severity === "critical"),
-    status: "blocked_pending" as RunStatus,
+    status: "blocked" as RunStatus,
   },
 };
 
@@ -34,6 +34,6 @@ export const EmptyWhileRunning: Story = { args: { findings: [], status: "running
 export const WithAnchor: Story = {
   args: {
     findings: findings.filter((finding) => finding.path !== undefined),
-    status: "blocked_posted" as RunStatus,
+    status: "blocked" as RunStatus,
   },
 };

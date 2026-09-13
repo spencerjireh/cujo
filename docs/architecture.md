@@ -33,20 +33,20 @@ Bot-authored pull request is the sandbox regardless (decision 135).
 
 | Piece | Role |
 |-------|------|
-| **`apps/harness`** | The agent harness (decision 123): sessions, turns, the event log, the approval gate and the sub-agent tool, over the pi coding agent SDK for the loop, the provider layer, retry and compaction. Reached only by `apps/cujo` over HTTP. No console, no database service: one SQLite file and the pi transcripts on a volume. The contract between the two is `packages/harness-contract`. |
+| **`apps/harness`** | The agent harness (decision 123): sessions, turns, the event log, an approval gate no spec names since decision 138, and the sub-agent tool, over the pi coding agent SDK for the loop, the provider layer, retry and compaction. Reached only by `apps/cujo` over HTTP. No console, no database service: one SQLite file and the pi transcripts on a volume. The contract between the two is `packages/harness-contract`. |
 | **Cujo agent** | The parent reviewer: a language model, the review rubric as its instructions, a sandbox, subagents, and a GitHub tool. It sets up the sandbox, delegates the checks, merges the findings, and posts. |
 | **Diff reviewer** | The same model family under a second rubric, `agent/DIFF.md`, on a session of its own with `github-mcp` alone and no sandbox (decisions 133, 137). It reads the package `apps/cujo` prepared — the compressed diff, the standards files, what the last review on the pull request said — and posts one `post_advisory_review`. Bounded by a token budget the harness enforces (decision 132). |
 | **Check subagents** | One per check — `tests`, `probes`, `smoke`, `detonation`. Each is a nested pi session (decision 124) that starts with fresh context (the rubric and the sandbox tools, no shared history, no review tool) and returns only a JSON report to the parent; its events are written to the log as they happen, so a parent that times out later loses nothing the child reported. |
 | **The sandbox** | A disposable container where the untrusted PR runs, provisioned by `sandbox-mcp` below. One per turn, destroyed after it. |
 | **`sandbox/`** | The in-sandbox sensor code: `sniff.py` and the `cujo_sniff` package behind it. Installs one dependency behind the logging proxy and prints a forensic JSON report; its sensors (proxy, filesystem diff, decoy, Python audit hook) are shared by every check, and each report says which of them was watching while it was produced (decision 54). |
-| **`apps/cujo`** | The Cujo service and the harness's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, and resumes a paused turn when a human approves. It has served no HTML since decision 27. Two planes and no credential: signature-gated ingress, and an anonymous read-only `/public` group (decision 34, decision 57). |
+| **`apps/cujo`** | The Cujo service and the harness's only client. Receives the webhook, starts the turn, folds the turn's event stream into a run, serves the JSON API, writes the `cujo/guard` check run on each commit it reviews, and lifts a block when a maintainer says so (decision 138). It has served no HTML since decision 27. Two planes and no credential: signature-gated ingress, and an anonymous read-only `/public` group (decision 34, decision 57). |
 | **`apps/web`** | The UI, and the only thing a human opens. A Next.js app holding no secrets and no state; every call goes through its own `/api/*` route handlers to `apps/cujo`. One hostname and one plane: the anonymous read-only board (decision 57), plus the manual at `/docs`, which is static, calls nothing, and is the only path on this site that asks to be indexed (decision 98). The manual is reached from two buttons on the footer, *Manual* and *Install the App*, and from a link on the hero legend; the site has no navigation bar. |
 | **Cujo GitHub App** | The bot identity. Receives PR events and posts reviews as `cujo-guard[bot]`. |
 | **`github-mcp`** | A small MCP server the agent calls to post a review or block a PR. Authenticates as the GitHub App. |
 | **`sandbox-mcp`** | The other MCP server, and the sandbox itself (decision 113). Five tools — create, exec, write, read, destroy — over one interface with two implementations, chosen by `CUJO_SANDBOX_RUNTIME`: `local` is a container on our own host with egress enforced by a gateway outside it, `daytona` is the vendor kept so the move is reversible. The harness provisions nothing; the agent reaches a box only through these five tools, which the harness exposes to the model by name (decision 128). |
 | **The egress gateway** | One container per sandbox, on that sandbox's network *and* one with outside access. It is the sandbox's router — it claims the gateway address the sandbox's default route points at, on a bridge the host holds no address on — and its resolver, answering for `allow_hosts` plus the clone host and NXDOMAIN for everything else, and it filters what it forwards with nftables from that same list (decisions 116, 121). Default deny. The code under review can reach it and cannot reconfigure it. The in-sandbox proxy is a sensor now, not a control. |
-| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks on a human. Notifies only; nobody approves from Discord (decision 23). A card links to the board for a public run and nowhere for a private one, which has no page (decision 57). Optional: with no bot token the service runs and says nothing. |
-| **`/cujo` command** | The other half, also in `apps/cujo`. A server a repo has named in its `.cujo.yml` picks its own channel and ping role from inside Discord (Contract 8). Slash commands over an HTTP interactions endpoint, not a gateway. It routes notifications and nothing else — a review is confirmed on the pull request. |
+| **Discord notifier** | Part of `apps/cujo`. Watches every run's status and keeps one message per run in the channel bound to that repo, plus one ping when a run blocks. Notifies only; nobody lifts a block from Discord (decision 23). A card links to the board for a public run and nowhere for a private one, which has no page (decision 57). Optional: with no bot token the service runs and says nothing. |
+| **`/cujo` command** | The other half, also in `apps/cujo`. A server a repo has named in its `.cujo.yml` picks its own channel and ping role from inside Discord (Contract 8). Slash commands over an HTTP interactions endpoint, not a gateway. It routes notifications and nothing else — a block is lifted on the pull request. |
 | **Demo repos** | `orders-api`, the app we protect, and `evil-package`, a staged malicious dependency for the demo. |
 
 ## The trust boundary
@@ -77,8 +77,8 @@ which the bridge is never opened.
 Three zones. The harness is one box in the middle zone: it runs the agent, but
 nothing outside the server talks to it. `apps/cujo` is the only thing GitHub
 touches, and no person reaches it directly: a human reads the evidence on the
-board and answers a held review on the pull request. Thick edges are that
-answer's path.
+board and lifts a block on the pull request. Thick edges are the block and the
+unlock's path.
 
 ```mermaid
 flowchart LR
@@ -91,8 +91,8 @@ flowchart LR
 
   subgraph server [Our server - compose network - secrets live here]
     Web[apps/web<br/>anonymous board<br/>read-only - no state]
-    Cujo[apps/cujo<br/>webhook - run store<br/>event folder - read API<br/>resumes the held turn]
-    TF[apps/harness<br/>pi agent loop - internal<br/>parent agent + subagents<br/>approval gate - event log]
+    Cujo[apps/cujo<br/>webhook - run store<br/>event folder - read API<br/>writes the check run]
+    TF[apps/harness<br/>pi agent loop - internal<br/>parent agent + subagents<br/>event log]
     MCP[github-mcp<br/>holds App private key]
     DB[(SQLite + transcripts<br/>harness volume)]
   end
@@ -108,8 +108,8 @@ flowchart LR
   Web -- "/api/* to /public" --> Cujo
   Cujo -- "create session / turn" --> TF
   TF -- "events by thread_id" --> Cujo
-  Cujo -- "user.tool_approval" --> TF
-  TF -- "post_gated_review - paused" --> MCP
+  Cujo -- "check run cujo/guard - dismissal<br/>installation token" --> GH
+  TF -- "post_blocking_review" --> MCP
   TF -- "model API - key stays on server" --> LLM
   TF --> DB
   TF -- "commands" --> SB
@@ -118,7 +118,7 @@ flowchart LR
   %% Appended last on purpose: linkStyle below indexes edges by declaration
   %% order, so inserting one earlier recolours the wrong arrows.
   Cujo -- "card per run + ping<br/>bot token" --> Discord
-  Human -- "/cujo confirm on the PR" --> GH
+  Human -- "/cujo dismiss on the PR" --> GH
 
   linkStyle 0,6,7,14 stroke:#b85c0b,stroke-width:2.5px
   style sandbox stroke-dasharray: 6 4
@@ -130,28 +130,31 @@ Every crossing, with what it carries and what protects it:
 |-----------|-----------|--------------|------|
 | GitHub → `apps/cujo` | HTTPS webhook on `cujo-ingress.spencerjireh.com` | PR opened or synchronized: repo, PR number, base and head SHA | HMAC signature |
 | `apps/cujo` → `apps/harness` | HTTP on the compose network (`packages/harness-contract`) | `POST /sessions` with the inline agent spec; `POST /turns` with the PR context, then the turn's SSE subscription; `GET /events` on restart, uncapped | None needed; the harness has no public route |
-| `apps/harness` → `apps/cujo` | The same stream, reverse direction | Events tagged by `threadId`: `thread.created`, `model.message` with its text, `tool.response`, `thread.done` (the JSON report), `tool.approval_required` | Same connection |
+| `apps/harness` → `apps/cujo` | The same stream, reverse direction | Events tagged by `threadId`: `thread.created`, `model.message` with its text, `tool.response`, `thread.done` (the JSON report) | Same connection |
 | Agent → `sandbox-mcp` → sandbox | MCP on the compose network, then `docker exec` into the box | The PR's code: a public, tokenless `git clone` of the repo checked out at base and head. The PR's public metadata (number, SHAs, changed files, title, description). The dependency names from the manifest diff. Cujo's own `sandbox/` sensor code and the commands the subagents run. The run's own id, when the repo is public, so the review can name its evidence page — an id and never a URL, so no hostname crosses (decision 36). | Internal, and nothing in the box. The image, the container runtime and the host paths come from `sandbox-mcp`'s own environment and are never tool inputs, so a caller cannot choose what it runs in. Private repos are a non-goal, so no clone credential exists to leak |
 | Sandbox → the harness | Command stdout, through `sandbox_exec` | One JSON report per check with the sensor block, the sensor-health block, and every string in it escaped | None; treated as untrusted data, which is what the escaping is for |
 | Sandbox → anyone, through the harness | — | **Nothing.** The harness owns no sandbox and serves no download (decision 113). A check report reaching the parent as text on a thread event is the only way anything leaves, and `sandbox_read_file` is the only read into the box, bounded by `max_bytes` | Closed by there being nothing to close |
 | Sandbox → internet | Through the egress gateway, outside the box (decision 116) | Only what `allow_hosts` named, resolved by name. Everything else is dropped on a network the sandbox has no route off. The in-sandbox proxy still records every attempt, so `egress[]` is still the evidence — and a row in it now means a connection that genuinely did not leave | Default deny at the network layer, in a container the code under review cannot reach. The decoy secret is still the only "secret" it can find |
 | A repository's `.cujo.yml` → the gateway | `allow_hosts` on `sandbox_create` | Hostnames, and nothing else. This is untrusted text configuring a **trusted-side** control, which it was not before, so it is validated and refused rather than repaired: no scheme, port, path, CIDR, wildcard, credentials, control character or address, and at most 32 entries (decision 116) | Validated in `apps/sandbox-mcp/src/allowlist.ts` before any runtime sees it |
 | `apps/harness` → model provider | HTTPS, OpenAI-compatible chat completions | Prompts, reports, tool calls | Provider key, registered once on the harness by `apps/cujo` at boot and held in memory there |
-| `apps/harness` → `github-mcp` | MCP on the compose network | `post_advisory_review` and `post_blocking_review` (free) or `post_gated_review` (held until a human confirms) | Internal |
+| `apps/harness` → `github-mcp` | MCP on the compose network | `post_advisory_review` or `post_blocking_review`, one call, neither held (decision 138) | Internal |
 | `github-mcp` → GitHub | REST API | The review, as `cujo-guard[bot]`: a body **composed by `github-mcp`** from the agent's findings, coverage and egress (verdict headline, findings by severity, coverage, egress, a machine-readable block — decision 74), plus one inline comment per anchored finding, derived from the findings rather than sent beside them; `apps/cujo` rebuilds both with the same `@cujo/review-render` package for the board | Installation token minted from the App private key |
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
 | `apps/cujo` → GitHub | REST API | A reply on the pull request, and a reaction on the comment it answers (decision 43). Text, but only ever in answer to a person who addressed Cujo directly — never an unprompted finding | Installation token minted from the App private key; the same `pull_requests: write` |
 | `apps/cujo` → `apps/harness` | HTTP on the compose network | A **second** session per pull request, for conversation only (Contract 10): a spec carrying `sandbox-mcp` and no review tool, then one turn per question. Never the review's session, which a second turn would cancel or corrupt | Internal |
-| Human → `apps/web` | HTTPS on `cujo.spencerjireh.com` | Reads runs, check cards, findings and the posted review for a **public** repo, redacted by the allowlist in `http/public/serialize.ts`. The board opens on a full-height chamber that stays pinned while the rest of the board rises over it, holding the thirty newest runs as a galaxy three layers deep — each run a star system: a core sized by the worst thing it found, one ring per check on a tilt seeded off the run's id, as wide as the check watched and bright for the share of that spent executing, and up to six satellites for what it found (decisions 65, 68, 82) — then a rack of summary strips, then the record, then the key to the drawing. A run's **layer** is time, newest in front, and its position within the layer — across it and a little into it — is a deterministic function of its id that means nothing, which the key says in words; everything else in there is a measurement, down to the light that walks the stars, which is the board re-reading this API, oldest run first, and beats each star once as it reads it (decisions 83, 95). A running run is green, the one tone that is not a verdict (decision 94). The decorative layer admitted alongside it is the air in the room and the star field behind it, and lives in exactly two files (decisions 80, 82). Clicking a star scrolls the record to its row rather than leaving the board, and a run's own page draws the same object turning beside the pull request's title. Nothing flat is served in the chamber's place: a phone, and a browser that will not give it a WebGL context, get the readout and then the record. There is no site header: the mark and the name sit in the corner of whichever page is rendering it. Hovering a star, or a record row, swaps the hero's readings for the key to the drawing (decision 89); a record row is one link, its checks and findings one cell (decision 88), and the newest run of a pull request pushed to twice is marked latest with the older dimmed (decision 92). A run page opens on a verdict card, with the operator's numbers folded beneath it (decision 91), and nothing else on it opens until asked (decision 93). It writes nothing and decides nothing: a held finding is answered with `/cujo confirm` on the pull request (decision 49), and a Discord channel is bound with `/cujo watch` (decision 57) | None. There is no credential and no authenticated route left |
-| `apps/cujo` → `apps/harness` | HTTP on the compose network | `POST /turns` with `user.tool_approval {allow \| deny}`, then the new turn's subscription; the held call runs or the model reads the refusal (decision 125) | Internal |
+| Human → `apps/web` | HTTPS on `cujo.spencerjireh.com` | Reads runs, check cards, findings and the posted review for a **public** repo, redacted by the allowlist in `http/public/serialize.ts`. The board opens on a full-height chamber that stays pinned while the rest of the board rises over it, holding the thirty newest runs as a galaxy three layers deep — each run a star system: a core sized by the worst thing it found, one ring per check on a tilt seeded off the run's id, as wide as the check watched and bright for the share of that spent executing, and up to six satellites for what it found (decisions 65, 68, 82) — then a rack of summary strips, then the record, then the key to the drawing. A run's **layer** is time, newest in front, and its position within the layer — across it and a little into it — is a deterministic function of its id that means nothing, which the key says in words; everything else in there is a measurement, down to the light that walks the stars, which is the board re-reading this API, oldest run first, and beats each star once as it reads it (decisions 83, 95). A running run is green, the one tone that is not a verdict (decision 94). The decorative layer admitted alongside it is the air in the room and the star field behind it, and lives in exactly two files (decisions 80, 82). Clicking a star scrolls the record to its row rather than leaving the board, and a run's own page draws the same object turning beside the pull request's title. Nothing flat is served in the chamber's place: a phone, and a browser that will not give it a WebGL context, get the readout and then the record. There is no site header: the mark and the name sit in the corner of whichever page is rendering it. Hovering a star, or a record row, swaps the hero's readings for the key to the drawing (decision 89); a record row is one link, its checks and findings one cell (decision 88), and the newest run of a pull request pushed to twice is marked latest with the older dimmed (decision 92). A run page opens on a verdict card, with the operator's numbers folded beneath it (decision 91), and nothing else on it opens until asked (decision 93). It writes nothing and decides nothing: a block is lifted with `/cujo dismiss` on the pull request (decisions 49, 138), and a Discord channel is bound with `/cujo watch` (decision 57) | None. There is no credential and no authenticated route left |
+| `apps/cujo` → GitHub | REST API | The `cujo/guard` check run on the reviewed commit, moved with the run's status: in progress at the claim, success, failure on a block, neutral once dismissed (decision 138). And, on `/cujo dismiss`, the dismissal of the bot's own REQUEST_CHANGES review. A status and a login, never a finding | Installation token minted from the App private key; `checks: write` and `pull_requests: write` |
 | Discord → `apps/cujo` | HTTPS to `cujo-ingress.spencerjireh.com` | A `/cujo` interaction: the server, the invoking member and their permissions, and the chosen repo, channel and role (Contract 8) | Ed25519 over `timestamp + rawBody`, verified against `DISCORD_PUBLIC_KEY`; an invalid signature is 401 |
 | `apps/cujo` → Discord | HTTPS to `discord.com/api/v10` | One card per run, edited in place: repo, PR number, status, check names, finding titles and evidence, and the run's Cujo link. Every derived string escaped, stripped of bidi, truncated, and mention-suppressed (Contract 7) | `Authorization: Bot`; `DISCORD_BOT_TOKEN`, held only by `apps/cujo` and never near the sandbox |
 
-## The approval path
+## The block and the unlock
 
-The mechanism the design hinges on: the pause happens inside the harness, with
-the model's call held in pi's `beforeToolCall` hook, the answer is given on the
-pull request, and the resume is the next turn's input (decision 125).
+The mechanism the design hinges on since decision 138: nothing is held. A
+`critical` finding posts a REQUEST_CHANGES review at once, `apps/cujo` fails
+the `cujo/guard` check run on the commit, and the merge is held by branch
+protection until the App completes that check — which it does only when a
+person with write access, who is neither the author nor a bot, says so on the
+pull request.
 
 ```mermaid
 sequenceDiagram
@@ -164,54 +167,39 @@ sequenceDiagram
   participant M as github-mcp
 
   GH->>C: pull_request webhook (HMAC)
+  C->>GH: check run cujo/guard: in_progress
   C->>TF: POST /sessions, POST /turns (PR context), subscribe
   TF->>Sub: create_sub_agent x tests, probes, smoke, detonation
-  TF-->>C: thread.created (title = check name)
   Sub-->>TF: JSON report
-  TF-->>C: thread.done (state.output = report), stored as it lands
-  Note over TF: a malice hard rule forces critical
-  TF->>M: post_advisory_review(the observation)
-  M->>GH: COMMENT review as cujo-guard[bot]
-  Note over TF: post_gated_review is gated: the call is held, the turn ends
-  TF-->>C: tool.approval_required (thread main, tool call id), turn.done
-  C->>C: run status = blocked_pending
-  H->>C: reads the observation on the pull request
-  H->>C: /cujo confirm
-  C->>TF: POST /turns (user.tool_approval allow), subscribe
-  TF->>M: post_gated_review proceeds
+  Note over TF: a hard rule forces critical
+  TF->>M: post_blocking_review(the findings)
   M->>GH: REQUEST_CHANGES review as cujo-guard[bot]
-  TF-->>C: tool.response, turn.done
-  C->>C: run status = blocked_posted
+  TF-->>C: turn.done
+  C->>C: run status = blocked
+  C->>GH: check run cujo/guard: failure
+  H->>GH: /cujo dismiss on the pull request
+  GH->>C: issue_comment webhook (HMAC)
+  C->>GH: who is this person? (write, not the author, not a bot)
+  C->>GH: dismiss the bot's review; check run: neutral, "Dismissed by @login"
+  C->>C: run status = dismissed, approver = github:login
 ```
 
-The observation posts before the pause because a gated tool runs sequentially
-(decision 126): pi prepares, executes and records each call in that batch
-before it looks at the next. A harness that restarts while a call is held
-answers a later allow by asking the model to make the same call again, which
-the gate lets through once with identical arguments (decision 125).
+A block is terminal: the review is on the pull request and nothing is
+followed. Only a dismissal moves it, and the dismissal is claimed in the store
+before GitHub is written, so two comments racing for one block dismiss the
+review once (Contract 1). A new commit gets its own run, its own review and its
+own check, so a block is never carried forward and never dismissed forward.
 
-On `/cujo dismiss`, the resume sends `deny`; the agent posts nothing further and
-the run ends `denied` — the advisory observation posted before the pause and
-stands, so a denial leaves the evidence on the pull request and drops only the
-claim about a person.
+The harness keeps its approval mechanism — a gated tool name suspends a turn
+with the call held in pi's `beforeToolCall` hook, and the answer is the next
+turn's input (decision 125) — but no spec gates a tool any more. A session
+pinned to an older spec that still asks is folded as an `error` naming the
+call, not waited on.
 
-**A held approval has no deadline.** The thirty-minute watchdog bounds a turn
-that is still streaming and is cleared the moment `turn.done` arrives, which is
-exactly what the pause produces, so nothing expires an unanswered accusation. It
-waits on `blocked_pending` until a new head supersedes it or a `/cujo` command
-decides it, and it stays in the set that rehydrates on restart. The direction is
-the safe one — the merge is not blocked and the observation is already
-public — but it is a wait, not an expiry, and no code says otherwise.
-
-With no `critical` finding the agent calls `post_advisory_review` alone; with a
-`critical` that says the pull request is broken rather than malicious it calls
-`post_blocking_review` alone, which is not gated and ends the run
-`blocked_unattended`. Neither pauses (decision 42). If a new head is pushed
-while a run is still going, that run ends `superseded` and the new head gets its
-own run on the same session; only the newest head is reviewed.
-Superseding a run that was waiting on a human also answers its approval with a
-stale deny, so the model hears why (decision 39); the harness would void it on
-the new head's turn anyway (decision 125).
+With no `critical` finding the agent calls `post_advisory_review`; with one it
+calls `post_blocking_review`. One call, never two. If a new head is pushed
+while a run is still going, that run ends `superseded` and the new head gets
+its own run on the same session; only the newest head is reviewed.
 
 ## End-to-end flow
 
@@ -253,13 +241,11 @@ the new head's turn anyway (decision 125).
    to everything else against the rubric, then hands `github-mcp` its findings,
    its coverage and the egress it saw. The server composes the review — verdict
    first, provenance after — and anchors what can be anchored (decision 74).
-6. **Post, pausing only to accuse.** With no `critical` finding the review
-   posts automatically as `cujo-guard[bot]`. A `critical` that says the pull
-   request is broken posts too, as REQUEST_CHANGES, with no human asked. Only a
-   `critical` that names the change as malicious pauses: the observation posts
-   first, and the harness holds the accusation until a maintainer answers
-   `/cujo confirm` or `/cujo dismiss` on the pull request, which resumes the
-   turn over the SDK. The exact rule is in [spec.md](spec.md).
+6. **Post.** With no `critical` finding the review posts as a comment from
+   `cujo-guard[bot]`. Any `critical` posts as REQUEST_CHANGES, with no human
+   asked, and `apps/cujo` fails the `cujo/guard` check on the commit; a
+   maintainer lifts the block with `/cujo dismiss` on the pull request
+   (decision 138). The exact rule is in [spec.md](spec.md).
 
 ## User flows
 
@@ -275,8 +261,9 @@ that Cujo is automation and not a form to fill in.
 non-empty, so a hard rule forces `critical`, the agent calls
 `post_blocking_review`, and REQUEST_CHANGES posts unattended. The author pushes
 a fix, the new run supersedes the old one, and the advisory posts. Still no
-human. This flow is what makes the gate in D credible: Cujo blocks on its own
-authority when the claim is about code.
+human. The `cujo/guard` check failed on the broken commit and succeeds on the
+fixed one, and branch protection that requires it is what held the merge in
+between.
 
 **C. "Prove it."** An inline comment says a smoke endpoint returned 500 on head
 and 200 on base. The maintainer replies in that thread asking for a seeded
@@ -284,15 +271,15 @@ database. That is a `pull_request_review_comment` and not an `issue_comment`,
 which is why conversation subscribes to both. Cujo answers in the same thread
 from a separate session that holds no write tool (Contract 10, decision 47).
 
-**D. The accusation.** Detonation sees egress to an unknown host during an
-install. The advisory posts with the observation as a `warn`, plus the line
-saying what to do about it. Then `/cujo confirm` from someone with repo write,
-on the current head, resumes `allow` and the gated REQUEST_CHANGES review posts;
-the author may confirm, because acting against your own interest needs no guard.
-Or `/cujo dismiss` resumes `deny` and the warn stands — and that verb the author
-may **not** use, since it is the direction that buries an accusation against
-one's own change (decision 44). Or nobody answers: the warn stands, the merge is
-not blocked, and there is no deadline.
+**D. The unlock.** Detonation sees egress to an unknown host during an
+install. The hard rule forces `critical`, REQUEST_CHANGES posts with the host,
+the port and the time as the evidence, and the check fails; the merge is held.
+A maintainer who knows the host writes `/cujo dismiss` on the pull request:
+Cujo checks they have write access, are not the author and are not a bot
+account (decision 44, 138), dismisses its own review naming them, turns the
+check neutral, and the run ends `dismissed`. The findings stay on the pull
+request. Or nobody answers: the block stands until a new commit gets its own
+run, and there is no deadline — a held merge is the safe direction.
 
 **E. Teaching.** Three pull requests in a row flag the same host, a maintainer
 says `@cujo-guard that host is ours`, and Cujo opens a `.cujo.yml` pull request
@@ -338,8 +325,8 @@ Coolify in a single `docker-compose` project so the services share a network.
   one path `robots.txt` allows (decision 98). Two footer buttons, *Manual* and
   *Install the App*, and a link on the hero legend lead to it. There is no second plane and no
   credential: the operator one was deleted with its hostname (decision 57), and
-  a held finding is answered with `/cujo confirm` on the pull request
-  (decision 49). It proxies the JSON API at `/api/cujo/*` — forwarding only
+  a block is lifted with `/cujo dismiss` on the pull request (decisions 49,
+  138). It proxies the JSON API at `/api/cujo/*` — forwarding only
   `/public/*`, and `GET` only, since the board has no write route — and the run
   stream at `/api/public/runs/:id/events` to `cujo` server-side, so the UI and
   the API stay same-origin (decision 27). `/api/health` is this container's

@@ -10,7 +10,7 @@ import type {
 import { renderReviewBody, reviewComments } from "@cujo/review-render";
 import { describe, expect, it } from "vitest";
 import { isMaliceClaim } from "../../src/review/findings";
-import { fold, parseReport, parseReview, pendingApproval } from "../../src/review/fold";
+import { fold, parseReport, parseReview } from "../../src/review/fold";
 
 type Ev = SessionEvent;
 const at = "2026-08-27T00:00:00Z";
@@ -81,7 +81,11 @@ const threadErrored = (threadId: string, message: string, createdAt: string = at
   state: { status: "error", error: message },
 });
 
-const toolResponse = (toolCallId: string, toolName = "post_gated_review", isError = false): Ev => ({
+const toolResponse = (
+  toolCallId: string,
+  toolName = "post_blocking_review",
+  isError = false,
+): Ev => ({
   type: "tool.response",
   id: `tr-${toolCallId}`,
   createdAt: at,
@@ -133,15 +137,6 @@ const derivedReview = {
     { check: "probes", severity: "info", title: "the probes agreed", evidence: "3 of 3" },
   ],
 };
-const resume = (status: "allow" | "deny"): TurnInputItem[] => [
-  {
-    type: "user.tool_approval",
-    threadId: "main",
-    toolCallId: "call-1",
-    approval: status === "allow" ? { status } : { status, reason: "no" },
-  },
-];
-
 describe("fold", () => {
   it("is running with no events and appends turn ids", () => {
     const p = fold([turnCreated("t1")]);
@@ -149,7 +144,7 @@ describe("fold", () => {
     expect(p.turnIds).toEqual(["t1"]);
   });
 
-  it("is clean when the turn ends without an approval", () => {
+  it("is clean when an advisory posts and a check reported", () => {
     const p = fold([
       turnCreated("t1"),
       threadCreated("th-tests", "tests"),
@@ -224,7 +219,7 @@ describe("fold", () => {
     ]);
     // No check reported here either, but a REQUEST_CHANGES is on the pull
     // request and that is the louder fact. The rung order is what guarantees it.
-    expect(p.status).toBe("blocked_unattended");
+    expect(p.status).toBe("blocked");
   });
 
   it("counts one attempt per check on the common path", () => {
@@ -304,128 +299,26 @@ describe("fold", () => {
     expect(p.review?.comments).toEqual([{ path: "a.py", line: 3, body: "boom" }]);
   });
 
-  it("derives the held review's comments from its own findings", () => {
-    // `gatedReview` is a separate call with a separate findings list, and the
-    // withholding rule reads that list — so the derivation must follow it.
-    const p = fold([
-      turnCreated("t1"),
-      reviewCall("call-1", "post_gated_review", derivedReview),
-      approvalRequired("main", "call-1", "mm-call-1"),
-    ]);
-    expect(p.gatedReview?.comments).toHaveLength(1);
-    expect(p.review).toBeNull();
-  });
-
   it("is error, not clean, when the turn ends without any review call", () => {
     const p = fold([turnCreated("t1"), turnDone()]);
     expect(p.status).toBe("error");
     expect(p.error).toBe("turn ended without a review");
   });
 
-  it("is blocked_pending on an approval on main and reads the drafted review", () => {
+  it("is an error when a tool call is held, since nothing is gated (decision 138)", () => {
+    // A session pinned to an older spec still gates a name. The turn is
+    // suspended waiting for an answer nothing will send, so the run ends here
+    // rather than sitting `running` until the watchdog, and names the call.
     const p = fold([
       turnCreated("t1"),
       reviewCall("call-1", "post_blocking_review", review),
       approvalRequired("main", "call-1", "mm-call-1"),
       turnDone(),
     ]);
-    expect(p.status).toBe("blocked_pending");
-    expect(p.approval).toEqual({
-      threadId: "main",
-      toolCallId: "call-1",
-      sourceEventId: "mm-call-1",
-    });
-    expect(p.review).toMatchObject({ tool: "post_blocking_review", body: "What ran" });
-  });
-
-  it("is blocked_posted after Cujo's allow resume and the gated tool.response", () => {
-    const p = fold(
-      [
-        turnCreated("t1"),
-        reviewCall("call-1", "post_blocking_review", review),
-        approvalRequired("main", "call-1", "mm-call-1"),
-        turnDone(),
-        turnCreated("t2", resume("allow")),
-        toolResponse("call-1"),
-        turnDone(),
-      ],
-      { cujoResumeTurnIds: new Set(["t2"]) },
+    expect(p.status).toBe("error");
+    expect(p.error).toBe(
+      "approval requested for post_blocking_review; nothing is gated on this spec",
     );
-    expect(p.status).toBe("blocked_posted");
-    expect(p.turnIds).toEqual(["t1", "t2"]);
-    expect(p.externalResume).toBe(false);
-  });
-
-  it("is blocked_posted after an allow answered by a re-call under a new call id (decision 125)", () => {
-    // The harness restarted while the call was held; on allow the model made
-    // the same call again, so the response carries a different id.
-    const p = fold(
-      [
-        turnCreated("t1"),
-        reviewCall("call-1", "post_gated_review", review),
-        approvalRequired("main", "call-1", "mm-call-1"),
-        turnDone(),
-        turnCreated("t2", resume("allow")),
-        reviewCall("call-2", "post_gated_review", review),
-        toolResponse("call-2", "post_gated_review"),
-        turnDone(),
-      ],
-      { cujoResumeTurnIds: new Set(["t2"]) },
-    );
-    expect(p.status).toBe("blocked_posted");
-  });
-
-  it("does not count an errored or unrelated response as the accusation posting", () => {
-    const paused = [
-      turnCreated("t1"),
-      reviewCall("call-1", "post_gated_review", review),
-      approvalRequired("main", "call-1", "mm-call-1"),
-      turnDone(),
-      turnCreated("t2", resume("allow")),
-    ];
-    const options = { cujoResumeTurnIds: new Set(["t2"]) };
-    expect(
-      fold([...paused, toolResponse("call-2", "post_gated_review", true), turnDone()], options)
-        .status,
-    ).not.toBe("blocked_posted");
-    expect(
-      fold([...paused, toolResponse("call-2", "post_advisory_review"), turnDone()], options).status,
-    ).not.toBe("blocked_posted");
-  });
-
-  it("is denied after a deny resume, with or without the refusal tool.response", () => {
-    const paused = [
-      turnCreated("t1"),
-      reviewCall("call-1", "post_blocking_review", review),
-      approvalRequired("main", "call-1", "mm-call-1"),
-      turnDone(),
-    ];
-    const options = { cujoResumeTurnIds: new Set(["t2"]) };
-    expect(fold([...paused, turnCreated("t2", resume("deny")), turnDone()], options).status).toBe(
-      "denied",
-    );
-    // The server answers a denied call with a tool.response carrying the
-    // refusal (contract test: "a denied blocking review folds to denied").
-    expect(
-      fold(
-        [...paused, turnCreated("t2", resume("deny")), toolResponse("call-1"), turnDone()],
-        options,
-      ).status,
-    ).toBe("denied");
-  });
-
-  it("marks a resume Cujo did not send as external", () => {
-    const p = fold([
-      turnCreated("t1"),
-      reviewCall("call-1", "post_blocking_review", review),
-      approvalRequired("main", "call-1", "mm-call-1"),
-      turnDone(),
-      turnCreated("t2", resume("allow")),
-      toolResponse("call-1"),
-      turnDone(),
-    ]);
-    expect(p.status).toBe("blocked_posted");
-    expect(p.externalResume).toBe(true);
   });
 
   it("is error on a turn error", () => {
@@ -437,7 +330,7 @@ describe("fold", () => {
     expect(p.error).toBe("model down");
   });
 
-  it("trips on an approval from a subagent thread and offers no approval", () => {
+  it("is the same error for a held call on a subagent thread", () => {
     const p = fold([
       turnCreated("t1"),
       threadCreated("sub-1", "tests"),
@@ -445,8 +338,7 @@ describe("fold", () => {
       turnDone(),
     ]);
     expect(p.status).toBe("error");
-    expect(p.approval).toBeNull();
-    expect(p.error).toContain("sub-1");
+    expect(p.error).toContain("approval requested");
   });
 
   it("maps check threads by title and parses the fenced report", () => {
@@ -523,10 +415,10 @@ describe("hard rules in the fold", () => {
       threadCreated("th-tests", "tests"),
       threadDone("th-tests", tripped),
       reviewCall("call-1", "post_blocking_review", withFindings),
-      approvalRequired("main", "call-1", "mm-call-1"),
+      toolResponse("call-1"),
       turnDone(),
     ]);
-    expect(p.status).toBe("blocked_pending");
+    expect(p.status).toBe("blocked");
     expect(p.hardRuleHits).toHaveLength(1);
     expect(p.hardRuleHits[0]).toMatchObject({
       severity: "critical",
@@ -557,11 +449,10 @@ describe("hard rules in the fold", () => {
     expect(p.findings[0]?.severity).toBe("critical");
   });
 
-  it("blocks unattended on a correctness critical, without asking anyone", () => {
-    // The whole point of Design 1: a broken test is mechanical, so Cujo blocks
-    // the merge on its own authority. Before the gate moved, this run had no
-    // terminal state to land in and fell through to `clean` — a green board
-    // row for a pull request carrying REQUEST_CHANGES.
+  it("blocks on a critical, without asking anyone (decision 138)", () => {
+    // A broken test is mechanical, so Cujo blocks the merge on its own
+    // authority: REQUEST_CHANGES is on the pull request and the check run
+    // fails on the head. Terminal, and only `/cujo dismiss` moves it.
     const p = fold([
       turnCreated("t1"),
       threadCreated("th-tests", "tests"),
@@ -570,14 +461,12 @@ describe("hard rules in the fold", () => {
       toolResponse("call-0"),
       turnDone(),
     ]);
-    expect(p.status).toBe("blocked_unattended");
+    expect(p.status).toBe("blocked");
     expect(p.review?.tool).toBe("post_blocking_review");
-    expect(p.gatedReview).toBeNull();
-    expect(p.approval).toBeNull();
   });
 
   it("still folds a review whose arguments the renderer cannot take", () => {
-    // The shape from orders-api #42's first gated review: a coverage entry
+    // The shape from orders-api #42's first blocking review: a coverage entry
     // with a note and no `check`. The renderer no longer throws on it, and
     // the fold would keep the model's own body if it ever did again, because
     // a fold that throws is a run that can never be projected.
@@ -588,92 +477,18 @@ describe("hard rules in the fold", () => {
     };
     const p = fold([
       turnCreated("t1"),
-      reviewCall("call-1", "post_gated_review", args),
-      approvalRequired("main", "call-1", "mm-call-1"),
-      turnDone(),
-    ]);
-    expect(p.status).toBe("blocked_pending");
-    expect(p.gatedReview?.body).toBe("What ran");
-    expect(p.gatedReview?.composedBody).toContain("What ran");
-  });
-
-  it("keeps the posted advisory and the held accusation in separate slots", () => {
-    const p = fold([
-      turnCreated("t1"),
-      threadCreated("th-det", "detonation"),
-      threadDone("th-det", detonated),
-      reviewCall("call-0", "post_advisory_review", { ...review, body: "the observation" }),
-      toolResponse("call-0"),
-      reviewCall("call-1", "post_gated_review", accusation),
-      approvalRequired("main", "call-1", "mm-call-1"),
-      turnDone(),
-    ]);
-    expect(p.status).toBe("blocked_pending");
-    // The second call must not destroy the record of the first: the advisory
-    // is on the pull request and the operator has to be shown that.
-    expect(p.review).toMatchObject({ tool: "post_advisory_review", body: "the observation" });
-    expect(p.gatedReview).toMatchObject({ tool: "post_gated_review" });
-  });
-
-  it("holds the accusation's own findings back until it posts", () => {
-    const drafted = [
-      turnCreated("t1"),
-      threadCreated("th-det", "detonation"),
-      threadDone("th-det", detonated),
-      reviewCall("call-0", "post_advisory_review", review),
-      toolResponse("call-0"),
-      reviewCall("call-1", "post_gated_review", accusation),
-      approvalRequired("main", "call-1", "mm-call-1"),
-      turnDone(),
-    ];
-    const pending = fold(drafted);
-    // The hard-rule observation publishes — it is Cujo's own measurement — but
-    // the agent's accusation does not, because `findings` reaches the
-    // anonymous board and this is the thing the gate exists to hold back.
-    expect(pending.findings.some((f) => f.rule === "egress_to_unknown_host")).toBe(true);
-    expect(pending.findings.some((f) => f.title === "the dependency is malware")).toBe(false);
-
-    const confirmed = fold([
-      ...drafted,
-      turnCreated("t2", [
-        {
-          type: "user.tool_approval",
-          threadId: "main",
-          toolCallId: "call-1",
-          approval: { status: "allow" },
-        } as unknown as TurnInputItem,
-      ]),
+      reviewCall("call-1", "post_blocking_review", args),
       toolResponse("call-1"),
       turnDone(),
     ]);
-    expect(confirmed.status).toBe("blocked_posted");
-    expect(confirmed.findings.some((f) => f.title === "the dependency is malware")).toBe(true);
-
-    // A denied call is answered with a refusal `tool.response` of its own, so
-    // "a response arrived" cannot be what publishes. The accusation a human
-    // turned down must leave nothing behind — the observation still stands.
-    const denied = fold([
-      ...drafted,
-      turnCreated("t2", [
-        {
-          type: "user.tool_approval",
-          threadId: "main",
-          toolCallId: "call-1",
-          approval: { status: "deny" },
-        } as unknown as TurnInputItem,
-      ]),
-      toolResponse("call-1"),
-      turnDone(),
-    ]);
-    expect(denied.status).toBe("denied");
-    expect(denied.findings.some((f) => f.title === "the dependency is malware")).toBe(false);
-    expect(denied.findings.some((f) => f.rule === "egress_to_unknown_host")).toBe(true);
+    expect(p.status).toBe("blocked");
+    expect(p.review?.body).toBe("What ran");
+    expect(p.review?.composedBody).toContain("What ran");
   });
 
-  it("reports under-gating: a malice rule tripped and nothing was held", () => {
-    // The one direction of model error the trusted side can detect. Cujo
-    // cannot know a gated review was unnecessary, but it always knows when one
-    // was necessary and absent (decision 21).
+  it("blocks on a malice rule exactly as on a correctness one (decision 138)", () => {
+    // There is no second review to hold: a malice finding is a critical, the
+    // blocking review posts at once, and a person who disagrees lifts it.
     const p = fold([
       turnCreated("t1"),
       threadCreated("th-det", "detonation"),
@@ -682,9 +497,8 @@ describe("hard rules in the fold", () => {
       toolResponse("call-0"),
       turnDone(),
     ]);
-    expect(p.status).toBe("error");
-    expect(p.error).toContain("malice rule tripped");
-    expect(p.error).toContain("did not hold the accusation for a human");
+    expect(p.status).toBe("blocked");
+    expect(p.findings.some((f) => f.rule === "egress_to_unknown_host")).toBe(true);
   });
 
   it("marks an advisory review that carries the agent's own critical finding as an error", () => {
@@ -1008,17 +822,6 @@ describe("the diff review's ladder (decision 136)", () => {
     expect(blocking.error).toBe(
       "diff review called post_blocking_review; only post_advisory_review may post",
     );
-    const gated = fold(
-      [
-        turnCreated("t1"),
-        reviewCall("call-0", "post_gated_review", { body: "b", findings: [] }),
-        toolResponse("call-0"),
-        turnDone(),
-      ],
-      diff,
-    );
-    expect(gated.status).toBe("error");
-    expect(gated.error).toContain("post_gated_review");
   });
 
   it("is an error when the turn ended without a review, and keeps a turn error's message", () => {
@@ -1129,81 +932,6 @@ describe("check timing", () => {
   });
 });
 
-describe("pendingApproval", () => {
-  const answer = (toolCallId: string): TurnInputItem[] => [
-    { type: "user.tool_approval", threadId: "main", toolCallId, approval: { status: "allow" } },
-  ];
-
-  it("is null for a session that never asked", () => {
-    expect(pendingApproval([])).toBeNull();
-    expect(pendingApproval([turnCreated("t1"), turnDone()])).toBeNull();
-  });
-
-  it("returns the request nothing has answered", () => {
-    const events = [turnCreated("t1"), approvalRequired("main", "call-1", "mm-1"), turnDone()];
-    expect(pendingApproval(events)).toEqual({
-      threadId: "main",
-      toolCallId: "call-1",
-      sourceEventId: "mm-1",
-    });
-  });
-
-  it("is null once a resume answers that same tool call", () => {
-    const events = [
-      turnCreated("t1"),
-      approvalRequired("main", "call-1", "mm-1"),
-      turnDone(),
-      turnCreated("t2", answer("call-1")),
-      turnDone(),
-    ];
-    expect(pendingApproval(events)).toBeNull();
-  });
-
-  /**
-   * The case `fold` cannot see: it leaves `approval` set and `decision` set,
-   * which reads as answered even though the second request is outstanding.
-   */
-  it("returns the second request when only the first was answered", () => {
-    const events = [
-      turnCreated("t1"),
-      approvalRequired("main", "call-1", "mm-1"),
-      turnDone(),
-      turnCreated("t2", answer("call-1")),
-      approvalRequired("main", "call-2", "mm-2"),
-      turnDone(),
-    ];
-    expect(fold(events).approval?.toolCallId).toBe("call-2");
-    expect(fold(events).decision).toBe("allow");
-    expect(pendingApproval(events)?.toolCallId).toBe("call-2");
-  });
-
-  it("is null once a later user message voided the request (decision 125)", () => {
-    const events = [
-      turnCreated("t1"),
-      approvalRequired("main", "call-1", "mm-1"),
-      turnDone(),
-      turnCreated("t2", [{ type: "user.message", content: "next head" }]),
-      turnDone(),
-    ];
-    expect(pendingApproval(events)).toBeNull();
-  });
-
-  it("ignores a resume that answers some other tool call", () => {
-    const events = [
-      turnCreated("t1"),
-      approvalRequired("main", "call-1", "mm-1"),
-      turnDone(),
-      turnCreated("t2", answer("call-9")),
-    ];
-    expect(pendingApproval(events)?.toolCallId).toBe("call-1");
-  });
-
-  it("never returns a request from a thread that may not hold one", () => {
-    const events = [turnCreated("t1"), approvalRequired("sub-1", "call-9", "nope"), turnDone()];
-    expect(pendingApproval(events)).toBeNull();
-  });
-});
-
 describe("parseReport", () => {
   it("accepts a bare object and rejects prose", () => {
     expect(parseReport('{"a":1}')).toEqual({ a: 1 });
@@ -1282,7 +1010,7 @@ describe("the setup window", () => {
     expect(p.setup.messages).toBe(2);
   });
 
-  it("keeps the first turn's stamp when an approval resume starts another", () => {
+  it("keeps the first turn's stamp when a retry starts another", () => {
     const later = "2026-08-27T01:00:00.000Z";
     const p = fold([
       turnCreated("t1", undefined, claim),
@@ -1355,7 +1083,6 @@ describe("parseReview agrees with what github-mcp posts", () => {
     expect(parsed?.composedBody).toBe(
       renderReviewBody(sharedArgs as Parameters<typeof renderReviewBody>[0], {
         tool: "post_blocking_review",
-        accusationFollows: false,
         runUrl: null,
       }),
     );
@@ -1382,20 +1109,5 @@ describe("parseReview agrees with what github-mcp posts", () => {
     expect(parseReview(reviewToolCall("post_advisory_review"))?.comments).toEqual(
       reviewComments(sharedArgs as Parameters<typeof reviewComments>[0]),
     );
-  });
-
-  it("reads the accusation's held markers off its own call", () => {
-    const held = {
-      ...sharedArgs,
-      findings: [{ ...sharedArgs.findings[0], severity: "warn", held: true }],
-      accusation_follows: true,
-    };
-    const parsed = parseReview({
-      id: "call-2",
-      type: "function",
-      function: { name: "post_advisory_review", arguments: JSON.stringify(held) },
-    } as unknown as ToolCall);
-    expect(parsed?.composedBody).toContain("(1 held)");
-    expect(parsed?.composedBody).toContain("· held");
   });
 });

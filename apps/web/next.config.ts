@@ -18,6 +18,13 @@ const config: NextConfig = {
   transpilePackages: ["@cujo/log"],
   poweredByHeader: false,
   reactStrictMode: true,
+  // The manual's page on the human gate became the page on blocking when the
+  // gate went (decision 138). The manual is the one indexed part of the site,
+  // so the old address keeps answering. Static, so nothing from the
+  // environment is baked in — the objection to `rewrites` below.
+  async redirects() {
+    return [{ source: "/docs/the-gate", destination: "/docs/blocking", permanent: true }];
+  },
   // The only remote images this app loads: a PR author's GitHub avatar
   // (decision 55). Routed through `/_next/image` rather than loaded straight
   // from the browser, so opening a run on the anonymous board does not make a

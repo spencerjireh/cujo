@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  appendConfirmPrompt,
-  appendReviewMarker,
-  appendRunFooter,
-  reviewMarker,
-  runUrl,
-} from "../src/body";
+import { appendReviewMarker, appendRunFooter, reviewMarker, runUrl } from "../src/body";
 
 const BASE = "https://cujo.example.com";
 const RUN = "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e";
@@ -103,39 +97,6 @@ describe("runUrl", () => {
   });
 });
 
-describe("appendConfirmPrompt", () => {
-  it("names both commands when an accusation follows", () => {
-    const out = appendConfirmPrompt("Results.", true);
-    expect(out).toContain("This matches a supply-chain pattern.");
-    expect(out).toContain("`/cujo confirm`");
-    expect(out).toContain("`/cujo dismiss`");
-  });
-
-  it("leaves the body byte-identical when nothing follows", () => {
-    // Which is every review that is not the observation half of a pair: an
-    // ordinary advisory, a blocking review for a broken test, and — because
-    // the flag does not exist on that tool — every gated review there is.
-    const body = "Results.";
-    expect(appendConfirmPrompt(body, false)).toBe(body);
-  });
-
-  it("does not add a blank line to a body that already ends in one", () => {
-    expect(appendConfirmPrompt("Results.\n\n\n", true)).toBe(
-      "Results.\n\nThis matches a supply-chain pattern. Cujo will not publish that conclusion until a maintainer confirms. Reply `/cujo confirm` or `/cujo dismiss`.\n",
-    );
-  });
-
-  it("sits above the evidence link, which stays last", () => {
-    // postReview composes appendRunFooter(appendConfirmPrompt(...)), because
-    // decision 36 requires the link to be the last thing in the body.
-    const out = appendRunFooter(appendConfirmPrompt("Results.", true), BASE, RUN);
-    expect(out.indexOf("View the full evidence")).toBeGreaterThan(
-      out.indexOf("supply-chain pattern"),
-    );
-    expect(out.endsWith(`**[View the full evidence →](${BASE}/runs/${RUN})**\n`)).toBe(true);
-  });
-});
-
 describe("reviewMarker", () => {
   const RUN = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 
@@ -145,11 +106,9 @@ describe("reviewMarker", () => {
     );
   });
 
-  it("tells the two halves of the malice path apart", () => {
-    // Both are REQUEST_CHANGES when a run has a broken thing and a malice
-    // finding, so a key on the review event would refuse the accusation.
+  it("keys on the tool, so the two review kinds never share a marker", () => {
     expect(reviewMarker("post_blocking_review", "abc1234", RUN)).not.toBe(
-      reviewMarker("post_gated_review", "abc1234", RUN),
+      reviewMarker("post_advisory_review", "abc1234", RUN),
     );
   });
 

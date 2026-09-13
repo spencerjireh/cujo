@@ -62,25 +62,20 @@ const defaultSleep = (ms: number): Promise<void> =>
  * the pull request exactly as it is.
  *
  * The reactions describe what happened to the pull request, not what Cujo
- * concluded: `denied` is a thumbs up because a human cleared the pull request
- * to proceed, even though Cujo's finding stands. GitHub offers eight reactions
- * and no check mark, so this is the whole vocabulary there is.
+ * concluded: `dismissed` is a thumbs up because a human lifted the block and
+ * the pull request may proceed, even though Cujo's finding stands. GitHub
+ * offers eight reactions and no check mark, so this is the whole vocabulary
+ * there is.
  */
 const BY_STATUS: Record<RunStatus, readonly Reaction[] | null> = {
   /** Under review. */
   running: LOOKING,
-  /** Still under review, and now waiting on a human: the eye plus a flare. */
-  blocked_pending: ["eyes", "rocket"],
   /** No critical finding. */
   clean: ["hooray"],
-  /** The blocking review posted. */
-  // The same set as `blocked_posted`: the reactions describe what happened to
-  // the pull request, and what happened is identical — a REQUEST_CHANGES is on
-  // it. `PrReactor` keys its cache on the set, so sharing one costs no call.
-  blocked_unattended: ["-1"],
-  blocked_posted: ["-1"],
-  /** A human rejected the block, so the pull request is clear to proceed. */
-  denied: ["+1"],
+  /** The blocking review posted and the check run fails (decision 138). */
+  blocked: ["-1"],
+  /** A human lifted the block, so the pull request is clear to proceed. */
+  dismissed: ["+1"],
   /**
    * Cujo reached no verdict. Shared by the two statuses that mean that and no
    * others — `error` because it fell over, `unproven` because it ran and had

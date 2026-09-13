@@ -69,13 +69,8 @@ function harness(
       turnIds: ["t1"],
       checks: [],
       review: null,
-      gatedReview: null,
       hardRuleHits: [],
       findings: [],
-      approval: null,
-      decision: null,
-      externalResume: false,
-      gatedResponseSeen: false,
       error: null,
       summary: null,
       ...over.projection,
@@ -187,7 +182,7 @@ describe("ConverseService", () => {
   it("hands the agent the run's evidence and the question, and nothing else", async () => {
     const h = harness({
       projection: {
-        status: "blocked_unattended",
+        status: "blocked",
         checks: [
           {
             threadId: "th1",
@@ -219,7 +214,7 @@ describe("ConverseService", () => {
       repo: "o/r",
       pr_number: 7,
       head_sha: "h1",
-      run_status: "blocked_unattended",
+      run_status: "blocked",
       question: "@cujo-guard seed the db first",
     });
     expect(payload.checks[0]).toMatchObject({ name: "smoke", report: { head: 500 } });

@@ -71,10 +71,10 @@ export const StillRunning: Story = {
   ],
 };
 
-/** After the decision: the review is posted and the bar explains rather than asks. */
+/** The block: the review is posted and the panel says how a maintainer lifts it. */
 export const Blocked: Story = {
   args: { id: "run-1" },
-  decorators: [withRun(run({ status: "blocked_posted" }))],
+  decorators: [withRun(run({ status: "blocked" }))],
 };
 
 /** Decision 21: an advisory review posted while a hard rule had tripped. */

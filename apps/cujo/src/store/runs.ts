@@ -265,7 +265,6 @@ export class RunStore {
   deleteRun(id: string): void {
     this.db.prepare("DELETE FROM run_projections WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM run_digests WHERE run_id = ?").run(id);
-    this.db.prepare("DELETE FROM run_cujo_turns WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM run_announcements WHERE run_id = ?").run(id);
     this.notifications.deleteRunMessages(id);
     this.db.prepare("DELETE FROM run_pr_meta WHERE run_id = ?").run(id);
@@ -298,19 +297,6 @@ export class RunStore {
       | { kind: string }
       | undefined;
     return row?.kind ?? null;
-  }
-
-  addCujoTurn(runId: string, turnId: string): void {
-    this.db
-      .prepare("INSERT OR IGNORE INTO run_cujo_turns (run_id, turn_id) VALUES (?, ?)")
-      .run(runId, turnId);
-  }
-
-  listCujoTurns(runId: string): string[] {
-    const rows = this.db
-      .prepare("SELECT turn_id FROM run_cujo_turns WHERE run_id = ?")
-      .all(runId) as { turn_id: string }[];
-    return rows.map((r) => r.turn_id);
   }
 
   /** Every run that shares a session, so one run can skip the others' turns. */
@@ -439,12 +425,12 @@ export class RunStore {
   }
 
   listUnfinishedRuns(scope?: { repo: string; prNumber: number }): RunRecord[] {
-    // A SQL string, so the type system cannot check it and a missing status is
-    // silent: a run in one nobody added here is never rehydrated on restart and
-    // never superseded by a newer head. `blocked_unattended` is left out on
-    // purpose — that run posted its review and is done, so re-following it or
-    // cancelling its turn would act on a finished run.
-    const where = "status IN ('running', 'blocked_pending')";
+    // A SQL string, so the type system cannot check it. `running` is the one
+    // status with a live turn: everything else posted its review or ended, so
+    // re-following it on restart or cancelling it for a newer head would act
+    // on a finished run. `blocked` in particular is done — its review is on
+    // the pull request and only a person moves it (decision 138).
+    const where = "status = 'running'";
     const rows = (
       scope
         ? this.db
@@ -519,21 +505,21 @@ export class RunStore {
   }
 
   /**
-   * Compare-and-set the decision: succeeds for exactly one caller while the
-   * run is blocked_pending and undecided, so a second approve request cannot
-   * resume the same call.
+   * Compare-and-set the dismissal: succeeds for exactly one caller while the
+   * run is `blocked` and nobody has claimed it, so two `/cujo dismiss`
+   * comments racing for one block dismiss the review once (decision 138).
    */
   claimDecision(id: string, approver: string, decidedAt: string): boolean {
     const result = this.db
       .prepare(
         "UPDATE runs SET approver = ?, decided_at = ?, updated_at = ? " +
-          "WHERE id = ? AND status = 'blocked_pending' AND approver IS NULL",
+          "WHERE id = ? AND status = 'blocked' AND approver IS NULL",
       )
       .run(approver, decidedAt, new Date().toISOString(), id);
     return Number(result.changes) === 1;
   }
 
-  /** Undo a claim whose resume never reached the harness, so a retry is possible. */
+  /** Undo a claim whose GitHub write failed, so a retry is possible. */
   clearDecision(id: string): void {
     this.db
       .prepare("UPDATE runs SET approver = NULL, decided_at = NULL, updated_at = ? WHERE id = ?")

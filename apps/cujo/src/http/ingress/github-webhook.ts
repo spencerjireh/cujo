@@ -80,7 +80,16 @@ interface IssueCommentEvent {
      */
     pull_request?: unknown;
   };
-  comment: { id: number; body: string; user: { login: string } | null };
+  comment: {
+    id: number;
+    body: string;
+    /**
+     * `type` is GitHub's own word for the account — `User`, `Bot`,
+     * `Organization` — and the one fact the unlock refuses on without a
+     * read (decision 138). Null when the payload did not say.
+     */
+    user: { login: string; type: string | null } | null;
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -122,7 +131,10 @@ function parseIssueComment(body: string): IssueCommentEvent | null {
     comment: {
       id: comment.id,
       body: comment.body,
-      user: isRecord(user) && typeof user.login === "string" ? { login: user.login } : null,
+      user:
+        isRecord(user) && typeof user.login === "string"
+          ? { login: user.login, type: typeof user.type === "string" ? user.type : null }
+          : null,
     },
   };
 }
@@ -179,6 +191,7 @@ function handleIssueComment(
     prNumber: event.issue.number,
     commentId: event.comment.id,
     actor: event.comment.user?.login ?? "",
+    actorIsBot: event.comment.user?.type === "Bot",
     body: event.comment.body,
     log,
   };

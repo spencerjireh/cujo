@@ -1,10 +1,10 @@
 /**
- * `/cujo confirm` and `/cujo dismiss`, from a pull request comment (Design 2).
+ * `/cujo dismiss` and `/cujo review`, from a pull request comment (decisions
+ * 45, 138).
  *
- * This is the human gate. The turn is paused on a `post_gated_review` call and
- * nothing reaches the pull request until somebody answers, so every decision
- * made here is made in the trusted plane on an HMAC-verified delivery, and none
- * of it is made by a model.
+ * This is the unlock. A block posts at once and only a person lifts it, so
+ * every decision made here is made in the trusted plane on an HMAC-verified
+ * delivery, and none of it is made by a model.
  *
  * **Every outcome speaks.** The operator UI at least surfaced a 409; a comment
  * that is silently ignored is indistinguishable from a webhook that never
@@ -17,7 +17,7 @@ import type { Logger } from "@cujo/log";
 import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "../../clients/github";
 import type { Reaction } from "../../clients/github-reactions";
 import type { RunStore } from "../../store/runs";
-import type { ApproveResult, Runner } from "../runner.service";
+import type { DismissResult, Runner } from "../runner.service";
 import { type CommandVerb, authorizeCommand } from "./authorization";
 import { parseCommand } from "./parse";
 
@@ -40,7 +40,7 @@ interface PrCommandReactions {
 
 export interface PrCommandDeps {
   runs: RunStore;
-  runner: Pick<Runner, "approve">;
+  runner: Pick<Runner, "dismiss">;
   github: PrCommandGitHub;
   reactions: PrCommandReactions | null;
   botLogin?: string;
@@ -67,6 +67,8 @@ export interface PrCommand {
   commentId: number;
   /** The comment's author, from the HMAC-verified payload. */
   actor: string;
+  /** GitHub's own `user.type === "Bot"` on that author, from the same payload. */
+  actorIsBot: boolean;
   body: string;
   log: Logger;
 }
@@ -159,10 +161,7 @@ export class PrCommandService {
     // common case on a busy repo, and it costs no GitHub call to say so.
     const known = this.deps.runs.latestRunForPr(command.repo, command.prNumber);
     if (!known) {
-      return refuse(
-        "no_run",
-        "I have not reviewed this pull request, so there is nothing to answer.",
-      );
+      return refuse("no_run", "I have not reviewed this pull request, so nothing is blocked.");
     }
 
     const permission = await this.deps.github.permissionFor(command.repo, command.actor);
@@ -180,34 +179,31 @@ export class PrCommandService {
       verb,
       permission,
       actor: command.actor,
+      actorIsBot: command.actorIsBot,
       prAuthor: head.author,
     });
     if (!auth.allowed) return refuse(auth.reason, AUTHORIZATION_TEXT[auth.reason]);
 
-    // The commit decides which run this answers, not the order the deliveries
+    // The commit decides which run this lifts, not the order the deliveries
     // happened to be inserted in. Read the block, push a fix, come back and
-    // confirm, and the run for the old commit is refused by name.
+    // dismiss, and the run for the old commit is refused by name.
     const run = this.deps.runs.runForPrHead(command.repo, command.prNumber, head.headSha);
     if (!run) {
       return refuse(
         "stale_head",
-        `This pull request moved on since I last reviewed it: I have a run for \`${SHORT(known.headSha)}\`, and it is now on \`${SHORT(head.headSha)}\`. I am not answering an old commit's finding — decide on the run for the current commit once it finishes.`,
+        `This pull request moved on since I last reviewed it: I have a run for \`${SHORT(known.headSha)}\`, and it is now on \`${SHORT(head.headSha)}\`. I am not lifting an old commit's block — the current commit gets its own run.`,
       );
     }
 
-    const result = await this.deps.runner.approve(
-      run.id,
-      verb === "confirm" ? "allow" : "deny",
-      `github:${command.actor}`,
-    );
-    if (!result.ok) return refuse(result.reason, approveText(result));
+    const result = await this.deps.runner.dismiss(run.id, `github:${command.actor}`);
+    if (!result.ok) return refuse(result.reason, dismissText(result));
     return { kind: "decided", verb };
   }
 
   /**
    * `/cujo review`: look at the current head again, whatever is there now.
    *
-   * The same principal as the other two verbs. It answers no question, so
+   * The same principal as `dismiss`. It answers no question, so
    * none of the machinery below applies — no `latestRunForPr`, and above all no
    * `stale_head`, which exists to stop somebody answering an old commit's
    * finding. This verb *targets* whatever the head is now; being out of date is
@@ -229,6 +225,7 @@ export class PrCommandService {
       verb: "review",
       permission,
       actor: command.actor,
+      actorIsBot: command.actorIsBot,
       prAuthor: head.author,
     });
     if (!auth.allowed) return refuse(auth.reason, AUTHORIZATION_TEXT[auth.reason]);
@@ -275,8 +272,7 @@ function refuse(reason: string, say: string): Outcome {
 }
 
 const APPLIED_TEXT: Record<CommandVerb, string> = {
-  confirm: "Confirmed. The finding is now a blocking review on this pull request.",
-  dismiss: "Dismissed. The observation stands, and the merge is not blocked.",
+  dismiss: "Dismissed. The block is lifted; the observation stands.",
   // Says what it replaces, because it replaces more than a verdict: reclaiming
   // the head drops the old run's page and its Discord card along with it.
   review:
@@ -288,28 +284,30 @@ function applied(verb: CommandVerb): string {
 }
 
 const AUTHORIZATION_TEXT: Record<
-  "not_a_maintainer" | "author_may_not_dismiss" | "unknown",
+  "bot_may_not_decide" | "not_a_maintainer" | "author_may_not_dismiss" | "unknown",
   string
 > = {
+  bot_may_not_decide:
+    "A bot account cannot lift a block. A person with write access can, with `/cujo dismiss`.",
   not_a_maintainer:
-    "Answering a held finding needs write access to this repository. Everything I found is above, and anyone can read it.",
+    "Lifting a block needs write access to this repository. Everything I found is above, and anyone can read it.",
   author_may_not_dismiss:
-    "You opened this pull request, so you cannot dismiss the finding against it. Anyone else with write access can — and you can `/cujo confirm` it.",
+    "You opened this pull request, so you cannot lift the block on it. Anyone else with write access can.",
   unknown:
     "I could not check your access with GitHub just now, so I have not decided anything. Try again in a moment.",
 };
 
-/** One sentence per `ApproveRefusal`, because a comment has no 409 to show. */
-function approveText(result: Extract<ApproveResult, { ok: false }>): string {
+/** One sentence per `DismissRefusal`, because a comment has no 409 to show. */
+function dismissText(result: Extract<DismissResult, { ok: false }>): string {
   switch (result.reason) {
     case "no_such_run":
       return "That run is gone. Push a commit to get a fresh review.";
-    case "not_blocked_pending":
-      return "Nothing is waiting on a human here right now.";
+    case "not_blocked":
+      return "Nothing is blocked on this commit.";
     case "already_decided":
-      return "Somebody answered this one already.";
-    case "resume_failed":
-      return "I could not reach the harness to record that, so nothing changed. Try again in a moment.";
+      return "Somebody dismissed this one already.";
+    case "github_failed":
+      return "I could not dismiss the review on GitHub, so the block stands. Try again in a moment.";
     default:
       return "I could not record that.";
   }

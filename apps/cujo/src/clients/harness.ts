@@ -16,18 +16,6 @@ export type {
   TurnDoneEvent,
 } from "@cujo/harness-contract";
 
-/** A human looked at the drafted block and said no. */
-const OPERATOR_DENY_REASON = "Rejected by a Cujo operator. Post nothing and stop.";
-
-/**
- * Nobody said no. The approval is answered only as a courtesy to the model
- * (decision 125 reversed the part of 39 that made this necessary): the commit
- * the block described is no longer the head, so there is nothing left to post
- * about it.
- */
-export const STALE_DENY_REASON =
-  "Superseded: a newer commit replaced the review this block belongs to. Post nothing and end your turn.";
-
 /** What the harness answers a refused request with. */
 export class HarnessRequestError extends Error {
   constructor(
@@ -98,7 +86,7 @@ export class Harness {
       this.request("PUT", "/settings/mcp-servers", {
         name: "github-mcp",
         url: this.config.githubMcpUrl,
-        description: "Posts PR reviews as the Cujo GitHub App. post_gated_review is gated.",
+        description: "Posts PR reviews as the Cujo GitHub App.",
       }),
     );
 
@@ -189,28 +177,6 @@ export class Harness {
   /** Start the run's first turn; resolves to the turn id. */
   startTurn(sessionId: string, message: string): Promise<string> {
     return this.createTurn(sessionId, [{ type: "user.message", content: message }]);
-  }
-
-  /**
-   * Contract 4: one send answers the pending approval and starts a new turn.
-   * The deny reason reaches the model, which `agent/SKILL.md` tells to end the
-   * turn saying the block was denied, so it must say who denied it and why.
-   */
-  resume(
-    sessionId: string,
-    approval: { threadId: string; toolCallId: string },
-    decision: "allow" | "deny",
-    denyReason: string = OPERATOR_DENY_REASON,
-  ): Promise<string> {
-    return this.createTurn(sessionId, [
-      {
-        type: "user.tool_approval",
-        threadId: approval.threadId,
-        toolCallId: approval.toolCallId,
-        approval:
-          decision === "allow" ? { status: "allow" } : { status: "deny", reason: denyReason },
-      },
-    ]);
   }
 
   /**

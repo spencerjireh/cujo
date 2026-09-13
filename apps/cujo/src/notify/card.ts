@@ -157,23 +157,22 @@ function handle(input: string, n: number): string {
  * A Discord embed carries one colour and is read on a dark client, so the dark
  * column is the only one that applies.
  *
- * Two rules hold this map together, and both are worth keeping when a status is
- * added. Amber is on exactly one status — the one that needs a human — because
- * amber is the brand and `brand.md` spends it on the thing a person must act
- * on. Red means the pull request is dangerous and never that Cujo fell over,
- * which is why `error` is `--sev-info` blue: an infrastructure failure is a
- * status, not a verdict on someone's code.
+ * One rule holds this map together, and it is worth keeping when a status is
+ * added. Red means the pull request is dangerous and never that Cujo fell
+ * over, which is why `error` is `--sev-info` blue: an infrastructure failure
+ * is a status, not a verdict on someone's code. No status is amber since the
+ * gate went (decision 138): the brand spends amber on the thing a person must
+ * act on, and a block asks nobody to — a person may lift it, and the ping
+ * says so, but the merge is held either way.
  *
  * The three states nobody can act on form a deliberate ramp of decreasing
- * lightness: clean, then denied, then superseded.
+ * lightness: clean, then dismissed, then superseded.
  */
 const COLOR: Record<RunStatus, number> = {
   running: 0xe6cf4a, // --sev-medium
   clean: 0xa39b90, // --fg-muted
-  blocked_pending: 0xf2a900, // --accent / --sev-high
-  blocked_unattended: 0xff5c45, // --sev-critical
-  blocked_posted: 0xff5c45, // --sev-critical
-  denied: 0x958d82, // --sev-low
+  blocked: 0xff5c45, // --sev-critical
+  dismissed: 0x958d82, // --sev-low
   // Both say Cujo reached no verdict rather than anything about the pull
   // request, which is what --sev-info is for. The words tell them apart.
   error: 0x66b0f0, // --sev-info
@@ -184,11 +183,9 @@ const COLOR: Record<RunStatus, number> = {
 const DESCRIPTION: Record<RunStatus, string> = {
   running: "Review running: tests, probes, a smoke boot, and dependency detonation.",
   clean: "No critical finding. The advisory review posted.",
-  blocked_pending: "**Blocked — waiting for a human.** Approve or reject in Cujo.",
-  blocked_unattended:
-    "Blocking review posted as REQUEST_CHANGES. A correctness finding: no human was asked.",
-  blocked_posted: "Blocking review posted as REQUEST_CHANGES.",
-  denied: "The block was rejected. Nothing was posted.",
+  blocked:
+    "Blocking review posted as REQUEST_CHANGES; the cujo/guard check fails. A maintainer lifts it with /cujo dismiss.",
+  dismissed: "The block was lifted. The observation stands.",
   error: "The run ended in error.",
   unproven: "The review posted with no evidence: not one check returned a report.",
   superseded: "Replaced by a newer commit on this PR.",
@@ -200,8 +197,12 @@ const DESCRIPTION: Record<RunStatus, string> = {
  * said so for the whole run would describe a run that does not exist. A
  * finished diff run's sentences are the sandbox's own, since what they say —
  * a review posted, an error — is true of both.
+ *
+ * Exported for the check run (decision 138), which titles itself with the
+ * same sentence so the pull request's checks tab and the Discord card never
+ * describe one status two ways.
  */
-function describe(run: Pick<RunRecord, "status" | "mode">): string {
+export function describe(run: Pick<RunRecord, "status" | "mode">): string {
   if (run.status === "running" && run.mode === "diff") {
     return "Diff review running: reading the diff against the repository's standards.";
   }
@@ -517,11 +518,8 @@ export function buildRunCard(input: CardInput): DiscordMessagePayload {
   const title = runTitle(run);
 
   let description = describe(run);
-  if ((status === "blocked_posted" || status === "denied") && run.approver) {
-    description +=
-      run.approver === "external"
-        ? " Decided outside Cujo."
-        : ` Decided by ${clean(run.approver, 120)}.`;
+  if (status === "dismissed" && run.approver) {
+    description += ` Dismissed by ${clean(run.approver.replace(/^github:/, "@"), 120)}.`;
   }
 
   const prUrl = pullRequestUrl(run);
@@ -591,11 +589,11 @@ export interface PingInput {
 }
 
 /**
- * A Discord edit notifies nobody, so the one moment that needs a human — a run
- * waiting on approval — gets its own message, and its own card (decision 86):
- * a slim embed in the run's colour, sitting directly under the run card in the
+ * A Discord edit notifies nobody, so the one outcome a maintainer must look
+ * at — a block — gets its own message, and its own card (decision 86): a slim
+ * embed in the run's colour, sitting directly under the run card in the
  * channel and carrying only the pull request, the critical count and the fact
- * that a person is blocked. Anything it repeated from the card above it would
+ * that the merge is held. Anything it repeated from the card above it would
  * be noise.
  *
  * `content` stays structural (rule 8): the repo was validated when the channel
@@ -607,16 +605,17 @@ export interface PingInput {
  *
  * A private run has no page (decision 57), so its ping renders with the title
  * unlinked — the same rule the card applies. That is where the answer is
- * anyway: the decision is `/cujo confirm` on the pull request, not a button
- * on a board.
+ * anyway: the unlock is `/cujo dismiss` on the pull request, not a button on
+ * a board.
  *
- * Once the run leaves `blocked_pending` this same message is edited in place:
- * the embed is recoloured to the outcome and the content says resolved, so
- * nobody chases a link to a run that can no longer be decided.
+ * Once the run leaves `blocked` — dismissed, or superseded by a newer commit
+ * — this same message is edited in place: the embed is recoloured to the
+ * outcome and the content says resolved, so nobody chases a link to a block
+ * that is no longer there.
  */
 export function buildPing(input: PingInput): DiscordMessagePayload {
   const { run, projection, links, roleId } = input;
-  const blocked = run.status === "blocked_pending";
+  const blocked = run.status === "blocked";
   // Escaped the same way the embed heading is: a repo name may hold `_`, which
   // Discord reads as emphasis. Not `clean`, and not applied to the whole
   // string, because `escapeMarkdown` also defangs URLs — running it over the
@@ -632,7 +631,7 @@ export function buildPing(input: PingInput): DiscordMessagePayload {
   const mention = blocked && roleId ? `<@&${roleId}> ` : "";
   const content = truncate(
     blocked
-      ? `${mention}Cujo is blocked on ${where} and needs a human.${suffix}`
+      ? `${mention}Cujo blocked ${where}. A maintainer can lift it with /cujo dismiss.${suffix}`
       : `Resolved (${run.status}) — ${where}.${suffix}`,
     LIMITS.content,
   );
@@ -644,9 +643,7 @@ export function buildPing(input: PingInput): DiscordMessagePayload {
       : critical === 1
         ? "1 critical finding."
         : `${critical} critical findings.`;
-  const description = blocked
-    ? `**Blocked — waiting for a human.** ${counted}`
-    : `Resolved — ${describe(run)}`;
+  const description = blocked ? `**Blocked.** ${counted}` : `Resolved — ${describe(run)}`;
 
   const embed = clamp({
     title: runTitle(run),

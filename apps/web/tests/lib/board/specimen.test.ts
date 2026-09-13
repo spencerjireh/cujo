@@ -133,7 +133,7 @@ describe("specimensFrom", () => {
       [
         row({
           id: "a",
-          status: "blocked_pending",
+          status: "blocked",
           digest: digest({
             tests: { status: "done", ms: 1_000, sandboxMs: null },
             detonation: { status: "error", ms: null, sandboxMs: null },
@@ -142,8 +142,8 @@ describe("specimensFrom", () => {
       ],
       10,
     );
-    // Amber lands on exactly one status, the one waiting on a person.
-    expect(spec?.tone).toBe("amber");
+    // Red means the pull request is dangerous, which a block is.
+    expect(spec?.tone).toBe("critical");
     const byName = new Map(spec?.bars.map((bar) => [bar.name, bar]));
     expect(byName.get("detonation")?.tone).toBe("critical");
     // Bone, not a severity: a check that reported is the calm case, and four
@@ -244,7 +244,7 @@ describe("specimensFrom findings", () => {
       [
         row({
           id: "a",
-          status: "blocked_posted",
+          status: "blocked",
           digest: found({ critical: 1, warn: 2, info: 1 }),
         }),
       ],
@@ -334,9 +334,9 @@ describe("specimenSignature", () => {
   });
 
   it("changes when the verdict changes", () => {
-    const pending = one({ id: "a", status: "blocked_pending" });
-    const posted = one({ id: "a", status: "blocked_posted" });
-    expect(specimenSignature(pending)).not.toBe(specimenSignature(posted));
+    const blocked = one({ id: "a", status: "blocked" });
+    const dismissed = one({ id: "a", status: "dismissed" });
+    expect(specimenSignature(blocked)).not.toBe(specimenSignature(dismissed));
   });
 
   /**

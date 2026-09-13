@@ -1,6 +1,7 @@
 import type { SessionEvent, TurnInputItem } from "@cujo/harness-contract";
 import { describe, expect, it, vi } from "vitest";
-import { type Harness, STALE_DENY_REASON, type StreamEvent } from "../../src/clients/harness";
+import type { Harness, StreamEvent } from "../../src/clients/harness";
+import { emptyProjection } from "../../src/review/fold";
 import { ANY_RUN, type RunView, Runner } from "../../src/review/runner.service";
 import type { RunRecord } from "../../src/review/types";
 import { Store } from "../../src/store";
@@ -280,247 +281,62 @@ describe("Runner.start", () => {
     expect(store.runs.getProjection(r.id)?.error).toContain("harness down");
   });
 
-  /**
-   * The session-level wedge: an approval nobody will decide is left pending,
-   * and the harness refuses every later user message until it is answered.
-   */
-  it("clears a stale approval the session was holding, then starts the turn", async () => {
+  it("ends the run in error on the first refused turn, with no heal (decision 138)", async () => {
+    // Nothing is gated, so no session holds an approval to clear; a refused
+    // turn is a refused turn and the run says so once.
     const store = new Store(":memory:");
     const { run: r } = store.runs.createRun(claim());
-    const startTurn = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("422 user message cannot be sent"))
-      .mockResolvedValueOnce("t2");
-    const resume = vi.fn(async () => "t-deny");
-    const cancelTurn = vi.fn(async () => {});
-    const listEvents = vi.fn(async () => [
-      { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:00Z") },
-      { turnId: "t1", event: approvalRequired("c1") },
-      { turnId: "t1", event: turnDone("t1") },
-    ]);
-    const runner = new Runner(
-      store.runs,
-      {
-        startTurn,
-        resume,
-        cancelTurn,
-        listEvents,
-        // A review call, so the healed turn folds `clean`. Without one the
-        // fold calls it "turn ended without a review", which is an error the
-        // retry is right to act on — and this test is about the heal, not that.
-        subscribe: async () => streamOf([reviewCall("c9"), turnDone("t2")]),
-      } as unknown as Harness,
-      { turnTimeoutMs: 10_000 },
-    );
-
-    await runner.start(r, "review it");
-
-    expect(resume).toHaveBeenCalledWith(
-      "s",
-      expect.objectContaining({ toolCallId: "c1" }),
-      "deny",
-      STALE_DENY_REASON,
-    );
-    expect(startTurn).toHaveBeenCalledTimes(2);
-    expect(store.runs.getRun(r.id)?.turnIds).toEqual(["t2"]);
-    runner.stopAll();
-  });
-
-  it("does not retry when the session holds no pending approval", async () => {
-    const store = new Store(":memory:");
-    const { run: r } = store.runs.createRun(claim());
-    const startTurn = vi.fn(async () => {
-      throw new Error("harness down");
-    });
-    const resume = vi.fn();
-    const listEvents = vi.fn(async () => [
-      { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:00Z") },
-      { turnId: "t1", event: turnDone("t1") },
-    ]);
-    const runner = new Runner(store.runs, { startTurn, resume, listEvents } as unknown as Harness, {
-      turnTimeoutMs: 10_000,
-    });
-
-    await runner.start(r, "review it");
-
-    expect(resume).not.toHaveBeenCalled();
-    expect(startTurn).toHaveBeenCalledTimes(1);
-    expect(store.runs.getProjection(r.id)?.error).toContain("harness down");
-  });
-
-  /** The guard that keeps the heal from answering for a human. */
-  it.each(["blocked_pending", "running"] as const)(
-    "refuses to heal while another run on the session is %s",
-    async (status) => {
-      const store = new Store(":memory:");
-      const other = store.runs.createRun(claim("h1")).run;
-      store.runs.updateRun(other.id, { status });
-      const { run: r } = store.runs.createRun(claim("h2"));
-      const startTurn = vi.fn(async () => {
-        throw new Error("422 user message cannot be sent");
-      });
-      const resume = vi.fn();
-      const listEvents = vi.fn();
-      const runner = new Runner(
-        store.runs,
-        { startTurn, resume, listEvents } as unknown as Harness,
-        { turnTimeoutMs: 10_000 },
-      );
-
-      await runner.start(r, "review it");
-
-      expect(listEvents).not.toHaveBeenCalled();
-      expect(resume).not.toHaveBeenCalled();
-      expect(startTurn).toHaveBeenCalledTimes(1);
-      expect(store.runs.getRun(r.id)?.status).toBe("error");
-      expect(store.runs.getRun(other.id)?.status).toBe(status);
-    },
-  );
-
-  /**
-   * `listEvents` is a network round trip. A run that crosses into the waiting
-   * state while it is in flight owns the approval the read just found, so the
-   * guard is re-checked before anything is denied.
-   */
-  it("refuses when a run becomes live while the session is being read", async () => {
-    const store = new Store(":memory:");
-    const other = store.runs.createRun(claim("h1")).run;
-    store.runs.updateRun(other.id, { status: "clean" });
-    const { run: r } = store.runs.createRun(claim("h2"));
     const startTurn = vi.fn(async () => {
       throw new Error("422 user message cannot be sent");
     });
-    const resume = vi.fn();
-    const listEvents = vi.fn(async () => {
-      // The window the second check exists to close.
-      store.runs.updateRun(other.id, { status: "blocked_pending" });
-      return [
-        { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:00Z") },
-        { turnId: "t1", event: approvalRequired("c1") },
-        { turnId: "t1", event: turnDone("t1") },
-      ];
-    });
-    const runner = new Runner(store.runs, { startTurn, resume, listEvents } as unknown as Harness, {
+    const listEvents = vi.fn();
+    const runner = new Runner(store.runs, { startTurn, listEvents } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
-
     await runner.start(r, "review it");
-
-    expect(listEvents).toHaveBeenCalledTimes(1);
-    expect(resume).not.toHaveBeenCalled();
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(listEvents).not.toHaveBeenCalled();
     expect(store.runs.getRun(r.id)?.status).toBe("error");
   });
 });
 
 describe("Runner.supersede", () => {
-  /** Drive a fresh run to blocked_pending on one pending approval. */
-  async function blocked(store: Store, runner: Runner, headSha = "h") {
-    const { run: r } = store.runs.createRun(claim(headSha));
-    await runner.consume(
-      r.id,
-      streamOf([
-        turnCreated("t1", null, "2026-08-27T10:00:01Z"),
-        approvalRequired("c1"),
-        turnDone("t1"),
-      ]),
-    );
-    expect(store.runs.getRun(r.id)?.status).toBe("blocked_pending");
-    return r;
-  }
-
-  it("answers the pending approval before cancelling, and refuses a decision after", async () => {
-    const store = new Store(":memory:");
-    const calls: string[] = [];
-    const resume = vi.fn(async () => {
-      calls.push("resume");
-      return "t-deny";
-    });
-    const cancelTurn = vi.fn(async () => {
-      calls.push("cancel");
-    });
-    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
-      turnTimeoutMs: 10_000,
-    });
-    const r = await blocked(store, runner);
-
-    await runner.supersede(r.id);
-
-    // The deny is what stops the session refusing every later turn; the
-    // cancel only stops the turn the deny starts.
-    expect(calls).toEqual(["resume", "cancel"]);
-    expect(resume).toHaveBeenCalledWith(
-      "s",
-      expect.objectContaining({ threadId: "main", toolCallId: "c1" }),
-      "deny",
-      STALE_DENY_REASON,
-    );
-    // Recorded as Cujo's own, so a replay never reads it as someone else's.
-    expect(store.runs.listCujoTurns(r.id)).toEqual(["t-deny"]);
-    // The run reads as replaced, not as one a human turned down.
-    expect(store.runs.getRun(r.id)).toMatchObject({ status: "superseded", approver: null });
-    expect(store.runs.getProjection(r.id)?.status).toBe("superseded");
-
-    const decision = await runner.approve(r.id, "allow", "a@x");
-    expect(decision.ok).toBe(false);
-    expect(resume).toHaveBeenCalledTimes(1);
-    runner.stopAll();
-  });
-
-  /**
-   * `claimDecision` leaves the run `blocked_pending`, so an operator's resume
-   * can be in flight and invisible to supersede. If it answered the approval
-   * first, this deny fails — and its turn is now reviewing a commit nobody is
-   * looking at, so the cancel still has to happen.
-   */
-  it("cancels anyway when the deny fails, so a decision that beat it cannot post", async () => {
-    const store = new Store(":memory:");
-    const resume = vi.fn(async () => {
-      throw new Error("approval already answered");
-    });
-    const cancelTurn = vi.fn(async () => {});
-    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
-      turnTimeoutMs: 10_000,
-    });
-    const r = await blocked(store, runner);
-
-    await runner.supersede(r.id);
-
-    expect(resume).toHaveBeenCalledTimes(1);
-    expect(cancelTurn).toHaveBeenCalledWith("s");
-    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
-    runner.stopAll();
-  });
-
-  it("cancels once, not twice, when the deny lands", async () => {
-    const store = new Store(":memory:");
-    const resume = vi.fn(async () => "t-deny");
-    const cancelTurn = vi.fn(async () => {});
-    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
-      turnTimeoutMs: 10_000,
-    });
-    const r = await blocked(store, runner);
-
-    await runner.supersede(r.id);
-
-    expect(cancelTurn).toHaveBeenCalledTimes(1);
-    runner.stopAll();
-  });
-
-  it("cancels without a deny when the run was never waiting on a human", async () => {
+  it("cancels a live turn and marks the run superseded", async () => {
     const store = new Store(":memory:");
     const { run: r } = store.runs.createRun(claim());
-    const resume = vi.fn();
     const cancelTurn = vi.fn(async () => {});
-    const runner = new Runner(store.runs, { resume, cancelTurn } as unknown as Harness, {
+    const runner = new Runner(store.runs, { cancelTurn } as unknown as Harness, {
       turnTimeoutMs: 10_000,
     });
     store.runs.updateRun(r.id, { turnIds: ["t1"] });
 
     await runner.supersede(r.id);
 
-    expect(resume).not.toHaveBeenCalled();
     expect(cancelTurn).toHaveBeenCalledWith("s");
     expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+  });
+
+  it("moves a finished run without a cancel, and tells the subscribers (decision 138)", async () => {
+    // A `blocked` run is done; `/cujo review` on its head supersedes it so
+    // the card, the reaction and the check run hear that a newer run owns
+    // the commit. No turn is live, so nothing is cancelled.
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    store.runs.updateRun(r.id, { turnIds: ["t1"], status: "blocked" });
+    const cancelTurn = vi.fn(async () => {});
+    const runner = new Runner(store.runs, { cancelTurn } as unknown as Harness, {
+      turnTimeoutMs: 10_000,
+    });
+    const seen: string[] = [];
+    runner.changes.on(ANY_RUN, (view: RunView | null) => {
+      if (view) seen.push(view.run.status);
+    });
+
+    expect(await runner.supersede(r.id)).toBe(true);
+
+    expect(cancelTurn).not.toHaveBeenCalled();
+    expect(store.runs.getRun(r.id)?.status).toBe("superseded");
+    expect(seen).toEqual(["superseded"]);
   });
 
   it("sends no cancel for a run that has no turn, and survives a failed cancel", async () => {
@@ -578,8 +394,9 @@ describe("Runner.rehydrate", () => {
       turnTimeoutMs: 10_000,
     });
     await runner.rehydrate(store.runs.updateRun(a.id, {}) as RunRecord);
-    expect(store.runs.getRun(a.id)).toMatchObject({ status: "blocked_pending", turnIds: ["t1"] });
-    runner.stopAll();
+    // Only t1 is a's; t2 chains from it but b recorded it. And a held call on
+    // a spec that gates nothing is an error, not a wait (decision 138).
+    expect(store.runs.getRun(a.id)).toMatchObject({ status: "error", turnIds: ["t1"] });
   });
 
   it("fires the watchdog immediately when the run has outlived its budget", async () => {
@@ -602,7 +419,6 @@ describe("Runner.rehydrate", () => {
     await runner.rehydrate(expired);
     expect(store.runs.getRun(r.id)?.status).toBe("error");
     expect(subscribe).not.toHaveBeenCalled();
-    runner.stopAll();
   });
 
   it("passes the remaining budget to follow when the run is still within its window", async () => {
@@ -635,7 +451,6 @@ describe("Runner.rehydrate", () => {
     // Give the watchdog time to fire (300ms remaining + margin).
     await new Promise((r) => setTimeout(r, 500));
     expect(store.runs.getRun(r.id)?.status).toBe("error");
-    runner.stopAll();
   });
 });
 
@@ -1030,68 +845,95 @@ describe("Runner.consume", () => {
   });
 });
 
-describe("Runner.approve", () => {
-  async function blocked() {
+describe("Runner.dismiss", () => {
+  const review = (id: number, commitId: string, state = "CHANGES_REQUESTED") => ({
+    id,
+    commitId,
+    state,
+  });
+
+  function blocked(over: { github?: unknown } = {}) {
     const store = new Store(":memory:");
     const { run: r } = store.runs.createRun(claim());
-    const resume = vi.fn(async () => "t2");
-    const subscribe = vi.fn(async () => streamOf([]));
-    const runner = new Runner(store.runs, { resume, subscribe } as unknown as Harness, {
-      turnTimeoutMs: 10_000,
-    });
-    await runner.consume(
-      r.id,
-      streamOf([
-        turnCreated("t1", null, "2026-08-27T10:00:01Z"),
-        approvalRequired("c1"),
-        turnDone("t1"),
-      ]),
+    store.runs.updateRun(r.id, { turnIds: ["t1"], status: "blocked" });
+    store.runs.putProjection(r.id, { ...emptyProjection(), status: "blocked" });
+    const listBotReviews = vi.fn(async () => [
+      review(11, "h"),
+      review(12, "old"),
+      review(13, "h", "COMMENTED"),
+    ]);
+    const dismissReview = vi.fn(async () => {});
+    const github = "github" in over ? over.github : { listBotReviews, dismissReview };
+    const runner = new Runner(
+      store.runs,
+      {} as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      undefined,
+      github as never,
     );
-    expect(store.runs.getRun(r.id)?.status).toBe("blocked_pending");
-    return { store, runner, resume, subscribe, id: r.id };
+    const seen: string[] = [];
+    runner.changes.on(ANY_RUN, (view: RunView | null) => {
+      if (view) seen.push(view.run.status);
+    });
+    return { store, runner, id: r.id, listBotReviews, dismissReview, seen };
   }
 
-  it("resumes once and rejects a second decision", async () => {
-    const { runner, resume, id } = await blocked();
+  it("dismisses the bot's REQUEST_CHANGES on that head, moves the row, and emits", async () => {
+    const { store, runner, id, dismissReview, seen } = blocked();
+    expect(await runner.dismiss(id, "github:octocat")).toEqual({ ok: true });
+    // Only the blocking review on this commit; an older head's and a plain
+    // comment review are left alone.
+    expect(dismissReview).toHaveBeenCalledTimes(1);
+    expect(dismissReview).toHaveBeenCalledWith(
+      "o/r",
+      1,
+      11,
+      "Dismissed by @octocat with /cujo dismiss.",
+    );
+    expect(store.runs.getRun(id)).toMatchObject({
+      status: "dismissed",
+      approver: "github:octocat",
+    });
+    expect(store.runs.getProjection(id)?.status).toBe("dismissed");
+    expect(seen).toEqual(["dismissed"]);
+  });
+
+  it("dismisses once and rejects a second decision", async () => {
+    const { runner, id, dismissReview } = blocked();
     const [a, b] = await Promise.all([
-      runner.approve(id, "allow", "a@x"),
-      runner.approve(id, "deny", "b@x"),
+      runner.dismiss(id, "github:a"),
+      runner.dismiss(id, "github:b"),
     ]);
     expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
-    expect(resume).toHaveBeenCalledTimes(1);
+    expect([a, b].find((r) => !r.ok)).toMatchObject({ reason: "already_decided" });
+    expect(dismissReview).toHaveBeenCalledTimes(1);
   });
 
-  it("releases the claim when the resume never reaches the harness", async () => {
-    const { store, runner, resume, id } = await blocked();
-    resume.mockRejectedValueOnce(new Error("harness down"));
-    const first = await runner.approve(id, "allow", "a@x");
-    expect(first.ok).toBe(false);
-    expect(store.runs.getRun(id)?.approver).toBeNull();
-    const second = await runner.approve(id, "allow", "a@x");
-    expect(second.ok).toBe(true);
-    runner.stopAll();
+  it("releases the claim when GitHub refuses the write, so the block stands", async () => {
+    const { store, runner, id, dismissReview } = blocked();
+    dismissReview.mockRejectedValueOnce(new Error("403"));
+    const first = await runner.dismiss(id, "github:a");
+    expect(first).toMatchObject({ ok: false, reason: "github_failed" });
+    expect(store.runs.getRun(id)).toMatchObject({ status: "blocked", approver: null });
+    expect((await runner.dismiss(id, "github:a")).ok).toBe(true);
   });
 
-  it("records its own resume turn so the fold does not call it external", async () => {
-    const { store, runner, subscribe, id } = await blocked();
-    const approval: TurnInputItem = {
-      type: "user.tool_approval",
-      threadId: "main",
-      toolCallId: "c1",
-      approval: { status: "allow" },
-    };
-    let recordedBeforeSubscribe: string[] = [];
-    subscribe.mockImplementationOnce(async () => {
-      recordedBeforeSubscribe = store.runs.listCujoTurns(id);
-      return streamOf([turnCreated("t2", "t1", "2026-08-27T10:05:00Z", [approval])]);
-    });
-    expect((await runner.approve(id, "allow", "a@x")).ok).toBe(true);
-    await vi.waitFor(() => expect(recordedBeforeSubscribe).toEqual(["t2"]));
-    await vi.waitFor(() => expect(store.runs.getRun(id)?.turnIds).toEqual(["t1", "t2"]));
-    expect(store.runs.listCujoTurns(id)).toEqual(["t2"]);
-    expect(store.runs.getProjection(id)?.externalResume).toBe(false);
-    expect(store.runs.getRun(id)?.approver).toBe("a@x");
-    runner.stopAll();
+  it("refuses a run that is not blocked, and one that does not exist", async () => {
+    const { store, runner, id } = blocked();
+    store.runs.updateRun(id, { status: "clean" });
+    expect(await runner.dismiss(id, "github:a")).toMatchObject({ reason: "not_blocked" });
+    expect(await runner.dismiss("nope", "github:a")).toMatchObject({ reason: "no_such_run" });
+  });
+
+  it("moves the row even with no GitHub client, and when no review matches", async () => {
+    // The trusted side's record is what the check run, the card and the
+    // reaction read; a review somebody dismissed by hand first is not a
+    // reason to leave the block on the record.
+    const bare = blocked({ github: null });
+    expect(await bare.runner.dismiss(bare.id, "github:a")).toEqual({ ok: true });
+    expect(bare.store.runs.getRun(bare.id)?.status).toBe("dismissed");
+    const none = blocked({ github: { listBotReviews: async () => [], dismissReview: vi.fn() } });
+    expect(await none.runner.dismiss(none.id, "github:a")).toEqual({ ok: true });
   });
 });
 

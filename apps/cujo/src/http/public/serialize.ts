@@ -59,7 +59,6 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "findings",
   "hardRuleHits",
   "review",
-  "gatedReview",
   "error",
   "summary",
   // Handles into the harness and GitHub, published deliberately (decision 57).
@@ -67,7 +66,6 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   // so a session id names a session nobody outside can reach.
   "sessionId",
   "turnIds",
-  "externalResume",
   "deliveryId",
   // What produced the verdict (decision 34's test, applied): a model name and
   // a hex digest of a rubric that is itself in a public repository. Neither
@@ -91,23 +89,12 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
 
 /**
  * Deliberately not read. `approver` and `decidedAt` name a person, which is
- * the one rule this board has always kept: the confirming `/cujo confirm`
- * comment is on the pull request for anyone to read, and Cujo does not become
- * the publisher of somebody's GitHub login on top of that.
- *
- * `approval` and `decision` are the state of a gate no anonymous visitor can
- * touch, and `gatedResponseSeen` is how the fold knows the gate was answered.
- * `isPublic` is the filter itself and says nothing to a caller who only ever
- * sees rows where it is true.
+ * the one rule this board has always kept: the `/cujo dismiss` comment is on
+ * the pull request for anyone to read, and Cujo does not become the publisher
+ * of somebody's GitHub login on top of that. `isPublic` is the filter itself
+ * and says nothing to a caller who only ever sees rows where it is true.
  */
-export const WITHHELD_SOURCE_FIELDS: readonly SourceField[] = [
-  "approver",
-  "decidedAt",
-  "isPublic",
-  "approval",
-  "decision",
-  "gatedResponseSeen",
-];
+export const WITHHELD_SOURCE_FIELDS: readonly SourceField[] = ["approver", "decidedAt", "isPublic"];
 
 /**
  * Exactly the keys `serializePublicRun` emits — every one of them, on every
@@ -134,12 +121,10 @@ export const PUBLIC_RUN_FIELDS = [
   "findings",
   "hard_rule_hits",
   "review",
-  "gated_review",
   "error",
   "summary",
   "session_id",
   "turn_ids",
-  "external_resume",
   "delivery_id",
   "model",
   "rubric_sha256",
@@ -300,12 +285,6 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     findings: projection.findings,
     hard_rule_hits: projection.hardRuleHits,
     review: publicReview(projection.review),
-    // The accusation, published only once it is on the pull request. Before
-    // that this board would be publishing the exact thing the gate exists to
-    // hold back, to an audience with no way to have allowed it. Keyed on
-    // `status`, which is already public, rather than on `gatedResponseSeen`,
-    // which this module deliberately does not read.
-    gated_review: run.status === "blocked_posted" ? publicReview(projection.gatedReview) : null,
     error: projection.error,
     summary: projection.summary,
     // `turnIds` is a key of both `RunRecord` and `Projection`. The run's is the
@@ -313,7 +292,6 @@ export function serializePublicRun(view: { run: RunRecord; projection: Projectio
     // one published, and the projection's stays unread.
     session_id: run.sessionId,
     turn_ids: run.turnIds,
-    external_resume: projection.externalResume,
     delivery_id: run.deliveryId,
     model: run.model,
     rubric_sha256: run.rubricSha256,
