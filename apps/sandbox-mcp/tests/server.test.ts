@@ -12,7 +12,7 @@ import type { AddressInfo } from "node:net";
 import { createLogger } from "@cujo/log";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ExecRequest, Sandbox, SandboxRuntime, SandboxSpec } from "../src/runtime";
 import { SandboxError } from "../src/runtime";
 import { createApp } from "../src/server";
@@ -22,7 +22,11 @@ class FakeRuntime implements SandboxRuntime {
   readonly name = "fake";
   readonly specs: SandboxSpec[] = [];
   readonly execs: ExecRequest[] = [];
+  readonly writes: { path: string; contents: string }[] = [];
   failWith: SandboxError | null = null;
+  /** What the next `exec` answers with; the default is a short, whole output. */
+  nextOutput = { stdout: "out", stderr: "" };
+  writeFails = false;
 
   async create(spec: SandboxSpec): Promise<Sandbox> {
     if (this.failWith) throw this.failWith;
@@ -32,9 +36,12 @@ class FakeRuntime implements SandboxRuntime {
   async exec(id: string, request: ExecRequest) {
     if (id !== "sbx-1") throw new SandboxError("no_such_sandbox", "no such sandbox");
     this.execs.push(request);
-    return { exitCode: 0, stdout: "out", stderr: "", durationMs: 7, timedOut: false };
+    return { exitCode: 0, ...this.nextOutput, durationMs: 7, timedOut: false };
   }
-  async writeFile() {}
+  async writeFile(_id: string, path: string, contents: string) {
+    if (this.writeFails) throw new SandboxError("io_failed", "disk full");
+    this.writes.push({ path, contents });
+  }
   async readFile() {
     return "contents";
   }
@@ -151,6 +158,76 @@ describe("the tools", () => {
     expect(payload(result)).toMatchObject({ ok: true, exit_code: 0, stdout: "out" });
     expect(runtime.execs.at(-1)).toMatchObject({ argv: ["echo", "hi"], cwd: "/work/head" });
     await client.close();
+  });
+
+  describe("bounds each output stream (decision 142)", () => {
+    // 40 KB of numbered lines: over the 32 KB cap, and every line says where
+    // it sits, so the head and the tail can be told apart from the middle.
+    const long = Array.from({ length: 4000 }, (_, i) => `line ${String(i).padStart(5, "0")}`).join(
+      "\n",
+    );
+    const exec = async (client: Awaited<ReturnType<typeof connect>>) =>
+      payload(
+        await client.callTool({
+          name: "sandbox_exec",
+          arguments: { sandbox_id: "sbx-1", argv: ["pytest", "-v"] },
+        }),
+      ) as { stdout: string; stderr: string };
+
+    afterEach(() => {
+      runtime.nextOutput = { stdout: "out", stderr: "" };
+      runtime.writeFails = false;
+      runtime.writes.length = 0;
+    });
+
+    it("keeps a short output whole", async () => {
+      const client = await connect();
+      runtime.nextOutput = { stdout: "x".repeat(32 * 1024), stderr: "" };
+      const result = await exec(client);
+      expect(result.stdout).toHaveLength(32 * 1024);
+      expect(result.stdout).not.toContain("truncated");
+      expect(runtime.writes).toHaveLength(0);
+      await client.close();
+    });
+
+    it("keeps the head and the tail of a long one and writes the whole to the box", async () => {
+      const client = await connect();
+      runtime.nextOutput = { stdout: long, stderr: "" };
+      const result = await exec(client);
+      expect(result.stdout.startsWith("line 00000")).toBe(true);
+      expect(result.stdout.endsWith("line 03999")).toBe(true);
+      expect(result.stdout).not.toContain("line 01000");
+      expect(result.stdout.length).toBeLessThan(33 * 1024);
+      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes[0]?.contents).toBe(long);
+      expect(runtime.writes[0]?.path).toMatch(/^\/tmp\/cujo-state\/exec\/\d+-stdout\.log$/);
+      await client.close();
+    });
+
+    it("names the file and the size in the marker, on the stream that was cut", async () => {
+      const client = await connect();
+      runtime.nextOutput = { stdout: "fine", stderr: long };
+      const result = await exec(client);
+      expect(result.stdout).toBe("fine");
+      const marker = result.stderr.match(
+        /\[cujo: truncated, (\d+) bytes total; sandbox_read_file (\S+) for the rest\]/,
+      );
+      expect(marker?.[1]).toBe(String(Buffer.byteLength(long)));
+      expect(marker?.[2]).toBe(runtime.writes[0]?.path);
+      expect(marker?.[2]).toMatch(/-stderr\.log$/);
+      await client.close();
+    });
+
+    it("still cuts, and says the rest was not kept, when the write fails", async () => {
+      const client = await connect();
+      runtime.nextOutput = { stdout: long, stderr: "" };
+      runtime.writeFails = true;
+      const result = await exec(client);
+      expect(result.stdout).toContain("the rest was not kept");
+      expect(result.stdout).not.toContain("sandbox_read_file");
+      expect(result.stdout).not.toContain("line 01000");
+      await client.close();
+    });
   });
 
   it("refuses an empty argv at the schema, before the runtime", async () => {

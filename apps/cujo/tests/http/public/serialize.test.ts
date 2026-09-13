@@ -65,6 +65,7 @@ const EVERY_PROJECTION_FIELD: Record<keyof Projection, true> = {
   summary: true,
   usage: true,
   setup: true,
+  ledger: true,
 };
 
 /**
@@ -223,6 +224,28 @@ function sentinelView(): { run: RunRecord; projection: Projection } {
     ],
     error: "SENTINEL_error",
     summary: "SENTINEL_summary",
+    ledger: {
+      threads: [
+        {
+          title: "SENTINEL_ledgerThread",
+          attempt: 2,
+          messages: 3,
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 50,
+          cacheWriteTokens: 0,
+          toolResultBytes: 4242,
+        },
+      ],
+      largestToolResults: [
+        {
+          thread: "SENTINEL_ledgerThread",
+          tool: "SENTINEL_ledgerTool",
+          bytes: 4242,
+          isError: false,
+        },
+      ],
+    },
   };
   return { run, projection };
 }
@@ -243,6 +266,43 @@ describe("serializePublicRun", () => {
   it("emits exactly the public field list", () => {
     const body = serializePublicRun(sentinelView());
     expect(Object.keys(body).sort()).toEqual([...PUBLIC_RUN_FIELDS].sort());
+  });
+
+  it("still emits every field for a projection stored before `ledger` existed", () => {
+    const view = sentinelView();
+    const { ledger: _ledger, ...stored } = view.projection;
+    const body = serializePublicRun({ run: view.run, projection: stored as Projection });
+    expect(Object.keys(body).sort()).toEqual([...PUBLIC_RUN_FIELDS].sort());
+    expect(body.ledger).toBeNull();
+  });
+
+  it("publishes the ledger by thread title, shaped field by field (decision 141)", () => {
+    const body = serializePublicRun(sentinelView());
+    expect(body.ledger).toEqual({
+      threads: [
+        {
+          title: "SENTINEL_ledgerThread",
+          attempt: 2,
+          messages: 3,
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 50,
+          cacheWriteTokens: 0,
+          // Null rather than absent when no message reported one: the key is
+          // always there for a reader.
+          reasoningTokens: null,
+          toolResultBytes: 4242,
+        },
+      ],
+      largestToolResults: [
+        {
+          thread: "SENTINEL_ledgerThread",
+          tool: "SENTINEL_ledgerTool",
+          bytes: 4242,
+          isError: false,
+        },
+      ],
+    });
   });
 
   it("lets no withheld value through, however deeply it is nested", () => {
@@ -283,6 +343,8 @@ describe("serializePublicRun", () => {
       "SENTINEL_deliveryId",
       "SENTINEL_model",
       "SENTINEL_rubricSha256",
+      "SENTINEL_ledgerThread",
+      "SENTINEL_ledgerTool",
     ]) {
       expect(json).toContain(kept);
     }

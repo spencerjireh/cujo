@@ -21,6 +21,7 @@ import {
 } from "./review/agent-spec";
 import { PrCommandService } from "./review/commands/pr-command.service";
 import { publicRunId } from "./review/links";
+import { PushDebounce } from "./review/push-debounce";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
 import type { DiffReviewDeps } from "./review/start-run";
 import { startRun } from "./review/start-run";
@@ -144,6 +145,9 @@ async function main(): Promise<void> {
     reactor?.markClaimed(run);
     checks?.markClaimed(run);
   };
+  // A push burst is one run (decision 144): a `synchronize` waits out the
+  // window before its run starts, and a newer push inside it takes the slot.
+  const debounce = new PushDebounce(config.pushDebounceMs);
 
   // `/cujo dismiss` on the pull request is the unlock (decisions 45, 138), so
   // it is composed here with the same GitHub client the reviews read through
@@ -389,6 +393,7 @@ async function main(): Promise<void> {
       provenance,
       isReady: () => harness.ready,
       prCommands,
+      debounce,
       ...(converse ? { converse } : {}),
     },
     ...(interactions ? { interactions } : {}),
@@ -410,6 +415,9 @@ async function main(): Promise<void> {
     log.info("service.stopping", { reason });
     visibility.stop();
     server.close();
+    // A push still waiting out its window starts now: a row that never got a
+    // turn is an error on the next boot, and one that did is followed there.
+    debounce.flush();
     void Promise.all([notifier?.flush(5_000), reactor?.flush(5_000), checks?.flush(5_000)])
       // Nothing here rejects today, but this promise is not awaited and the
       // `.finally` has to run whatever happens: the store close and the exit

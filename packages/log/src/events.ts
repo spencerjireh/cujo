@@ -54,6 +54,7 @@ export const EVENT_NAMES = [
   "harness.mcp.connect.retried",
   // Signature-gated ingress. Every one carries `delivery_id`.
   "webhook.accepted",
+  "webhook.debounced",
   "webhook.ignored",
   "webhook.deferred",
   "webhook.rejected",
@@ -169,6 +170,8 @@ export const EVENT_NAMES = [
   "sandbox.created",
   "sandbox.create.failed",
   "sandbox.exec.failed",
+  "sandbox.exec.clipped",
+  "sandbox.exec.clip_unsaved",
   "sandbox.write.failed",
   "sandbox.read.failed",
   "sandbox.destroy.failed",

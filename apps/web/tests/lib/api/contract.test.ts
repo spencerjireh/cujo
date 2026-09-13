@@ -7,6 +7,7 @@ import type {
   ReviewTool,
   Run,
   RunDigest,
+  RunLedger,
   RunSummary,
   SetupTimings,
   UsageTotals,
@@ -16,6 +17,7 @@ import {
   PUBLIC_DIGEST_CHECK_FIELDS,
   PUBLIC_RUN_FIELDS,
   PUBLIC_SUMMARY_FIELDS,
+  type serializePublicRun,
 } from "../../../../cujo/src/http/public/serialize";
 import type {
   CheckTimings as CujoCheckTimings,
@@ -291,7 +293,7 @@ describe("the public wire shape tracks apps/cujo", () => {
    * and a board of every run is not the place for a token count.
    */
   it("publishes cost and provenance on the detail, never on the list", () => {
-    for (const field of ["usage", "model", "rubric_sha256", "budget_tokens"]) {
+    for (const field of ["usage", "model", "rubric_sha256", "budget_tokens", "ledger"]) {
       expect(PUBLIC_RUN_FIELDS).toContain(field);
       expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
     }
@@ -320,6 +322,36 @@ describe("the public wire shape tracks apps/cujo", () => {
     const timings: CheckTimings = { wallMs: 61_000 };
     const asCujoTimings: CujoCheckTimings = timings;
     expect(asCujoTimings.sandboxMs).toBeUndefined();
+  });
+
+  /**
+   * The ledger, checked against the wire shape the serializer emits rather
+   * than the fold's own type: `reasoningTokens` is optional on the projection
+   * and null on the wire, and the wire is what this app reads.
+   */
+  it("type-checks the ledger as apps/cujo publishes it", () => {
+    type Wire = NonNullable<ReturnType<typeof serializePublicRun>["ledger"]>;
+    const ledger: RunLedger = {
+      threads: [
+        {
+          title: "main",
+          attempt: 1,
+          messages: 12,
+          inputTokens: 9_000,
+          outputTokens: 800,
+          cacheReadTokens: 60_000,
+          cacheWriteTokens: 0,
+          reasoningTokens: null,
+          toolResultBytes: 4_096,
+        },
+      ],
+      largestToolResults: [
+        { thread: "main", tool: "create_sub_agent", bytes: 4_096, isError: false },
+      ],
+    };
+    const asWire: Wire = ledger;
+    const back: RunLedger = asWire;
+    expect(back.threads[0]?.title).toBe("main");
   });
 
   /**
@@ -416,6 +448,7 @@ describe("the public wire shape tracks apps/cujo", () => {
     mode: true,
     budget_tokens: true,
     setup: true,
+    ledger: true,
   };
 
   const SUMMARY_KEYS: Record<keyof RunSummary, true> = {

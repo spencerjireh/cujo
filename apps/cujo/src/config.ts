@@ -118,6 +118,12 @@ export interface Config {
    */
   prChecks: boolean;
   /**
+   * How long a `synchronize` waits before its run starts, so a burst of
+   * pushes is one run on the last head (decision 144). `0` starts every push
+   * at once.
+   */
+  pushDebounceMs: number;
+  /**
    * The GitHub login the App posts as. Configurable so a dev App with a
    * different name still finds its own reviews (idempotency, stale dismissal).
    */
@@ -276,6 +282,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // the pull request answering rather than going quiet without saying why.
     prReactions: env.CUJO_PR_REACTIONS !== "0",
     prChecks: env.CUJO_PR_CHECKS !== "0",
+    pushDebounceMs: count(env.CUJO_PUSH_DEBOUNCE_MS, 60_000, { zeroOk: true }),
     botLogin: env.CUJO_BOT_LOGIN || "cujo-guard[bot]",
     bootstrap: {
       modelProvider:
