@@ -30,6 +30,19 @@ describe("AgentSpecSchema", () => {
     ).toThrow();
   });
 
+  it("takes a token budget, leaves it absent by default, and refuses zero", () => {
+    const config = { iterationLimit: 1, compaction: { enabled: false } };
+    const spec = { model: { name: "p/m" }, instructions: "x" };
+    expect(AgentSpecSchema.parse({ ...spec, config }).config.tokenBudget).toBeUndefined();
+    expect(
+      AgentSpecSchema.parse({ ...spec, config: { ...config, tokenBudget: 400_000 } }).config
+        .tokenBudget,
+    ).toBe(400_000);
+    expect(() =>
+      AgentSpecSchema.parse({ ...spec, config: { ...config, tokenBudget: 0 } }),
+    ).toThrow();
+  });
+
   it("refuses the TrueForge-only config keys", () => {
     expect(() =>
       AgentSpecSchema.parse({
