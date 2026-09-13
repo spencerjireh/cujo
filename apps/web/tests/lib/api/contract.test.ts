@@ -258,6 +258,9 @@ describe("the public wire shape tracks apps/cujo", () => {
     // What the pull request says about itself: already world-readable on
     // GitHub for every repo this plane serves (decision 55).
     "pr_title",
+    // Which review it was: a `clean` that read and a `clean` that ran are
+    // different claims, and a list shows only the status (decision 135).
+    "mode",
   ];
 
   /**
@@ -343,7 +346,7 @@ describe("the public wire shape tracks apps/cujo", () => {
    * and a board of every run is not the place for a token count.
    */
   it("publishes cost and provenance on the detail, never on the list", () => {
-    for (const field of ["usage", "model", "rubric_sha256"]) {
+    for (const field of ["usage", "model", "rubric_sha256", "budget_tokens"]) {
       expect(PUBLIC_RUN_FIELDS).toContain(field);
       expect(PUBLIC_SUMMARY_FIELDS).not.toContain(field);
     }
@@ -467,6 +470,8 @@ describe("the public wire shape tracks apps/cujo", () => {
     usage: true,
     model: true,
     rubric_sha256: true,
+    mode: true,
+    budget_tokens: true,
     setup: true,
   };
 
@@ -479,6 +484,7 @@ describe("the public wire shape tracks apps/cujo", () => {
     created_at: true,
     updated_at: true,
     pr_title: true,
+    mode: true,
     digest: true,
   };
 

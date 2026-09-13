@@ -112,6 +112,12 @@ export const MIGRATIONS: readonly string[] = [
   `DROP INDEX IF EXISTS runs_head;
    CREATE UNIQUE INDEX runs_head ON runs (repo, pr_number, head_sha)
      WHERE status NOT IN ${TERMINAL_STATUSES_SQL};`,
+  // 11, 12 — which review a run is and what its turn was allowed to spend
+  //          (decisions 132, 135). Nullable: a row from before either column
+  //          existed is a sandbox run with no budget, which is what NULL reads
+  //          as in `toRecord`. Two statements, one column each, as above.
+  "ALTER TABLE runs ADD COLUMN mode TEXT",
+  "ALTER TABLE runs ADD COLUMN budget_tokens INTEGER",
 ];
 
 export const SCHEMA = `

@@ -69,6 +69,14 @@ export interface RunView {
 
 export interface RunnerOptions {
   turnTimeoutMs: number;
+  /**
+   * The ceiling for a diff run (Contract 11), which reads and posts and has no
+   * sandbox to wait on; absent means the sandbox ceiling applies to both. Read
+   * through `turnTimeoutFor`, never directly, so every site that names the
+   * window — the watchdog, its log line, the timeout comment, the rehydrate
+   * arithmetic — names the same one.
+   */
+  diffTurnTimeoutMs?: number;
   pollIntervalMs?: number;
   /** Backoff before each resubscribe after a dropped stream. */
   retryDelaysMs?: number[];
@@ -224,11 +232,22 @@ export class Runner {
     return { run, projection };
   }
 
+  /** The watchdog window this run is under: its mode's, off the store. */
+  private turnTimeoutFor(runId: string): number {
+    const mode = this.store.getRun(runId)?.mode;
+    return mode === "diff"
+      ? (this.options.diffTurnTimeoutMs ?? this.options.turnTimeoutMs)
+      : this.options.turnTimeoutMs;
+  }
+
   private refold(runId: string): Projection {
     const s = this.state(runId);
-    const projection = fold(s.events, { cujoResumeTurnIds: s.cujoResumeTurnIds });
-    if (s.superseded) projection.status = "superseded";
     const run = this.store.getRun(runId);
+    const projection = fold(s.events, {
+      cujoResumeTurnIds: s.cujoResumeTurnIds,
+      ...(run ? { mode: run.mode } : {}),
+    });
+    if (s.superseded) projection.status = "superseded";
     const previousStatus = run?.status;
     // The run may have recorded a turn whose turn.created has not arrived yet.
     for (const turnId of run?.turnIds ?? []) {
@@ -424,7 +443,7 @@ export class Runner {
    * (decision 99).
    */
   private fireWatchdog(runId: string): void {
-    this.state(runId).log.error("run.turn.timeout", { timeout_ms: this.options.turnTimeoutMs });
+    this.state(runId).log.error("run.turn.timeout", { timeout_ms: this.turnTimeoutFor(runId) });
     this.state(runId).syntheticTerminal = true;
     this.push(
       runId,
@@ -492,7 +511,7 @@ export class Runner {
       this.announceDeps(runId),
       this.store.getRun(runId) ?? run,
       projection,
-      this.options.turnTimeoutMs,
+      this.turnTimeoutFor(runId),
     );
   }
 
@@ -522,7 +541,7 @@ export class Runner {
         this.foreignTurnIds(run),
       );
       if (events.length === 0) return null;
-      return fold(events, { cujoResumeTurnIds: s.cujoResumeTurnIds });
+      return fold(events, { cujoResumeTurnIds: s.cujoResumeTurnIds, mode: run.mode });
     } catch (error) {
       s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
       return null;
@@ -572,7 +591,7 @@ export class Runner {
     let projection: Projection | null = null;
     let sawTerminal = false;
     let timedOut = false;
-    const timeoutMs = budgetMs ?? this.options.turnTimeoutMs;
+    const timeoutMs = budgetMs ?? this.turnTimeoutFor(runId);
     const deadline = setTimeout(() => {
       timedOut = true;
       this.fireWatchdog(runId);
@@ -822,6 +841,10 @@ export class Runner {
     // by an operator. `fold` flattens that into `error` with the reason in
     // prose, so ask the events rather than matching on that sentence.
     if (lastTurnOutcome(s.events) === "cancelled") return false;
+    // A ceiling the harness enforced is deterministic: the same brief on the
+    // same spec spends the same tokens, so a second attempt buys a second
+    // bill and the same error (decision 132).
+    if (projection.error?.startsWith("token budget exhausted")) return false;
     const run = this.store.getRun(runId);
     const message = s.turnMessage;
     if (!run || !message) return false;
@@ -1293,11 +1316,12 @@ export class Runner {
       const turnStart = [...s.events].reverse().find((e) => e.type === "turn.created")?.createdAt;
       const anchor = turnStart ? new Date(turnStart).getTime() : new Date(run.createdAt).getTime();
       const elapsed = Date.now() - anchor;
-      const remaining = this.options.turnTimeoutMs - elapsed;
+      const timeoutMs = this.turnTimeoutFor(run.id);
+      const remaining = timeoutMs - elapsed;
       if (remaining <= 0) {
         s.log.info("run.rehydrate.expired", {
           elapsed_ms: elapsed,
-          timeout_ms: this.options.turnTimeoutMs,
+          timeout_ms: timeoutMs,
         });
         this.fireWatchdog(run.id);
         return;

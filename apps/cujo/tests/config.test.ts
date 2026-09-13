@@ -149,6 +149,44 @@ describe("loadConfig", () => {
     );
   });
 
+  describe("the diff review's settings", () => {
+    it("defaults to the sandbox review, so an existing deploy changes nothing", () => {
+      expect(loadConfig(base).reviewMode).toBe("sandbox");
+      expect(loadConfig({ ...base, CUJO_REVIEW_MODE: "" }).reviewMode).toBe("sandbox");
+      expect(loadConfig({ ...base, CUJO_REVIEW_MODE: " diff " }).reviewMode).toBe("diff");
+    });
+
+    it("refuses a mode the code does not know, at boot", () => {
+      expect(() => loadConfig({ ...base, CUJO_REVIEW_MODE: "fast" })).toThrow(
+        /CUJO_REVIEW_MODE has "fast"/,
+      );
+    });
+
+    it("reads the diff model, falling back to the review model when unset or empty", () => {
+      expect(loadConfig(base).diffModel).toBe("p/m");
+      expect(loadConfig({ ...base, CUJO_DIFF_MODEL: "" }).diffModel).toBe("p/m");
+      expect(loadConfig({ ...base, CUJO_DIFF_MODEL: "p/flash" }).diffModel).toBe("p/flash");
+    });
+
+    it("defaults the budget, the ceiling and the byte cap, and takes a whole number for each", () => {
+      const defaults = loadConfig(base);
+      expect(defaults.diffBudgetTokens).toBe(400_000);
+      expect(defaults.diffTimeoutMs).toBe(10 * 60 * 1000);
+      expect(defaults.diffBytes).toBe(60_000);
+      const set = loadConfig({
+        ...base,
+        CUJO_DIFF_BUDGET_TOKENS: "50000",
+        CUJO_DIFF_TIMEOUT_MS: "120000",
+        CUJO_DIFF_BYTES: "8000",
+      });
+      expect(set.diffBudgetTokens).toBe(50_000);
+      expect(set.diffTimeoutMs).toBe(120_000);
+      expect(set.diffBytes).toBe(8_000);
+      // Zero is not a budget anybody means; it falls back like every other cap.
+      expect(loadConfig({ ...base, CUJO_DIFF_BUDGET_TOKENS: "0" }).diffBudgetTokens).toBe(400_000);
+    });
+  });
+
   /**
    * Compose passes an unset optional as the empty string rather than omitting
    * it, and `Number("")` is 0 — so a cap read with `??` alone would quietly

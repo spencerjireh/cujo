@@ -15,6 +15,11 @@ export function Checks() {
           sandbox, no shared history, and no sight of any other check&rsquo;s report. Only a JSON
           report comes back.
         </P>
+        <Note>
+          These are the sandbox review&rsquo;s. A diff review (<C>mode: diff</C>) runs none of them:
+          its run page says so in their place, its findings are the model&rsquo;s reading of the
+          diff, and the hard rules below have nothing to fire on.
+        </Note>
         <Table head={["Check", "What it does"]}>
           <Row>
             <Cell head>tests</Cell>

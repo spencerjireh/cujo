@@ -121,6 +121,19 @@ services:
       # One turn, stream retries included. The harness has no timeout of its
       # own; this watchdog is what ends a review that hangs.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}
+      # The review a repository gets when its .cujo.yml names none: `sandbox`
+      # runs the pull request, `diff` reads it on the trusted side and never
+      # provisions a box (decision 135). A manifest change or a Bot author is
+      # always the sandbox, whatever this says.
+      CUJO_REVIEW_MODE: ${CUJO_REVIEW_MODE:-sandbox}
+      # The diff review's own model, budget, ceiling and reading cap (Contract
+      # 11). The model must be in MODEL_PROVIDER_MODELS; unset falls back to
+      # CUJO_MODEL. The budget is billed tokens per run, context re-read
+      # counted per message (decision 132).
+      CUJO_DIFF_MODEL: ${CUJO_DIFF_MODEL:-}
+      CUJO_DIFF_BUDGET_TOKENS: ${CUJO_DIFF_BUDGET_TOKENS:-400000}
+      CUJO_DIFF_TIMEOUT_MS: ${CUJO_DIFF_TIMEOUT_MS:-600000}
+      CUJO_DIFF_BYTES: ${CUJO_DIFF_BYTES:-60000}
       # The model provider, registered on the harness at start (decision 127).
       # The harness holds nothing until this process tells it; there is no
       # console to configure it in.

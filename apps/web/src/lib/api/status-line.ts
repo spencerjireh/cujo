@@ -1,4 +1,4 @@
-import type { RunStatus } from "@/lib/api/types";
+import type { ReviewMode, RunStatus } from "@/lib/api/types";
 
 /**
  * One written sentence per run status.
@@ -28,3 +28,16 @@ export const STATUS_LINE: Record<RunStatus, string> = {
   unproven: "The review posted with no evidence: not one check returned a report.",
   superseded: "Replaced by a newer commit on this PR.",
 };
+
+/**
+ * `STATUS_LINE`, read through the run's mode (decision 135). One sentence
+ * differs: `running` names the four checks, and a diff run starts none of
+ * them. Every finished sentence is true of both reviews, so the record above
+ * stays closed and the manual keeps quoting it.
+ */
+export function statusLine(status: RunStatus, mode: ReviewMode | undefined): string {
+  if (status === "running" && mode === "diff") {
+    return "Diff review running: reading the diff against the repository's standards.";
+  }
+  return STATUS_LINE[status];
+}

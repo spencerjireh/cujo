@@ -26,6 +26,7 @@ import {
   type PendingApproval,
   type Projection,
   type ReviewComment,
+  type ReviewMode,
   type UsageTotals,
 } from "./types";
 
@@ -70,6 +71,14 @@ function publishableAgentFindings(p: Projection): Finding[] {
 export interface FoldOptions {
   /** Turn ids whose resume Cujo itself sent, so they are not "external". */
   cujoResumeTurnIds?: ReadonlySet<string>;
+  /**
+   * Which review these events are (decision 135). The events do not say: a
+   * diff run's stream is a sandbox run's stream with no checks in it, and
+   * "no check reported" is `unproven` for one and the whole design for the
+   * other. Absent means `sandbox`, which is what every stored event stream
+   * from before there were two reviews is.
+   */
+  mode?: ReviewMode;
 }
 
 function emptyUsage(): UsageTotals {
@@ -267,6 +276,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
   const p = emptyProjection();
   const messages = new Map<string, ModelMessageEvent>();
   const cujoResumes = options.cujoResumeTurnIds ?? new Set<string>();
+  const diff = options.mode === "diff";
 
   for (const event of events) {
     switch (event.type) {
@@ -424,13 +434,13 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // Before the status ladder below, which `break`s out of this case in
         // half a dozen places: what the turn cost is true whichever way it
         // ended, and an error turn is exactly the one whose cost is worth
-        // seeing. Only a `done` turn carries metrics at all.
-        if (event.state.status === "done" && event.state.metrics) {
-          addTurnMetrics(p.usage, event.state.metrics);
-        }
+        // seeing — a turn the budget ended most of all (decision 132). Every
+        // finished state carries metrics; a turn from before they did has none.
+        if (event.state.metrics) addTurnMetrics(p.usage, event.state.metrics);
         // The turn is over, so a check that never arrived is missing for good.
+        // A diff run had no checks to wait for: nothing is missing from it.
         p.findings = mergeFindings(
-          [...p.hardRuleHits, ...missingCheckFindings(p.checks)],
+          [...p.hardRuleHits, ...(diff ? [] : missingCheckFindings(p.checks))],
           publishableAgentFindings(p),
         );
         if (p.status === "error") break;
@@ -442,6 +452,35 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         if (event.state.status === "cancelled") {
           p.status = "error";
           p.error = `turn cancelled: ${event.state.reason}`;
+          break;
+        }
+        if (diff) {
+          // The diff review's own ladder (decision 136), shorter than the
+          // sandbox one below because it can reach fewer places: it has no
+          // gate, no hard rule and no check. One tool is permitted. Any other
+          // review tool is the model claiming evidence it does not have, and
+          // the review is already on the pull request by the time this runs,
+          // so the run says so rather than calling it clean. A `critical` on
+          // the advisory is the same claim and lands on the same rung the
+          // sandbox ladder has for it.
+          const other =
+            p.gatedReview?.tool ??
+            (p.review?.tool !== "post_advisory_review" ? p.review?.tool : undefined);
+          if (other) {
+            p.status = "error";
+            p.error = `diff review called ${other}; only post_advisory_review may post`;
+          } else if (p.review && p.findings.some((f) => f.severity === "critical")) {
+            const titles = p.findings.filter((f) => f.severity === "critical").map((f) => f.title);
+            p.status = "error";
+            p.error = `critical finding (${titles.join("; ")}) but the agent posted an advisory review`;
+          } else if (p.review) {
+            // Not `unproven`: a diff run never had evidence to post and says
+            // so on its record's `mode`, which is the field a list reads.
+            p.status = "clean";
+          } else {
+            p.status = "error";
+            p.error = "turn ended without a review";
+          }
           break;
         }
         if (p.approval) {
