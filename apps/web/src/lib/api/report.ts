@@ -110,6 +110,12 @@ interface CommandInfo {
 /** One sensor block, plus whatever identifying fields sat beside it. */
 export interface SensorBlock {
   label: string | null;
+  /** What a detonated specifier resolved to, when the install said (decision 145). */
+  resolved: string | null;
+  /** Set on an entry copied from an earlier run's detonation (decision 145). */
+  cachedAt: string | null;
+  /** That run's id, when it was public; null otherwise. */
+  cachedFromRun: string | null;
   /** Present on per-run blocks; `null` on the envelope roll-up. */
   command: CommandInfo | null;
   egress: EgressEntry[];
@@ -276,6 +282,9 @@ function looksLikeSensorBlock(value: unknown): boolean {
 function toBlock(value: Record<string, unknown>): SensorBlock {
   return {
     label: str(value.dependency) ?? str(value.name) ?? str(value.label),
+    resolved: str(value.resolved),
+    cachedAt: str(value.cached_at),
+    cachedFromRun: str(value.cached_from_run),
     command: commandInfo(value),
     egress: egress(value.egress),
     files_read: filesRead(value.files_read),

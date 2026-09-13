@@ -119,7 +119,7 @@ reader can tell a live rule from a recorded one before opening it.
 109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review) — amended by 138
 110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
 111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
-112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work)
+112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work) — extended by 145
 113. [The sandbox is an interface, reached through MCP and not through the harness](#113-the-sandbox-is-an-interface-reached-through-mcp-and-not-through-the-harness) — refined by 128
 114. [`sandbox-mcp` cannot carry the hardening the other services do](#114-sandbox-mcp-cannot-carry-the-hardening-the-other-services-do)
 115. [`provisioned_ms` replaces the `sandbox.created` event](#115-provisioned_ms-replaces-the-sandboxcreated-event)
@@ -152,6 +152,7 @@ reader can tell a live rule from a recorded one before opening it.
 142. [Exec output is bounded at the tool, and the rest stays in the box](#142-exec-output-is-bounded-at-the-tool-and-the-rest-stays-in-the-box)
 143. [A timeout is an answer, not a failure](#143-a-timeout-is-an-answer-not-a-failure)
 144. [A push burst is one run](#144-a-push-burst-is-one-run)
+145. [A pinned specifier is detonated once per instance per week](#145-a-pinned-specifier-is-detonated-once-per-instance-per-week)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7318,3 +7319,66 @@ client), for a saving the window already gets. **Not claiming the row until
 the window closes**, which would make a redelivery inside the window a
 second run. **Cancelling the pending start on shutdown**, which loses a
 review the next boot could have followed.
+
+## 145. A pinned specifier is detonated once per instance per week
+
+`evil-package` was detonated six times on 2026-09-13, for one specifier, on
+one pull request, each time from a fresh environment behind the proxy — and
+`detonation` is the slowest check by a distance, at 130k to 230k input
+tokens and up to five minutes an attempt. An install is a function of the
+thing installed: the same registry version or the same git commit does the
+same thing on Tuesday as it did on Monday, on this repository as on that
+one. What was not a function of the thing installed was the reviewer.
+
+So an instance keeps one detonation entry per exact specifier for a week.
+**Exact** means the specifier names one immutable thing: `name==X`,
+`name@X`, `module@vX.Y.Z`, `name:X`, or `git+url@<40-hex commit>`. A range, a
+tag, a branch, `latest` or a bare name may resolve to something else
+tomorrow and is never cached. The key is `(source, normalised specifier)`
+and not what the install resolved to: the specifier needs no resolution to
+be exact, and `resolved` is best-effort text read off an installer's output,
+recorded on the entry for the reader and left out of the key on purpose.
+
+The lookup is on the trusted side, before the turn starts, off the manifest
+hunks the pull request read already carries — no new GitHub call, and a
+parser narrow enough to read only the simple line-added cases of five
+ecosystems. A hit rides the brief as `detonation_cached`. Inside the box the
+parent writes that array verbatim to one file and the sub-agent runs
+`sniff.py detonate --cached` for each listed specifier, which records the
+earlier entry through `record_run` marked `cached_from_run`; it installs
+nothing, and a specifier the file lacks exits non-zero with nothing recorded.
+Through `record_run` and not through a model placing an entry in `runs[]`,
+because decision 112 was about exactly that and stands.
+
+The write-back is the selective half. When a `detonation` check finishes,
+`apps/cujo` stores an entry only when the install succeeded under an
+exclusive sensor window, no derived flag tripped, the decoy was not read,
+the specifier is exact, the entry is not itself a copy, and every host the
+install reached is on the sensors' own index list (`KNOWN_INDEX_HOSTS`,
+mirrored on the trusted side and held to it by a test). The last rule is
+what lets the cache be per instance rather than per repository: `known` on
+an egress row is judged against the source repository's `allow_hosts`, and
+an entry that reached a host one repository allowed would otherwise say
+"known" in a repository that did not. An entry that reached only the
+registries says the same thing everywhere.
+
+`run_id` on a cached entry is the producing run's id when that run is
+public and null otherwise (decision 36): a private run's id names a page a
+stranger cannot open, and the brief reaches a stranger's pull request. The
+board marks a copied entry `cached`, with the run id as text.
+
+Accepted: **the blob crosses the model twice** — the parent reads it in the
+brief and writes it to the file — which the ledger (141) will price against
+an install; **a registry-side takedown is unseen for a week**, and a
+compromised version that was clean when detonated stays clean in the cache
+until the TTL; **the rubric reaches new pull requests only** (16), and a
+session on the old rubric detonates as before while the trusted side writes
+the same entry back; **no sweeper** — the TTL is enforced on read and the
+table grows one row per unique pin.
+
+Rejected: **keying on `resolved`**, best-effort text whose absence would
+mean no cache at all; **a per-repository key**, which removes most of the
+hits and is the fallback if the index-host rule proves too strict; **caching
+failed installs**, which are a coverage gap and not a measurement of the
+thing; **a cache the sub-agent queries itself**, which would put a store
+read inside the box.

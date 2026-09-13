@@ -245,13 +245,27 @@ export function SensorReport({
     <div className={index > 0 ? "mt-6 border-t border-line pt-5" : ""}>
       {block.label || total > 1 ? (
         <div className="flex max-w-3xl items-baseline justify-between gap-3">
-          <p className="font-mono text-sm">{block.label ?? "all runs"}</p>
+          <p className="font-mono text-sm">
+            {block.label ?? "all runs"}
+            {/* A copy of an earlier run's entry (decision 145): said so
+                beside the specifier, with the run as text and not a link,
+                since a private run's id is withheld and a public one is
+                a page the reader can find from the id. */}
+            {block.cachedAt ? (
+              <span className="ml-2 rounded-sm border border-line px-1.5 py-px text-xs text-fg-muted">
+                cached{block.cachedFromRun ? ` from run ${block.cachedFromRun}` : ""}
+              </span>
+            ) : null}
+          </p>
           {total > 1 ? (
             <p className="shrink-0 font-mono text-xs text-fg-muted">
               {index + 1} of {total}
             </p>
           ) : null}
         </div>
+      ) : null}
+      {block.resolved && block.resolved !== block.label ? (
+        <p className="font-mono text-xs text-fg-muted">resolved {block.resolved}</p>
       ) : null}
 
       <CommandHeader block={block} check={check} />

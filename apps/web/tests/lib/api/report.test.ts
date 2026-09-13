@@ -52,6 +52,29 @@ describe("parseReport", () => {
     ]);
   });
 
+  it("reads resolved and the cache marks off a detonation entry (decision 145)", () => {
+    const parsed = parseReport({
+      runs: [
+        {
+          dependency: "humanize",
+          resolved: "humanize==4.9.0",
+          cached_from_run: "run-earlier",
+          cached_at: "2026-09-10T00:00:00.000Z",
+          egress: [],
+        },
+        { dependency: "rich>=13", egress: [] },
+      ],
+    });
+    if (parsed.kind !== "sensor") throw new Error("not a sensor report");
+    expect(parsed.blocks[0]).toMatchObject({
+      label: "humanize",
+      resolved: "humanize==4.9.0",
+      cachedFromRun: "run-earlier",
+      cachedAt: "2026-09-10T00:00:00.000Z",
+    });
+    expect(parsed.blocks[1]).toMatchObject({ resolved: null, cachedFromRun: null, cachedAt: null });
+  });
+
   it("keeps a top-level block and its nested runs together", () => {
     const parsed = parseReport({
       egress: [{ host: "a.example" }],
