@@ -143,7 +143,7 @@ describe("LocalRuntime.create", () => {
     // run, and if it allowed more, a row the gateway let through would be
     // `unknown`. Read from the file, because the sandbox side cannot import this.
     const policy = readFileSync(
-      join(import.meta.dirname, "../../../sandbox/cujo_sniff/policy.py"),
+      join(import.meta.dirname, "../../../../sandbox/cujo_sniff/policy.py"),
       "utf8",
     );
     const block = policy.match(/KNOWN_INDEX_HOSTS = frozenset\(\s*\{([^}]*)\}/)?.[1] ?? "";
