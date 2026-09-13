@@ -100,7 +100,7 @@ interface ListedTool {
   inputSchema: { type: "object"; [key: string]: unknown };
 }
 
-function toolDefinitionOf(
+export function toolDefinitionOf(
   serverName: string,
   tool: ListedTool,
   client: Pick<Client, "callTool">,
