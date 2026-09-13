@@ -261,6 +261,37 @@ describe("webhook", () => {
     expect(store.runs.getRun(firstId)).toMatchObject({ status: "error" });
   });
 
+  it("logs, and does not die, when the failure path itself throws", async () => {
+    // The first gated review on the pi harness: the fold threw on a render, so
+    // `Runner.start` rejected, and `runner.fail` re-folded and threw again from
+    // inside `startRun`'s own catch. With nothing after `void startRun(...)`
+    // that was an unhandled rejection, which took the process down and every
+    // other run with it.
+    const github = {
+      alreadyReviewed: vi.fn(async () => false),
+      pullRequest: vi.fn(async () => prOf("h")),
+    } as unknown as GitHubReader;
+    const { app, runner, nextSettled, logged } = build({ github });
+    (runner.start as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("render threw"));
+    (runner.fail as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error("refold threw too");
+    });
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const done = nextSettled();
+      const response = await deliver(app);
+      expect(response.status).toBe(202);
+      await done;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+    expect(rejections).toEqual([]);
+    expect(logged("run.prepare.failed").length).toBeGreaterThanOrEqual(1);
+  });
+
   /**
    * The stamp the public plane reads (decision 34). `private` is optional on the
    * event type so this has to be an explicit `=== false`; the third case is the

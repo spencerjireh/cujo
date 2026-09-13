@@ -576,6 +576,27 @@ describe("hard rules in the fold", () => {
     expect(p.approval).toBeNull();
   });
 
+  it("still folds a review whose arguments the renderer cannot take", () => {
+    // The shape from orders-api #42's first gated review: a coverage entry
+    // with a note and no `check`. The renderer no longer throws on it, and
+    // the fold would keep the model's own body if it ever did again, because
+    // a fold that throws is a run that can never be projected.
+    const args = {
+      ...review,
+      coverage: { ran: [{ note: "ran fine" }], skipped: [{ reason: "no boot" }] },
+      egress: [{ host: "pypi.org", known: true, note: 3 }],
+    };
+    const p = fold([
+      turnCreated("t1"),
+      reviewCall("call-1", "post_gated_review", args),
+      approvalRequired("main", "call-1", "mm-call-1"),
+      turnDone(),
+    ]);
+    expect(p.status).toBe("blocked_pending");
+    expect(p.gatedReview?.body).toBe("What ran");
+    expect(p.gatedReview?.composedBody).toContain("What ran");
+  });
+
   it("keeps the posted advisory and the held accusation in separate slots", () => {
     const p = fold([
       turnCreated("t1"),
