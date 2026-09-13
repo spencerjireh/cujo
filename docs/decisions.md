@@ -6792,6 +6792,14 @@ as `cancelled`. The fold treats every cancel as final and Cujo's retry refuses
 it; an error is the one outcome that lets Cujo start the turn over once. A
 restart mid-review is then one lost attempt, not a lost review.
 
+The same rule binds the way down. The first shutdown handler ended every live
+turn as `client-cancelled` and, with it, marked its held approval superseded:
+the first deploy over a held gate (orders-api #42) then answered the
+operator's confirm with "approval is superseded", and the accusation could
+never post. Shutdown now drops the pi sessions without bookkeeping and leaves
+the rest to the next boot, so a running turn becomes the retryable error above
+and a held approval stays pending for the re-call path (125).
+
 ## 131. A sensed command refuses to open a second window
 
 `sniff.py run` and `sniff.py detonate` each hold the exclusive sensor lock for

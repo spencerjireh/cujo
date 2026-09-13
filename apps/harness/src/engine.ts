@@ -102,6 +102,8 @@ type Listener = (item: StreamItem) => void;
 export class Engine {
   private readonly live = new Map<string, Live>();
   private readonly locks = new Map<string, Promise<unknown>>();
+  /** Set by `close()`: events that arrive while the process is going down are not bookkeeping. */
+  private closing = false;
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly store: Store;
   private readonly models: Models;
@@ -140,8 +142,24 @@ export class Engine {
     }
   }
 
-  async close(): Promise<void> {
-    for (const live of this.live.values()) await this.end(live, "client-cancelled");
+  /**
+   * Shutdown leaves the turns alone. Ending them here would write
+   * `client-cancelled`, which the fold treats as final, and would void every
+   * held approval, which is exactly what the first deploy over a held gate
+   * did: the operator's confirm then met "approval is superseded" and the
+   * accusation could never post. Instead the pi sessions are dropped without
+   * bookkeeping: a running turn is ended as a retryable error at the next
+   * boot (decision 130) and a held approval stays pending for the re-call
+   * path (decision 125).
+   */
+  close(): void {
+    this.closing = true;
+    for (const live of this.live.values()) {
+      live.gate?.resolve(undefined);
+      live.session.dispose();
+      for (const server of live.servers) void server.close().catch(() => undefined);
+    }
+    this.live.clear();
   }
 
   /**
@@ -604,6 +622,7 @@ export class Engine {
   // -- the listener ---------------------------------------------------------
 
   private onEvent(live: Live, event: AgentSessionEvent): void {
+    if (this.closing) return;
     // A held call released by an abort gets pi's "Operation aborted" result.
     // It never ran, and the fold reads a response to the gated call as the
     // review having posted, so that one is not a `tool.response`.
