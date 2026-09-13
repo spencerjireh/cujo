@@ -8,7 +8,7 @@ import { announceEvidenceGaps, announceTimeout } from "./announce";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
 import { validateEvent } from "./event-schema";
 import { isMaliceClaim, isOperationalRule } from "./findings";
-import { fold, lastTurnOutcome } from "./fold";
+import { REVIEW_POST_FAILED, fold, lastTurnOutcome } from "./fold";
 import type { UiLinks } from "./links";
 import { runLogger } from "./start-run";
 import { checkTimings } from "./timings";
@@ -804,9 +804,12 @@ export class Runner {
     // A ceiling the harness enforced is deterministic: the same brief on the
     // same spec spends the same tokens, so a second attempt buys a second
     // bill and the same error (decision 132). A held call is the same shape:
-    // a spec that gates a tool gates it again (decision 138).
+    // a spec that gates a tool gates it again (decision 138). So is a post
+    // GitHub refused: the same head gets the same 422, and the retry would be
+    // a second sandbox for it (decision 140).
     if (projection.error?.startsWith("token budget exhausted")) return false;
     if (projection.error?.startsWith("approval requested")) return false;
+    if (projection.error?.startsWith(REVIEW_POST_FAILED)) return false;
     const run = this.store.getRun(runId);
     const message = s.turnMessage;
     if (!run || !message) return false;
