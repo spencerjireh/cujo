@@ -7,7 +7,7 @@
 import { getInstallationIdForRepo, getInstallationToken } from "@cujo/gh-app-auth";
 import type { AnchoredComment, PullFile } from "./diff";
 
-export type FetchFn = typeof fetch;
+type FetchFn = typeof fetch;
 
 export interface GitHubClientOptions {
   appId: string;
@@ -23,7 +23,7 @@ export interface CreateReviewInput {
   comments: AnchoredComment[];
 }
 
-export interface CreatedReview {
+interface CreatedReview {
   id: number;
   html_url: string;
 }

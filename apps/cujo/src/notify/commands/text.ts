@@ -6,7 +6,7 @@
  */
 
 /** Discord's cap on the content of a message, which a deferred reply is. */
-export const MAX_CONTENT = 2000;
+const MAX_CONTENT = 2000;
 
 /**
  * Discord refuses a message over 2000 characters, and a deferred reply that

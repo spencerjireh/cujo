@@ -122,7 +122,7 @@ export const SCHEMA = `
     session_id TEXT NOT NULL,
     PRIMARY KEY (repo, pr_number)
   );
-  -- Conversation runs in its own TrueForge session, always (decision 47). Its
+  -- Conversation runs in its own harness session, always (decision 47). Its
   -- own table and not a column on \`sessions\`, because that table's primary key
   -- is the pull request: a second session per pull request cannot live in a
   -- row that already holds the review's. A new table rather than a migration —

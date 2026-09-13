@@ -1,7 +1,7 @@
 /**
  * Answering `@cujo-guard` on a pull request (Design 3, decision 47).
  *
- * The load-bearing rule is that **conversation runs in its own TrueForge
+ * The load-bearing rule is that **conversation runs in its own harness
  * session and is never folded into a run.** A second turn on the review's
  * session fails three separate ways: it silently cancels a live review, it is
  * refused with a 422 in exactly the `blocked_pending` state where a maintainer
@@ -26,19 +26,19 @@ import type { AgentSpec } from "@cujo/harness-contract";
 import { type Logger, errorFields } from "@cujo/log";
 import { BOT_LOGIN as DEFAULT_BOT_LOGIN } from "../clients/github";
 import type { Harness, SessionEvent } from "../clients/harness";
+import { parseMention } from "../review/commands/parse";
 import { messageText } from "../review/fold";
-import { parseMention } from "../review/parse-command";
 import type { CheckState, Finding, Projection, RunRecord } from "../review/types";
 import type { RunStore } from "../store";
 import type { ConverseRateLimit } from "./rate-limit";
 
 /** What the reply is posted through, and where the question came from. */
-export type ConverseSurface =
+type ConverseSurface =
   | { kind: "issue" }
   /** A reply inside a review thread, which is a different GitHub endpoint. */
   | { kind: "review_thread"; commentId: number };
 
-export interface ConverseGitHub {
+interface ConverseGitHub {
   permissionFor(
     repo: string,
     login: string,

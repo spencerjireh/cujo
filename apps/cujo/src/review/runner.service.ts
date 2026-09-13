@@ -56,7 +56,7 @@ interface RunState {
   setupReported: boolean;
   /** Hard-rule findings already announced, keyed by `rule:check`. */
   reportedHardRules: Set<string>;
-  /** The TrueForge session for this run, used by `run.setup.completed`. */
+  /** The harness session for this run, used by `run.setup.completed`. */
   sessionId: string | null;
   /** The run's own logger, bound once. */
   log: Logger;
@@ -105,11 +105,7 @@ function durationOf(check: CheckState): { duration_ms?: number } {
  * and the human wording moves to `detail`, so the UI keeps its message and a
  * query can still ask how often a resume failed.
  */
-export type ApproveRefusal =
-  | "no_such_run"
-  | "not_blocked_pending"
-  | "already_decided"
-  | "resume_failed";
+type ApproveRefusal = "no_such_run" | "not_blocked_pending" | "already_decided" | "resume_failed";
 
 export type ApproveResult = { ok: true } | { ok: false; reason: ApproveRefusal; detail: string };
 
@@ -872,7 +868,7 @@ export class Runner {
    * Answer an approval nobody is going to decide, so the session can take
    * another turn. An approval is outstanding on the *session*, not on the turn
    * that requested it: the turn that raised it has already ended, so
-   * cancelling a turn does not answer it, and TrueForge refuses every later
+   * cancelling a turn does not answer it, and the harness refuses every later
    * user message on the thread while one is pending (decision 39).
    *
    * The deny starts a turn of its own, which is cancelled straight after: the
@@ -1130,7 +1126,7 @@ export class Runner {
    * One retry, after clearing an approval left pending on the session. That is
    * the failure that would otherwise make a pull request unreviewable for
    * good, and healing it here catches the cases `supersede` does not (decision
-   * 39). The error text is not inspected: the 422 wording is TrueForge's, not
+   * 39). The error text is not inspected: the 422 wording is the harness's, not
    * ours, and `startTurn` failing at all is rare enough to afford one lookup.
    */
   async start(run: RunRecord, message: string): Promise<void> {
@@ -1344,9 +1340,9 @@ export class Runner {
           t.previousTurnId === lastKnown && !s.subscribedTurnIds.has(t.id) && !foreign.has(t.id),
       );
       if (!next) return;
-      // A turn this process did not start: somebody resumed the run from the
-      // TrueForge console. The projection records that as `external`, and this
-      // is the moment it was noticed.
+      // A turn this process did not start: somebody started one against the
+      // harness API by hand. The projection records that as `external`, and
+      // this is the moment it was noticed.
       s.log.info("run.poll.adopted", { turn_id: next.id, reason: "external_turn" });
       this.adoptTurn(runId, next.id);
       this.stopPolling(runId);

@@ -19,7 +19,7 @@ from typing import Any
 from cujo_sniff.context import Context, state_paths
 from cujo_sniff.policy import SCHEMA_VERSION
 from cujo_sniff.report import merge_reports
-from cujo_sniff.reports import record_run
+from cujo_sniff.run_ledger import record_run
 from cujo_sniff.runner import refuse_nested_window, run_sensed
 from cujo_sniff.scrub import scrub
 

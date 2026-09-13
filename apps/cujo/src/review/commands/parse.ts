@@ -18,7 +18,7 @@
  * an invisible one hands a stranger the gate.
  */
 
-import type { CommandVerb } from "./command-authorization";
+import type { CommandVerb } from "./authorization";
 
 export type CommandParse =
   | { kind: "none" }
@@ -86,7 +86,7 @@ function fenceCloses(line: string, fence: Fence): boolean {
  * `<pre>` runs to its closing tag (§4.6 condition 1) and a block-level tag runs
  * to the next blank line (condition 6).
  */
-export function renderedLines(body: string): string[] {
+function renderedLines(body: string): string[] {
   const out: string[] = [];
   let fence: Fence | null = null;
   let inQuote = false;

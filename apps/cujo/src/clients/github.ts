@@ -96,7 +96,7 @@ export function parseDeclaredGuild(yaml: string): string | null {
  * outage, and left `errorFields` unable to classify it at all. Modelled on
  * `DiscordError`, which already carried its status this way.
  */
-export class GitHubError extends Error {
+class GitHubError extends Error {
   constructor(
     readonly status: number,
     /** The API path, without the token or any query the caller added. */

@@ -267,7 +267,7 @@ export function isOperationalRule(finding: Finding): boolean {
  * `detonation` depends on the PR's manifest diff and is independent of the
  * suite (decision 87).
  */
-export const REQUIRED_CHECKS = ["tests", "probes", "smoke"] as const;
+const REQUIRED_CHECKS = ["tests", "probes", "smoke"] as const;
 
 /**
  * Why a check has no report, in the words that tell an operator what to do

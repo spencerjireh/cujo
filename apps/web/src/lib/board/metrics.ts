@@ -25,7 +25,7 @@ import {
 } from "./tone";
 import type { Tone } from "./tone";
 
-export interface VerdictSlice {
+interface VerdictSlice {
   status: RunStatus;
   tone: Tone;
   count: number;
@@ -54,7 +54,7 @@ export interface ActivityBucket {
   count: number;
 }
 
-export interface DurationSummary {
+interface DurationSummary {
   p50: number | null;
   p95: number | null;
   fastest: number | null;
@@ -63,7 +63,7 @@ export interface DurationSummary {
   measured: number;
 }
 
-export interface FindingsSummary {
+interface FindingsSummary {
   bySeverity: FindingCounts;
   total: number;
   /** Runs that produced at least one finding. */
@@ -165,7 +165,7 @@ const BUCKET_LADDER = [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, 24 * HOUR,
  * breaks the bound: a two-year record would draw a hundred and five buckets
  * against a cap of sixty.
  */
-export function bucketSize(spanMs: number, maxBuckets: number): number {
+function bucketSize(spanMs: number, maxBuckets: number): number {
   const fits = BUCKET_LADDER.find((size) => spanMs / size + 1 <= maxBuckets);
   if (fits) return fits;
   return Math.max(HOUR, Math.ceil(spanMs / Math.max(maxBuckets - 1, 1)));

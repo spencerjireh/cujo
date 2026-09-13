@@ -8,7 +8,7 @@
 
 import type { Severity } from "./types";
 
-export interface EgressEntry {
+interface EgressEntry {
   host: string;
   port?: number;
   bytes?: number;
@@ -22,24 +22,24 @@ export interface EgressEntry {
   errors?: number;
 }
 
-export interface FileReadEntry {
+interface FileReadEntry {
   path: string;
   sensitive?: boolean;
 }
 
-export interface FsChangeEntry {
+interface FsChangeEntry {
   path: string;
   type?: string;
   in_workspace?: boolean;
   sensitive?: boolean;
 }
 
-export interface SubprocessEntry {
+interface SubprocessEntry {
   argv: string[];
   exit?: number;
 }
 
-export interface SecretProbe {
+interface SecretProbe {
   decoy_read?: boolean;
   /**
    * `null` on every report the current sandbox writes: the proxy counts bytes
@@ -51,7 +51,7 @@ export interface SecretProbe {
   decoy_in_egress?: boolean | null;
 }
 
-export interface Derived {
+interface Derived {
   egress_to_unknown_host?: boolean;
   wrote_outside_workspace?: boolean;
   wrote_sensitive?: boolean;
@@ -63,7 +63,7 @@ export interface Derived {
  * for a report written before the block existed, which is "unknown" and not
  * "off" — the UI shows the difference rather than guessing.
  */
-export interface SensorHealth {
+interface SensorHealth {
   armed?: boolean;
   detail?: string;
 }
@@ -73,10 +73,10 @@ export interface SensorHealth {
  * Read as a map rather than four fields so a sensor added there renders here
  * without a change on this side.
  */
-export type Sensors = Record<string, SensorHealth>;
+type Sensors = Record<string, SensorHealth>;
 
 /** Which caps cut this report short. A cut list is not an empty one. */
-export interface Truncated {
+interface Truncated {
   stdout_tail?: boolean;
   stderr_tail?: boolean;
   files_read?: boolean;
@@ -97,7 +97,7 @@ export interface Truncated {
  * The command that a `sniff.py run` executed. Only present on per-run blocks,
  * not on the roll-up which has no single command.
  */
-export interface CommandInfo {
+interface CommandInfo {
   argv: string[];
   exit: number | null;
   duration_s: number | null;

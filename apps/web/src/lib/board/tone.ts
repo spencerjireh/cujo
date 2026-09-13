@@ -194,8 +194,8 @@ export function checksOf(run: RunSummary): Partial<Record<CheckName, DigestCheck
   return run.digest?.checks ?? {};
 }
 
-/** What one segment of a sensor strip, or one ring, says when spoken. */
-export const OUTCOME_SPOKEN: Record<CheckOutcome, string> = {
+/** What one square of a results cell, or one ring, says when spoken. */
+const OUTCOME_SPOKEN: Record<CheckOutcome, string> = {
   done: "reported",
   error: "errored",
   running: "running",

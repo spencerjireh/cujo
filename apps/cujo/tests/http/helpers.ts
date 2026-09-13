@@ -17,7 +17,7 @@ export const HOOK = "cujo-ingress.test";
 export const INTERNAL = "cujo-internal.test";
 
 /** A fake runner that records the store transitions the real one would make. */
-export function fakeRunner(store: Store): Runner {
+function fakeRunner(store: Store): Runner {
   return {
     view: () => null,
     start: vi.fn(async () => {}),

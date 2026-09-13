@@ -62,9 +62,9 @@ export const PUBLIC_SOURCE_FIELDS: readonly SourceField[] = [
   "gatedReview",
   "error",
   "summary",
-  // Handles into TrueForge and GitHub, published deliberately (decision 57).
-  // They authorize nothing: the console they name keeps its own Access
-  // application, which is the thing standing between a reader and a session.
+  // Handles into the harness and GitHub, published deliberately (decision 57).
+  // They authorize nothing: the harness answers only on the compose network,
+  // so a session id names a session nobody outside can reach.
   "sessionId",
   "turnIds",
   "externalResume",
@@ -209,7 +209,7 @@ function publicReview(review: DraftedReview | null) {
 
 /**
  * A check, without its `threadId`. The report is the point of the public board
- * and stays; the thread id is a TrueForge handle, and the rule this module
+ * and stays; the thread id is a harness handle, and the rule this module
  * keeps is that no harness handle is published — the same rule that shapes
  * `toolCallId` out of the review. Withholding one and publishing the other was
  * an inconsistency, not a decision.

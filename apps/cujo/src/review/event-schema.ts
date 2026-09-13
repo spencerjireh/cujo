@@ -35,7 +35,7 @@ const UnreadBase = z
  * (so a `turn.created` missing `turnId` is rejected, not swallowed by a loose
  * catch-all); unknown types go through the base-only schema.
  */
-export const SessionEventSchema = z.any().superRefine((val, ctx) => {
+const SessionEventSchema = z.any().superRefine((val, ctx) => {
   if (typeof val !== "object" || val === null) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "expected an object" });
     return;

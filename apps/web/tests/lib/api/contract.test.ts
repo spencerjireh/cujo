@@ -38,7 +38,7 @@ import type {
 
 /**
  * apps/web mirrors the wire types by hand rather than importing the cujo app,
- * whose module graph reaches node:sqlite and the TrueForge SDK. These checks
+ * whose module graph reaches node:sqlite and the harness contract. These checks
  * are what keeps the copy honest: a literal union that gains a member in
  * apps/cujo, or a field that changes type, fails here rather than at runtime.
  */
