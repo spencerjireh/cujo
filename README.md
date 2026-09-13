@@ -6,16 +6,22 @@
 </p>
 
 <p align="center">
-  Cujo reviews pull requests by running them.<br>
+  A pull request reviewer that reads the diff, and runs the code when reading is not enough.<br>
   <a href="https://cujo.spencerjireh.com">Live board</a> &middot;
   <a href="docs/architecture.md">Architecture</a>
 </p>
 
-It clones a PR into a throwaway sandbox, runs the tests on base and head,
-probes the changed code, boots the app, installs any new dependency in
-isolation, and posts a review that cites what happened. A review that blocks
-the merge does so at once, through a check run nobody can dismiss; a
-maintainer lifts it on the pull request.
+Cujo is a diff reviewer that can execute (decision 133). By default it reads
+the pull request the way a careful colleague would — the diff, the
+repository's own standards files, the previous review's findings — on a cheap
+model with a token budget, and posts one advisory review. When the
+repository asks for it, or when the change insists (a dependency manifest
+changed, a bot opened the pull request), it clones the pull request into a
+throwaway sandbox instead: runs the tests on base and head, probes the
+changed code, boots the app, installs each new dependency in isolation, and
+posts a review that cites what happened. A `critical` blocks the merge at
+once through a check run nobody can dismiss; a maintainer lifts it on the
+pull request.
 
 <p align="center">
   <img alt="The board. Each star is one run, colour is the verdict, rings are checks, dots are findings." src="brand/readme/screenshot-board.jpg" width="800">
@@ -23,46 +29,52 @@ maintainer lifts it on the pull request.
 
 ## Why
 
-A diff shows what changed. It does not show what happens. A reviewer that only
-reads the diff cannot see the test that now fails, the endpoint that now
-errors, or the install-time payload in a new dependency. Cujo runs the PR
-first, somewhere it can do no harm, and tells you what it saw.
+A diff shows what changed. It does not show what happens. Reading settles
+most of a review — the naming, the missing case, the standard the repository
+wrote down and the change ignored — and it settles it for a few cents. It
+cannot settle whether the test that now fails is the test's fault, whether
+the endpoint still answers, or what a new dependency does at install time.
+Those are not opinions, so Cujo does not offer one: it runs the pull request
+somewhere it can do no harm and reports what it measured. A block is a
+measurement, never a reading.
 
 ## How it works
 
-Cujo is a diff reviewer that can execute (decision 133). There are two
-reviews, and a repository picks with `mode:` in its `.cujo.yml`. The **diff**
-review reads the pull request on the trusted side: the service compresses the
-diff, reads the repository's own standards files (`AGENTS.md`, `CLAUDE.md`,
-`CONTRIBUTING.md`, `.github/copilot-instructions.md`) at the base commit, and
-hands both to a cheap model on a session with no sandbox and a token budget.
-It posts one advisory review with findings of at most `warn`, because a block
-needs evidence only execution can give. The **sandbox** review, below, runs
-the pull request. A dependency-manifest change or a Bot-authored pull request
-is always the sandbox, whatever the file says.
+One pipeline, two depths. A repository picks its depth with `mode:` in
+`.cujo.yml` — `diff` or `sandbox` — and the code holds two floors: a
+dependency-manifest change or a Bot-authored pull request is always the
+sandbox, whatever the file says.
 
-1. The Cujo GitHub App receives the `pull_request` webhook. `apps/cujo`
-   verifies the signature, reads the pull request, resolves the mode, and
+1. **Receive.** The Cujo GitHub App gets the `pull_request` webhook.
+   `apps/cujo` verifies the signature, reads the pull request, resolves the
+   mode, writes a `cujo/guard` check run on the commit as *in progress*, and
    starts one agent turn with the PR context: repo, PR number, base and head
-   SHAs, changed files — and, for a diff run, the diff and the standards.
-2. The agent provisions a sandbox, clones both SHAs, seeds a decoy
-   secret, and starts a logging proxy. Then it spawns one subagent per check:
-   `tests` (the suite on base and head), `probes` (agent-written scripts against
-   the changed code), `smoke` (boot the app, hit it), and — when a dependency
-   manifest changed — `detonation` (install each added dependency through
-   `sniff.py` and record the hosts it contacts, the files it touches, and the
-   processes it spawns).
-3. Each subagent returns a JSON report. The agent folds them into findings with
-   a severity: `info`, `warn`, or `critical`. Hard rules force `critical` on a
-   regression, a decoy-secret read, a sensitive write, or unknown egress during
-   an install; the agent cannot downgrade those.
-4. With no `critical` finding, the review posts as a comment from
-   `cujo-guard[bot]`: a summary of what ran plus inline comments. Any
-   `critical` requests changes on Cujo's own authority, and the `cujo/guard`
-   check run on the commit fails, which is what holds the merge under branch
-   protection. Nobody is asked. A maintainer with write access lifts the
-   block with `/cujo dismiss` on the pull request; the author cannot, and a
-   bot account cannot (decision 138).
+   SHAs, changed files.
+2. **Read.** For a diff run the service compresses the diff, reads the
+   repository's standards (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`,
+   `.github/copilot-instructions.md`) at the base commit, and hands both to
+   the agent on a session with no sandbox and a token budget. It posts one
+   advisory review with findings of at most `warn`, because a block needs
+   evidence only execution can give. The run ends here.
+3. **Run.** For a sandbox run the agent provisions a sandbox, clones both
+   SHAs, seeds a decoy secret, and starts a logging proxy. Then it spawns one
+   subagent per check: `tests` (the suite on base and head), `probes`
+   (agent-written scripts against the changed code), `smoke` (boot the app,
+   hit it), and — when a dependency manifest changed — `detonation` (install
+   each added dependency through `sniff.py` and record the hosts it contacts,
+   the files it touches, and the processes it spawns).
+4. **Fold.** Each subagent returns a JSON report. The agent folds them into
+   findings with a severity: `info`, `warn`, or `critical`. Hard rules force
+   `critical` on a regression, a decoy-secret read, a sensitive write, or
+   unknown egress during an install; the agent cannot downgrade those, and
+   `apps/cujo` re-derives them from the reports.
+5. **Post, and block.** With no `critical` finding the review posts as a
+   comment from `cujo-guard[bot]`: a summary of what ran plus inline
+   comments, and the check succeeds. Any `critical` requests changes on
+   Cujo's own authority and the `cujo/guard` check fails, which is what holds
+   the merge under branch protection. Nobody is asked. A maintainer with
+   write access lifts the block with `/cujo dismiss` on the pull request;
+   the author cannot, and a bot account cannot (decision 138).
 
 <p align="center">
   <img alt="A run page. Four checks on one time axis, then the findings, worst first." src="brand/readme/screenshot-run.jpg" width="800">
@@ -98,12 +110,13 @@ around them: `apps/cujo` is the harness's only client, and the board in
    <https://github.com/apps/cujo-guard>. Nothing else needs configuring, and
    the repository stays public because nothing in Cujo holds a clone
    credential.
-2. Open a pull request. Within seconds it wears an eye reaction, which proves
-   delivery, and a few minutes later one review from `cujo-guard[bot]`.
-   Checked on 2026-08-30 with a repository the App had never seen,
-   [cujo-install-check#1](https://github.com/spencerjireh/cujo-install-check/pull/1):
-   reaction after 5 s, a `REQUEST_CHANGES` review for the broken test after
-   1 m 41 s, and the run on the board.
+2. Open a pull request. Within seconds it wears an eye reaction and a
+   `cujo/guard` check in progress, which prove delivery, and a few minutes
+   later one review from `cujo-guard[bot]`. Checked on 2026-09-13 with a
+   planted regression, [orders-api#43](https://github.com/spencerjireh/orders-api/pull/43):
+   the check in progress 5 s after the pull request opened, a
+   `REQUEST_CHANGES` review for the two broken tests at 5 m 10 s, the check
+   failed at 5 m 18 s, and the author's `/cujo dismiss` refused.
 3. Protect the branch if a block should hold: require the `cujo/guard`
    status check on the target branch. A review alone can be dismissed by
    anyone with write access; the check cannot.
