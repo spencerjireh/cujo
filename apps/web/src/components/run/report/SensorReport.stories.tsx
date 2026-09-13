@@ -71,6 +71,29 @@ export const Clean: Story = {
 };
 
 /**
+ * An entry copied from an earlier run's detonation (decision 145): the
+ * specifier wears a `cached` chip naming the run, and the resolution the
+ * earlier install recorded sits beneath it.
+ */
+export const CachedDependency: Story = {
+  args: {
+    block: blockFrom({
+      dependency: "humanize==4.9.0",
+      resolved: "humanize==4.9.0",
+      cached_from_run: "3c0f8954-32a0-4f39-927d-02916890fce5",
+      cached_at: "2026-09-10T00:00:00.000Z",
+      egress: [{ host: "pypi.org", port: 443, bytes: 11_000, known: true }],
+      files_read: [],
+      fs_changes: [{ path: "site-packages/humanize", type: "created", in_workspace: true }],
+      subprocesses: [{ argv: ["pip", "install", "humanize==4.9.0"], exit: 0 }],
+      secret_probe: { decoy_read: false, decoy_in_egress: false },
+      sensors: ALL_WATCHING,
+      derived: { egress_to_unknown_host: false, wrote_sensitive: false },
+    }),
+  },
+};
+
+/**
  * One alarm, four shut tables. The egress bar at the top says what tripped
  * and the egress heading says how many rows there are; the row that proves it
  * is one click down, the same as the tables the alarm is not about.
