@@ -237,20 +237,26 @@ export function parseReview(call: ToolCall): DraftedReview | null {
     egress: Array.isArray(args.egress) ? (args.egress as RenderInput["egress"]) : undefined,
   };
   const reviewTool = tool as DraftedReview["tool"];
-  return {
-    tool: reviewTool,
-    toolCallId: call.id,
-    body,
-    // The same renderer `github-mcp` posts with, so the board cannot describe a
-    // finding differently from the pull request does (decision 74).
-    composedBody: renderReviewBody(input, {
+  // The same renderer `github-mcp` posts with, so the board cannot describe a
+  // finding differently from the pull request does (decision 74). Guarded,
+  // because this runs inside `fold`: a renderer that throws on a shape the
+  // model sent is a run that can never be projected again, and on the first
+  // gated review on the pi harness it was also a process that died mid-turn
+  // and could not rehydrate. The renderer is defensive on its own side too;
+  // this is the belt to that brace, and the fallback is the model's own body.
+  let composedBody = body;
+  let comments: ReviewComment[] = sent;
+  try {
+    composedBody = renderReviewBody(input, {
       tool: reviewTool,
       accusationFollows: args.accusation_follows === true,
       runUrl: null,
-    }),
-    comments: sent.length > 0 ? sent : reviewComments(input),
-    findings,
-  };
+    });
+    if (sent.length === 0) comments = reviewComments(input);
+  } catch {
+    // Fell back to the raw body and the comments the model sent, if any.
+  }
+  return { tool: reviewTool, toolCallId: call.id, body, composedBody, comments, findings };
 }
 
 /**
