@@ -5,7 +5,7 @@
  * before anything is posted; the ones that fail move into the review body.
  */
 
-export type Side = "LEFT" | "RIGHT";
+type Side = "LEFT" | "RIGHT";
 
 export interface DiffLines {
   /** Line numbers that exist in the diff on the base (LEFT) side. */
@@ -40,7 +40,7 @@ export interface AnchoredComment extends ReviewComment {
  * line outside the hunk are different mistakes, and only the first suggests
  * the rubric is pointing it at the wrong thing.
  */
-export type MovedReason = "file_not_in_diff" | "line_not_in_hunk" | "bad_line";
+type MovedReason = "file_not_in_diff" | "line_not_in_hunk" | "bad_line";
 
 export interface MovedComment {
   comment: ReviewComment;

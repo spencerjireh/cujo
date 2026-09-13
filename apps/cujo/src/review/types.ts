@@ -5,8 +5,6 @@
 
 import type { CheckTimings, SetupTimings } from "./timings";
 
-export type { CheckTimings, SetupTimings };
-
 export type RunStatus =
   | "running"
   | "clean"
@@ -178,7 +176,7 @@ export interface Finding {
 }
 
 /** The three review tools (Contract 4). Two of them post REQUEST_CHANGES. */
-export type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
 
 export interface DraftedReview {
   tool: ReviewTool;

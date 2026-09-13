@@ -67,7 +67,7 @@ import type { ChamberPalette } from "./palette";
 import { radialTexture } from "./textures";
 
 /** How much of its colour a specimen keeps while another one is lit. */
-export const DIMMED = 0.45;
+const DIMMED = 0.45;
 
 /**
  * The core, sized against the rings rather than in absolute units, so the
@@ -214,7 +214,7 @@ export interface SpecimenKit {
 }
 
 /** A ring's radius for a check's measured length, 0–1 of the longest. */
-export function ringRadius(length: number): number {
+function ringRadius(length: number): number {
   return RING_MIN + Math.min(1, Math.max(0, length)) * (RING_MAX - RING_MIN);
 }
 

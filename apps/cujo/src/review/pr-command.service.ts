@@ -22,7 +22,7 @@ import { parseCommand } from "./parse-command";
 import type { ApproveResult, Runner } from "./runner.service";
 
 /** The reads and writes this needs, named so the tests can be plain objects. */
-export interface PrCommandGitHub {
+interface PrCommandGitHub {
   pullRequestHead(
     repo: string,
     prNumber: number,
@@ -34,7 +34,7 @@ export interface PrCommandGitHub {
   createComment(repo: string, prNumber: number, body: string): Promise<number>;
 }
 
-export interface PrCommandReactions {
+interface PrCommandReactions {
   addToComment(repo: string, commentId: number, content: Reaction): Promise<void>;
 }
 

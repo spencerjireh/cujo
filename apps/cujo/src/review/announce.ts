@@ -37,7 +37,7 @@ import type { Projection, RunRecord } from "./types";
  * Which comment a run used its one slot on. Stored, so a restart does not post
  * a second copy of the same thing.
  */
-export type AnnouncementKind = "turn_timeout" | "evidence_gap";
+type AnnouncementKind = "turn_timeout" | "evidence_gap";
 
 export interface AnnounceDeps {
   github: Pick<GitHubReader, "createComment">;

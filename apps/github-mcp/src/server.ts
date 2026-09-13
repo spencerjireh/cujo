@@ -37,7 +37,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return text.length === 0 ? undefined : JSON.parse(text);
 }
 
-export function createMcpServer(github: GitHubClient, publicBaseUrl = "", log?: Logger): McpServer {
+function createMcpServer(github: GitHubClient, publicBaseUrl = "", log?: Logger): McpServer {
   const server = new McpServer({ name: "cujo-github-mcp", version: "0.1.0" });
   registerReviewTools(server, github, publicBaseUrl, log);
   return server;

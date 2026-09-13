@@ -34,7 +34,7 @@ const repoOption = {
   autocomplete: true,
 };
 
-export const CUJO_COMMAND = {
+const CUJO_COMMAND = {
   name: "cujo",
   description: "Cujo review notifications for this server",
   // Guild-only: every subcommand acts on a server's channels and roles.
