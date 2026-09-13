@@ -180,7 +180,7 @@ describe("buildTurnMessage", () => {
 describe("buildAgentSpec", () => {
   const config = { model: "p/m" } as Config;
 
-  it("passes the rubric through unchanged and gates the accusation alone", () => {
+  it("passes the rubric through unchanged and gates nothing", () => {
     // Nothing is interpolated any more. The sensor URL was the only placeholder
     // and it went with the tarball (decision 117), so a rubric reaches a session
     // as written — which is also what makes `specFingerprint` a digest of the
@@ -188,14 +188,11 @@ describe("buildAgentSpec", () => {
     const spec = buildAgentSpec(config, "run /opt/cujo/sniff.py twice");
     expect(spec.model).toEqual({ name: "p/m" });
     expect(spec.instructions).toBe("run /opt/cujo/sniff.py twice");
-    // The one line that decides what a human is asked about. `post_blocking_review`
-    // is absent on purpose: blocking a merge on a broken test is mechanical and
-    // reversible, and asking about it is ceremony (decision 42). `sandbox-mcp`
-    // gates nothing, because provisioning a box and running a command in it is
-    // what the review *is* (decision 113) — and it says so with an empty list,
-    // which means what it says (decision 128).
+    // Nothing gated on either server (decision 138): a block posts at once
+    // and a person lifts it on the pull request. Empty lists mean what they
+    // say (decision 128).
     expect(spec.mcpServers).toEqual([
-      { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
+      { name: "github-mcp", requireApprovalForTools: [] },
       { name: "sandbox-mcp", requireApprovalForTools: [] },
     ]);
     expect(spec.config).toEqual({ compaction: { enabled: true }, iterationLimit: 150 });
@@ -292,7 +289,7 @@ describe("buildConverseSpec", () => {
   it("loads its own rubric, not the reviewer's", () => {
     const converse = loadRubric("CONVERSE.md");
     expect(converse).toContain("/opt/cujo/sniff.py");
-    expect(converse).not.toContain("post_gated_review");
+    expect(converse).not.toContain("post_blocking_review");
     // The rule the design turns on: a second user message is untrusted too.
     expect(converse).toContain("untrusted");
     expect(buildConverseSpec(config, converse).instructions).not.toContain(
@@ -416,10 +413,9 @@ describe("buildDiffSpec", () => {
     const rubric = loadRubric("DIFF.md");
     expect(buildDiffSpec(diffConfig).instructions).toBe(rubric);
     expect(rubric).toContain("post_advisory_review");
-    // The two other tools appear only in the sentence that forbids them.
-    for (const forbidden of ["post_blocking_review", "post_gated_review"]) {
-      expect(rubric.match(new RegExp(forbidden, "g"))?.length).toBe(1);
-    }
+    // The other tool appears only in the sentence that forbids it.
+    expect(rubric.match(/post_blocking_review/g)?.length).toBe(1);
+    expect(rubric).not.toContain("post_gated_review");
     expect(rubric).not.toContain("sandbox_create");
     expect(rubric).not.toContain("sniff.py");
   });

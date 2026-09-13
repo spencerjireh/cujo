@@ -1,28 +1,18 @@
 /**
- * The three review tools (docs/spec.md Contract 4). Near enough the same input
- * — the two that can precede an accusation take one flag more, and that is the
- * only asymmetry; two of them post the same REQUEST_CHANGES review, and the
- * only difference between those two is which one `apps/cujo` names in
- * `requireApprovalForTools`. So the
- * server cannot tell them apart by what it does — the name has to be passed to
- * `postReview` rather than derived from the review event — and this file is
- * write-only by design (decision 5), with no access to the check reports, so
- * it cannot tell a tests-fail body from an exfiltration body either. Which
- * review is an accusation is decided in the rubric and re-derived in
- * `apps/cujo`; here it is only a tool name.
+ * The two review tools (docs/spec.md Contract 4): the same input, two review
+ * events. Which one a run calls is decided in the rubric and re-derived in
+ * `apps/cujo` from the check reports; this file is write-only by design
+ * (decision 5), with no access to those reports, so here it is only a tool
+ * name, passed to `postReview` for the log line and the marker. Neither is
+ * gated any more: the merge lock is a check run `apps/cujo` writes, and the
+ * human decision is the unlock (decision 138).
  */
 
 import { type Logger, createLogger, errorFields } from "@cujo/log";
 import { type ReviewTool, renderReviewBody, reviewComments } from "@cujo/review-render";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import {
-  appendConfirmPrompt,
-  appendReviewMarker,
-  appendRunFooter,
-  reviewMarker,
-  runUrl,
-} from "./body";
+import { appendReviewMarker, appendRunFooter, reviewMarker, runUrl } from "./body";
 import { appendMovedComments, validateAnchors } from "./diff";
 import type { ExistingReview, GitHubClient } from "./github";
 
@@ -70,12 +60,6 @@ const reviewInputShape = {
           .optional()
           .describe(
             "One imperative clause naming the action. Required on critical, allowed on warn, never on info. It must follow from an observed signal — never style, architecture, naming, or preference.",
-          ),
-        held: z
-          .boolean()
-          .default(false)
-          .describe(
-            "This is a malice observation whose conclusion a post_gated_review call is holding back. Set it only on the findings marked warn for that reason, on the same call that passes accusation_follows.",
           ),
         path: z.string().optional(),
         line: z.number().int().positive().optional(),
@@ -153,34 +137,8 @@ const reviewInputShape = {
     ),
 };
 
-/**
- * What the two observation tools take on top of the common shape.
- *
- * Only they: `post_gated_review` is registered with the bare
- * `reviewInputShape`, so the flag does not exist there and the prompt cannot be
- * asked for on the call where it would be false. That is the whole guarantee,
- * and it is structural rather than a check somebody has to remember to write.
- *
- * It has to be passed rather than derived, because this server cannot tell an
- * accusation from a broken test (decision 5) and cannot see whether a gated
- * call follows. A model that forgets it leaves the prompt off an observation,
- * which is the same "correct or absent" failure the run footer already accepts.
- */
-const observationInputShape = {
-  ...reviewInputShape,
-  accusation_follows: z
-    .boolean()
-    .default(false)
-    .describe(
-      "True when a post_gated_review call follows this one. Cujo appends the sentence telling the maintainer to reply /cujo confirm or /cujo dismiss; do not write it into body yourself.",
-    ),
-};
-
 const reviewInputSchema = z.object(reviewInputShape);
-const observationInputSchema = z.object(observationInputShape);
 export type ReviewInput = z.infer<typeof reviewInputSchema>;
-/** A review the agent posts on its own authority, which may hold an accusation back. */
-export type ObservationInput = z.infer<typeof observationInputSchema>;
 
 export interface ReviewResult {
   review_id: number;
@@ -196,7 +154,7 @@ export async function postReview(
   github: GitHubClient,
   event: "COMMENT" | "REQUEST_CHANGES",
   tool: ReviewTool,
-  input: ReviewInput | ObservationInput,
+  input: ReviewInput,
   publicBaseUrl = "",
   log: Logger = createLogger({ service: "github-mcp" }),
 ): Promise<ReviewResult> {
@@ -266,10 +224,6 @@ export async function postReview(
     // Two genuinely simultaneous calls can still both post. Closing that needs
     // state neither this server nor GitHub has: `github-mcp` is stateless by
     // design (decision 5) and builds a fresh MCP server per request.
-    // Read by presence and not by tool name: `post_gated_review` registers the
-    // bare shape, so the key does not exist on it at all (decision 60). Hoisted
-    // to a const because the renderer and the maintainer prompt both need it.
-    const accusationFollows = "accusation_follows" in input && input.accusation_follows === true;
     const marker = reviewMarker(tool, input.head_sha, input.run_id);
     const early = await alreadyPosted(marker);
     if (early) return duplicate(early);
@@ -306,7 +260,6 @@ export async function postReview(
     // no comment can vanish when every finding is already in the body.
     const composed = renderReviewBody(input, {
       tool,
-      accusationFollows,
       runUrl: runUrl(publicBaseUrl, input.run_id),
       // Only meaningful when the comments came from the findings: on a legacy
       // call these keys describe the model's own `comments[]`, which the body
@@ -325,22 +278,17 @@ export async function postReview(
       commitId: input.head_sha,
       event,
       // Outward-in: the footer is last, so it sits below the composed body
-      // rather than inside it (decision 36). The maintainer prompt goes
-      // directly above it — both are ours, and a call to action reads better
-      // next to the evidence it points at.
-      // The marker is outside even the footer: a private repository has no run
-      // id, so `appendRunFooter` returns the body unchanged there, and a marker
-      // composed inside it would vanish with it.
+      // rather than inside it (decision 36). The marker is outside even the
+      // footer: a private repository has no run id, so `appendRunFooter`
+      // returns the body unchanged there, and a marker composed inside it
+      // would vanish with it.
       body: appendReviewMarker(
         appendRunFooter(
-          appendConfirmPrompt(
-            // A legacy comment's text lives nowhere but the comment, so one
-            // whose anchor GitHub refused would vanish from the review
-            // altogether. A derived one is already in the composed body and
-            // marked there, which is why this runs on the legacy path only.
-            legacy.length > 0 ? appendMovedComments(composed, moved) : composed,
-            accusationFollows,
-          ),
+          // A legacy comment's text lives nowhere but the comment, so one
+          // whose anchor GitHub refused would vanish from the review
+          // altogether. A derived one is already in the composed body and
+          // marked there, which is why this runs on the legacy path only.
+          legacy.length > 0 ? appendMovedComments(composed, moved) : composed,
           publicBaseUrl,
           input.run_id,
         ),
@@ -388,8 +336,8 @@ export function registerReviewTools(
     {
       title: "Post advisory review",
       description:
-        "Post a COMMENT review on the pull request as cujo-guard[bot]. Use when no finding is critical, or as the observation half of a malice finding — the facts the sensors recorded, marked warn, with the accusation itself held for post_gated_review. Set accusation_follows when it is that observation half. Never approves, so it cannot satisfy branch protection.",
-      inputSchema: observationInputShape,
+        "Post a COMMENT review on the pull request as cujo-guard[bot]. Use when no finding is critical. Never approves, so it cannot satisfy branch protection.",
+      inputSchema: reviewInputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (args) =>
@@ -403,12 +351,10 @@ export function registerReviewTools(
     {
       title: "Post blocking review",
       description:
-        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], which blocks the merge under branch protection. Use when a critical finding says the pull request is broken — a failing test, a contradicted probe, an endpoint that stopped answering. Use it as the observation half too when a run has both a broken thing and a malice finding, so the confirmed defect blocks without waiting on the accusation — set accusation_follows when it is. Posts at once; nobody is asked.",
-      inputSchema: observationInputShape,
-      // Destructive, and no longer gated. It blocks a merge, which is real but
-      // reversible in one click; the gate moved to the claim that is not
-      // (decision 42). The gate is the name in `require_approval_for_tools`,
-      // never this hint, so the two can disagree without surprising anyone.
+        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], which blocks the merge under branch protection. Use when any finding is critical: a failing test, a contradicted probe, an endpoint that stopped answering, a secret read, a write outside the workspace, an install that called an unknown host. Posts at once; nobody is asked, and a maintainer lifts the block with /cujo dismiss on the pull request.",
+      inputSchema: reviewInputShape,
+      // Destructive and not gated: it blocks a merge, which is real and is
+      // reversible by a maintainer in one comment (decision 138).
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
     async (args) =>
@@ -421,25 +367,6 @@ export function registerReviewTools(
           publicBaseUrl,
           log,
         ),
-      ),
-  );
-
-  server.registerTool(
-    "post_gated_review",
-    {
-      title: "Post gated review",
-      description:
-        "Post a REQUEST_CHANGES review on the pull request as cujo-guard[bot], for a critical finding that accuses code of acting against the person running it: reading or leaking a secret, writing outside the workspace, or calling an unknown host. Identical to post_blocking_review except that it pauses and posts nothing until a maintainer confirms it, because an accusation that is wrong harms someone. Post the observation as an advisory review first.",
-      // The bare shape, deliberately: no `accusation_follows` here, so the
-      // maintainer prompt cannot be asked for on the one call where it would
-      // be false. Zod strips a key it does not declare, so a model that sends
-      // it anyway is simply ignored.
-      inputSchema: reviewInputShape,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-    },
-    async (args) =>
-      asToolResult(
-        await postReview(github, "REQUEST_CHANGES", "post_gated_review", args, publicBaseUrl, log),
       ),
   );
 }

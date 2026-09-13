@@ -118,6 +118,10 @@ services:
       # Does Cujo react on the pull requests it reviews (decision 38)? Only an
       # explicit 0 turns it off.
       CUJO_PR_REACTIONS: ${CUJO_PR_REACTIONS:-1}
+      # Does Cujo write the cujo/guard check run on the commits it reviews
+      # (decision 138)? The merge lock. Needs `checks: write` on the App; only
+      # an explicit 0 turns it off.
+      CUJO_PR_CHECKS: ${CUJO_PR_CHECKS:-1}
       # One turn, stream retries included. The harness has no timeout of its
       # own; this watchdog is what ends a review that hangs.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}

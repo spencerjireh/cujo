@@ -131,7 +131,7 @@ describe("DiscordNotifier", () => {
     const { client, notifier, emit } = build({ roleId: "123456789012345678" });
     emit();
     await notifier.flush();
-    emit("blocked_pending");
+    emit("blocked");
     await notifier.flush();
     expect(client.editMessage).toHaveBeenCalledOnce();
     // The card create, then the ping.
@@ -146,14 +146,14 @@ describe("DiscordNotifier", () => {
 
   it("sends only the ping when a restart finds the card written and the ping not", async () => {
     const { store, client, notifier, runId, emit } = build();
-    store.runs.updateRun(runId, { status: "blocked_pending" });
+    store.runs.updateRun(runId, { status: "blocked" });
     store.notifications.putRunDiscordMessage({
       runId,
       channelId: "c1",
       messageId: "m1",
       pingMessageId: null,
       pingResolved: false,
-      lastNotifiedStatus: "blocked_pending",
+      lastNotifiedStatus: "blocked",
     });
     emit();
     await notifier.flush();
@@ -161,11 +161,11 @@ describe("DiscordNotifier", () => {
     expect(client.createMessage).toHaveBeenCalledOnce();
   });
 
-  it("edits the ping once the run leaves blocked_pending", async () => {
+  it("edits the ping once the run leaves blocked", async () => {
     const { client, notifier, emit } = build();
-    emit("blocked_pending");
+    emit("blocked");
     await notifier.flush();
-    emit("blocked_posted");
+    emit("dismissed");
     await notifier.flush();
     // The card edit, then the ping edit.
     expect(client.editMessage).toHaveBeenCalledTimes(2);
@@ -175,7 +175,7 @@ describe("DiscordNotifier", () => {
 
   it("retries resolving the ping until it lands, restart included", async () => {
     const { store, client, notifier, runId, emit } = build();
-    emit("blocked_pending");
+    emit("blocked");
     await notifier.flush();
     // The card write persists the new status before the ping is edited, so a
     // failed ping edit must not look like work already done. The card's own
@@ -183,7 +183,7 @@ describe("DiscordNotifier", () => {
     client.editMessage
       .mockImplementationOnce(async () => ({ id: "m1" }))
       .mockRejectedValueOnce(new Error("discord is down"));
-    emit("blocked_posted");
+    emit("dismissed");
     await notifier.flush();
     expect(store.notifications.getRunDiscordMessage(runId)?.pingResolved).toBe(false);
 
@@ -225,7 +225,7 @@ describe("DiscordNotifier", () => {
       channelName: "elsewhere",
       notifyRoleId: "999999999999999999",
     });
-    emit("blocked_pending");
+    emit("blocked");
     await notifier.flush();
     const ping = client.createMessage.mock.calls[1];
     expect(ping?.[0]).toBe("c1");

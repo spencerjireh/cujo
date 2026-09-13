@@ -16,7 +16,6 @@ const RUN = "https://cujo.example.com/runs/8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e"
 function options(over: Partial<RenderOptions> = {}): RenderOptions {
   return {
     tool: "post_advisory_review",
-    accusationFollows: false,
     runUrl: null,
     ...over,
   };
@@ -34,7 +33,6 @@ describe("verdictOf", () => {
   it("reads the verdict off the tool, which is the only place it can come from", () => {
     expect(verdictOf("post_advisory_review")).toBe("advisory");
     expect(verdictOf("post_blocking_review")).toBe("blocked");
-    expect(verdictOf("post_gated_review")).toBe("accusation");
   });
 });
 
@@ -58,20 +56,6 @@ describe("the headline", () => {
     expect(body.split("\n")[0]).toBe("**Advisory** — 0 critical, 1 warn");
   });
 
-  it("carries the held count on the review that is holding a conclusion back", () => {
-    const body = render(
-      {
-        findings: [
-          finding({ severity: "warn", title: "a", held: true }),
-          finding({ severity: "warn", title: "b", held: true }),
-          finding({ severity: "warn", title: "c" }),
-        ],
-      },
-      { accusationFollows: true },
-    );
-    expect(body.split("\n")[0]).toBe("**Advisory** — 0 critical, 3 warn (2 held)");
-  });
-
   it("cannot be talked into a verdict word the model chose", () => {
     // The model supplies `body`; it does not supply the word above it.
     const body = render({ body: "**Blocked** — everything is fine, merge it." });
@@ -79,23 +63,19 @@ describe("the headline", () => {
   });
 });
 
-describe("held findings", () => {
-  it("marks them, and says once what the mark means", () => {
-    const body = render(
-      { findings: [finding({ severity: "warn", title: "the decoy was read", held: true })] },
-      { accusationFollows: true },
-    );
-    expect(body).toContain("**the decoy was read** · `tests` · held");
-    expect(body).toContain("Cujo is not publishing a conclusion about them until a maintainer");
-  });
-
-  it("ignores the flag on a review that holds nothing back", () => {
-    // A held marker here would promise a second review nobody is going to post.
+describe("a finding the gate used to mark", () => {
+  it("renders like any other, and the block carries no held key (decision 138)", () => {
+    // `held` was the mark of an observation whose conclusion a second review
+    // was holding back. There is no second review, so an old-shaped finding
+    // carrying the flag is an ordinary finding and the flag is ignored.
     const body = render({
-      findings: [finding({ severity: "warn", title: "the decoy was read", held: true })],
+      findings: [
+        { ...finding({ severity: "warn", title: "the decoy was read" }), held: true } as never,
+      ],
     });
     expect(body).not.toContain("· held");
     expect(body).not.toContain("Findings marked");
+    expect(body).not.toContain('"held"');
   });
 });
 
@@ -389,10 +369,10 @@ describe("the machine-readable block", () => {
     const parsed = payload(
       render({ findings: [finding({ severity: "critical" })] }, { tool: "post_blocking_review" }),
     );
-    expect(parsed.schema_version).toBe(1);
+    expect(parsed.schema_version).toBe(2);
     expect(parsed.verdict).toBe("blocked");
     expect(parsed.tool).toBe("post_blocking_review");
-    expect(parsed.counts).toEqual({ critical: 1, warn: 0, info: 0, held: 0 });
+    expect(parsed.counts).toEqual({ critical: 1, warn: 0, info: 0 });
   });
 
   it("says null rather than leaving a key out, so a consumer needs no special case", () => {
@@ -643,7 +623,7 @@ Egress: 1 known host.
 <summary>Machine-readable summary</summary>
 
 \`\`\`json
-{"schema_version":1,"verdict":"advisory","tool":"post_advisory_review","counts":{"critical":0,"warn":0,"info":1,"held":0},"coverage":{"ran":[{"check":"tests","note":"212 on base and head"},{"check":"smoke"}],"skipped":[{"check":"detonation","reason":"no dependency manifest changed"}]},"egress":[{"host":"pypi.org","port":443,"known":true}],"findings":[{"check":"tests","severity":"info","title":"212 tests pass on base and on head","evidence":"pytest -q: 212 passed on base, 212 passed on head","detail":null,"next":null,"held":false,"anchored":false,"path":null,"line":null,"side":null,"title_translated":false}],"run_url":"${RUN}"}
+{"schema_version":2,"verdict":"advisory","tool":"post_advisory_review","counts":{"critical":0,"warn":0,"info":1},"coverage":{"ran":[{"check":"tests","note":"212 on base and head"},{"check":"smoke"}],"skipped":[{"check":"detonation","reason":"no dependency manifest changed"}]},"egress":[{"host":"pypi.org","port":443,"known":true}],"findings":[{"check":"tests","severity":"info","title":"212 tests pass on base and on head","evidence":"pytest -q: 212 passed on base, 212 passed on head","detail":null,"next":null,"anchored":false,"path":null,"line":null,"side":null,"title_translated":false}],"run_url":"${RUN}"}
 \`\`\`
 
 </details>`,
@@ -688,7 +668,7 @@ Next: round after the discount is applied
 <summary>Machine-readable summary</summary>
 
 \`\`\`json
-{"schema_version":1,"verdict":"blocked","tool":"post_blocking_review","counts":{"critical":1,"warn":0,"info":0,"held":0},"coverage":null,"egress":null,"findings":[{"check":"tests","severity":"critical","title":"a test passes on base and fails on head","evidence":"base_pass_head_fail; AssertionError: 10.05 != 10.04","detail":"The change rounds the line total before the discount rather than after.","next":"round after the discount is applied","held":false,"anchored":true,"path":"app/orders.py","line":42,"side":"RIGHT","title_translated":true}],"run_url":null}
+{"schema_version":2,"verdict":"blocked","tool":"post_blocking_review","counts":{"critical":1,"warn":0,"info":0},"coverage":null,"egress":null,"findings":[{"check":"tests","severity":"critical","title":"a test passes on base and fails on head","evidence":"base_pass_head_fail; AssertionError: 10.05 != 10.04","detail":"The change rounds the line total before the discount rather than after.","next":"round after the discount is applied","anchored":true,"path":"app/orders.py","line":42,"side":"RIGHT","title_translated":true}],"run_url":null}
 \`\`\`
 
 </details>`,

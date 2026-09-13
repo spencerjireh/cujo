@@ -66,7 +66,7 @@ may ever reach the sandbox. Treat any change that moves data across this line as
 a design change.
 
 Read `docs/architecture.md` for the components, the crossings table, the
-approval path and the deployment topology. What follows is only what you need
+block and the unlock, and the deployment topology. What follows is only what you need
 before you can read anything else: where code goes, and what governs that.
 
 `apps/cujo` (Hono, `node:sqlite`) is the harness's sole client and the only
@@ -80,7 +80,7 @@ src/
     ingress/        INTERNET. A signature is the only gate. Cannot approve.
     public/         INTERNET, no gate. Read-only, public repos, no operator named.
   review/           a PR becomes a run: start, follow, fold, hard rules
-    commands/       /cujo confirm, dismiss, review from a PR comment: the human gate
+    commands/       /cujo dismiss, review from a PR comment: the unlock
   converse/         @cujo-guard: its own session, no write tool, never Runner
   notify/           Discord cards, pings, /cujo commands, the PR reaction
   clients/          the only outbound IO; imports from nothing else here
@@ -98,11 +98,11 @@ answers on the internal name because this process never receives a published
 one (decision 34); `http/public/serialize.ts` is an allowlist, and adding a
 field to `Projection` or `RunRecord` fails its test until classified.
 
-`apps/harness` is the harness: sessions, turns, the event log, the approval
-gate and the `create_sub_agent` tool over pi, with the eight-operation contract
+`apps/harness` is the harness: sessions, turns, the event log, an approval
+gate no spec names (decision 138) and the `create_sub_agent` tool over pi, with the eight-operation contract
 in `packages/harness-contract` (`apps/harness/README.md` has the file map).
-`apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the MCP server whose one destructive tool is
-the entire human gate; `agent/SKILL.md` is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
+`apps/web` is the UI and holds no secrets and no state; `apps/github-mcp` is the MCP server whose two tools post
+the review, and `apps/cujo` writes the `cujo/guard` check run that holds the merge; `agent/SKILL.md` is the rubric; `sandbox/` is the in-sandbox sensor code, with `sniff.py` as the
 entry point and `cujo_sniff/` as the package behind it. Report shapes live in
 `docs/spec.md` Contract 2.
 

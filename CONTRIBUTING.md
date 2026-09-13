@@ -39,7 +39,7 @@ change:
 approach (and what was rejected when there is a real choice), what changed per
 concern, how it was verified (test counts, manual steps), and what is known to
 be incomplete or deferred. If the change touches the trust boundary, the deploy,
-or the human gate, name the specific contract or decision it follows.
+or the block and the unlock, name the specific contract or decision it follows.
 
 **`refactor`** — say what moved and why, confirm no behavior changed, and cite
 CI or test results that prove it. A refactor that silently changes behavior is a

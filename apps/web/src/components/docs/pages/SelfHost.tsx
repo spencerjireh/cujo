@@ -88,9 +88,11 @@ export function SelfHost() {
         </P>
         <UL>
           <LI>
-            Permissions: Contents read, Metadata read, Pull requests write, Issues read. The last is
-            for event delivery only; GitHub releases <C>issue_comment</C> on it and on nothing else,
-            and the settings page will not offer the event until the permission is set.
+            Permissions: Contents read, Metadata read, Pull requests write, Checks write, Issues
+            read. Checks write is the <C>cujo/guard</C> check run, the merge lock; every
+            installation approves it once. Issues read is for event delivery only; GitHub releases{" "}
+            <C>issue_comment</C> on it and on nothing else, and the settings page will not offer the
+            event until the permission is set.
           </LI>
           <LI>
             Events: <C>pull_request</C>, <C>issue_comment</C>, <C>pull_request_review_comment</C>,{" "}

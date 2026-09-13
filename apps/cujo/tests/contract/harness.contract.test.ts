@@ -61,7 +61,7 @@ const outputText = (events: StreamEvent[]) => {
 const spec = () => ({
   model: { name: MODEL, params: { reasoningEffort: "low" as const } },
   instructions: "Do what the user message says.",
-  mcpServers: [{ name: "github-mcp", requireApprovalForTools: ["post_gated_review"] }],
+  mcpServers: [{ name: "github-mcp", requireApprovalForTools: [] }],
   config: { iterationLimit: 20, compaction: { enabled: false } },
 });
 
@@ -97,9 +97,6 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
   });
 
   afterAll(async () => {
-    // A failed assertion can leave a blocked run polling; stop it before the
-    // stub goes away so nothing keeps calling the shared session.
-    runner?.stopAll();
     await stub?.close();
   });
 
@@ -117,7 +114,7 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
     await expect(harness.bootstrap()).resolves.toEqual(applied);
   });
 
-  it("creates a session from an inline agent spec that gates the accusation", async () => {
+  it("creates a session from an inline agent spec that gates nothing", async () => {
     sessionId = await harness.createSession(spec());
     expect(sessionId).toMatch(/\S+/);
     // An unknown model is refused at creation, not at the first turn.
@@ -210,15 +207,10 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
   it("the model sees the MCP tools by name, plus create_sub_agent", () => {
     const names = stub.requests.at(-1)?.tools?.map((t) => t.function.name) ?? [];
     expect(names).toEqual(
-      expect.arrayContaining([
-        "post_advisory_review",
-        "post_blocking_review",
-        "post_gated_review",
-        "create_sub_agent",
-      ]),
+      expect.arrayContaining(["post_advisory_review", "post_blocking_review", "create_sub_agent"]),
     );
     expect(names.some((n) => n === "call_tool" || n === "list_tools")).toBe(false);
-    runner = new Runner(store.runs, harness, { turnTimeoutMs: 60_000, pollIntervalMs: 1_000 });
+    runner = new Runner(store.runs, harness, { turnTimeoutMs: 60_000 });
   });
   const active = (): Runner => {
     if (!runner) throw new Error("runner not built");
@@ -240,70 +232,15 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
     expect(projection?.summary).toBe("posted");
   });
 
-  it("a gated review pauses for approval; Cujo's allow posts it", async () => {
+  it("a blocking review folds to blocked with nobody asked (decision 138)", async () => {
     const run = runFor("h-blk");
-    await active().start(run, reviewMessage("post_gated_review"));
-    expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
-    const projection = store.runs.getProjection(run.id);
-    expect(projection?.gatedReview?.tool).toBe("post_gated_review");
-    expect(projection?.approval?.threadId).toBe("main");
-
-    const decision = await active().approve(run.id, "allow", "op@example.com");
-    expect(decision).toEqual({ ok: true });
-    await settled(run.id, ["blocked_posted"]);
-    expect(store.runs.getRun(run.id)).toMatchObject({ approver: "op@example.com" });
-    expect(store.runs.getProjection(run.id)?.externalResume).toBe(false);
-    expect(store.runs.getRun(run.id)?.turnIds).toHaveLength(2);
-  });
-
-  it("a denied accusation folds to denied, and the reason reaches the model", async () => {
-    const run = runFor("h-deny");
-    await active().start(run, reviewMessage("post_gated_review"));
-    expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
-    expect((await active().approve(run.id, "deny", "op@example.com")).ok).toBe(true);
-    await settled(run.id, ["denied"]);
-    // The refusal is the tool result the model read before ending its turn.
-    const results = (stub.requests.at(-1)?.messages ?? []).filter((m) => m.role === "tool");
-    expect(results.at(-1)?.content).toContain("Rejected by a Cujo operator");
-  });
-
-  it("an advisory in the same message as the gated call posts before the pause", async () => {
-    const run = runFor("h-both");
-    const both = `CALLS ${JSON.stringify([
-      { name: "post_advisory_review", args: JSON.parse(REVIEW_ARGS) },
-      { name: "post_gated_review", args: JSON.parse(REVIEW_ARGS) },
-    ])}`;
-    await active().start(run, both);
-    expect(store.runs.getRun(run.id)?.status).toBe("blocked_pending");
-    const types = (await harness.listEvents(sessionId))
-      .filter((i) => i.turnId === store.runs.getRun(run.id)?.turnIds[0])
-      .map((i) => i.event.type);
-    expect(types.indexOf("tool.response")).toBeGreaterThan(-1);
-    expect(types.indexOf("tool.response")).toBeLessThan(types.indexOf("tool.approval_required"));
-    expect((await active().approve(run.id, "deny", "op@example.com")).ok).toBe(true);
-    await settled(run.id, ["denied"]);
-  });
-
-  /**
-   * Decision 39's regression, kept: a newer head arrives while a human is
-   * still being asked about the old one. Under this harness the new turn
-   * voids the pending approval by itself (decision 125); the runner's stale
-   * deny is still sent first, and either way the next turn starts.
-   */
-  it("a superseded accusation leaves the session able to take the next head's turn", async () => {
-    const stale = runFor("h-stale");
-    await active().start(stale, reviewMessage("post_gated_review"));
-    expect(store.runs.getRun(stale.id)?.status).toBe("blocked_pending");
-
-    await active().supersede(stale.id);
-    expect(store.runs.getRun(stale.id)?.status).toBe("superseded");
-    // Nobody decided it, so it must not read as a run someone turned down.
-    expect(store.runs.getRun(stale.id)?.approver).toBeNull();
-
-    const next = runFor("h-next");
-    await active().start(next, reviewMessage("post_advisory_review"));
-    expect(store.runs.getProjection(next.id)?.error).toBeNull();
-    expect(store.runs.getRun(next.id)?.status).toBe("unproven");
+    await active().start(run, reviewMessage("post_blocking_review"));
+    expect(store.runs.getRun(run.id)?.status).toBe("blocked");
+    expect(store.runs.getProjection(run.id)?.review?.tool).toBe("post_blocking_review");
+    expect(store.runs.getRun(run.id)?.turnIds).toHaveLength(1);
+    // A newer head supersedes it in the store alone: nothing is live to cancel.
+    expect(await active().supersede(run.id)).toBe(true);
+    expect(store.runs.getRun(run.id)?.status).toBe("superseded");
   });
 
   it("a sub-agent's name is the thread title, its report is durable before the parent ends, and it trips a hard rule", async () => {
@@ -342,19 +279,6 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
       .filter((i) => i.turnId === turnId)
       .map((i) => i.event.type);
     expect(types.indexOf("thread.done")).toBeLessThan(types.lastIndexOf("turn.done"));
-  });
-
-  it("a resume sent outside Cujo is picked up by the poll and marked external", async () => {
-    const run = runFor("h-ext");
-    await active().start(run, reviewMessage("post_gated_review"));
-    const approval = store.runs.getProjection(run.id)?.approval;
-    expect(approval).not.toBeNull();
-    if (!approval) return;
-    await harness.resume(sessionId, approval, "allow");
-    await settled(run.id, ["blocked_posted"]);
-    expect(store.runs.getRun(run.id)?.approver).toBe("external");
-    expect(store.runs.getProjection(run.id)?.externalResume).toBe(true);
-    active().stopAll();
   });
 
   it("listEvents returns every event past a hundred", async () => {

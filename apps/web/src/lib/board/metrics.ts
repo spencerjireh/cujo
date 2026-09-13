@@ -81,7 +81,8 @@ interface FindingsSummary {
 export interface BoardMetrics {
   total: number;
   live: number;
-  awaitingApproval: number;
+  /** Runs holding a merge: the one status a maintainer has to look at. */
+  blocked: number;
   /** Runs whose digest is missing entirely, so nothing below counts them. */
   unmeasured: number;
   repos: number;
@@ -258,7 +259,7 @@ export function boardMetrics(runs: RunSummary[]): BoardMetrics {
   return {
     total: runs.length,
     live: runs.filter((run) => isLive(run.status)).length,
-    awaitingApproval: runs.filter((run) => run.status === "blocked_pending").length,
+    blocked: runs.filter((run) => run.status === "blocked").length,
     unmeasured: runs.filter((run) => !run.digest).length,
     repos: new Set(runs.map((run) => run.repo)).size,
     // A new head on the same pull request is a new run, so this is smaller

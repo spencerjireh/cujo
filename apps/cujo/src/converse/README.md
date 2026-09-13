@@ -22,7 +22,7 @@ turn that errors or times out still answers the person — a reply tool cannot
 apologise for its own absence.
 
 **Repo write is required.** A sandbox is not free speech. The check is the same
-one `/cujo confirm` uses and the refusal says what a reader can still do, since
+one `/cujo dismiss` uses and the refusal says what a reader can still do, since
 every finding is public either way.
 
 The message a person wrote is untrusted data, and `agent/CONVERSE.md` says so in

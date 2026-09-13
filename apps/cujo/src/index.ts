@@ -2,12 +2,14 @@ import { type Logger, createLogger, errorFields } from "@cujo/log";
 import { serve } from "@hono/node-server";
 import { DiscordClient } from "./clients/discord";
 import { GitHubReader } from "./clients/github";
+import { GitHubChecks } from "./clients/github-checks";
 import { GitHubReactions } from "./clients/github-reactions";
 import { Harness } from "./clients/harness";
 import { loadConfig } from "./config";
 import { ConverseService } from "./converse/converse.service";
 import { ConverseRateLimit } from "./converse/rate-limit";
 import { createApp } from "./http/router";
+import { PrChecks } from "./notify/checks.service";
 import { COMMANDS } from "./notify/commands/definitions";
 import { DiscordNotifier } from "./notify/notifier.service";
 import { PrReactor } from "./notify/reactions.service";
@@ -120,11 +122,34 @@ async function main(): Promise<void> {
     log.warn("service.started", { reason: "pr_reactions_off" });
   }
 
-  // Design 2. `/cujo confirm` on the pull request is the human gate, so it is
-  // composed here with the same GitHub client the reviews read through and the
-  // same runner the operator route resumes. It reuses the reactor's write
-  // client for the acknowledgement, and goes without one when reactions are
-  // off — the reply is the answer, and the reaction is decoration.
+  // Decision 138. The commit wears the run's status as a check run, which is
+  // the merge lock. Subscribed like the reactor, before the rehydrate loop.
+  const checks = config.prChecks
+    ? new PrChecks({
+        log,
+        checks: new GitHubChecks(config.githubAppId, config.githubAppPrivateKey, fetch),
+        links,
+        runs: store.runs,
+      })
+    : null;
+  if (checks) {
+    runner.changes.on(ANY_RUN, (view: RunView | null) => checks.onRunChanged(view));
+  } else {
+    log.warn("service.started", { reason: "pr_checks_off" });
+  }
+  // What a claimed run tells the pull request before any turn exists: the eye
+  // and the in-progress check, both from the moment the head is known to be
+  // the one worth starting.
+  const onClaimed = (run: RunRecord): void => {
+    reactor?.markClaimed(run);
+    checks?.markClaimed(run);
+  };
+
+  // `/cujo dismiss` on the pull request is the unlock (decisions 45, 138), so
+  // it is composed here with the same GitHub client the reviews read through
+  // and the same runner that writes every status. It reuses the reactor's
+  // write client for the acknowledgement, and goes without one when reactions
+  // are off — the reply is the answer, and the reaction is decoration.
   // What every path that claims a run stamps on it. Read from the spec rather
   // than from `config`, so the digest is of the string a session would actually
   // be handed, tarball URL substituted and all.
@@ -144,11 +169,10 @@ async function main(): Promise<void> {
   };
 
   /**
-   * The two statuses that mean a run still owns a live turn on its session.
+   * The one status that means a run still owns a live turn on its session.
    * `Runner.isTerminal` says the same thing and is private to it.
    */
-  const inFlight = (status: RunRecord["status"]) =>
-    status === "running" || status === "blocked_pending";
+  const inFlight = (status: RunRecord["status"]) => status === "running";
 
   /**
    * `/cujo review` (decision 63): claim the current head and start a turn on it.
@@ -194,28 +218,25 @@ async function main(): Promise<void> {
     // head and what this path was missing.
     const existing = store.runs.runForPrHead(input.repo, input.prNumber, input.headSha);
     if (existing) {
-      if (inFlight(existing.status)) {
-        // The answer matters, and a resolved promise is not it. `supersede`
-        // swallows a failed `cancelTurn` — the harness being unreachable is not
-        // worth failing a supersession over — so it reports whether the turn is
-        // *confirmed* stopped. It also declines to cancel when a human's
-        // decision is landing on that run, because cancelling would kill the
-        // turn that decision started. Either way, deleting the row while a turn
-        // may still be alive is the one thing this must not do.
-        const stopped = await runner.supersede(existing.id);
-        if (!stopped) {
-          return {
-            ok: false,
-            detail:
-              "I could not confirm the current run for this commit has stopped, so I have left it alone. Try again shortly.",
-          };
-        }
+      // The answer matters, and a resolved promise is not it. `supersede`
+      // swallows a failed `cancelTurn` — the harness being unreachable is not
+      // worth failing a supersession over — so it reports whether the turn is
+      // *confirmed* stopped. Deleting the row while a turn may still be alive
+      // is the one thing this must not do. A finished run takes the same
+      // path: `supersede` moves its row and emits, so its ping and its check
+      // run hear that a newer run owns this commit (decision 138).
+      const stopped = await runner.supersede(existing.id);
+      if (!stopped && inFlight(existing.status)) {
+        return {
+          ok: false,
+          detail:
+            "I could not confirm the current run for this commit has stopped, so I have left it alone. Try again shortly.",
+        };
       }
       // Supersede rather than delete (decision 104): the old run's posted
       // review stays on the PR with an evidence footer that still resolves.
       // The partial unique index on runs_head excludes terminal statuses,
       // so the superseded row does not block the replacement's insert.
-      store.runs.updateRun(existing.id, { status: "superseded" });
     }
     const { run, created } = store.runs.createRun({
       repo: input.repo,
@@ -249,7 +270,7 @@ async function main(): Promise<void> {
         diff,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
-        ...(reactor ? { onClaimed: (r: RunRecord) => reactor.markClaimed(r) } : {}),
+        onClaimed,
       },
       run,
       { force: true },
@@ -363,7 +384,7 @@ async function main(): Promise<void> {
       // reading the pull request to open. `github-mcp` turns the id into a
       // link, so no hostname passes through the agent (decision 36).
       reviewRunId: (run: RunRecord) => publicRunId(run),
-      ...(reactor ? { onClaimed: (run: RunRecord) => reactor.markClaimed(run) } : {}),
+      onClaimed,
       createSession: () => harness.createSession(spec),
       provenance,
       isReady: () => harness.ready,
@@ -388,9 +409,8 @@ async function main(): Promise<void> {
     // between "Coolify swapped the container" and "the process died".
     log.info("service.stopping", { reason });
     visibility.stop();
-    runner.stopAll();
     server.close();
-    void Promise.all([notifier?.flush(5_000), reactor?.flush(5_000)])
+    void Promise.all([notifier?.flush(5_000), reactor?.flush(5_000), checks?.flush(5_000)])
       // Nothing here rejects today, but this promise is not awaited and the
       // `.finally` has to run whatever happens: the store close and the exit
       // are the shutdown.

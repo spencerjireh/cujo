@@ -79,17 +79,21 @@ describe("run store", () => {
     expect(store.runs.getConversationSession("o/r", 8)).toBeNull();
   });
 
-  it("lets exactly one caller claim the decision, and can release it", () => {
+  it("lets exactly one caller claim the dismissal, and can release it", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun(head);
-    expect(store.runs.claimDecision(run.id, "a@x", "t")).toBe(false); // still running
-    store.runs.updateRun(run.id, { status: "blocked_pending" });
-    expect(store.runs.claimDecision(run.id, "a@x", "t")).toBe(true);
-    expect(store.runs.claimDecision(run.id, "b@x", "t")).toBe(false);
-    expect(store.runs.getRun(run.id)?.approver).toBe("a@x");
+    expect(store.runs.claimDecision(run.id, "github:a", "t")).toBe(false); // still running
+    store.runs.updateRun(run.id, { status: "blocked" });
+    expect(store.runs.claimDecision(run.id, "github:a", "t")).toBe(true);
+    expect(store.runs.claimDecision(run.id, "github:b", "t")).toBe(false);
+    expect(store.runs.getRun(run.id)?.approver).toBe("github:a");
     store.runs.clearDecision(run.id);
     expect(store.runs.getRun(run.id)?.approver).toBeNull();
-    expect(store.runs.claimDecision(run.id, "b@x", "t")).toBe(true);
+    expect(store.runs.claimDecision(run.id, "github:b", "t")).toBe(true);
+    // Only a block can be claimed: a dismissed run has been decided once.
+    store.runs.updateRun(run.id, { status: "dismissed" });
+    store.runs.clearDecision(run.id);
+    expect(store.runs.claimDecision(run.id, "github:c", "t")).toBe(false);
   });
 
   it("re-claims a head whose run errored, since error is excluded from the partial index", () => {
@@ -127,7 +131,7 @@ describe("run store", () => {
     const store = new Store(":memory:");
     const first = store.runs.createRun(head).run;
     const second = store.runs.createRun({ ...head, headSha: "h2" }).run;
-    store.runs.updateRun(second.id, { status: "blocked_pending" });
+    store.runs.updateRun(second.id, { status: "blocked" });
     store.runs.updateRun(first.id, { status: "superseded" });
     expect(store.runs.latestRunForPr("o/r", 7)?.id).toBe(second.id);
     // `runs.repo` holds whatever casing GitHub sent, and a later delivery is
@@ -175,7 +179,7 @@ describe("run store", () => {
       status: "running",
     });
     // A patch that names none of them leaves them alone; a null budget clears it.
-    expect(store.runs.updateRun(run.id, { status: "blocked_pending" })).toMatchObject({
+    expect(store.runs.updateRun(run.id, { status: "running" })).toMatchObject({
       sessionId: "s-diff",
       mode: "diff",
       budgetTokens: 400_000,
@@ -198,16 +202,6 @@ describe("run store", () => {
     expect(store.runs.runForPrHead("O/R", 7, "h2")?.id).toBe(current.id);
     expect(store.runs.runForPrHead("o/r", 7, "h3")).toBeNull();
     expect(store.runs.runForPrHead("other/repo", 7, "h2")).toBeNull();
-  });
-
-  it("remembers which resume turns Cujo sent", () => {
-    const store = new Store(":memory:");
-    const { run } = store.runs.createRun(head);
-    store.runs.addCujoTurn(run.id, "t2");
-    store.runs.addCujoTurn(run.id, "t2");
-    expect(store.runs.listCujoTurns(run.id)).toEqual(["t2"]);
-    store.runs.deleteRun(run.id);
-    expect(store.runs.listCujoTurns(run.id)).toEqual([]);
   });
 
   it("deletes a run and its projection", () => {
@@ -343,7 +337,7 @@ describe("run store", () => {
       messageId: "m1",
       pingMessageId: "p1",
       pingResolved: true,
-      lastNotifiedStatus: "blocked_posted",
+      lastNotifiedStatus: "dismissed",
     });
     expect(store.notifications.getRunDiscordMessage(run.id)).toEqual({
       runId: run.id,
@@ -351,7 +345,7 @@ describe("run store", () => {
       messageId: "m1",
       pingMessageId: "p1",
       pingResolved: true,
-      lastNotifiedStatus: "blocked_posted",
+      lastNotifiedStatus: "dismissed",
     });
     // Joined onto the run read, so a caller with a RunRecord already has it.
     const stored = store.runs.getRun(run.id);

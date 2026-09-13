@@ -144,9 +144,9 @@ what it did not read.
 
 Then call `post_advisory_review` on `github-mcp`, once, with `repo`, `pr_number`,
 `head_sha`, `body`, `findings`, `coverage`, `egress`, and `run_id` when the input carries
-one. Never `post_blocking_review`, never `post_gated_review`: this review has no
-evidence that would justify either, and a call to one of them is recorded against the
-run as an error. Never call the review tool twice.
+one. Never `post_blocking_review`: this review has no evidence that would justify a
+block, and a call to it is recorded against the run as an error. Never call the review
+tool twice.
 
 When the input carries `run_id`, pass it through as `run_id` verbatim. Do not invent one
 when the input has none, and never write a link to the run into `body`: the server builds

@@ -3,8 +3,8 @@ import { STATUS_LABELS, TONE_BG, TONE_TEXT, statusTone } from "@/lib/board/tone"
 
 /**
  * Status carries meaning beyond colour, so each one is spelled out rather than
- * encoded as a dot: a reader scanning a page needs to tell `blocked_posted`
- * from `blocked_pending` at a glance.
+ * encoded as a dot: a reader scanning a page needs to tell `blocked` from
+ * `dismissed` at a glance.
  *
  * The colour and the words come from `lib/board/tone`, which the chamber's
  * specimens and the record's rows also read. A run drawn three ways on one page

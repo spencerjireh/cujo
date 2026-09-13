@@ -4,12 +4,12 @@
  * The edge rate-limits requests per address; this bounds the connections one
  * process holds, which is a different failure and gets a different answer. An
  * SSE stream is an open socket and a keepalive timer for as long as the run is
- * live, and a `blocked_pending` run can be live for hours, so the realistic
+ * live, and a sandbox run can be live for half an hour, so the realistic
  * pressure here is idle tabs rather than an attacker.
  *
- * Counts public streams only. An operator must never lose the approval page
- * because the board is busy, which is why this lives on the public plane and
- * not in `operator/runs.ts`.
+ * Counts public streams only, which since decision 57 is every stream there
+ * is; the cap lives on the public plane because that is the plane that has
+ * one.
  */
 
 export interface StreamLimit {

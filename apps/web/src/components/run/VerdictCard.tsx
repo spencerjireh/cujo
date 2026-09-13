@@ -25,9 +25,7 @@ import { SEVERITY_ORDER, SEVERITY_TONE, TONE_BG, TONE_TEXT } from "@/lib/board/t
  * run had one.
  */
 export function VerdictCard({ run }: { run: Run }) {
-  // `running` and not `isLive`: a run awaiting approval is live in the sense
-  // that its turn is paused, but its checks have all reported and its
-  // findings are the reason it is waiting. Those are the counts to show.
+  // Only a running run has counts that are not a result yet.
   const live = run.status === "running";
   const counts = SEVERITY_ORDER.map((severity) => ({
     severity,

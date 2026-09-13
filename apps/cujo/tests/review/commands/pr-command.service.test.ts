@@ -1,18 +1,18 @@
 /**
- * The human gate, from a pull request comment (decisions 44 and 45).
+ * The unlock, from a pull request comment (decisions 44, 45, 138).
  *
  * Every case here is one of the flows `docs/architecture.md` "User flows" D and F
- * describe: a maintainer confirms, the author cannot dismiss, a stale head is
- * refused, a second confirm loses the CAS. The assertion that repeats is that **the pull
- * request is told** — a refusal nobody can see is the failure mode the operator
- * UI never had, because it at least answered 409.
+ * describe: a maintainer dismisses, the author cannot, a bot cannot, a stale
+ * head is refused, a second dismiss loses the CAS. The assertion that repeats
+ * is that **the pull request is told** — a refusal nobody can see is the
+ * failure mode the operator UI never had, because it at least answered 409.
  */
 
 import { createLogger } from "@cujo/log";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BOT_LOGIN } from "../../../src/clients/github";
 import { PrCommandService } from "../../../src/review/commands/pr-command.service";
-import type { ApproveResult } from "../../../src/review/runner.service";
+import type { DismissResult } from "../../../src/review/runner.service";
 import type { RunRecord } from "../../../src/review/types";
 
 const HEAD = "abcdef1234567890";
@@ -24,7 +24,7 @@ const run = (over: Partial<RunRecord> = {}): RunRecord => ({
   headSha: HEAD,
   sessionId: "s1",
   turnIds: ["t1"],
-  status: "blocked_pending",
+  status: "blocked",
   approver: null,
   decidedAt: null,
   isPublic: true,
@@ -46,7 +46,7 @@ function harness(
     latest?: RunRecord | null;
     head?: { headSha: string; author: string } | null;
     permission?: "admin" | "write" | "read" | "none" | "unknown";
-    approve?: ApproveResult;
+    dismiss?: DismissResult;
     startReview?: { ok: true } | { ok: false; detail: string };
     /** Compose the service without the callback, as a deploy with the verb off. */
     noStartReview?: boolean;
@@ -55,7 +55,7 @@ function harness(
   const comments: string[] = [];
   const reacted: string[] = [];
   const lines: Record<string, unknown>[] = [];
-  const approve = vi.fn(async () => over.approve ?? ({ ok: true } as ApproveResult));
+  const dismiss = vi.fn(async () => over.dismiss ?? ({ ok: true } as DismissResult));
   const startReview = vi.fn(async () => over.startReview ?? ({ ok: true } as const));
   // The store is keyed by commit, not by insertion order, so the fake is too:
   // `runForPrHead` answers only for the commit its run actually reviewed.
@@ -67,7 +67,7 @@ function harness(
         latest && latest.headSha === headSha ? latest : null,
       ),
     } as never,
-    runner: { approve } as never,
+    runner: { dismiss } as never,
     ...(over.noStartReview ? {} : { startReview }),
     github: {
       pullRequestHead: vi.fn(async () =>
@@ -86,9 +86,9 @@ function harness(
     },
   });
   const log = createLogger({ service: "cujo", sink: (l) => lines.push(JSON.parse(l)) });
-  const send = (body: string, actor = "maintainer") =>
-    service.handle({ repo: "o/r", prNumber: 7, commentId: 55, actor, body, log });
-  return { send, comments, reacted, approve, startReview, lines };
+  const send = (body: string, actor = "maintainer", actorIsBot = false) =>
+    service.handle({ repo: "o/r", prNumber: 7, commentId: 55, actor, actorIsBot, body, log });
+  return { send, comments, reacted, dismiss, startReview, lines };
 }
 
 describe("PrCommandService", () => {
@@ -97,71 +97,79 @@ describe("PrCommandService", () => {
     h = harness();
   });
 
-  it("confirms for a maintainer, records the GitHub login, and says so", async () => {
-    await h.send("/cujo confirm");
-    expect(h.approve).toHaveBeenCalledWith("run-1", "allow", "github:maintainer");
-    expect(h.comments[0]).toContain("Confirmed");
-    expect(h.reacted).toEqual(["+1"]);
-  });
-
-  it("dismisses as a deny, and says the observation stands", async () => {
+  it("dismisses for a maintainer, records the GitHub login, and says the block is lifted", async () => {
     await h.send("/cujo dismiss");
-    expect(h.approve).toHaveBeenCalledWith("run-1", "deny", "github:maintainer");
-    // The half that already posted is the half that survives a dismissal, and
-    // the person answering has to be told that rather than left to guess.
+    expect(h.dismiss).toHaveBeenCalledWith("run-1", "github:maintainer");
+    expect(h.comments[0]).toContain("block is lifted");
+    // The finding survives a dismissal, and the person answering has to be
+    // told that rather than left to guess.
     expect(h.comments[0]).toContain("observation stands");
+    expect(h.reacted).toEqual(["+1"]);
   });
 
   it("says nothing at all when the comment is not a command", async () => {
     await h.send("looks good to me");
-    expect(h.approve).not.toHaveBeenCalled();
+    expect(h.dismiss).not.toHaveBeenCalled();
     expect(h.comments).toEqual([]);
     expect(h.reacted).toEqual([]);
   });
 
+  it("no longer knows `confirm`, and says nothing to it (decision 138)", async () => {
+    // Not a refusal: the word is not a command any more, so a stray one from
+    // an old habit reads as prose, the way any other sentence does.
+    await h.send("/cujo confirm");
+    expect(h.dismiss).not.toHaveBeenCalled();
+    expect(h.comments).toEqual([]);
+  });
+
   it("ignores its own comments, so a reply cannot re-trigger itself", async () => {
     // The success reply prints the verbs, and a review body can quote them.
-    await h.send("/cujo confirm", BOT_LOGIN);
-    expect(h.approve).not.toHaveBeenCalled();
+    await h.send("/cujo dismiss", BOT_LOGIN);
+    expect(h.dismiss).not.toHaveBeenCalled();
     expect(h.comments).toEqual([]);
   });
 
   it("refuses the pull request's author a dismissal, out loud", async () => {
     const own = harness({ head: { headSha: HEAD, author: "author" } });
     await own.send("/cujo dismiss", "author");
-    expect(own.approve).not.toHaveBeenCalled();
-    expect(own.comments[0]).toContain("cannot dismiss");
+    expect(own.dismiss).not.toHaveBeenCalled();
+    expect(own.comments[0]).toContain("cannot lift the block");
     expect(own.reacted).toEqual(["confused"]);
   });
 
-  it("lets the author confirm, because that acts against their own interest", async () => {
-    const own = harness({ head: { headSha: HEAD, author: "author" } });
-    await own.send("/cujo confirm", "author");
-    expect(own.approve).toHaveBeenCalledWith("run-1", "allow", "github:author");
+  it("refuses a Bot account a dismissal before asking GitHub who it is", async () => {
+    // The unlock is the one thing a coding agent cannot do to the block it
+    // earned (decision 138). Refused on the payload's own word, so no
+    // permission read is spent on it and no permission can let it through.
+    const bot = harness({ permission: "admin" });
+    await bot.send("/cujo dismiss", "copilot[bot]", true);
+    expect(bot.dismiss).not.toHaveBeenCalled();
+    expect(bot.comments[0]).toContain("bot account cannot lift a block");
+    expect(bot.reacted).toEqual(["confused"]);
   });
 
   it("refuses a fork contributor and points at what they can still read", async () => {
     const outsider = harness({ permission: "none" });
-    await outsider.send("/cujo confirm", "stranger");
-    expect(outsider.approve).not.toHaveBeenCalled();
+    await outsider.send("/cujo dismiss", "stranger");
+    expect(outsider.dismiss).not.toHaveBeenCalled();
     expect(outsider.comments[0]).toContain("write access");
     expect(outsider.comments[0]).toContain("anyone can read it");
   });
 
   it("says it could not check when GitHub does not answer, rather than refusing", async () => {
     const blind = harness({ permission: "unknown" });
-    await blind.send("/cujo confirm");
-    expect(blind.approve).not.toHaveBeenCalled();
+    await blind.send("/cujo dismiss");
+    expect(blind.dismiss).not.toHaveBeenCalled();
     expect(blind.comments[0]).toContain("could not check");
     expect(blind.comments[0]).toContain("Try again");
   });
 
-  it("refuses a confirm aimed at a commit the pull request has moved past", async () => {
-    // Read the block, push a fix, come back and confirm: without this, the
-    // confirm answers the new head's block, which nobody has read.
+  it("refuses a dismiss aimed at a commit the pull request has moved past", async () => {
+    // Read the block, push a fix, come back and dismiss: without this, the
+    // dismiss lifts the new head's block, which nobody has read.
     const moved = harness({ head: { headSha: "9999999aaaaaaa", author: "contributor" } });
-    await moved.send("/cujo confirm");
-    expect(moved.approve).not.toHaveBeenCalled();
+    await moved.send("/cujo dismiss");
+    expect(moved.dismiss).not.toHaveBeenCalled();
     expect(moved.comments[0]).toContain("moved on");
     expect(moved.comments[0]).toContain("abcdef1");
     expect(moved.comments[0]).toContain("9999999");
@@ -177,10 +185,10 @@ describe("PrCommandService", () => {
         headSha === HEAD ? run({ id: "current" }) : null,
       ),
     };
-    const approve = vi.fn(async () => ({ ok: true }) as ApproveResult);
+    const dismiss = vi.fn(async () => ({ ok: true }) as DismissResult);
     const service = new PrCommandService({
       runs: runs as never,
-      runner: { approve } as never,
+      runner: { dismiss } as never,
       github: {
         pullRequestHead: async () => ({ headSha: HEAD, author: "contributor" }),
         permissionFor: async () => "write" as const,
@@ -193,29 +201,30 @@ describe("PrCommandService", () => {
       prNumber: 7,
       commentId: 55,
       actor: "maintainer",
-      body: "/cujo confirm",
+      actorIsBot: false,
+      body: "/cujo dismiss",
       log: createLogger({ service: "cujo", sink: () => {} }),
     });
-    expect(approve).toHaveBeenCalledWith("current", "allow", "github:maintainer");
+    expect(dismiss).toHaveBeenCalledWith("current", "github:maintainer");
     expect(runs.runForPrHead).toHaveBeenCalledWith("o/r", 7, HEAD);
   });
 
-  it("says so when a second confirm loses the claim", async () => {
+  it("says so when a second dismiss loses the claim", async () => {
     const raced = harness({
-      approve: { ok: false, reason: "already_decided", detail: "already decided" },
+      dismiss: { ok: false, reason: "already_decided", detail: "already dismissed" },
     });
-    await raced.send("/cujo confirm");
+    await raced.send("/cujo dismiss");
     expect(raced.comments[0]).toContain("already");
   });
 
-  it("gives every approve refusal its own sentence", async () => {
-    const reasons = ["no_such_run", "not_blocked_pending", "already_decided", "resume_failed"];
+  it("gives every dismiss refusal its own sentence", async () => {
+    const reasons = ["no_such_run", "not_blocked", "already_decided", "github_failed"];
     const said = new Set<string>();
     for (const reason of reasons) {
       const one = harness({
-        approve: { ok: false, reason, detail: "x" } as ApproveResult,
+        dismiss: { ok: false, reason, detail: "x" } as DismissResult,
       });
-      await one.send("/cujo confirm");
+      await one.send("/cujo dismiss");
       said.add(one.comments[0] ?? "");
     }
     // Distinct, because "it did not work" tells the person nothing about
@@ -224,29 +233,29 @@ describe("PrCommandService", () => {
   });
 
   it("refuses a comment that says both verbs", async () => {
-    await h.send("/cujo confirm\n/cujo dismiss");
-    expect(h.approve).not.toHaveBeenCalled();
+    await h.send("/cujo dismiss\n/cujo review");
+    expect(h.dismiss).not.toHaveBeenCalled();
     expect(h.comments[0]).toContain("Say one");
   });
 
-  it("says there is nothing to answer when the pull request was never reviewed", async () => {
+  it("says nothing is blocked when the pull request was never reviewed", async () => {
     const fresh = harness({ latest: null });
-    await fresh.send("/cujo confirm");
-    expect(fresh.approve).not.toHaveBeenCalled();
+    await fresh.send("/cujo dismiss");
+    expect(fresh.dismiss).not.toHaveBeenCalled();
     expect(fresh.comments[0]).toContain("not reviewed this pull request");
   });
 
   it("answers even when the pull request cannot be read", async () => {
     const blind = harness({ head: null });
-    await blind.send("/cujo confirm");
-    expect(blind.approve).not.toHaveBeenCalled();
+    await blind.send("/cujo dismiss");
+    expect(blind.dismiss).not.toHaveBeenCalled();
     expect(blind.comments[0]).toContain("could not read");
   });
 
   it("still replies when the acknowledgement fails, because the reply is the answer", async () => {
     const service = new PrCommandService({
       runs: { latestRunForPr: () => run(), runForPrHead: () => run() } as never,
-      runner: { approve: async () => ({ ok: true }) } as never,
+      runner: { dismiss: async () => ({ ok: true }) } as never,
       github: {
         pullRequestHead: async () => ({ headSha: HEAD, author: "contributor" }),
         permissionFor: async () => "write" as const,
@@ -264,21 +273,22 @@ describe("PrCommandService", () => {
       prNumber: 7,
       commentId: 55,
       actor: "maintainer",
-      body: "/cujo confirm",
+      actorIsBot: false,
+      body: "/cujo dismiss",
       log: createLogger({ service: "cujo", sink: (l) => lines.push(JSON.parse(l)) }),
     });
     expect(lines.some((l) => l.event === "comment.reaction.failed")).toBe(true);
     expect(lines.some((l) => l.event === "comment.command.applied")).toBe(true);
   });
 
-  it("logs who decided what, which is the audit trail the gate exists for", async () => {
-    await h.send("/cujo confirm");
+  it("logs who decided what, which is the audit trail the unlock exists for", async () => {
+    await h.send("/cujo dismiss");
     expect(h.lines.find((l) => l.event === "comment.command.applied")).toMatchObject({
       repo: "o/r",
       pr_number: 7,
       comment_id: "55",
       actor: "maintainer",
-      decision: "confirm",
+      decision: "dismiss",
     });
   });
 
@@ -292,7 +302,7 @@ describe("PrCommandService", () => {
           throw new Error("database is gone");
         },
       } as never,
-      runner: { approve: vi.fn() } as never,
+      runner: { dismiss: vi.fn() } as never,
       github: {
         pullRequestHead: async () => ({ headSha: HEAD, author: "a" }),
         permissionFor: async () => "write" as const,
@@ -309,7 +319,8 @@ describe("PrCommandService", () => {
         prNumber: 7,
         commentId: 55,
         actor: "maintainer",
-        body: "/cujo confirm",
+        actorIsBot: false,
+        body: "/cujo dismiss",
         log: createLogger({ service: "cujo", sink: () => {} }),
       }),
     ).resolves.toBeUndefined();
@@ -327,7 +338,7 @@ describe("/cujo review", () => {
       headSha: HEAD,
       actor: "maintainer",
     });
-    expect(h.approve).not.toHaveBeenCalled();
+    expect(h.dismiss).not.toHaveBeenCalled();
     expect(h.comments[0]).toContain("Reviewing this pull request again");
     expect(h.reacted).toEqual(["+1"]);
   });
@@ -342,14 +353,14 @@ describe("/cujo review", () => {
 
   it("works on a pull request Cujo has never seen", async () => {
     // The main case for the verb: opened before the App was installed, or one
-    // whose run the already-reviewed guard deleted. `confirm` and `dismiss`
-    // still refuse it, because they answer a run and there is none.
+    // whose run the already-reviewed guard deleted. `dismiss` still refuses
+    // it, because it lifts a run's block and there is none.
     const h = harness({ latest: null });
     await h.send("/cujo review");
     expect(h.startReview).toHaveBeenCalled();
     const other = harness({ latest: null });
-    await other.send("/cujo confirm");
-    expect(other.comments[0]).toContain("nothing to answer");
+    await other.send("/cujo dismiss");
+    expect(other.comments[0]).toContain("nothing is blocked");
   });
 
   it("targets the current head rather than refusing it as stale", async () => {
@@ -414,9 +425,9 @@ describe("/cujo review", () => {
 
   it("still refuses a comment giving two different verbs", async () => {
     const h = harness();
-    await h.send("/cujo review\n/cujo confirm");
+    await h.send("/cujo review\n/cujo dismiss");
     expect(h.startReview).not.toHaveBeenCalled();
-    expect(h.approve).not.toHaveBeenCalled();
+    expect(h.dismiss).not.toHaveBeenCalled();
     expect(h.comments[0]).toContain("more than one command");
   });
 });

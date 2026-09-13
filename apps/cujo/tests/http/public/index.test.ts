@@ -34,13 +34,14 @@ describe("public runs list", () => {
     expect(run.isPublic).toBe(true); // the record handed back at claim time
   });
 
-  it("names nobody, even for a decided run", async () => {
+  it("names nobody, even for a dismissed run", async () => {
     const { app, store } = build(null);
     const run = store.runs.createRun(head).run;
-    store.runs.updateRun(run.id, { status: "blocked_pending" });
-    store.runs.claimDecision(run.id, "operator@example.com", "2026-08-28T00:00:00.000Z");
+    store.runs.updateRun(run.id, { status: "blocked" });
+    store.runs.claimDecision(run.id, "github:octocat", "2026-08-28T00:00:00.000Z");
+    store.runs.updateRun(run.id, { status: "dismissed" });
     const text = await (await app.request("/runs")).text();
-    expect(text).not.toContain("operator@example.com");
+    expect(text).not.toContain("octocat");
     expect(text).not.toContain("approver");
   });
 });
@@ -93,7 +94,7 @@ describe("public run stream", () => {
   };
 
   it("sends the public shape first, then every change", async () => {
-    const view = viewOf(runOf({ status: "blocked_pending" }));
+    const view = viewOf(runOf({ status: "running" }));
     const { app, changes } = build(view);
     const res = await app.request("/runs/r1/events");
     expect(res.status).toBe(200);
@@ -101,11 +102,11 @@ describe("public run stream", () => {
 
     const first = await next();
     expect(first).toContain("event: run");
-    expect(first).toContain('"status":"blocked_pending"');
+    expect(first).toContain('"status":"running"');
     expect(first).not.toContain("approver");
 
-    changes.emit("r1", viewOf(runOf({ status: "blocked_posted" })));
-    expect(await next()).toContain('"status":"blocked_posted"');
+    changes.emit("r1", viewOf(runOf({ status: "blocked" })));
+    expect(await next()).toContain('"status":"blocked"');
     await reader.cancel();
   });
 

@@ -93,11 +93,11 @@ export const DOC_GROUPS: readonly DocGroup[] = [
           "What critical means, which rules the agent cannot argue with, and why a false reads as not observed.",
       },
       {
-        slug: "the-gate",
-        href: "/docs/the-gate",
-        title: "The human gate",
+        slug: "blocking",
+        href: "/docs/blocking",
+        title: "Blocking and the unlock",
         summary:
-          "Most reviews post unattended. One kind waits for a person, and this is which kind and who may answer.",
+          "A critical finding blocks the merge at once, through a check run nobody can dismiss. Who may lift it, and how.",
       },
       {
         slug: "sandbox",

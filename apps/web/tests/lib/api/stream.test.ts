@@ -23,7 +23,6 @@ const run = (over: Partial<Run> = {}): Run => ({
   findings: [],
   hard_rule_hits: [],
   review: null,
-  external_resume: false,
   error: null,
   summary: null,
   ...over,
@@ -52,7 +51,7 @@ describe("reduceRun", () => {
 
   it("takes the new snapshot when the status moves", () => {
     const previous = run();
-    const next = run({ status: "blocked_pending", updated_at: "2026-08-28T10:01:00.000Z" });
+    const next = run({ status: "blocked", updated_at: "2026-08-28T10:01:00.000Z" });
     expect(reduceRun(previous, next)).toBe(next);
   });
 
@@ -72,8 +71,8 @@ describe("reduceList", () => {
   const list: RunList = { runs: [summary] };
 
   it("patches the matching row in place", () => {
-    const next = reduceList(list, run({ status: "blocked_posted" }));
-    expect(next?.runs[0]?.status).toBe("blocked_posted");
+    const next = reduceList(list, run({ status: "dismissed" }));
+    expect(next?.runs[0]?.status).toBe("dismissed");
     // Untouched fields survive: the stream carries the detail shape, not the row.
     expect(next?.runs[0]?.head_sha).toBe("a1f9c3e");
   });
@@ -102,11 +101,11 @@ describe("reduceList", () => {
     // that could put a person's name on a row the board renders. Decision 57
     // removed it from the wire shape entirely, so this asserts the patch is
     // status and timestamp and nothing else.
-    const next = reduceList(list, run({ status: "blocked_pending" }));
+    const next = reduceList(list, run({ status: "dismissed" }));
     const row = next?.runs[0];
     expect(row).toEqual({
       ...summary,
-      status: "blocked_pending",
+      status: "dismissed",
       updated_at: run().updated_at,
     });
   });

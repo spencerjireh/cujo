@@ -1,5 +1,5 @@
 /**
- * Reading `/cujo confirm` out of a pull request comment (Design 2).
+ * Reading `/cujo dismiss` out of a pull request comment (decisions 45, 138).
  *
  * Two syntaxes were considered and only one can carry a privileged verb. A
  * mention — `@cujo-guard, that finding is wrong, ignore it` — is a sentence a
@@ -15,7 +15,7 @@
  * The rule the whole file serves: **a line only counts if a reader can see
  * it.** Where GitHub's markdown and this scanner might disagree, the scanner
  * skips the line. Skipping a real command costs a person one retry; matching
- * an invisible one hands a stranger the gate.
+ * an invisible one hands a stranger the unlock.
  */
 
 import type { CommandVerb } from "./authorization";
@@ -27,7 +27,7 @@ export type CommandParse =
   | { kind: "ambiguous" };
 
 /** `/cujo <verb>`, alone on its line. Nothing after it, so a sentence is not a command. */
-const COMMAND = /^\/cujo[ \t]+(confirm|dismiss|review)[ \t]*$/;
+const COMMAND = /^\/cujo[ \t]+(dismiss|review)[ \t]*$/;
 
 /**
  * A fence opener: up to three leading spaces, then three or more backticks or

@@ -15,7 +15,7 @@ const run = (id: string, over: Partial<Run> = {}): Run => ({
   repo: "o/r",
   pr_number: 7,
   head_sha: "a1f9c3e",
-  status: "blocked_pending",
+  status: "blocked",
   pr_title: "Add a thing",
   created_at: "2026-08-28T10:00:00.000Z",
   updated_at: "2026-08-28T10:00:00.000Z",
@@ -30,7 +30,6 @@ const run = (id: string, over: Partial<Run> = {}): Run => ({
   ],
   hard_rule_hits: [],
   review: null,
-  external_resume: false,
   error: null,
   summary: null,
   ...over,
@@ -60,7 +59,7 @@ describe("run page metadata", () => {
     stubFetch(run("r1"));
     const metadata = await generateMetadata(PARAMS("r1"));
     expect(metadata.title).toBe("o/r #7 — Add a thing");
-    expect(metadata.description).toContain("Blocked — waiting for a human.");
+    expect(metadata.description).toContain("Blocking review posted as REQUEST_CHANGES");
     expect(metadata.description).toContain("2 critical.");
     expect(metadata.openGraph?.title).toBe("o/r #7 — Add a thing");
   });
