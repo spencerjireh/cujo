@@ -37,8 +37,8 @@ export function Conversation() {
           <LI>
             <strong className="font-medium text-fg">It cannot change a verdict.</strong> Asked to,
             it says so and points at{" "}
-            <Link href="/docs/the-gate" className="text-accent underline underline-offset-4">
-              <C>/cujo confirm</C> and <C>/cujo dismiss</C>
+            <Link href="/docs/blocking" className="text-accent underline underline-offset-4">
+              <C>/cujo dismiss</C>
             </Link>
             .
           </LI>

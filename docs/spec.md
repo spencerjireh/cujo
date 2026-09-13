@@ -57,11 +57,12 @@ The split between deterministic code and agent reasoning is fixed:
   not observed. A network-namespace or iptables redirect inside the sandbox
   closes that gap later.
 - Remediation (a fix PR on `critical`) is a stretch, not a requirement.
-- Answering a held finding from Discord. Contract 7 notifies; it does not
-  decide. The interactions endpoint on the webhook host exists and carries
-  `/cujo` (Contract 8), but nothing on it decides a review: being in a channel
-  is not a claim about a repository (decision 23). The gate lives on the pull
-  request, where the principal is repo write (Contract 1, decisions 44 and 45).
+- Lifting a block from Discord. Contract 7 notifies; it does not decide. The
+  interactions endpoint on the webhook host exists and carries `/cujo`
+  (Contract 8), but nothing on it lifts a block: being in a channel is not a
+  claim about a repository (decision 23). The unlock lives on the pull
+  request, where the principal is repo write (Contract 1, decisions 44, 45
+  and 138).
 
 ## Contract 1 — the trigger
 
@@ -81,15 +82,15 @@ A `repository` event re-stamps `is_public` on every run of that repo and does
 nothing else; it is the fast path for decision 34's public board, and matching
 is case-insensitive because `runs.repo` holds whatever casing GitHub sent.
 
-An `issue_comment` event may carry `/cujo confirm` or `/cujo dismiss`, which is
-the human gate (Contract 4, decision 45), or `/cujo review`, which asks for the
+An `issue_comment` event may carry `/cujo dismiss`, which is the unlock
+(Contract 4, decisions 45 and 138), or `/cujo review`, which asks for the
 current head to be reviewed again (decision 63). Only `created` is acted on: a command
 that can be typed into an existing comment is a command whose author is not the
 person the payload names at the time it fires. A comment on an issue rather
 than a pull request is ignored, since `issue_comment` fires for both. The route
 answers 200 at once and does the work after, like the pull request path — the
-command needs two GitHub reads and a resume, and the delivery timeout is ten
-seconds.
+command needs two GitHub reads and two GitHub writes, and the delivery timeout
+is ten seconds.
 
 The command is matched as an exact string, at the start of a line, by
 `apps/cujo` and never by a model. That is not fussiness: a mention like
@@ -98,7 +99,7 @@ write, and any intent parser reads it as a dismissal — so a mention can never
 carry a privileged verb. Comments authored by `cujo-guard[bot]` are ignored
 outright, because Cujo's own replies print the verbs.
 
-`/cujo review` takes the same principal as the other two — repo write — but for
+`/cujo review` takes the same principal as `dismiss` — repo write — but for
 a different reason: it decides nothing, and it provisions a sandbox and a model
 turn, which is a cost a stranger should not be able to impose on somebody else's
 repository from a comment box. The pull request's author may use it, unlike
@@ -120,28 +121,32 @@ blank line (§5.1); anything between `<!--` and `-->` renders as nothing; a
 `<pre>` runs to its closing tag and a block-level tag such as `<details>` runs
 to the next blank line (§4.6 conditions 1 and 6). Where the scan and GitHub
 might disagree, the scan skips the line. Skipping a real command costs a person
-one retry; matching one nobody can see hands a stranger the gate.
+one retry; matching one nobody can see hands a stranger the unlock.
 
-Authorization is repo `write` or `admin`, read from GitHub on every command,
-and the pull request's author may not `dismiss` (decision 44). `unknown` — the
+Authorization is repo `write` or `admin`, read from GitHub on every command;
+the pull request's author may not `dismiss` (decision 44); and a Bot account
+may not `dismiss` whatever access it holds (decision 138), decided from the
+`user.type` the payload carries before any read is spent. `unknown` — the
 tri-state `repoIsPublic` uses — is neither a refusal nor permission: the reply
 says it could not check. **The commit selects the run**, not the order the
 deliveries were inserted in: the current head comes from GitHub and the run for
-that exact commit is the one answered, so a delivery for an older head that
+that exact commit is the one lifted, so a delivery for an older head that
 arrived late cannot stand in for it. If there is no run for the current head
 the command is refused by name, because a comment names a pull request and
-never a commit, and "read the block, push a fix, come back and confirm" would
-otherwise answer a block nobody read. That read is the last call before the
+never a commit, and "read the block, push a fix, come back and dismiss" would
+otherwise lift a block nobody read. That read is the last call before the
 claim, so the window a push can slip through is as narrow as two systems
 allow. **Every outcome speaks on the pull request.** A refusal nobody can see
 is indistinguishable from a delivery that never arrived.
 
-A push that lands inside that window does not discard the answer. `claimDecision`
-sets `approver` while leaving the run `blocked_pending`, so a decision can be in
-flight where the supersede path cannot see it in the status; when the stale deny
-finds the call already answered and `approver` is set, the run is left alone
-rather than cancelled. The finding was real on the commit that person read, the
-observation half is public either way, and the new head gets its own run.
+A dismissal is claimed before it is written. `claimDecision` sets `approver` on
+a run that is `blocked` and unclaimed, and exactly one caller wins it; the
+winner dismisses the bot's REQUEST_CHANGES review on that head through the App
+and moves the run to `dismissed`, and a GitHub write that fails releases the
+claim so the next comment can try. A `blocked` run is terminal, so no turn is
+live to race the dismissal, and a push that lands meanwhile gets its own run
+on the new head — the block on the old commit is what the person read, and
+that is the one they lifted.
 
 A `pull_request_review_comment` event is a reply inside a review thread — the
 comments hanging off one line of the diff, where Cujo's inline findings are.
@@ -756,7 +761,6 @@ The parent turns the check reports into a list of findings. Each finding:
   "evidence": "AssertionError: 10.05 != 10.04 (tests/test_orders.py::test_order_total_rounding)",
   "detail": "The change rounds the line total before the discount is applied rather than after.",
   "next": "Round after the discount is applied, or update the two expectations.",
-  "held": false,
   "path": "app/orders.py",
   "line": 42,
   "side": "RIGHT"
@@ -767,9 +771,7 @@ The parent turns the check reports into a list of findings. Each finding:
 judgment, expected on every `critical`; `next` is one imperative clause naming
 the action, required on `critical`, allowed on `warn`, never on `info`, and only
 ever following from something a sensor observed — never style, architecture or
-preference. `held` marks a malice observation whose conclusion a
-`post_gated_review` call is holding back, and is set only on the call that also
-passes `accusation_follows`. `path`, `line`, and `side`
+preference. `path`, `line`, and `side`
 are optional and anchor the finding as an inline comment. `line` is a line in
 the PR diff; `side` is `RIGHT` (the head version, the default) or `LEFT` (a
 line that exists only on base, for a finding about removed code).
@@ -802,13 +804,15 @@ split is the **claim**:
 | `derived.wrote_sensitive` | **malice** — code wrote outside the workspace |
 | `derived.egress_to_unknown_host` | **malice** — a dependency phoned home |
 
-"Your tests fail" is mechanical, verifiable by the author in thirty seconds, and
-nobody sensible answers "no" to it. "This code tried to steal a credential" is an
-accusation that harms someone if it is wrong, and it is the one place in this
-pipeline where a human holds information the sandbox cannot observe: they know
+"Your tests fail" is mechanical, verifiable by the author in thirty seconds.
+"This code read a credential" is a claim about what the code did, and the review
+states it as the measurement it is — the path, the host, the time — because a
+human is the one who holds information the sandbox cannot observe: they know
 the host, or the package, or the fixture that touches a fake credentials file on
-purpose. Each rule carries its identity on the finding as `rule`, so the split is
-matched on an id and never on the wording of a title. `github-mcp`'s title
+purpose, and they say so by lifting the block (Contract 4, decision 138). Both
+kinds block the same way; the split decides what the review says and what the
+log calls the claim. Each rule carries its identity on the finding as `rule`, so
+the split is matched on an id and never on the wording of a title. `github-mcp`'s title
 backstop (decision 74) is that rule pointed the other way: it rewrites a title
 that is *nothing but* a Contract 2 field name into the sentence it means, and
 leaves one that is already prose alone — which is why no hard-rule finding is
@@ -854,51 +858,37 @@ instructions (the `SKILL.md`):
 Layer 1 protects the cases that must never be reasoned away; Layer 2 is where
 the agent's judgment does real work.
 
-## Contract 4 — reviews and the approval model
+## Contract 4 — reviews, the block and the unlock
 
-Reviews mostly post automatically — that is the product's value. A human is
-pulled in only for the consequential action. Three tool paths on `github-mcp`:
+Every review posts automatically — that is the product's value. The one human
+decision is the unlock. Two tools on `github-mcp`:
 
-| Tool | When | GitHub review | Gated? |
-|------|------|---------------|--------|
-| `post_advisory_review` | no `critical` finding, **or** the observation half of a malice finding | COMMENT | No — posts automatically |
-| `post_blocking_review` | every `critical` is a correctness finding | REQUEST_CHANGES (blocks merge) | No — posts automatically |
-| `post_gated_review` | any `critical` is a malice finding | REQUEST_CHANGES (blocks merge) | **Yes** — pauses for human approval |
+| Tool | When | GitHub review |
+|------|------|---------------|
+| `post_advisory_review` | no `critical` finding | COMMENT |
+| `post_blocking_review` | any `critical` finding | REQUEST_CHANGES (blocks merge) |
 
-**The gate is on the accusation, not on the block** (decision 42). Contract 3's
-table says which rule makes which kind of claim.
-
-**A malice finding posts twice, in order: observation, then conclusion.** The
-first call goes always, stating what the sensors recorded as fact, marking the
-malice findings `warn`, and setting `accusation_follows` so `github-mcp` ends
-the body with the two commands a maintainer can reply with. Then the gated call
-drafts the accusation and the turn pauses. So a run
-that nobody answers still leaves the evidence on the pull request, a denial
-drops the escalation while the observation stands, and the merge is never
-blocked by a claim no human confirmed. Contract 5 says why two reviews on one
-head is not double-posting.
-
-**A run can hold both kinds at once, and the correctness half must not wait.**
-When a malice rule and `tests.base_pass_head_fail` trip together, the first call
-is `post_blocking_review` rather than the advisory. That body carries the
-correctness findings as `critical` and the malice observations as `warn`; the
-gated call that follows carries only the accusation. The ordered pair is
-therefore blocking-then-gated for a mixed run and advisory-then-gated for a pure
-malice one — in both, what waits is the accusation and only the accusation.
-
-Which kind a finding is, is a decision the model expresses by choosing a tool
-name — see Contract 3 for what `apps/cujo` can and cannot verify about it after
-the fact.
+**One call, never two** (decision 138). A malice finding is a `critical` like
+any other: the blocking review states what the sensors recorded — the host,
+the path, the time — and the merge is held at once. Nothing is drafted, held,
+or waited on; a person who knows the host or the fixture lifts the block on
+the pull request, where the evidence is. Which tool a run calls is decided by
+the rubric on the findings and re-derived in `apps/cujo` from the check
+reports (Contract 3): an advisory posted over a `critical` ends the run
+`error`, and a blocking review posted with none does not exist as a case the
+fold can see — the review is already public either way.
 
 **The review body is composed by `github-mcp`, not written by the agent**
-(decision 74). All three tools take the same input: a one-sentence `body` giving
+(decision 74). Both tools take the same input: a one-sentence `body` giving
 the verdict in plain language, a `findings[]` array, and optional `coverage` and
 `egress`. From those the server builds the posted body, in a fixed order: a
 headline carrying the verdict word and the severity counts, the lede, the
 findings by severity, the coverage caveat, the egress line and its host table,
-and a collapsed machine-readable block. An empty section is omitted. **The
-verdict word comes from the tool**, so a model cannot write "blocked" onto an
-advisory review — the word is not a thing it supplies.
+and a collapsed machine-readable block (`schema_version` 2 since decision 138:
+the `held` keys left with the gate, and a removed key is the one change that
+version exists to mark). An empty section is omitted. **The verdict word comes
+from the tool**, so a model cannot write "blocked" onto an advisory review — the
+word is not a thing it supplies.
 
 Inside one finding the order is title, `detail`, `next`, then the quoted
 `evidence` — the proof below the sentence that explains it, so a reader who
@@ -963,62 +953,46 @@ repository, which has no page a reader of the pull request could open; and
 missing means the review body is exactly what it would have been without this
 feature.
 
-The maintainer prompt is the second block `github-mcp` writes, on the same
-argument. `/cujo confirm` and `/cujo dismiss` are this system's own commands, so
-the sentence naming them is composed here rather than quoted for the agent to
-reproduce. Only `post_advisory_review` and `post_blocking_review` take
-`accusation_follows`; `post_gated_review` has no such parameter, so the prompt
-cannot reach the accusation — where it would ask for the very approval that let
-that call run (decision 60). It sits directly above the evidence link, which
-stays last.
-
 Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
 approves, so it can never satisfy branch protection and wave a bad merge through.
 
-The gate is the spec's `requireApprovalForTools` on `post_gated_review`, and
-that one name is the whole mechanism: the list is exact tool names, absent
-means none (decision 128), so `post_blocking_review` is not gated. When a
-finding accuses code of acting maliciously the agent calls the gated tool,
-after posting the observation, and the harness holds the call inside its
-tool hook (decision 125): it emits `tool.approval_required` on the `main`
-thread, carrying `toolCalls[{id, sourceEventId}]`, and ends the turn as `done`
-with that event as its required action. The observation has posted by then,
-because a gated tool runs sequentially and the calls before it in the same
-message have executed (decision 126). `apps/cujo` reads the drafted review
-from the `model.message` event that `sourceEventId` names, and rebuilds both
-the posted body and its inline comments by calling `@cujo/review-render` — the
-same package `github-mcp` posts with, so the board cannot describe a finding
-differently from the pull request (decision 74). It marks the run
-`blocked_pending`. The board shows nothing of it until it posts: publishing a
-held accusation is exactly what the gate prevents, and the audience there had
-no way to allow it. The answer comes from `/cujo confirm` or `/cujo dismiss`
-on the pull request (Contract 8, decisions 45 and 49), and `apps/cujo` answers
-with a new turn whose input is `[{type: 'user.tool_approval', threadId:
-'main', toolCallId, approval: {status: 'allow' | 'deny', reason?}}]`, then
-subscribes to the returned id, which it records as its own before any event
-arrives. On `allow` the held call runs and the gated review posts as
-`cujo-guard[bot]`; its `tool.response` carries the original call id. On `deny`
-the reason is the tool result the model reads, it posts nothing further and
-ends the turn; the rubric says so explicitly, so a dismissed accusation never
-degrades into a second review nobody asked for. The advisory observation
-posted before the pause and is unaffected either way, which is what makes a
-denial and a timeout both safe: the evidence stands, and only the claim about
-a person is dropped.
+**The lock is a check run** (decision 138). A REQUEST_CHANGES review can be
+dismissed by anyone with write access, a coding agent with write access
+included; a check run cannot be dismissed at all, only completed by the App
+that owns it. So `apps/cujo` writes a check run named `cujo/guard` on every
+commit it reviews and moves it with the run's status, a projector beside the
+reaction (Contract 9) and driven by the same status changes:
 
-A held call that outlives the harness process is answered by a re-call
-(decision 125): the harness tells the model the outcome in a new turn and, on
-`allow`, asks it to make the same call again, which the gate lets through once
-with identical arguments. The fold treats any successful `tool.response` to
-the gated tool after an allow as the review posting, whatever the call id.
+| Status | Check run |
+|--------|-----------|
+| `running` | `in_progress`, from the moment the head is claimed |
+| `clean` | `completed` / `success` |
+| `unproven` | `completed` / `neutral` |
+| `blocked` | `completed` / `failure` |
+| `dismissed` | `completed` / `neutral`, titled *Dismissed by @login* |
+| `error` | `completed` / `neutral` |
+| `superseded` | `completed` / `skipped`, only while this run is still the latest for its head; on `/cujo review` the replacement owns the commit and writes its own |
 
-The deny is not always a human's. The approval is outstanding on the session
-rather than on the turn that raised it. `apps/cujo` sends a deny itself when a
-newer head supersedes the run, and once more as a retry if a turn cannot be
-started at all; the reason it sends says the commit was replaced, not that an
-operator rejected the block, and the run stays `superseded` with no approver
-(decision 39). The harness would void the pending approval on the new head's
-user message anyway (decision 125), and refuses a later answer to it with
-`409`; the stale deny is what lets the model hear why.
+The title is the status sentence the Discord card carries; the summary is the
+severity counts; `details_url` is the run page for a public run and absent for
+a private one; `external_id` is the run id. The write is idempotent by lookup:
+the check is found by name and App on the commit and PATCHed, or POSTed when
+there is none, and the id is cached per run. It needs `checks: write` on the
+App, which every installation approves once; until it has, the write fails
+with 403 and nothing else is affected. `CUJO_PR_CHECKS=0` turns it off. A
+merge is held only where branch protection **requires** `cujo/guard`; without
+that, a block is a review and a failed check, both visible and neither holding.
+
+**The unlock is `/cujo dismiss`** (Contract 1, decisions 44, 45, 138). It runs
+on the trusted side, for the run on the pull request's current head, and only
+when that run is `blocked`. In order: the dismissal is claimed in the store
+(`claimDecision`, one winner); the bot's own `CHANGES_REQUESTED` reviews on that
+commit are dismissed through the App with the message *Dismissed by @login with
+/cujo dismiss.*; the run moves to `dismissed` with `approver = github:<login>`
+and the change is emitted, so the reaction, the card and the check run follow.
+A GitHub write that fails releases the claim; zero matching reviews is not a
+failure, since somebody may have dismissed by hand first. The findings stay on
+the pull request: only the block is lifted.
 
 **Stale review dismissal (decision 52).** A `REQUEST_CHANGES` review from an
 older commit stays on the pull request when a newer head replaces it. When a new
@@ -1026,7 +1000,7 @@ run on the same PR completes `clean`, `apps/cujo` lists the bot's own reviews,
 finds any whose `commit_id` differs from the current head and whose state is
 `CHANGES_REQUESTED`, and dismisses them with a fixed message naming the new
 head. The trigger is the `clean` status — by definition, zero critical findings
-remain — and no other terminal status fires it. A run that ends `blocked_*` or
+remain — and no other terminal status fires it. A run that ends `blocked` or
 `error` leaves stale reviews standing, since the original condition may not be
 resolved. Before listing reviews, the dismissal reads the PR's current head
 from GitHub; if the head has moved past this run's commit, the operation is
@@ -1034,9 +1008,10 @@ skipped entirely to prevent dismissing a newer run's valid blocking review.
 The dismissal is a service-level action in `apps/cujo`, not a tool the agent
 calls, and `github-mcp` is unaffected.
 
-A REQUEST_CHANGES review only *blocks* a merge when the target repo's default
-branch has branch protection requiring PR review. Without it, the review still
-posts and shows as changes-requested, but does not gate the merge.
+A block holds a merge only where the target branch's protection requires the
+`cujo/guard` status check. Requiring PR review alone is not enough: a review can
+be dismissed by anyone with write access, which is the case the check exists
+for.
 
 ## Contract 5 — one session per PR, no double-posting
 
@@ -1071,26 +1046,10 @@ posts and shows as changes-requested, but does not gate the merge.
   evidence footer reachable. The `runs_head` unique index is partial — it only
   covers non-terminal statuses — so the superseded row does not block the
   replacement's insert.
-- **One turn may post two reviews, and that is not double-posting.** A run whose
-  finding is an accusation posts the observation as an advisory review and holds
-  the conclusion for a human, so the pull request carries a COMMENT review and,
-  once confirmed, a REQUEST_CHANGES one. The rule this contract protects is that
-  a head SHA gets one *run* and one verdict, not that it gets one HTTP call:
-  double-posting means two runs reviewing the same commit, which the idempotency
-  check above still prevents. The two reviews are one verdict in two parts, and
-  the second half never posts unless a human says so.
-
-  The projection holds them apart for the same reason. `review` is what reached
-  the pull request; `gated_review` is what is waiting. One field for both would
-  have the accusation overwrite the record of the posted observation, and every
-  surface would then show a human the un-posted text as though it were live.
-
-  **A denied accusation leaves nothing behind.** `findings` publishes the
-  gated review's own findings only once that review actually posted, which
-  means an approval that was *allowed*. A denied call is answered with a
-  refusal `tool.response` like any other, so "a response arrived" is not the
-  test; the decision is. What survives a denial is the observation — the hard
-  rule Cujo derived itself, which never waited on anybody.
+- **One turn posts one review.** Since decision 138 there is no second call
+  and no held half: a head SHA gets one *run*, one review and one verdict, and
+  double-posting means two runs reviewing the same commit, which the
+  idempotency check above still prevents.
 
 ## Contract 6 — the run record and the operator API
 
@@ -1105,21 +1064,21 @@ fold (decision 105), against the contract's own schemas
 on mismatch, never a rejection, and a type the contract does not name is
 checked for an id and a timestamp only.
 
-A run spans more than one harness turn. `tool.approval_required` ends the
-turn it arrives in, and the resume (Contract 4) is a new turn whose
-`turn.created` carries `previousTurnId`. So a run holds an ordered list of
-turn ids, appended on every `turn.created` `apps/cujo` sees for the session,
-whether it started that turn or not, and rehydration replays every turn in the
-list in order.
+A run may span more than one harness turn: a turn that ended in error with
+nothing posted is retried once (decision 130), and the retry's `turn.created`
+carries `previousTurnId`. So a run holds an ordered list of turn ids,
+appended on every `turn.created` `apps/cujo` sees for the session, whether it
+started that turn or not, and rehydration replays every turn in the list in
+order.
 
 | Field | Meaning |
 |-------|---------|
 | `id` | Run id, `apps/cujo`'s own. |
 | `repo`, `pr_number`, `head_sha` | The PR event that started it. |
 | `session_id` | The harness session (one per PR, Contract 5). |
-| `turn_ids` | Ordered list: the turn started for this head SHA, then each resume turn. |
-| `status` | One of the eight states below. |
-| `approver`, `decided_at` | Who decided and when. `github:<login>` for a decision made with `/cujo confirm` or `/cujo dismiss` on the pull request, which is the only way a held finding is answered (decisions 45 and 49); the literal `external` when the resume came from somewhere else (see below). Never served on the public plane. |
+| `turn_ids` | Ordered list: the turn started for this head SHA, then a retry if there was one. |
+| `status` | One of the seven states below. |
+| `approver`, `decided_at` | Who lifted a block and when: `github:<login>` of the person whose `/cujo dismiss` moved the run to `dismissed` (decisions 44, 138), set by the claim that makes a dismissal one person's. Both unset on every other run. Never served on the public plane. |
 | `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
 | `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
 | `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 55). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
@@ -1136,14 +1095,12 @@ Status moves on events from the session's turn streams, with one exception
 | Status | Set when |
 |--------|----------|
 | `running` | The run was claimed; the first turn is being started. |
-| `clean` | `turn.done` with no `tool.approval_required` seen: the advisory review posted, and at least one check returned a report. On a diff run: the advisory review posted, full stop — it never had a check, and the run's `mode` is what says so. |
+| `clean` | `turn.done` on a posted advisory review, with at least one check having returned a report. On a diff run: the advisory review posted, full stop — it never had a check, and the run's `mode` is what says so. |
 | `unproven` | `turn.done` on a posted review with **no check report at all** (decision 107). The review is real and the evidence behind it is absent, which `clean` claimed the opposite of. Not `error`: Cujo ran and posted, it just had nothing to show. Terminal, so `TERMINAL_STATUSES_SQL` names it and the partial index excludes it. The one exception is decision 87's: when no suite was inferred and `detonation` reported alone, that is `clean`. |
-| `blocked_unattended` | `turn.done` on an ungated `post_blocking_review`: Cujo blocked the merge on its own authority, for a correctness critical, and no human was asked. `approver` is null and stays null. |
-| `blocked_pending` | `tool.approval_required` arrived on thread `main`. |
-| `blocked_posted` | The `tool.response` for the gated call arrived in a later turn, and that turn's `turn.done` followed. |
-| `denied` | A later turn's `turn.done` arrived with no `tool.response` for the gated call and the resume was a `deny`. |
-| `error` | `turn.done` with an error state — including `token budget exhausted: N of B` from the harness (decision 132), which is never retried because the same brief would spend the same tokens — the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read, the mode read, or the turn start failed) and so never had a turn, the turn ended on an advisory review while a hard rule had tripped (Contract 3), or a diff run called any review tool but `post_advisory_review`, or posted a `critical` on it (Contract 11). **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
-| `superseded` | A newer head arrived on the same PR while this run was `running` or `blocked_pending`. The run stops following its turn and no decision can be made on it. A run that was waiting on a human also has its approval denied, so the session can take the newer head's turn (decision 39). |
+| `blocked` | `turn.done` on a `post_blocking_review`: REQUEST_CHANGES is on the pull request and the `cujo/guard` check fails on the head (decision 138). Terminal — nothing is followed — and the one status a person moves. `approver` is null until they do. |
+| `dismissed` | A person lifted the block with `/cujo dismiss` (Contract 1): the bot's review is dismissed, the check is neutral, `approver` names them. Set by `Runner.dismiss` from outside the fold, since no event says a block was lifted. Terminal. |
+| `error` | `turn.done` with an error state — including `token budget exhausted: N of B` from the harness (decision 132), which is never retried because the same brief would spend the same tokens — the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read, the mode read, or the turn start failed) and so never had a turn, the turn ended on an advisory review while a `critical` stood (Contract 3), a diff run called `post_blocking_review` (Contract 11), or the harness held a tool call — `approval requested for <tool>; nothing is gated on this spec` — which only a session pinned to a spec from before decision 138 can produce, and which is not retried. **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
+| `superseded` | A newer head arrived on the same PR, or `/cujo review` asked for this head again. A `running` run stops following its turn, which is cancelled; a finished run — `blocked` included — is moved in the store and emitted, so its ping, its reaction and its check run hear that a newer run owns the commit. |
 
 `unproven` is never reached by a diff run: the fold folds a diff run under its
 own ladder (Contract 11), which has no rung for missing evidence because none
@@ -1157,9 +1114,10 @@ read back from the session, folded without touching the run's own events, and
 posted to the pull request as one plain issue comment — never a review, because
 `apps/cujo` holds no review write at all. It names the check that hung, the
 checks that reported, any correctness critical among the findings, and the
-*number* of malice claims being held without naming one: an accusation reaches a
-pull request only once somebody has allowed it (Contract 4). Nothing is posted if
-the read back turns up a review the stream had not yet delivered.
+*number* of malice claims without naming one: a claim about what code did
+belongs in a review with its evidence, not in a comment about a run that did
+not finish. Nothing is posted if the read back turns up a review the stream
+had not yet delivered.
 
 **An operational hard rule reaches the author too** (decision 110), as a second
 kind of the same comment: `check_missing`, `sensor_unarmed` and `report_invalid`
@@ -1186,17 +1144,6 @@ cannot cost a verdict. The review tool call is recognised by the tool's own
 name on the `model.message`: the harness exposes MCP tools to the model by
 name and there is no meta-tool (decision 128).
 
-A resume `apps/cujo` did not send is still tracked. After `blocked_pending`,
-`apps/cujo` keeps a subscription on the session (`subscribe` for a turn still
-running; `listEvents` on the session after a restart), so a new turn started
-by anything else that can reach the harness is seen like any other: its id is
-appended to `turn_ids`, the gated call's `tool.response` moves the run to
-`blocked_posted` or its absence to `denied`, and `approver` is set to
-`external`. The UI shows such a run with an "approved outside Cujo" mark
-instead of a name. The run cannot go stale, and the audit trail records that
-the decision was made outside Cujo rather than pretending it did not happen
-(decision 17).
-
 The four checks are matched to subagent threads by title. The parent titles
 each spawned thread exactly `tests`, `probes`, `smoke`, or `detonation`; a
 thread with any other title is shown but not treated as a check. A check's
@@ -1213,8 +1160,8 @@ second plane behind one — the operator API was deleted with its hostname
 | Route | Returns or does |
 |-------|-----------------|
 | `GET /public/runs` | Public runs only, newest first, capped at 100. Filtered on `is_public = 1` in SQL, not by the route. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at`, `updated_at`, `pr_title`, and `digest` — and nothing else. Never the author, which belongs to the page about one run. |
-| `digest` on a list row | The run's checks and findings reduced to what a row can hold (decision 65): `checks` keyed by check name, each `{ status, ms, sandboxMs }`; `findings` as `{ critical, warn, info }` counts; and `durationMs`, the envelope from the first `startedAt` to the last `endedAt`. Nested keys stay camelCase, like every other nested object on this wire. A check name absent from `checks` never appeared, which is not the same fact as one that failed. `ms` and `durationMs` are null while a check is still running and on a run recorded before those stamps existed. `sandboxMs` is how much of `ms` was the sandbox executing the pull request, read off the check's own `timings` (Contract 6, decision 70) — the rest was the sub-agent deciding what to do next. It is null on the same terms plus a third: a check whose report carried no `runs[]` measured no sandbox time rather than zero, and a digest stored before the field existed never regains it, because `backfillDigest` re-derives a *missing* digest and not a stale one. Every one of these is emitted as `null` and never omitted; `durationMs` is deliberately not `updated_at − created_at`, which on a `blocked_pending` run counts the hours it waited on a person. The whole field is null for a run claimed but never folded. Derived once per fold and stored in `run_digests`; a run folded before that table existed is derived on read and backfilled. |
-| `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `attempts`, `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids`, `delivery_id` and `external_resume` (decision 57) — but never `approver`, `decided_at`, `approval`, `decision` or `is_public`. The held review appears only once `status` is `blocked_posted`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
+| `digest` on a list row | The run's checks and findings reduced to what a row can hold (decision 65): `checks` keyed by check name, each `{ status, ms, sandboxMs }`; `findings` as `{ critical, warn, info }` counts; and `durationMs`, the envelope from the first `startedAt` to the last `endedAt`. Nested keys stay camelCase, like every other nested object on this wire. A check name absent from `checks` never appeared, which is not the same fact as one that failed. `ms` and `durationMs` are null while a check is still running and on a run recorded before those stamps existed. `sandboxMs` is how much of `ms` was the sandbox executing the pull request, read off the check's own `timings` (Contract 6, decision 70) — the rest was the sub-agent deciding what to do next. It is null on the same terms plus a third: a check whose report carried no `runs[]` measured no sandbox time rather than zero, and a digest stored before the field existed never regains it, because `backfillDigest` re-derives a *missing* digest and not a stale one. Every one of these is emitted as `null` and never omitted; `durationMs` is deliberately not `updated_at − created_at`, which on a dismissed run counts the hours until a person lifted it. The whole field is null for a run claimed but never folded. Derived once per fold and stored in `run_digests`; a run folded before that table existed is derived on read and backfilled. |
+| `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `attempts`, `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids` and `delivery_id` (decision 57) — but never `approver`, `decided_at` or `is_public`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
 
 There is no write route, and the `/discord/*` routes that were Contract 7's
@@ -1292,9 +1239,9 @@ the process, not only at the edge:
   Ed25519 signature does (Contract 8). Those two signatures are the only
   credentials anywhere in this process.
 
-Tripwire: a `tool.approval_required` whose `thread_id` is not `main` means a
-subagent was given the review tool, which the design forbids. `apps/cujo` logs
-it and marks the run `error`; no `/cujo` command can decide it.
+Tripwire: a `tool.approval_required` on any thread means a spec still gates a
+tool, which nothing has since decision 138. `apps/cujo` marks the run `error`
+naming the call; no `/cujo` command can decide it, and it is not retried.
 
 ### Run lifecycle log events
 
@@ -1337,10 +1284,8 @@ its own card and the earlier run's card is rewritten to say it was superseded.
 |--------|--------|---------------|--------|
 | `running` | amber (`--sev-medium`) | Review running. | `Head`, `Pull request`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
 | `clean` | grey (`--fg-muted`) | No critical finding; the advisory review posted. | Identity row, `Checks`, `Summary`. |
-| `blocked_pending` | brand amber (`--accent`) | Blocked, waiting for a human. | Identity row with `Findings`, then up to three *distinct* critical findings — grouped by title and evidence, naming the checks that saw each — then `Checks`. Also posts the ping below. |
-| `blocked_unattended` | red (`--sev-critical`) | The blocking review posted. A correctness finding: nobody was asked. | Grouped critical findings, `Checks`. |
-| `blocked_posted` | red (`--sev-critical`) | The blocking review posted, and who decided. | Grouped critical findings, `Checks`. |
-| `denied` | grey (`--sev-low`) | The block was rejected; nothing was posted. | Grouped critical findings, `Checks`. |
+| `blocked` | red (`--sev-critical`) | The blocking review posted and the `cujo/guard` check fails; a maintainer lifts it with `/cujo dismiss`. Also posts the ping below. | Identity row with `Findings`, then up to three *distinct* critical findings — grouped by title and evidence, naming the checks that saw it — then `Checks`. |
+| `dismissed` | grey (`--sev-low`) | The block was lifted, and by whom, as a login. The observation stands. | Grouped critical findings, `Checks`. |
 | `error` | blue (`--sev-info`) | The run ended in error. | `Error`. Red, never: red means the pull request is dangerous, and an infrastructure failure is a status, not a verdict. |
 | `unproven` | blue (`--sev-info`) | The review posted with no evidence: not one check returned a report. | `Checks`, `Summary`. The same blue as `error` for the same reason — both describe Cujo rather than the pull request — and the words tell them apart. |
 | `superseded` | near-black (`--line`) | Replaced by a newer commit. | `Head` and `Pull request` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
@@ -1396,20 +1341,20 @@ run with no turn. The second is the "lost before its turn started" case, which
 a webhook redelivery re-claims under a fresh run id (Contract 6) — a card for
 it would sit in the channel beside the real one.
 
-**The ping.** A Discord edit notifies nobody, so the one moment that needs a
-person cannot be an edit. On `blocked_pending` Cujo posts a second message
-that mentions `notify_role_id`, and that message carries its own card
-(decision 86): a slim amber embed titled `repo #n — <pr title>` — linking the
-run when it has a page — saying the critical count and that a human is
-blocked, with no fields, because it sits directly under the run card and
-anything it repeated from the card above it would be noise. The mention stays
+**The ping.** A Discord edit notifies nobody, so the one outcome a maintainer
+must look at cannot be an edit. On `blocked` Cujo posts a second message that
+mentions `notify_role_id`, and that message carries its own card (decision
+86): a slim red embed titled `repo #n — <pr title>` — linking the run when it
+has a page — saying the critical count and that the merge is held, with no
+fields, because it sits directly under the run card and anything it repeated
+from the card above it would be noise. The mention stays
 in `content`, because a mention only pings from there, and Cujo's own link is
 wrapped in angle brackets so Discord does not unfurl the site beneath the
 embed Cujo just built. With no role configured it still posts, without a
 mention: a new message is what raises the channel's unread mark, which is the
-entire point. Once the run leaves `blocked_pending` that same message is
-edited in place: the embed is recoloured to the outcome and the content says
-resolved.
+entire point. Once the run leaves `blocked` — dismissed, or superseded by a
+newer commit — that same message is edited in place: the embed is recoloured
+to the outcome and the content says resolved.
 
 Both ping steps are deduped on their own durable marker rather than on the
 run's status, because the card is written first and a matching status would
@@ -1473,7 +1418,7 @@ request. So, without exception:
    (amended by decision 86; before it, the whole ping was plain text).
 
 **Delivery is at-least-once, and never blocks a run.** A failed send is logged
-and dropped; nothing about a run's status, review, or approval depends on
+and dropped; nothing about a run's status, review, or dismissal depends on
 Discord. Sends run on one serial queue, so an edit cannot overtake the create
 it depends on and a fan-out across many pull requests cannot exceed Discord's
 global rate. A 429 is retried once against `retry_after`. A `PATCH` answered
@@ -1702,15 +1647,16 @@ definition cannot drift from the code across deploys and a change is visible at
 once (decision 28). A server the bot joins later gets its commands at the next
 start.
 
-**What this endpoint may not do.** It routes notifications. It cannot answer a
-held finding, and it must not be extended to, because that would swap the
-principal for Discord channel membership on the one action the whole product
-gates. Being in a channel is not a claim about a repository.
+**What this endpoint may not do.** It routes notifications. It cannot lift a
+block, and it must not be extended to, because that would swap the principal
+for Discord channel membership on the one human decision the product has.
+Being in a channel is not a claim about a repository.
 
-That prohibition is about the *principal*, not about the plane. The human gate
-now lives on the signature-gated ingress route too, as `/cujo confirm` on the
-pull request (Contract 1, decision 45) — same host, same HMAC, and a principal
-that does correspond to the repository: write access, checked against GitHub.
+That prohibition is about the *principal*, not about the plane. The unlock
+lives on the signature-gated ingress route, as `/cujo dismiss` on the pull
+request (Contract 1, decisions 45 and 138) — same host, same HMAC, and a
+principal that does correspond to the repository: write access, checked
+against GitHub, minus the author and minus every bot account.
 Decision 43 argues that swap; decision 23 still owns this one, and it is
 unchanged.
 
@@ -1732,11 +1678,9 @@ log.
 |-----------|----------|-----|
 | Claimed, before any turn | 👀 | Cujo has the pull request. |
 | `running` | 👀 | Still reading. |
-| `blocked_pending` | 👀 🚀 | Still reading, and now waiting on a human. |
 | `clean` | 🎉 | No critical finding. |
-| `blocked_unattended` | 👎 | The blocking review posted. Shared with `blocked_posted` on purpose: the reactions describe what happened to the pull request, and a REQUEST_CHANGES is on it either way. |
-| `blocked_posted` | 👎 | The blocking review posted. |
-| `denied` | 👍 | A human cleared the pull request to proceed. |
+| `blocked` | 👎 | The blocking review posted, and the `cujo/guard` check fails. |
+| `dismissed` | 👍 | A human lifted the block; the pull request may proceed. |
 | `error` | 😕 | Cujo broke. |
 | `unproven` | 😕 | The review posted and no check reported. Shared with `error` on purpose, and with nothing else: on the pull request this pair means "do not read a verdict into this", and which of the two it was is on the board. |
 | `superseded` | *nothing* | Not this run's pull request to describe any more. |
@@ -1750,7 +1694,7 @@ back (decision 43). A comment does not change state, so there is nothing to
 reconcile and "seen" is said once.
 
 The reactions describe **what happened to the pull request**, not what Cujo
-concluded, which is why `denied` is a thumbs up even though the finding stands.
+concluded, which is why `dismissed` is a thumbs up even though the finding stands.
 GitHub's reaction set is closed — `+1 -1 laugh confused heart hooray rocket
 eyes` — so there is no check mark and no cross to spend, and this is the whole
 vocabulary available.
@@ -1798,14 +1742,11 @@ rather than a rephrasing of the old one.
 **Its own harness session, always.** Keyed `(repo, pr_number)` in
 `conversation_sessions`, which is a second table rather than a column because
 `sessions` is keyed by the pull request and already holds the review's. Sharing
-the review's session fails three ways, each independently fatal:
+the review's session fails two ways, each independently fatal:
 
 - it **cancels a live review** — creating a turn while one runs ends the old
   one as `cancelled-for-next-turn`. Ungated, that is a one-comment denial of
   review.
-- it **voids a held accusation** — a new user message on a session with a
-  pending approval supersedes it (decision 125), in exactly the
-  `blocked_pending` state a maintainer most wants to talk about.
 - it **corrupts the projection**: `fold` dedupes checks by thread id, so a
   re-run emits every hard-rule critical twice and can never clear the finding it
   was meant to correct.

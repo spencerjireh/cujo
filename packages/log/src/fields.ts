@@ -125,11 +125,10 @@ export const CAP: Record<FieldClass, number> = {
 
 /**
  * Exhaustive by type. `pii` still has one member on purpose. `actor` is who
- * made a decision: an Access email, or — since the gate moved to the pull
- * request — a GitHub login (decision 44). Either way the store already
- * persists it as `approver` and the public serializer already withholds it,
- * and logging it is the point of the audit trail. The class exists so a second
- * one cannot arrive without being written down.
+ * lifted a block: a GitHub login (decisions 44, 138). The store persists it as
+ * `approver` and the public serializer withholds it, and logging it is the
+ * point of the audit trail. The class exists so a second one cannot arrive
+ * without being written down.
  */
 export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   run_id: "id",

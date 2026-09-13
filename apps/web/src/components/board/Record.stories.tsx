@@ -16,7 +16,7 @@ export const Populated: Story = { args: { runs } };
 /** Only the runs a turn can still change, which is what the filter selects. */
 export const OnlyLive: Story = {
   args: {
-    runs: runs.filter((run) => run.status === "running" || run.status === "blocked_pending"),
+    runs: runs.filter((run) => run.status === "running"),
   },
 };
 

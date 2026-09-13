@@ -92,14 +92,15 @@ export function Findings() {
           </Row>
         </Table>
         <P>
-          &ldquo;Your tests fail&rdquo; is mechanical, checkable by the author in thirty seconds,
-          and nobody sensible answers no to it. &ldquo;This code tried to steal a credential&rdquo;
-          harms someone if it is wrong. That is the whole reason for{" "}
-          <Link href="/docs/the-gate" className="text-accent underline underline-offset-4">
-            the gate
-          </Link>{" "}
-          — and it is why the split is not the obvious one. Three of the four malice rules fire on
-          any check, including the repository&rsquo;s own tests.
+          &ldquo;Your tests fail&rdquo; is mechanical, checkable by the author in thirty seconds.
+          &ldquo;This code tried to steal a credential&rdquo; is a claim about what the code did,
+          and the review states it as the measurement it is — the host, the path, the time. Both
+          block the same way, and a maintainer who knows the host or the fixture lifts the block on{" "}
+          <Link href="/docs/blocking" className="text-accent underline underline-offset-4">
+            the pull request
+          </Link>
+          . The split still matters for what the review says, and it is not the obvious one: three
+          of the four malice rules fire on any check, including the repository&rsquo;s own tests.
         </P>
       </Section>
 

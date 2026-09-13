@@ -21,8 +21,13 @@ export const Clean: Story = {
   },
 };
 
-export const Decided: Story = {
-  args: { run: run({ status: "blocked_posted" }) },
+export const Blocked: Story = {
+  args: { run: run({ status: "blocked" }) },
+};
+
+/** A maintainer lifted the block: the review is dismissed and the check neutral. */
+export const Dismissed: Story = {
+  args: { run: run({ status: "dismissed" }) },
 };
 
 /**

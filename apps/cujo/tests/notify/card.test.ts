@@ -133,9 +133,9 @@ describe("truncate", () => {
 const STATUSES: RunStatus[] = [
   "running",
   "clean",
-  "blocked_pending",
-  "blocked_posted",
-  "denied",
+  "unproven",
+  "blocked",
+  "dismissed",
   "error",
   "superseded",
 ];
@@ -145,7 +145,7 @@ describe("buildRunCard", () => {
     const payload = buildRunCard({
       run: run({
         status,
-        approver: status === "denied" ? "op@example.com" : null,
+        approver: status === "dismissed" ? "github:octocat" : null,
         prTitle: "Add a thing",
       }),
       projection: projection({
@@ -162,21 +162,22 @@ describe("buildRunCard", () => {
     expect(embed?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
   });
 
-  it("gives each status its own colour", () => {
-    const colors = STATUSES.map(
-      (status) =>
-        buildRunCard({
-          run: run({ status, prTitle: null }),
-          projection: projection({ status }),
-          links: LINKS,
-        }).embeds?.[0]?.color,
-    );
-    expect(new Set(colors).size).toBe(STATUSES.length);
+  it("gives each verdict its own colour, and the two no-verdict states one", () => {
+    const colorOf = (status: RunStatus) =>
+      buildRunCard({
+        run: run({ status, prTitle: null }),
+        projection: projection({ status }),
+        links: LINKS,
+      }).embeds?.[0]?.color;
+    const verdicts = STATUSES.filter((s) => s !== "unproven");
+    expect(new Set(verdicts.map(colorOf)).size).toBe(verdicts.length);
+    // Both say Cujo reached no verdict; the words tell them apart.
+    expect(colorOf("unproven")).toBe(colorOf("error"));
   });
 
-  it("spends brand amber on the one status that needs a human", () => {
-    // brand.md: amber is the brand, and it marks the thing a person must act
-    // on. If a second status takes it, the signal is gone (decision 36).
+  it("spends brand amber on no status, since nothing waits on a person (decision 138)", () => {
+    // brand.md: amber marks the thing a person must act on. A block asks
+    // nobody to act — a person may lift it, but the merge holds either way.
     const amber = STATUSES.filter(
       (status) =>
         buildRunCard({
@@ -185,7 +186,7 @@ describe("buildRunCard", () => {
           links: LINKS,
         }).embeds?.[0]?.color === 0xf2a900,
     );
-    expect(amber).toEqual(["blocked_pending"]);
+    expect(amber).toEqual([]);
   });
 
   it("colours an errored run blue, not red", () => {
@@ -198,7 +199,7 @@ describe("buildRunCard", () => {
         links: LINKS,
       }).embeds?.[0]?.color;
     expect(colorOf("error")).toBe(0x66b0f0);
-    expect(colorOf("blocked_posted")).toBe(0xff5c45);
+    expect(colorOf("blocked")).toBe(0xff5c45);
   });
 
   it("suppresses every mention, so a PR titled @everyone pings nobody", () => {
@@ -253,8 +254,8 @@ describe("buildRunCard", () => {
       finding({ severity: "critical", title: `f${i} ${"x".repeat(1000)}` }),
     );
     const payload = buildRunCard({
-      run: run({ status: "blocked_pending", prTitle: "z".repeat(5_000) }),
-      projection: projection({ status: "blocked_pending", findings, summary: "y".repeat(20_000) }),
+      run: run({ status: "blocked", prTitle: "z".repeat(5_000) }),
+      projection: projection({ status: "blocked", findings, summary: "y".repeat(20_000) }),
       links: LINKS,
     });
     expectWithinDiscordLimits(payload);
@@ -418,8 +419,8 @@ describe("buildRunCard", () => {
         finding({ severity: "critical", title: `f${i} ${"x".repeat(1000)}` }),
       );
       const payload = buildRunCard({
-        run: run({ status: "blocked_pending", prTitle: "z".repeat(5_000) }),
-        projection: projection({ status: "blocked_pending", findings }),
+        run: run({ status: "blocked", prTitle: "z".repeat(5_000) }),
+        projection: projection({ status: "blocked", findings }),
         links: LINKS,
       });
       const fields = payload.embeds?.[0]?.fields ?? [];
@@ -566,9 +567,9 @@ describe("buildRunCard", () => {
 
     it("says what each check measured, never a pass glyph", () => {
       const payload = buildRunCard({
-        run: run({ status: "blocked_posted", prTitle: null }),
+        run: run({ status: "blocked", prTitle: null }),
         projection: projection({
-          status: "blocked_posted",
+          status: "blocked",
           checks: [
             stamped("tests", "done", 41_000),
             stamped("probes", "done", 1_234),
@@ -597,9 +598,9 @@ describe("buildRunCard", () => {
       // 119.6s floored to minutes and rounded to seconds independently is
       // `1m60s`, which is not a duration anybody ran for.
       const payload = buildRunCard({
-        run: run({ status: "blocked_posted", prTitle: null }),
+        run: run({ status: "blocked", prTitle: null }),
         projection: projection({
-          status: "blocked_posted",
+          status: "blocked",
           checks: [stamped("tests", "done", 119_600), stamped("probes", "done", 59_700)],
         }),
         links: LINKS,
@@ -623,9 +624,9 @@ describe("buildRunCard", () => {
 
     it("cost one line, naming the checks that saw it", () => {
       const payload = buildRunCard({
-        run: run({ status: "blocked_pending", prTitle: null }),
+        run: run({ status: "blocked", prTitle: null }),
         projection: projection({
-          status: "blocked_pending",
+          status: "blocked",
           findings: [decoy("tests"), decoy("smoke"), decoy("detonation")],
         }),
         links: LINKS,
@@ -646,8 +647,8 @@ describe("buildRunCard", () => {
         findings.push(finding({ check: "probes", severity: "critical", title: `distinct ${i}` }));
       }
       const payload = buildRunCard({
-        run: run({ status: "blocked_pending", prTitle: null }),
-        projection: projection({ status: "blocked_pending", findings }),
+        run: run({ status: "blocked", prTitle: null }),
+        projection: projection({ status: "blocked", findings }),
         links: LINKS,
       });
       const critical = payload.embeds?.[0]?.fields?.find((f) => f.name.startsWith("Critical"));
@@ -694,22 +695,33 @@ describe("buildRunCard", () => {
     for (const name of CHECK_NAMES) expect(checks?.value).toContain(name);
   });
 
-  it("names the approver on a decided run", () => {
+  it("names who lifted a dismissed run's block, as a login", () => {
     const payload = buildRunCard({
-      run: run({ status: "blocked_posted", approver: "op@example.com", prTitle: null }),
-      projection: projection({ status: "blocked_posted" }),
+      run: run({ status: "dismissed", approver: "github:octocat", prTitle: null }),
+      projection: projection({ status: "dismissed" }),
       links: LINKS,
     });
-    expect(payload.embeds?.[0]?.description).toContain("op@example.com");
+    expect(payload.embeds?.[0]?.description).toContain("Dismissed by @octocat");
+    expect(payload.embeds?.[0]?.description).not.toContain("github:");
+  });
+
+  it("says how a block is lifted", () => {
+    const payload = buildRunCard({
+      run: run({ status: "blocked", prTitle: null }),
+      projection: projection({ status: "blocked" }),
+      links: LINKS,
+    });
+    expect(payload.embeds?.[0]?.description).toContain("/cujo dismiss");
+    expect(payload.embeds?.[0]?.description).toContain("cujo/guard");
   });
 });
 
 describe("buildPing", () => {
   const pingOf = (patch: Partial<RunRecord> = {}, roleId: string | null = null) =>
     buildPing({
-      run: run({ status: "blocked_pending", ...patch }),
+      run: run({ status: "blocked", ...patch }),
       projection: projection({
-        status: patch.status ?? "blocked_pending",
+        status: patch.status ?? "blocked",
         findings: [finding({ severity: "critical" })],
       }),
       links: LINKS,
@@ -717,7 +729,7 @@ describe("buildPing", () => {
     });
 
   it("mentions the configured role and nothing else", () => {
-    const payload = pingOf({ status: "blocked_pending" }, "123456789012345678");
+    const payload = pingOf({ status: "blocked" }, "123456789012345678");
     expect(payload.content).toContain("<@&123456789012345678>");
     expect(payload.allowed_mentions).toEqual({ parse: [], roles: ["123456789012345678"] });
     expectWithinDiscordLimits(payload);
@@ -734,10 +746,10 @@ describe("buildPing", () => {
   it("carries its own card, not a copy of the run card", () => {
     const payload = pingOf();
     const embed = payload.embeds?.[0];
-    expect(embed?.color).toBe(0xf2a900);
+    expect(embed?.color).toBe(0xff5c45);
     expect(embed?.title).toBe("o/r #7 — a pull request");
     expect(embed?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
-    expect(embed?.description).toContain("waiting for a human");
+    expect(embed?.description).toContain("**Blocked.**");
     expect(embed?.description).toContain("1 critical finding");
     // Slim: anything it repeated from the card above it would be noise.
     expect(embed?.fields).toBeUndefined();
@@ -754,9 +766,9 @@ describe("buildPing", () => {
 
   it("clamps its embed like the card's, because a 400 would lose the alert", () => {
     const payload = buildPing({
-      run: run({ status: "blocked_pending", prTitle: "t".repeat(5_000) }),
+      run: run({ status: "blocked", prTitle: "t".repeat(5_000) }),
       projection: projection({
-        status: "blocked_pending",
+        status: "blocked",
         findings: Array.from({ length: 50 }, () =>
           finding({ severity: "critical", title: "x".repeat(500) }),
         ),
@@ -774,14 +786,21 @@ describe("buildPing", () => {
     expect(payload.embeds).toHaveLength(1);
   });
 
-  it("reads as resolved once the run has left blocked_pending", () => {
-    const payload = pingOf({ status: "blocked_posted" }, "123456789012345678");
-    expect(payload.content).toContain("Resolved (blocked_posted)");
+  it("reads as resolved once the run has left blocked", () => {
+    const payload = pingOf({ status: "dismissed" }, "123456789012345678");
+    expect(payload.content).toContain("Resolved (dismissed)");
     expect(payload.allowed_mentions).toEqual({ parse: [] });
     // The embed stays, recoloured to the outcome, so the message that raised
     // the channel's unread mark is the one that clears it.
-    expect(payload.embeds?.[0]?.color).toBe(0xff5c45);
+    expect(payload.embeds?.[0]?.color).toBe(0x958d82);
     expect(payload.embeds?.[0]?.description).toContain("Resolved — ");
+  });
+
+  it("says a block holds the merge and how a person lifts it", () => {
+    const payload = pingOf({ status: "blocked" }, "123456789012345678");
+    expect(payload.content).toContain("Cujo blocked");
+    expect(payload.content).toContain("/cujo dismiss");
+    expect(payload.embeds?.[0]?.description).toContain("**Blocked.** 1 critical finding.");
   });
 });
 
@@ -822,18 +841,18 @@ describe("where a card links", () => {
   });
 
   it("applies the same rule to the ping, without a dangling space", () => {
-    const blocked = { status: "blocked_pending" as const };
+    const blocked = { status: "blocked" as const };
     expect(
       buildPing({
         run: run({ ...blocked, isPublic: true }),
-        projection: projection({ status: "blocked_pending" }),
+        projection: projection({ status: "blocked" }),
         links: LINKS,
         roleId: null,
       }).content,
     ).toContain(PUBLIC_UI);
     const private_ = buildPing({
       run: run({ ...blocked, isPublic: false }),
-      projection: projection({ status: "blocked_pending" }),
+      projection: projection({ status: "blocked" }),
       links: LINKS,
       roleId: null,
     });
@@ -848,8 +867,8 @@ describe("where a card links", () => {
     // A repo name may hold `_`, and the ping is the one payload that was
     // interpolating it with only a length bound.
     const content = buildPing({
-      run: run({ status: "blocked_pending", repo: "o/my_repo_name", isPublic: true }),
-      projection: projection({ status: "blocked_pending" }),
+      run: run({ status: "blocked", repo: "o/my_repo_name", isPublic: true }),
+      projection: projection({ status: "blocked" }),
       links: LINKS,
       roleId: null,
     }).content;
@@ -861,8 +880,8 @@ describe("where a card links", () => {
 
   it("names the pull request in a private run's resolved ping, and links nothing", () => {
     const resolved = buildPing({
-      run: run({ status: "denied", isPublic: false }),
-      projection: projection({ status: "denied" }),
+      run: run({ status: "dismissed", isPublic: false }),
+      projection: projection({ status: "dismissed" }),
       links: LINKS,
       roleId: null,
     });

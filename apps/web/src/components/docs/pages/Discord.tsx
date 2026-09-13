@@ -132,10 +132,10 @@ export function Discord() {
       <Section id="not-a-control" title="Nobody approves from Discord">
         <P>
           This is notification and nothing else. Being in a channel is not a claim about a
-          repository, and Discord membership is not repository write access. A held finding is
-          answered on the pull request, with{" "}
-          <Link href="/docs/the-gate" className="text-accent underline underline-offset-4">
-            <C>/cujo confirm</C>
+          repository, and Discord membership is not repository write access. A block is lifted on
+          the pull request, with{" "}
+          <Link href="/docs/blocking" className="text-accent underline underline-offset-4">
+            <C>/cujo dismiss</C>
           </Link>
           .
         </P>

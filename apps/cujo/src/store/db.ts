@@ -29,10 +29,12 @@ export type Db = DatabaseSyncType;
  *
  * The historical migrations keep their own literal. Migration 9's text is what
  * a deployed database already ran, and editing it would make the ladder a lie
- * about what was applied.
+ * about what was applied — which is also why 10 and 13 spell their lists out
+ * rather than interpolating this constant: the next terminal status is a new
+ * migration, not an edit to one that ran.
  */
 export const TERMINAL_STATUSES_SQL =
-  "('superseded', 'error', 'clean', 'unproven', 'blocked_unattended', 'blocked_posted', 'denied')";
+  "('superseded', 'error', 'clean', 'unproven', 'blocked', 'dismissed')";
 
 /**
  * Ordered, append-only. Index `i` takes the database from `user_version` `i`
@@ -111,13 +113,37 @@ export const MIGRATIONS: readonly string[] = [
   //      would never see this if it were inserted above.
   `DROP INDEX IF EXISTS runs_head;
    CREATE UNIQUE INDEX runs_head ON runs (repo, pr_number, head_sha)
-     WHERE status NOT IN ${TERMINAL_STATUSES_SQL};`,
+     WHERE status NOT IN ('superseded', 'error', 'clean', 'unproven', 'blocked_unattended', 'blocked_posted', 'denied');`,
   // 11, 12 — which review a run is and what its turn was allowed to spend
   //          (decisions 132, 135). Nullable: a row from before either column
   //          existed is a sandbox run with no budget, which is what NULL reads
   //          as in `toRecord`. Two statements, one column each, as above.
   "ALTER TABLE runs ADD COLUMN mode TEXT",
   "ALTER TABLE runs ADD COLUMN budget_tokens INTEGER",
+  // 13 — the gate's three statuses are migrated (decisions 138, 139). Every
+  //      block is now one kind, so `blocked_unattended` and `blocked_posted`
+  //      are `blocked`; `denied` was a person lifting a block, which is what
+  //      `dismissed` is; `blocked_pending` was a run waiting on a hold that no
+  //      longer exists, so it ends in `error`. The index is dropped first:
+  //      two `blocked_unattended` rows on one head were legal and both become
+  //      `blocked`, which the old partial index would refuse as two active
+  //      runs. The Discord column follows the same map so `owesWork` never
+  //      sees a transition from a status that no longer exists. Then the
+  //      index is rebuilt over the new terminal list, spelled out, and the
+  //      resume-turn table goes with the resume it recorded.
+  `DROP INDEX IF EXISTS runs_head;
+   UPDATE runs SET status = 'blocked' WHERE status IN ('blocked_unattended', 'blocked_posted');
+   UPDATE runs SET status = 'dismissed' WHERE status = 'denied';
+   UPDATE runs SET status = 'error' WHERE status = 'blocked_pending';
+   UPDATE run_discord_messages SET last_notified_status = 'blocked'
+     WHERE last_notified_status IN ('blocked_unattended', 'blocked_posted');
+   UPDATE run_discord_messages SET last_notified_status = 'dismissed'
+     WHERE last_notified_status = 'denied';
+   UPDATE run_discord_messages SET last_notified_status = 'error'
+     WHERE last_notified_status = 'blocked_pending';
+   CREATE UNIQUE INDEX runs_head ON runs (repo, pr_number, head_sha)
+     WHERE status NOT IN ('superseded', 'error', 'clean', 'unproven', 'blocked', 'dismissed');
+   DROP TABLE IF EXISTS run_cujo_turns;`,
 ];
 
 export const SCHEMA = `
@@ -187,13 +213,6 @@ export const SCHEMA = `
     run_id TEXT PRIMARY KEY REFERENCES runs (id),
     kind TEXT NOT NULL,
     created_at TEXT NOT NULL
-  );
-  -- Resume turns Cujo itself sent, so a restart still tells them apart
-  -- from a resume an operator sent through the harness console.
-  CREATE TABLE IF NOT EXISTS run_cujo_turns (
-    run_id TEXT NOT NULL REFERENCES runs (id),
-    turn_id TEXT NOT NULL,
-    PRIMARY KEY (run_id, turn_id)
   );
   -- Fresh databases get the tables below at their original shape and then
   -- run the same migrations a deployed one does, so both converge.

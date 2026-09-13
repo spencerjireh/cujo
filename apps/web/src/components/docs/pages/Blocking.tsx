@@ -9,55 +9,56 @@ import Link from "next/link";
  * added in `apps/cujo` appears here without anyone remembering, and says the
  * same sentence a link preview says about the same run.
  *
- * The reaction table is prose: GitHub's reaction set has no representation in
- * this app.
+ * The reaction and check columns are prose: neither vocabulary has a
+ * representation in this app.
  */
 
 /** The reaction a pull request wears, which is not the same claim as the status. */
 const REACTION: Partial<Record<(typeof RUN_STATUSES)[number], string>> = {
   running: "eyes",
   clean: "hooray",
-  blocked_pending: "eyes, rocket",
-  blocked_unattended: "thumbs down",
-  blocked_posted: "thumbs down",
-  denied: "thumbs up",
+  blocked: "thumbs down",
+  dismissed: "thumbs up",
   error: "confused",
   unproven: "confused",
   superseded: "nothing",
 };
 
-export function TheGate() {
+/** What the `cujo/guard` check run says on the commit. */
+const CHECK: Partial<Record<(typeof RUN_STATUSES)[number], string>> = {
+  running: "in progress",
+  clean: "success",
+  blocked: "failure",
+  dismissed: "neutral, naming who dismissed it",
+  error: "neutral",
+  unproven: "neutral",
+  superseded: "skipped, unless a newer run owns the commit",
+};
+
+export function Blocking() {
   return (
     <>
       <Section id="who-decides" title="The verdict comes from the tool, not from the model">
         <Lead>
-          The agent chooses which of three tools to call. Which tool it called is what makes a
-          review advisory, blocking or held — so a model cannot talk its way to a softer verdict
-          after the fact.
+          The agent chooses which of two tools to call. Which tool it called is what makes a review
+          advisory or blocking — so a model cannot talk its way to a softer verdict after the fact,
+          and nothing waits for a person before it posts.
         </Lead>
-        <Table head={["Situation", "What posts", "Waits for a person?"]}>
+        <Table head={["Situation", "What posts"]}>
           <Row>
             <Cell head>
               No <C>critical</C> finding
             </Cell>
             <Cell>A comment review, with the findings and the inline comments.</Cell>
-            <Cell>No</Cell>
           </Row>
           <Row>
             <Cell head>
-              Every <C>critical</C> is about correctness
-            </Cell>
-            <Cell>REQUEST_CHANGES, unattended. Cujo blocks on its own authority.</Cell>
-            <Cell>No</Cell>
-          </Row>
-          <Row>
-            <Cell head>
-              A <C>critical</C> accuses the change of malice
+              Any <C>critical</C> finding
             </Cell>
             <Cell>
-              The observation posts first, as a held <C>warn</C>. The conclusion waits.
+              REQUEST_CHANGES, at once. A broken test, a probe that contradicts the diff, a decoy
+              secret read, an install that called an unknown host: all of them block the same way.
             </Cell>
-            <Cell>Yes</Cell>
           </Row>
         </Table>
         <P>
@@ -66,46 +67,45 @@ export function TheGate() {
         </P>
       </Section>
 
-      <Section id="accusation" title="Why only the accusation waits">
+      <Section id="lock" title="The lock is a check run">
         <P>
-          Blocking a merge because a test broke is mechanical and nobody is harmed by it being wrong
-          for an hour. Saying that a change tried to read a credential is an accusation, and a
-          person holds information the sandbox cannot: they know the host, or the package, or the
-          fixture that touches a fake credentials file on purpose.
+          A review can be dismissed by anyone with write access — a coding agent with write access
+          included. A check run cannot be dismissed at all: only the App that owns it can complete
+          it. So beside every review, Cujo writes a check run named <C>cujo/guard</C> on the commit
+          it reviewed, and moves it as the run moves: in progress from the moment the commit is
+          claimed, success on a clean run, failure on a block.
         </P>
         <P>
-          So a malice finding posts twice. The observation goes up immediately — with the evidence,
-          marked held — and the conclusion is drafted and paused inside the harness until somebody
-          answers. Nothing about the held conclusion is published in the meantime, on the pull
-          request or on this board. Publishing it early is exactly what the gate exists to prevent.
+          To make the block hold the merge, require the check in branch protection:{" "}
+          <em>Require status checks to pass</em>, and pick <C>cujo/guard</C>. The check appears in
+          the picker once the App has written one. Without that setting a block is still a
+          REQUEST_CHANGES review and a red mark on the commit, and nothing more.
         </P>
         <Note>
-          A held approval has no deadline. It waits until a person answers or a new commit
-          supersedes it. The merge is not blocked while it waits, and nothing expires it.
+          The check needs the <C>Checks: write</C> permission on the App, which every installation
+          has to approve once. Until it has, the review and the reaction post as before and the
+          check is not written.
         </Note>
       </Section>
 
-      <Section id="answering" title="Answering, on the pull request">
+      <Section id="unlock" title="The unlock, on the pull request">
         <P>
-          Three verbs, each alone on its own line in a comment. They are matched as exact strings by
-          the service and never by a model, and a line inside a code fence, a blockquote or an HTML
-          comment does not count — if a reader cannot see it, it is not a command.
+          A block is lifted by a person, and only by a person. Two verbs exist, each alone on its
+          own line in a comment. They are matched as exact strings by the service and never by a
+          model, and a line inside a code fence, a blockquote or an HTML comment does not count — if
+          a reader cannot see it, it is not a command.
         </P>
         <Table head={["Command", "Does", "Who may"]}>
           <Row>
-            <Cell head>/cujo confirm</Cell>
-            <Cell>Publishes the held conclusion as a blocking review.</Cell>
-            <Cell>Anyone with write access, the author included.</Cell>
-          </Row>
-          <Row>
             <Cell head>/cujo dismiss</Cell>
             <Cell>
-              Publishes nothing further. The observation and its evidence stay on the pull request;
-              only the claim about a person is dropped.
+              Dismisses Cujo&rsquo;s blocking review on the current commit and turns the check
+              neutral, naming who dismissed it. The findings and their evidence stay on the pull
+              request; only the block is lifted.
             </Cell>
             <Cell>
               Anyone with write access <strong className="font-medium text-fg">except</strong> the
-              pull request&rsquo;s author.
+              pull request&rsquo;s author, and never a bot account.
             </Cell>
           </Row>
           <Row>
@@ -114,13 +114,16 @@ export function TheGate() {
               Reviews the current head again. Its main use is a pull request Cujo never saw; any
               earlier run for that commit is replaced.
             </Cell>
-            <Cell>Anyone with write access.</Cell>
+            <Cell>Anyone with write access, the author included.</Cell>
           </Row>
         </Table>
         <P>
-          The author may confirm, because acting against your own interest needs no guard. The
-          author may not dismiss, because that is the direction that buries an accusation against
-          their own change.
+          The author may not dismiss, because that is the direction that lifts a block on their own
+          change. A bot account may not dismiss whatever access it holds, because the unlock exists
+          to be the one thing a coding agent cannot do to the block it earned; GitHub&rsquo;s own
+          word for the account is what decides it, before any permission is read. A new commit gets
+          its own run, its own review and its own check, so a block is never carried forward — and
+          never dismissed forward either.
         </P>
         <P>
           Write access is read from GitHub on every command, and every outcome speaks on the pull
@@ -130,8 +133,8 @@ export function TheGate() {
         </P>
       </Section>
 
-      <Section id="statuses" title="The eight run states">
-        <Table head={["Status", "Means", "Reaction"]}>
+      <Section id="statuses" title="The seven run states">
+        <Table head={["Status", "Means", "Reaction", "Check"]}>
           {RUN_STATUSES.map((status) => (
             <Row key={status}>
               <Cell head>
@@ -139,13 +142,14 @@ export function TheGate() {
               </Cell>
               <Cell>{STATUS_LINE[status]}</Cell>
               <Cell>{REACTION[status] ?? "—"}</Cell>
+              <Cell>{CHECK[status] ?? "—"}</Cell>
             </Row>
           ))}
         </Table>
         <UL>
           <LI>
             The reactions describe what happened to the pull request, not what Cujo concluded —
-            which is why a dismissed finding leaves a thumbs up even though the observation stands.
+            which is why a dismissed block leaves a thumbs up even though the findings stand.
           </LI>
           <LI>
             Red is reserved for a pull request that is dangerous, never for Cujo falling over, so a
@@ -153,7 +157,8 @@ export function TheGate() {
           </LI>
           <LI>
             A superseded run writes no reaction at all. The run that replaced it is about to say
-            what the pull request should show.
+            what the pull request should show. Its check is per commit, so it is marked skipped —
+            unless the replacement reviews the same commit, which then owns the check.
           </LI>
           <LI>
             A diff review reaches three of these: <C>running</C>, <C>clean</C> and <C>error</C>. Its{" "}

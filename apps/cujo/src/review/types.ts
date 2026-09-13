@@ -9,17 +9,21 @@ import type { CheckTimings, SetupTimings } from "./timings";
 export type RunStatus =
   | "running"
   | "clean"
-  | "blocked_pending"
   /**
-   * A blocking review Cujo posted on its own authority: a correctness
-   * critical, which no human was asked about. Distinct from `blocked_posted`,
-   * where somebody confirmed an accusation — telling those two apart is what
-   * the gate exists for, and `approver` alone cannot, because it is also null
-   * on a run nobody ever looked at.
+   * A `post_blocking_review` posted: REQUEST_CHANGES on the pull request and
+   * the `cujo/guard` check run failing on its head (decision 138). Terminal —
+   * the review is on the pull request and nothing is followed — and the one
+   * status a person can move, with `/cujo dismiss`. `approver` is null until
+   * they do.
    */
-  | "blocked_unattended"
-  | "blocked_posted"
-  | "denied"
+  | "blocked"
+  /**
+   * A person lifted the block: the review is dismissed on GitHub, the check
+   * run is neutral, and `approver` names who, as `github:<login>` (decision
+   * 139). Terminal. Distinct from `clean`, which never blocked, and from
+   * `superseded`, where a newer commit and not a person moved the run on.
+   */
+  | "dismissed"
   | "error"
   /**
    * A review posted and not one check produced a report, so the run proved
@@ -183,8 +187,8 @@ export interface Finding {
   side?: "LEFT" | "RIGHT";
 }
 
-/** The three review tools (Contract 4). Two of them post REQUEST_CHANGES. */
-type ReviewTool = "post_advisory_review" | "post_blocking_review" | "post_gated_review";
+/** The two review tools (Contract 4). Neither waits for anyone. */
+type ReviewTool = "post_advisory_review" | "post_blocking_review";
 
 export interface DraftedReview {
   tool: ReviewTool;
@@ -208,46 +212,25 @@ export interface DraftedReview {
   findings: unknown[];
 }
 
-export interface PendingApproval {
-  threadId: string;
-  toolCallId: string;
-  sourceEventId: string;
-}
-
 export interface Projection {
   status: RunStatus;
   turnIds: string[];
   checks: CheckState[];
   /**
-   * The review that reached the pull request. Only ever an ungated call, so a
-   * recorded call is a posted review: `post_advisory_review` and
-   * `post_blocking_review` post the moment the model calls them.
+   * The review that reached the pull request. A recorded call is a posted
+   * review: both tools post the moment the model calls them (decision 138).
    */
   review: DraftedReview | null;
-  /**
-   * A `post_gated_review` call: drafted, and not on the pull request until
-   * `gatedResponseSeen`. Its own slot because the run can hold both at once —
-   * on the malice path the observation posts as an advisory and the conclusion
-   * waits — and one field cannot hold both without the second destroying the
-   * record of the first.
-   */
-  gatedReview: DraftedReview | null;
   /** Hard-rule hits re-derived from the check reports (decision 21). */
   hardRuleHits: Finding[];
   /** Hard-rule hits merged with the agent's findings, critical first. */
   findings: Finding[];
-  approval: PendingApproval | null;
-  /** Decision carried by a resume turn, whoever sent it. */
-  decision: "allow" | "deny" | null;
-  /** Set by the folder when a resume turn was not sent by Cujo. */
-  externalResume: boolean;
-  gatedResponseSeen: boolean;
   error: string | null;
   /** Final text of the parent thread, when the turn produced one. */
   summary: string | null;
   /**
    * What the whole run cost, summed over every `turn.done` on it — a run holds
-   * more than one turn whenever an approval was answered or a turn was retried.
+   * more than one turn whenever a turn was retried.
    *
    * Taken from `TurnStateDone.metrics` rather than added up from the messages,
    * because the harness computes it and is the only side that knows the reasoning
@@ -279,6 +262,12 @@ export interface RunRecord {
   sessionId: string;
   turnIds: string[];
   status: RunStatus;
+  /**
+   * Who lifted a block and when (decision 138): `github:<login>` of the person
+   * whose `/cujo dismiss` moved the run to `dismissed`, set by the claim that
+   * makes a dismissal one person's. Both null on every other run. Never
+   * served on the public plane, since a login is a person.
+   */
   approver: string | null;
   decidedAt: string | null;
   /**
@@ -371,7 +360,7 @@ export interface RunDigest {
    * Wall clock across the checks: the last `endedAt` minus the first
    * `startedAt`. Null while a check is still running, and on a run recorded
    * before those stamps existed. Deliberately not `updatedAt - createdAt`,
-   * which on a `blocked_pending` run counts the hours it waited on a person.
+   * which on a dismissed run counts the hours until a person lifted it.
    */
   durationMs: number | null;
 }

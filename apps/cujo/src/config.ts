@@ -110,6 +110,14 @@ export interface Config {
    */
   prReactions: boolean;
   /**
+   * Does Cujo write the `cujo/guard` check run on the commits it reviews
+   * (decision 138)? On unless `CUJO_PR_CHECKS=0`. A kill switch for the same
+   * reason as the reaction's, and for one more: the write needs `checks:
+   * write`, which an installation may not have re-approved yet, and a deploy
+   * can quiet the 403s until it has.
+   */
+  prChecks: boolean;
+  /**
    * The GitHub login the App posts as. Configurable so a dev App with a
    * different name still finds its own reviews (idempotency, stale dismissal).
    */
@@ -267,6 +275,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // Only an explicit "0" turns it off, so an unset or misspelt value keeps
     // the pull request answering rather than going quiet without saying why.
     prReactions: env.CUJO_PR_REACTIONS !== "0",
+    prChecks: env.CUJO_PR_CHECKS !== "0",
     botLogin: env.CUJO_BOT_LOGIN || "cujo-guard[bot]",
     bootstrap: {
       modelProvider:

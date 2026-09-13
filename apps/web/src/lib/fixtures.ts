@@ -167,7 +167,7 @@ const summary: RunSummary = {
   repo: "spencerjireh/orders-api",
   pr_number: 42,
   head_sha: "a1f9c3e4d5b6c7",
-  status: "blocked_pending",
+  status: "blocked",
   pr_title: "Add a refund endpoint",
   created_at: T0,
   updated_at: at(160),
@@ -212,7 +212,6 @@ export function run(over: Partial<Run> = {}): Run {
     findings,
     hard_rule_hits: findings.filter((f) => f.source === "hard_rule"),
     review: review(),
-    external_resume: false,
     error: null,
     summary: "Four checks ran. Two hard rules tripped, so the review blocks the merge.",
     // Larger than the four checks add up to, which is the honest shape: the
@@ -280,7 +279,7 @@ export const runs: RunSummary[] = [
     pr_number: 40,
     pr_title: "Add a currency field to the order payload",
     head_sha: "c3d7e5a",
-    status: "blocked_posted",
+    status: "blocked",
     updated_at: at(-7_200),
     digest: {
       // A check that errored, and one that never appeared at all — the two

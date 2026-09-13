@@ -13,7 +13,7 @@ reader can tell a live rule from a recorded one before opening it.
 3. [In-sandbox logging proxy — not Daytona's `outboundProxyUrl`](#3-in-sandbox-logging-proxy--not-daytonas-outboundproxyurl)
 4. [Bot identity is a GitHub App — `cujo-guard[bot]`](#4-bot-identity-is-a-github-app--cujo-guardbot)
 5. [The agent posts the review via MCP, not the `apps/cujo` code](#5-the-agent-posts-the-review-via-mcp-not-the-appscujo-code)
-6. [Reviews auto-post; the human gate is on the block](#6-reviews-auto-post-the-human-gate-is-on-the-block) — superseded by 42
+6. [Reviews auto-post; the human gate is on the block](#6-reviews-auto-post-the-human-gate-is-on-the-block) — superseded by 42, and reversed by 138
 7. [The webhook route is on a non-Access hostname](#7-the-webhook-route-is-on-a-non-access-hostname)
 8. [A free-tier model provider for inference; hosted Daytona for the sandbox](#8-a-free-tier-model-provider-for-inference-hosted-daytona-for-the-sandbox)
 9. [Code senses, the agent judges, hard rules guard the dangerous cases](#9-code-senses-the-agent-judges-hard-rules-guard-the-dangerous-cases)
@@ -30,12 +30,12 @@ reader can tell a live rule from a recorded one before opening it.
 20. [One run, one turn chain; the newest head supersedes the rest](#20-one-run-one-turn-chain-the-newest-head-supersedes-the-rest) — superseded in part by 39
 21. [The hard rules are re-derived in `apps/cujo`, not only in the rubric](#21-the-hard-rules-are-re-derived-in-appscujo-not-only-in-the-rubric)
 22. [A brand system in `brand/`: guard dog, amber, dark and light](#22-a-brand-system-in-brand-guard-dog-amber-dark-and-light)
-23. [Discord is notified by `apps/cujo`, not by the agent, and it notifies only](#23-discord-is-notified-by-appscujo-not-by-the-agent-and-it-notifies-only)
+23. [Discord is notified by `apps/cujo`, not by the agent, and it notifies only](#23-discord-is-notified-by-appscujo-not-by-the-agent-and-it-notifies-only) — amended by 138
 24. [The repo-to-channel binding lives in the store, not the environment](#24-the-repo-to-channel-binding-lives-in-the-store-not-the-environment) — superseded by 28, then by 31
 25. [New tables, not new columns: the store has no migration path](#25-new-tables-not-new-columns-the-store-has-no-migration-path)
 26. [Every Discord payload is treated as attacker-controlled](#26-every-discord-payload-is-treated-as-attacker-controlled)
 27. [The operator UI is `apps/web`; `apps/cujo` becomes API-only](#27-the-operator-ui-is-appsweb-appscujo-becomes-api-only)
-28. [Two tiers: an operator authorizes a server, the server configures itself](#28-two-tiers-an-operator-authorizes-a-server-the-server-configures-itself) — superseded by 31 and 49
+28. [Two tiers: an operator authorizes a server, the server configures itself](#28-two-tiers-an-operator-authorizes-a-server-the-server-configures-itself) — superseded by 31 and 49, amended by 138
 29. [Slash commands over the HTTP interactions endpoint, registered per server](#29-slash-commands-over-the-http-interactions-endpoint-registered-per-server)
 30. [The store gets a migration path, at the first change that needed one](#30-the-store-gets-a-migration-path-at-the-first-change-that-needed-one)
 31. [The repo declares its Discord server; the operator route becomes an override](#31-the-repo-declares-its-discord-server-the-operator-route-becomes-an-override) — superseded in part by 57
@@ -45,14 +45,14 @@ reader can tell a live rule from a recorded one before opening it.
 35. [Merging is the deploy, so an env-coupled change is valid on both sides](#35-merging-is-the-deploy-so-an-env-coupled-change-is-valid-on-both-sides)
 36. [The review links to its own evidence, and the bot wears the brand](#36-the-review-links-to-its-own-evidence-and-the-bot-wears-the-brand)
 37. [Logging is a closed vocabulary on stdout, and readiness is not liveness](#37-logging-is-a-closed-vocabulary-on-stdout-and-readiness-is-not-liveness)
-38. [`apps/cujo` may write a reaction; the gate is about reviews, not writes](#38-appscujo-may-write-a-reaction-the-gate-is-about-reviews-not-writes)
-39. [A superseded run answers its pending approval](#39-a-superseded-run-answers-its-pending-approval) — refined by 125
+38. [`apps/cujo` may write a reaction; the gate is about reviews, not writes](#38-appscujo-may-write-a-reaction-the-gate-is-about-reviews-not-writes) — reversed in part by 138
+39. [A superseded run answers its pending approval](#39-a-superseded-run-answers-its-pending-approval) — refined by 125, reversed by 138
 40. [A single-server deploy may name its server, and skip the declaration](#40-a-single-server-deploy-may-name-its-server-and-skip-the-declaration)
 41. [One sensed command at a time, and one audit log per command](#41-one-sensed-command-at-a-time-and-one-audit-log-per-command)
-42. [The projection holds two reviews, and a blocking review can end a run](#42-the-projection-holds-two-reviews-and-a-blocking-review-can-end-a-run)
+42. [The projection holds two reviews, and a blocking review can end a run](#42-the-projection-holds-two-reviews-and-a-blocking-review-can-end-a-run) — reversed by 138
 43. [`apps/cujo` may reply on a pull request, because a person asked it to](#43-appscujo-may-reply-on-a-pull-request-because-a-person-asked-it-to)
-44. [Repo write is the principal that may publish an accusation](#44-repo-write-is-the-principal-that-may-publish-an-accusation)
-45. [The signature-gated plane may answer a held finding](#45-the-signature-gated-plane-may-answer-a-held-finding)
+44. [Repo write is the principal that may publish an accusation](#44-repo-write-is-the-principal-that-may-publish-an-accusation) — amended by 138
+45. [The signature-gated plane may answer a held finding](#45-the-signature-gated-plane-may-answer-a-held-finding) — amended by 138
 46. [The sensors are a package, delivered as a source archive](#46-the-sensors-are-a-package-delivered-as-a-source-archive) — reversed in part by 117
 47. [Conversation runs in its own session, and the agent that answers cannot write](#47-conversation-runs-in-its-own-session-and-the-agent-that-answers-cannot-write)
 48. [`sniff.py` is an entry point, and state lives beside the code](#48-sniffpy-is-an-entry-point-and-state-lives-beside-the-code)
@@ -64,13 +64,13 @@ reader can tell a live rule from a recorded one before opening it.
 54. [The report says what it could not observe](#54-the-report-says-what-it-could-not-observe)
 55. [A card names both parties, and a login reaches a URL only through an allowlist](#55-a-card-names-both-parties-and-a-login-reaches-a-url-only-through-an-allowlist) — reversed by 86
 56. [A provider must declare the reasoning efforts it will accept](#56-a-provider-must-declare-the-reasoning-efforts-it-will-accept) — reversed by 127
-57. [The operator plane is deleted; every route is signature-gated or anonymous](#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)
+57. [The operator plane is deleted; every route is signature-gated or anonymous](#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous) — amended by 138
 58. [A sensor may not read the tripwire it is watching](#58-a-sensor-may-not-read-the-tripwire-it-is-watching)
 59. [The checks start together, because nothing was ever waiting](#59-the-checks-start-together-because-nothing-was-ever-waiting) — superseded in part by 73
-60. [The prompt for a maintainer is written by the thing it instructs](#60-the-prompt-for-a-maintainer-is-written-by-the-thing-it-instructs)
+60. [The prompt for a maintainer is written by the thing it instructs](#60-the-prompt-for-a-maintainer-is-written-by-the-thing-it-instructs) — reversed by 138
 61. [The model is trusted; the pull request is not](#61-the-model-is-trusted-the-pull-request-is-not)
 62. [The report validator may only add](#62-the-report-validator-may-only-add)
-63. [`/cujo review` re-reviews the current head, on the same principal](#63-cujo-review-re-reviews-the-current-head-on-the-same-principal)
+63. [`/cujo review` re-reviews the current head, on the same principal](#63-cujo-review-re-reviews-the-current-head-on-the-same-principal) — amended by 138
 64. [Nothing says when a compaction happened, so Cujo does not](#64-nothing-says-when-a-compaction-happened-so-cujo-does-not) — reversed by 129
 65. [A public list row carries what the checks measured, not only the verdict](#65-a-public-list-row-carries-what-the-checks-measured-not-only-the-verdict)
 66. [The sandbox must never crash silently; sensor logs count what they lost](#66-the-sandbox-must-never-crash-silently-sensor-logs-count-what-they-lost)
@@ -81,7 +81,7 @@ reader can tell a live rule from a recorded one before opening it.
 71. [The mechanical half of setup is one command, because none of it is a decision](#71-the-mechanical-half-of-setup-is-one-command-because-none-of-it-is-a-decision) — extended by 134
 72. [A length cap is spent on the escaped text, not on the text](#72-a-length-cap-is-spent-on-the-escaped-text-not-on-the-text)
 73. [`detonation` starts during setup, and the install takes the lock so it can](#73-detonation-starts-during-setup-and-the-install-takes-the-lock-so-it-can)
-74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer)
+74. [The server owns the review body, not only its footer](#74-the-server-owns-the-review-body-not-only-its-footer) — amended by 138
 75. [The record is one field of a fixed length, and an empty one is armed](#75-the-record-is-one-field-of-a-fixed-length-and-an-empty-one-is-armed)
 76. [Interpreter and index coverage is additive, not exhaustive](#76-interpreter-and-index-coverage-is-additive-not-exhaustive)
 77. [Detonation covers every ecosystem `MANIFESTS` recognises](#77-detonation-covers-every-ecosystem-manifests-recognises)
@@ -93,7 +93,7 @@ reader can tell a live rule from a recorded one before opening it.
 83. [A star's tilts are its own, the read walks the stars, and the copy is a caption](#83-a-stars-tilts-are-its-own-the-read-walks-the-stars-and-the-copy-is-a-caption) — amended by 95
 84. [A lane says how bad, not what happened; the sentence is where the sentence fits](#84-a-lane-says-how-bad-not-what-happened-the-sentence-is-where-the-sentence-fits)
 85. [An observed zero is a result; an unobserved one is not](#85-an-observed-zero-is-a-result-an-unobserved-one-is-not) — amended by 93
-86. [The alert gets its own card, and the opener takes the author line](#86-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line)
+86. [The alert gets its own card, and the opener takes the author line](#86-the-alert-gets-its-own-card-and-the-opener-takes-the-author-line) — amended by 138
 87. [Detonation runs even when no test suite can be inferred](#87-detonation-runs-even-when-no-test-suite-can-be-inferred)
 88. [One results cell, and the whole row is the link](#88-one-results-cell-and-the-whole-row-is-the-link)
 89. [The key comes to the pointer](#89-the-key-comes-to-the-pointer)
@@ -116,7 +116,7 @@ reader can tell a live rule from a recorded one before opening it.
 106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
 107. [A run that proved nothing is `unproven`, not `clean`](#107-a-run-that-proved-nothing-is-unproven-not-clean)
 108. [A failed check is respawned once, by the rubric, and the run records it](#108-a-failed-check-is-respawned-once-by-the-rubric-and-the-run-records-it)
-109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review)
+109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review) — amended by 138
 110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
 111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
 112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work)
@@ -127,24 +127,26 @@ reader can tell a live rule from a recorded one before opening it.
 117. [The sandbox image is ours, which reverses 46](#117-the-sandbox-image-is-ours-which-reverses-46)
 118. [`sandbox-mcp` builds the images it runs, at boot, from contexts it carries](#118-sandbox-mcp-builds-the-images-it-runs-at-boot-from-contexts-it-carries)
 119. [No review bot; `best_practices.md` goes with it](#119-no-review-bot-best_practicesmd-goes-with-it)
-120. [`sandbox-mcp` says `requireApprovalForTools: []`, because absent means everything](#120-sandbox-mcp-says-requireapprovalfortools--because-absent-means-everything) — reversed in part by 128
+120. [`sandbox-mcp` says `requireApprovalForTools: []`, because absent means everything](#120-sandbox-mcp-says-requireapprovalfortools--because-absent-means-everything) — reversed in part by 128, amended by 138
 121. [The gateway is the sandbox's router and resolver, which refines 116](#121-the-gateway-is-the-sandboxs-router-and-resolver-which-refines-116)
 122. [The gateway's baseline is the sensor's known-host list](#122-the-gateways-baseline-is-the-sensors-known-host-list)
 123. [The harness is ours, built on pi, and the contract is a package](#123-the-harness-is-ours-built-on-pi-and-the-contract-is-a-package)
 124. [A sub-agent is a nested pi session, and its report is durable as it lands](#124-a-sub-agent-is-a-nested-pi-session-and-its-report-is-durable-as-it-lands)
-125. [The gate holds the call; a new turn voids it; a restart is answered by a re-call](#125-the-gate-holds-the-call-a-new-turn-voids-it-a-restart-is-answered-by-a-re-call)
-126. [A gated tool runs sequentially, so the observation posts before the pause](#126-a-gated-tool-runs-sequentially-so-the-observation-posts-before-the-pause)
+125. [The gate holds the call; a new turn voids it; a restart is answered by a re-call](#125-the-gate-holds-the-call-a-new-turn-voids-it-a-restart-is-answered-by-a-re-call) — amended by 138
+126. [A gated tool runs sequentially, so the observation posts before the pause](#126-a-gated-tool-runs-sequentially-so-the-observation-posts-before-the-pause) — amended by 138
 127. [Reasoning effort is clamped by the harness, not declared by the provider](#127-reasoning-effort-is-clamped-by-the-harness-not-declared-by-the-provider)
-128. [MCP tools are exposed by name, and only exact names are gated](#128-mcp-tools-are-exposed-by-name-and-only-exact-names-are-gated)
+128. [MCP tools are exposed by name, and only exact names are gated](#128-mcp-tools-are-exposed-by-name-and-only-exact-names-are-gated) — amended by 138
 129. [Compaction is pi's context-window rule](#129-compaction-is-pis-context-window-rule)
-130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once)
+130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once) — amended by 138
 131. [A sensed command refuses to open a second window](#131-a-sensed-command-refuses-to-open-a-second-window)
 132. [A token budget in the spec, enforced by the harness](#132-a-token-budget-in-the-spec-enforced-by-the-harness)
-133. [Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor](#133-cujo-is-a-diff-reviewer-that-can-execute-the-sandbox-is-a-tool-and-a-floor)
+133. [Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor](#133-cujo-is-a-diff-reviewer-that-can-execute-the-sandbox-is-a-tool-and-a-floor) — amended by 138
 134. [The diff review's package is prepared in code](#134-the-diff-reviews-package-is-prepared-in-code)
 135. [Review mode: deploy default, `.cujo.yml` from base, floors the code enforces](#135-review-mode-deploy-default-cujoyml-from-base-floors-the-code-enforces)
-136. [A diff finding is at most `warn` and always advisory; a `critical` is a contradiction, not clamped](#136-a-diff-finding-is-at-most-warn-and-always-advisory-a-critical-is-a-contradiction-not-clamped)
+136. [A diff finding is at most `warn` and always advisory; a `critical` is a contradiction, not clamped](#136-a-diff-finding-is-at-most-warn-and-always-advisory-a-critical-is-a-contradiction-not-clamped) — amended by 138
 137. [A diff run gets its own harness session](#137-a-diff-run-gets-its-own-harness-session)
+138. [The block is a check run, and the human decision is the unlock](#138-the-block-is-a-check-run-and-the-human-decision-is-the-unlock)
+139. [Seven run states; the gate's three are migrated](#139-seven-run-states-the-gates-three-are-migrated)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7015,3 +7017,119 @@ the webhook path than this slice wants, and the row costs nothing.
 Rejected: **one diff session per pull request**, which is decision 16's
 mechanism with the same weight problem and a second table. **Reusing the
 sandbox session with the sandbox spec**, which hands a reading session a box.
+
+## 138. The block is a check run, and the human decision is the unlock
+
+The gate held the wrong thing. Since decision 6 a `critical` that named a
+change as malicious paused the turn with the accusation drafted, and a person
+with write access answered `/cujo confirm` or `/cujo dismiss` on the pull
+request. Three facts, each visible in the design once it ran for real, say the
+hold delayed the guard instead of providing it. The observation posted before
+the pause (decision 126), so the pull request already carried the host, the
+path and the time; the confirmer read those same words and typed `confirm`
+with nothing added. A REQUEST_CHANGES review is dismissable by anyone with
+write access — which, on a repository where a coding agent holds write, is the
+agent — so the thing the confirmation released was not a lock. And the
+product's claim since decision 133 is a reviewer that blocks on evidence a
+reader cannot produce; a block that waits for a reader is that claim
+withdrawn.
+
+What a guard against coding agents needs is the opposite shape: a block that
+posts at once, a lock the agent cannot remove, and an unlock only a person can
+give. So:
+
+- **Every review posts.** Two tools on `github-mcp`: `post_advisory_review`
+  and `post_blocking_review`, one call per run, neither held.
+  `post_gated_review`, `accusation_follows` and the `held` finding key are
+  gone, and the machine block is `schema_version` 2 because a key was removed.
+  A malice finding is a `critical` like a failing test: the review states the
+  measurement, and the merge is held.
+- **The lock is a check run.** `apps/cujo` writes `cujo/guard` on every
+  commit it reviews and moves it with the run's status, a projector beside the
+  reaction (decision 38) on the same status changes. A check run cannot be
+  dismissed; only the App that owns it completes it. Where branch protection
+  requires `cujo/guard`, a `blocked` run holds the merge and nothing a write
+  principal can do on the pull request lifts it. It needs `checks: write`,
+  which every installation approves once.
+- **The unlock is `/cujo dismiss`**, and it is human-only: repo write or
+  admin, not the author (decision 44), and not a Bot account whatever its
+  access — the `user.type` on the payload decides that before a read is
+  spent. It dismisses the bot's own REQUEST_CHANGES review naming the person,
+  turns the check neutral titled *Dismissed by @login*, and moves the run to
+  `dismissed` with `approver` set. The findings stay; only the block lifts.
+  `/cujo confirm` no longer exists, since there is nothing left to release.
+- **The harness keeps the gate.** `requireApprovalForTools`, the
+  `beforeToolCall` hold and `user.tool_approval` (decisions 125, 126, 128)
+  stay as a capability no spec names. A session pinned to an older spec that
+  still asks is folded as an `error` naming the call, not waited on and not
+  retried (decision 130's retry excludes it), and `Harness.resume` is
+  deleted from `apps/cujo` because nothing calls it.
+
+The reversals. Decision 6 put the human gate on the block; there is no gate on
+the block. Decision 42's second review and its `blocked_pending` are gone with
+the hold. Decision 39 answered a superseded run's pending approval; nothing is
+pending, so a superseded run — `blocked` included — is moved in the store and
+emitted, which is what lets its ping, its reaction and its check hear that a
+newer commit owns the pull request. Decision 60's maintainer prompt was the
+text of a confirmation nobody gives. Decision 38 rejected a check run because
+a write from `apps/cujo` that stated a finding would bypass the gate; the check
+states a status and a login, never a finding, and the gate it would have
+bypassed no longer exists.
+
+The amendments are the places that named the gate: what Discord may not do
+(23), the plane the decision lives on (28, 45, 57), the principal (44), the
+same principal for `/cujo review` (63), the body the server owns (74), the ping
+(86), the timed-out comment's count of held claims (109), the empty
+`requireApprovalForTools` on both servers now (120), the retry (130), the
+product claim (133) and the diff run's contradiction (136), which is now only
+`post_blocking_review` from a diff run.
+
+Accepted: **a block holds only where branch protection requires the check.**
+Without that, a `blocked` run is a REQUEST_CHANGES review and a failed check,
+both visible and neither holding — which is what the reviewer without a
+check had all along. **Installations must re-approve once** for
+`checks: write`; until they do the write fails with 403, is logged as
+`check_run.failed`, and nothing else is affected. **A superseded run writes
+`skipped` only while it is still the latest for its head**; on `/cujo review`
+the new run owns the commit and writes its own.
+
+Rejected: **the harness writing the check** through a third `github-mcp` tool,
+which puts the lock on the agent's own path where the agent could omit the
+call. **A dismissal from Discord**, for decision 23. **Letting the author
+dismiss**, for decision 44. **Keeping `confirm` as a no-op alias**, which
+would teach a verb that means nothing.
+
+## 139. Seven run states; the gate's three are migrated
+
+`blocked_pending`, `blocked_posted`, `blocked_unattended` and `denied` each
+named a position in the hold decision 138 removed. The seven states are
+`running`, `clean`, `unproven`, `blocked`, `dismissed`, `error` and
+`superseded`, and old rows are moved rather than left under names the code no
+longer knows:
+
+| Old | New | Why |
+|-----|-----|-----|
+| `blocked_posted`, `blocked_unattended` | `blocked` | Both mean a REQUEST_CHANGES review is on the pull request; what differed was whether a person had been asked, and nobody is asked now. |
+| `denied` | `dismissed` | A person with write access said the block should not stand. Same decision, same principal, same `approver` row. |
+| `blocked_pending` | `error` | The accusation was held and never posted. Nothing on the pull request says it, no tool exists to post it now, and calling the row `blocked` would claim a lock that is not there. `error` is the honest name for a run that stopped short of its review. |
+
+Migration 13 does it in one step: drop the `runs_head` partial index, rewrite
+the statuses on `runs` and on `run_discord_messages.last_notified_status`,
+rebuild the index over the new terminal list, and drop `run_cujo_turns`, which
+tracked the resume turns `apps/cujo` had sent. The index is dropped first
+because two old rows on one head could both become `blocked`, and both are
+terminal, so the rebuilt index accepts them. Migration 10 interpolated the
+terminal list from the constant; it is frozen to the literal it shipped with,
+so a database opened from any older version sees the migration it saw then,
+and a test holds it byte for byte.
+
+`dismissed` is terminal and `blocked` is terminal: a block is a review already
+on the pull request and a failed check, with no turn to follow, and the one
+thing that moves it is a dismissal from outside the fold. `isTerminal` is
+therefore `status !== "running"`, and the polling, the stale deny and the
+session heal that existed to keep a held turn alive across restarts go with
+the state that needed them.
+
+Rejected: **leaving old rows as they were**, which every status map — the
+card, the reaction, the check, the board — would have had to carry a default
+for. **`blocked_pending` → `blocked`**, for the reason in the table.

@@ -84,11 +84,12 @@ export function HowItWorks() {
           </Step>
           <Step n={6} title="Post.">
             <P>
-              With no <C>critical</C>, the review posts as a comment. A <C>critical</C> that says
-              the pull request is broken posts as REQUEST_CHANGES, unattended. Only a{" "}
-              <C>critical</C> that accuses the change of malice waits for a person.{" "}
-              <Link href="/docs/the-gate" className="text-accent underline underline-offset-4">
-                The human gate
+              With no <C>critical</C>, the review posts as a comment. Any <C>critical</C> posts as
+              REQUEST_CHANGES at once, and the <C>cujo/guard</C> check run on the commit fails,
+              which is what holds the merge under branch protection. Nobody is asked; a maintainer
+              lifts the block on the pull request.{" "}
+              <Link href="/docs/blocking" className="text-accent underline underline-offset-4">
+                Blocking and the unlock
               </Link>
               .
             </P>

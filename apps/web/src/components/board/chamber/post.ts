@@ -11,7 +11,7 @@
  * enough to bloom the amber sweep would also bloom four bone arms and wash them
  * toward white, which is a decorative pass repainting a colour that means
  * something. So the threshold sits above bone: what glows is the additive
- * sprite behind each core, the amber sweep, and `blocked_pending`. The light in
+ * sprite behind each core and the amber sweep. The light in
  * the room comes from things drawn to emit it, and never from a verdict.
  */
 

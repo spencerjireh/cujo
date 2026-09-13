@@ -2,30 +2,23 @@ import { EventEmitter } from "node:events";
 import { MAIN_THREAD } from "@cujo/harness-contract";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
-import {
-  type Harness,
-  STALE_DENY_REASON,
-  type SessionEvent,
-  type StreamEvent,
-} from "../clients/harness";
+import type { Harness, SessionEvent, StreamEvent } from "../clients/harness";
 import type { RunStore } from "../store";
 import { announceEvidenceGaps, announceTimeout } from "./announce";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
 import { validateEvent } from "./event-schema";
 import { isMaliceClaim, isOperationalRule } from "./findings";
-import { fold, lastTurnOutcome, pendingApproval } from "./fold";
+import { fold, lastTurnOutcome } from "./fold";
 import type { UiLinks } from "./links";
 import { runLogger } from "./start-run";
 import { checkTimings } from "./timings";
-import type { CheckState, PendingApproval, Projection, RunRecord } from "./types";
+import type { CheckState, Projection, RunRecord } from "./types";
 
 type AnyEvent = SessionEvent | StreamEvent;
 
 interface RunState {
   events: AnyEvent[];
-  cujoResumeTurnIds: Set<string>;
   subscribedTurnIds: Set<string>;
-  pollTimer: NodeJS.Timeout | null;
   /** Set once a newer head replaced this run; the fold then reports it. */
   superseded: boolean;
   /**
@@ -105,23 +98,20 @@ function durationOf(check: CheckState): { duration_ms?: number } {
 }
 
 /**
- * Why an approval was refused, as a closed set rather than a sentence.
- *
- * The 409 body used to carry four different conditions as one opaque string —
- * "no such run", "already decided", a status mismatch, and a failed resume all
- * arrived as prose a caller could only match on. The `reason` is now countable
- * and the human wording moves to `detail`, so the UI keeps its message and a
- * query can still ask how often a resume failed.
+ * Why a dismissal was refused, as a closed set rather than a sentence. The
+ * `reason` is countable and the human wording lives in `detail`, so the reply
+ * on the pull request keeps its message and a query can still ask how often
+ * GitHub refused the write.
  */
-type ApproveRefusal = "no_such_run" | "not_blocked_pending" | "already_decided" | "resume_failed";
+type DismissRefusal = "no_such_run" | "not_blocked" | "already_decided" | "github_failed";
 
-export type ApproveResult = { ok: true } | { ok: false; reason: ApproveRefusal; detail: string };
+export type DismissResult = { ok: true } | { ok: false; reason: DismissRefusal; detail: string };
 
-const REFUSAL_TEXT: Record<ApproveRefusal, string> = {
+const REFUSAL_TEXT: Record<DismissRefusal, string> = {
   no_such_run: "no such run",
-  not_blocked_pending: "run is not blocked_pending",
-  already_decided: "already decided",
-  resume_failed: "resume failed",
+  not_blocked: "run is not blocked",
+  already_decided: "already dismissed",
+  github_failed: "github write failed",
 };
 
 const TERMINAL_EVENT = "turn.done";
@@ -134,20 +124,6 @@ const TERMINAL_EVENT = "turn.done";
 export const ANY_RUN = "run:changed";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/**
- * How many times a stale deny will re-clear the session.
- *
- * Denying an approval resumes the turn, and the resumed turn can call the
- * gated tool again and raise a *second* approval before the cancel that
- * follows lands. One pass therefore answers the approval it was given and
- * leaves a fresh one behind, which is the wedge it exists to prevent. Three is
- * a bound, not a guess: the loop stops as soon as a read comes back clear, and
- * a model that keeps re-raising past that is a run nobody wants resumed.
- */
-const STALE_DENY_ROUNDS = 3;
-/** Long enough for the cancel to settle server-side, short enough not to hold up the next head. */
-const STALE_DENY_SETTLE_MS = 250;
 
 function errorTurnDone(id: string, message: string): StreamEvent {
   const now = new Date().toISOString();
@@ -163,8 +139,7 @@ function errorTurnDone(id: string, message: string): StreamEvent {
 /**
  * Keeps every active run's event list, folds it on each new event, persists
  * the projection, and tells SSE subscribers. The stream is the primary source;
- * a poll on the session catches turns Cujo did not start (Contract 6,
- * "a resume apps/cujo did not send is still tracked").
+ * a lost stream falls back to polling the turn until it ends.
  *
  * One session serves every run on a PR, so a run must know which turns are
  * its own: the id of each turn Cujo creates is recorded before its first
@@ -196,16 +171,13 @@ export class Runner {
     let s = this.states.get(runId);
     if (!s) {
       const run = this.store.getRun(runId);
-      // One read, once per run per process, at the point `listCujoTurns`
-      // already reads. It is what stops a restart re-announcing checks that
-      // finished before it, and it keeps the hot path — `refold` runs once
-      // per stream event — free of any extra query.
+      // One read, once per run per process. It is what stops a restart
+      // re-announcing checks that finished before it, and it keeps the hot
+      // path — `refold` runs once per stream event — free of any extra query.
       const stored = this.store.getProjection(runId);
       s = {
         events: [],
-        cujoResumeTurnIds: new Set(this.store.listCujoTurns(runId)),
         subscribedTurnIds: new Set(),
-        pollTimer: null,
         superseded: false,
         turnMessage: null,
         retried: false,
@@ -243,10 +215,7 @@ export class Runner {
   private refold(runId: string): Projection {
     const s = this.state(runId);
     const run = this.store.getRun(runId);
-    const projection = fold(s.events, {
-      cujoResumeTurnIds: s.cujoResumeTurnIds,
-      ...(run ? { mode: run.mode } : {}),
-    });
+    const projection = fold(s.events, run ? { mode: run.mode } : {});
     if (s.superseded) projection.status = "superseded";
     const previousStatus = run?.status;
     // The run may have recorded a turn whose turn.created has not arrived yet.
@@ -276,26 +245,25 @@ export class Runner {
     }
     this.reportChecks(s, projection);
     this.store.putProjection(runId, projection);
-    const patch: Parameters<RunStore["updateRun"]>[1] = {
-      status: projection.status,
-      turnIds: projection.turnIds,
-    };
-    if (projection.externalResume && run && !run.approver) {
-      patch.approver = "external";
-      patch.decidedAt = new Date().toISOString();
-    }
-    this.store.updateRun(runId, patch);
-    // emit() is synchronous and rethrows into this call, which sits inside the
-    // fold path: a subscriber that throws would surface as a stream error and
-    // trigger a resubscribe. A subscriber must never be able to fail a run.
+    this.store.updateRun(runId, { status: projection.status, turnIds: projection.turnIds });
+    this.emitChange(runId);
+    return projection;
+  }
+
+  /**
+   * Tell the subscribers the run moved. emit() is synchronous and rethrows
+   * into the caller, which on the fold path sits inside the stream loop: a
+   * subscriber that throws would surface as a stream error and trigger a
+   * resubscribe. A subscriber must never be able to fail a run.
+   */
+  private emitChange(runId: string): void {
     try {
       const view = this.view(runId);
       this.changes.emit(runId, view);
       this.changes.emit(ANY_RUN, view);
     } catch (error) {
-      s.log.error("run.subscriber.threw", errorFields(error));
+      this.state(runId).log.error("run.subscriber.threw", errorFields(error));
     }
-    return projection;
   }
 
   /**
@@ -346,7 +314,7 @@ export class Runner {
   }
 
   private isTerminal(status: Projection["status"]): boolean {
-    return status !== "running" && status !== "blocked_pending";
+    return status !== "running";
   }
 
   /** Append one event unless the same id was already seen (a resubscribe replays). */
@@ -505,7 +473,7 @@ export class Runner {
     // The read back found a review the stream had not delivered yet. Then the
     // author already has it, and a comment saying the run did not finish would
     // contradict the thing sitting above it.
-    if (projection.review || projection.gatedReview) return;
+    if (projection.review) return;
     if (this.state(runId).superseded) return;
     await announceTimeout(
       this.announceDeps(runId),
@@ -541,7 +509,7 @@ export class Runner {
         this.foreignTurnIds(run),
       );
       if (events.length === 0) return null;
-      return fold(events, { cujoResumeTurnIds: s.cujoResumeTurnIds, mode: run.mode });
+      return fold(events, { mode: run.mode });
     } catch (error) {
       s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
       return null;
@@ -603,11 +571,9 @@ export class Runner {
         if (event.type === TERMINAL_EVENT) sawTerminal = true;
         const fresh = this.push(runId, event);
         // The stream's model.message is a stub without content or tool calls;
-        // the persisted copy has both. Re-read at the points a decision is
-        // made so the fold sees the drafted review and the summary.
-        if (fresh && (sawTerminal || event.type === "tool.approval_required")) {
-          await this.hydrate(runId);
-        }
+        // the persisted copy has both. Re-read at the end so the fold sees the
+        // posted review and the summary.
+        if (fresh && sawTerminal) await this.hydrate(runId);
         if (fresh) projection = this.refold(runId);
         if (sawTerminal) return;
       }
@@ -667,20 +633,18 @@ export class Runner {
     if (!projection) projection = this.refold(runId);
     if (await this.retryTurn(runId, projection)) return;
     if (projection.status === "running") {
-      // Nothing follows this method. The stream is done with, the watchdog was
-      // cleared in the `finally` above, and only `blocked_pending` starts a
-      // poller -- so a run still `running` here can never reach a verdict by
-      // any path. Three separate defects have landed in this state during this
-      // change alone, so the invariant is enforced where it is owned rather
-      // than argued about at each call site. Saying the turn could not be
-      // followed is the honest report: it is what was observed.
+      // Nothing follows this method. The stream is done with and the watchdog
+      // was cleared in the `finally` above, so a run still `running` here can
+      // never reach a verdict by any path. Three separate defects have landed
+      // in this state during one change alone, so the invariant is enforced
+      // where it is owned rather than argued about at each call site. Saying
+      // the turn could not be followed is the honest report: it is what was
+      // observed.
       this.state(runId).log.error("run.stream.lost", { attempts: this.retryDelaysMs.length });
       this.fail(runId, "turn could not be followed to its end");
       projection = this.refold(runId);
     }
-    if (projection.status === "blocked_pending") this.startPolling(runId);
-    else if (this.isTerminal(projection.status)) {
-      this.stopPolling(runId);
+    if (this.isTerminal(projection.status)) {
       if (projection.status === "clean" && this.github) {
         const run = this.store.getRun(runId);
         if (run) {
@@ -711,11 +675,8 @@ export class Runner {
    * -- and the verdict comes from the persisted events once the turn ends, the
    * same way a restart rebuilds one.
    *
-   * Deliberately not `startPolling`: that timer is a per-run singleton whose
-   * callback stops itself unless the run is `blocked_pending` and hunts for a
-   * *successor* turn. This waits on the turn already in hand, and `consume` is
-   * already async and already under the watchdog, so a plain loop needs no new
-   * machinery and no second timer to reason about.
+   * A plain loop: `consume` is already async and already under the watchdog,
+   * so waiting on the turn in hand needs no timer to reason about.
    *
    * Every exit is a real projection, so `consume`'s tail is reached exactly as
    * it would have been had the stream survived.
@@ -820,8 +781,8 @@ export class Runner {
    * It hooks in **after** the refold rather than inside `drain`, and that is a
    * trade made deliberately. Several of the errors worth retrying are ones the
    * fold decides rather than the stream — a turn that ended without calling a
-   * review tool, one that drafted a gated review no approval was raised for —
-   * and none of those is visible from the raw `turn.done`. The cost is that
+   * review tool, for one — and none of those is visible from the raw
+   * `turn.done`. The cost is that
    * `refold` has already persisted `error` and emitted, so the board, the
    * Discord card and the pull request's reaction show the failure and then go
    * back to running. That is honest: the turn really did fail.
@@ -833,18 +794,19 @@ export class Runner {
     const s = this.state(runId);
     if (projection.status !== "error") return false;
     if (s.retried || s.superseded || s.syntheticTerminal) return false;
-    // Nothing that reached the pull request may be repeated. `review` is only
-    // ever an ungated call, so a recorded one is a posted one, and a drafted
-    // gated review means a human is or was involved.
-    if (projection.review || projection.gatedReview || projection.approval) return false;
-    // A cancelled turn was stopped on purpose — by `supersede`, by a deny, or
-    // by an operator. `fold` flattens that into `error` with the reason in
-    // prose, so ask the events rather than matching on that sentence.
+    // Nothing that reached the pull request may be repeated: a recorded
+    // review is a posted one.
+    if (projection.review) return false;
+    // A cancelled turn was stopped on purpose — by `supersede` or by an
+    // operator. `fold` flattens that into `error` with the reason in prose,
+    // so ask the events rather than matching on that sentence.
     if (lastTurnOutcome(s.events) === "cancelled") return false;
     // A ceiling the harness enforced is deterministic: the same brief on the
     // same spec spends the same tokens, so a second attempt buys a second
-    // bill and the same error (decision 132).
+    // bill and the same error (decision 132). A held call is the same shape:
+    // a spec that gates a tool gates it again (decision 138).
     if (projection.error?.startsWith("token budget exhausted")) return false;
+    if (projection.error?.startsWith("approval requested")) return false;
     const run = this.store.getRun(runId);
     const message = s.turnMessage;
     if (!run || !message) return false;
@@ -888,118 +850,24 @@ export class Runner {
   }
 
   /**
-   * Answer an approval nobody is going to decide, so the session can take
-   * another turn. An approval is outstanding on the *session*, not on the turn
-   * that requested it: the turn that raised it has already ended, so
-   * cancelling a turn does not answer it, and the harness refuses every later
-   * user message on the thread while one is pending (decision 39).
+   * A newer head on the same PR replaced this run, or `/cujo review` asked
+   * for its head again. The run stops following its turn, and a turn still
+   * running on the harness is cancelled so it cannot post a review for a
+   * stale head.
    *
-   * The deny starts a turn of its own, which is cancelled straight after: the
-   * agent it belongs to is holding a review of a commit nobody is looking at.
-   * When the owning run is known, that turn is recorded as Cujo's so the fold
-   * can never read it as a resume someone sent from outside.
-   *
-   * Reports whether the deny landed, which is what decides if the session can
-   * take a turn now.
-   */
-  private async denyStaleApproval(
-    log: Logger,
-    sessionId: string,
-    approval: PendingApproval,
-    reason: "newer_head" | "wedged_session",
-    runId?: string,
-  ): Promise<boolean> {
-    let turnId: string;
-    try {
-      turnId = await this.harness.resume(sessionId, approval, "deny", STALE_DENY_REASON);
-    } catch (error) {
-      // The session stays wedged, exactly as it was before this call. The
-      // next head retries through `start`, so the wedge is not permanent.
-      log.warn("run.approval.clear.failed", {
-        session_id: sessionId,
-        reason,
-        ...errorFields(error),
-      });
-      return false;
-    }
-    // Outside the try, and deliberately: a store failure here would be caught
-    // as "could not deny" and reported as one, which is a lie in the audit
-    // trail and sends `supersede` down the fall-through cancel for a deny that
-    // did land. `approve` records its turn unguarded for the same reason.
-    // On the heal path `run_id` is the run doing the healing, not the run that
-    // raised the approval — that one is terminal, which is why it has no id
-    // here. The attribution is right: it says who cleared it.
-    log.info("run.approval.cleared", { session_id: sessionId, turn_id: turnId, reason });
-    if (runId) {
-      this.state(runId).cujoResumeTurnIds.add(turnId);
-      this.store.addCujoTurn(runId, turnId);
-    }
-    try {
-      await this.harness.cancelTurn(sessionId);
-    } catch (error) {
-      log.warn("run.cancel.failed", {
-        session_id: sessionId,
-        reason: "stale_deny",
-        ...errorFields(error),
-      });
-    }
-    // The deny resumed the turn, and a resumed turn can call the gated tool
-    // again — raising a second approval before the cancel above lands. Answering
-    // one and leaving the next is the wedge this method exists to prevent, so
-    // the session is read back and cleared until it comes up empty. Failures
-    // here do not flip the result: the approval this call was given *was*
-    // answered, and `start` still has its own heal for whatever is left.
-    for (let round = 1; round < STALE_DENY_ROUNDS; round++) {
-      await sleep(STALE_DENY_SETTLE_MS);
-      let next: PendingApproval | null;
-      try {
-        const items = await this.harness.listEvents(sessionId);
-        next = pendingApproval(items.map((item) => item.event));
-      } catch {
-        break;
-      }
-      if (!next) break;
-      log.info("run.approval.reraised", { session_id: sessionId, reason, round });
-      try {
-        const again = await this.harness.resume(sessionId, next, "deny", STALE_DENY_REASON);
-        log.info("run.approval.cleared", { session_id: sessionId, turn_id: again, reason });
-        if (runId) {
-          this.state(runId).cujoResumeTurnIds.add(again);
-          this.store.addCujoTurn(runId, again);
-        }
-        await this.harness.cancelTurn(sessionId);
-      } catch (error) {
-        log.warn("run.approval.clear.failed", {
-          session_id: sessionId,
-          reason,
-          ...errorFields(error),
-        });
-        break;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * A newer head on the same PR replaced this run. The run stops following
-   * its turn, no decision can be made on it (the decision claim requires
    * Answers whether the turn is **confirmed** stopped: cancelled, already
    * terminal, or never started. `false` means this call could not establish
-   * that — the harness refused the cancel, a decision is landing on the run, or
-   * somebody else superseded it first. The webhook path ignores the answer,
-   * because a stale run left running is merely wasteful there; `/cujo review`
-   * reads it, because it is about to supersede the run's row (decision 104)
-   * and a live turn on the session could still post a review for the old head.
-   * The `superseded` status is persisted only after cancellation is confirmed,
-   * so the partial unique index continues protecting the head until then.
+   * that — the harness refused the cancel, or somebody else superseded it
+   * first. The webhook path ignores the answer, because a stale run left
+   * running is merely wasteful there; `/cujo review` reads it, because it is
+   * about to supersede the run's row (decision 104) and a live turn on the
+   * session could still post a review for the old head. The `superseded`
+   * status is persisted only after cancellation is confirmed, so the partial
+   * unique index continues protecting the head until then.
    *
-   * blocked_pending), and a turn still running on the harness is cancelled
-   * so it cannot post a review for a stale head. Resolves once the cancel
-   * has been sent, so the caller can start the newer head's turn after it.
-   *
-   * A run waiting on a human is the case that matters: its approval is
-   * answered rather than merely cancelled, or the pull request becomes
-   * unreviewable for good (decision 39).
+   * A finished run — `blocked` included — is superseded in the store alone
+   * and emitted, so the card, the reaction and the check run hear that a
+   * newer commit moved it on.
    */
   async supersede(runId: string): Promise<boolean> {
     const s = this.state(runId);
@@ -1008,53 +876,9 @@ export class Runner {
     if (s.superseded) return false;
     s.superseded = true;
     s.log.info("run.superseded", { reason: "newer_head" });
-    this.stopPolling(runId);
     const run = this.store.getRun(runId);
-    const wasPending = run?.status === "blocked_pending";
     const live = run && run.turnIds.length > 0 && !this.isTerminal(run.status);
-    // Compute the projection without persisting: the partial unique index
-    // (decision 104) excludes `superseded`, so writing that status before
-    // cancellation is confirmed would release the head and let a concurrent
-    // request insert a replacement alongside the still-live turn.  `fold` is
-    // pure and gives us the approval we need; `refold` is called only on the
-    // confirmed-success paths below.
-    const projection = fold(s.events, { cujoResumeTurnIds: s.cujoResumeTurnIds });
-    if (!run) {
-      this.refold(runId);
-      return true;
-    }
-    if (wasPending && projection.approval) {
-      // Already in memory, so no round trip to find it. A deny that lands has
-      // cancelled the turn it started and there is nothing else to stop.
-      if (
-        await this.denyStaleApproval(s.log, run.sessionId, projection.approval, "newer_head", runId)
-      ) {
-        this.refold(runId);
-        return true;
-      }
-      // It did not land, and the likeliest reason is that a human's decision
-      // answered the approval first: `claimDecision` sets `approver` but leaves
-      // the run `blocked_pending`, so a decision can be in flight and invisible
-      // to the status check above.
-      //
-      // Re-read rather than trusting `run`. That snapshot predates both the
-      // fold and the await just above, and the whole point of this branch is
-      // a decision that lands during exactly that window — the stale copy would
-      // still say `approver` is null and cancel the turn anyway.
-      if (this.store.getRun(runId)?.approver) {
-        // Leave it alone. The cancel would kill the turn that decision started,
-        // while the row — and the reply already on the pull request — record
-        // the person as having decided. Silently discarding an answer somebody
-        // gave is worse than posting a verdict about a commit that has since
-        // been pushed past: the finding was real on the commit they read, the
-        // observation half is public either way, and the new head gets its own
-        // run that re-derives it.
-        s.superseded = false;
-        s.log.info("run.supersede.deferred", { reason: "decision_in_flight" });
-        return false;
-      }
-    }
-    if (!live) {
+    if (!run || !live) {
       this.refold(runId);
       return true;
     }
@@ -1064,7 +888,7 @@ export class Runner {
       return true;
     } catch (error) {
       // Cancel failed: revert the in-memory flag so the partial index still
-      // protects this head, and the consume/poll loops stay aware.
+      // protects this head, and the consume loop stays aware.
       s.superseded = false;
       s.log.warn("run.cancel.failed", {
         session_id: run.sessionId,
@@ -1076,81 +900,9 @@ export class Runner {
   }
 
   /**
-   * Any run on the session, other than this one, that could still acquire or
-   * own an approval. `blocked_pending` is not enough on its own: a run whose
-   * turn has already raised `tool.approval_required` stays `running` until its
-   * own stream folds that event, so an approval the server would report as
-   * pending can belong to a run that has not yet reached the waiting state.
-   */
-  private othersInFlight(run: RunRecord): RunRecord[] {
-    return this.store
-      .listRunsForSession(run.sessionId)
-      .filter((other) => other.id !== run.id && !this.isTerminal(other.status));
-  }
-
-  /**
-   * Clear an approval left pending on the session by something that is over.
-   * Reports whether anything was cleared, so the caller knows a retry is worth
-   * attempting.
-   *
-   * Refuses while any other run on the session is unfinished. That approval
-   * may be one a human is being asked about, and answering it for them is the
-   * one thing this must never do. The check is repeated after the read, since
-   * `listEvents` is a network round trip a run can cross the line during; the
-   * heal only ever runs when every other run on the pull request is already
-   * terminal, which is what `startRun` guarantees before it starts a turn.
-   */
-  private async healSession(run: RunRecord): Promise<boolean> {
-    const log = this.state(run.id).log;
-    const busy = (): boolean => {
-      const others = this.othersInFlight(run);
-      if (others.length === 0) return false;
-      // The blocking run's id cannot go in `run_id`: bound fields win over
-      // call-site fields, so it would be overwritten with this run's id and
-      // the line would name the wrong run. `session_id` finds them all.
-      log.warn("run.approval.clear.skipped", {
-        session_id: run.sessionId,
-        reason: "run_in_flight",
-        status: others[0]?.status ?? null,
-        active: others.length,
-      });
-      return true;
-    };
-    // Checked before the read as well, to skip the round trip entirely.
-    if (busy()) return false;
-    let approval: PendingApproval | null;
-    try {
-      const items = await this.harness.listEvents(run.sessionId);
-      approval = pendingApproval(items.map((item) => item.event));
-    } catch (error) {
-      // Only the read is guarded. `denyStaleApproval` reports its own failure
-      // with its own reason, and folding it in here would label it
-      // `session_unreadable` the first time it throws.
-      log.warn("run.approval.clear.failed", {
-        session_id: run.sessionId,
-        reason: "session_unreadable",
-        ...errorFields(error),
-      });
-      return false;
-    }
-    if (!approval) return false;
-    if (busy()) return false;
-    // No run id: the run that raised it is terminal, so it is never
-    // rehydrated (`listUnfinishedRuns` covers running and blocked_pending
-    // only) and no live run adopts a turn it did not chain from.
-    return await this.denyStaleApproval(log, run.sessionId, approval, "wedged_session");
-  }
-
-  /**
    * Start a run's first turn and fold it to the end. The turn is recorded as
    * the run's own before the subscribe, so a failed subscribe or a restart
    * in between can recover it instead of treating the run as turnless.
-   *
-   * One retry, after clearing an approval left pending on the session. That is
-   * the failure that would otherwise make a pull request unreviewable for
-   * good, and healing it here catches the cases `supersede` does not (decision
-   * 39). The error text is not inspected: the 422 wording is the harness's, not
-   * ours, and `startTurn` failing at all is rare enough to afford one lookup.
    */
   async start(run: RunRecord, message: string): Promise<void> {
     // Kept so a retry can start the same turn again without reading the pull
@@ -1162,33 +914,13 @@ export class Runner {
     try {
       turnId = await this.harness.startTurn(run.sessionId, message);
     } catch (error) {
-      // Recorded before the heal, never after it. `healSession` is a network
-      // round trip, and a process that died inside it would otherwise leave no
-      // record that the turn failed to start at all — the same reasoning
-      // `refold` uses when it announces a transition before persisting it.
-      // `attempt` is what tells this line apart from the retry's, and both stay
-      // at `error` so a filter that already watches this name sees a wedged
-      // session even when the heal rescues it.
       log.error("run.turn.start.failed", {
         session_id: run.sessionId,
         attempt: 1,
         ...errorFields(error),
       });
-      if (!(await this.healSession(run))) {
-        this.fail(run.id, `could not start turn: ${String(error)}`);
-        return;
-      }
-      try {
-        turnId = await this.harness.startTurn(run.sessionId, message);
-      } catch (retryError) {
-        log.error("run.turn.start.failed", {
-          session_id: run.sessionId,
-          attempt: 2,
-          ...errorFields(retryError),
-        });
-        this.fail(run.id, `could not start turn: ${String(retryError)}`);
-        return;
-      }
+      this.fail(run.id, `could not start turn: ${String(error)}`);
+      return;
     }
     this.state(run.id).log.info("run.turn.started", { turn_id: turnId });
     this.adoptTurn(run.id, turnId);
@@ -1201,61 +933,81 @@ export class Runner {
   }
 
   /**
-   * Contract 6 approve route. The decision is claimed atomically in the store
-   * before the harness is called, so two operators cannot resume the same
-   * pending call; a resume that never reaches the harness releases the claim.
+   * The unlock (decision 138): a person with write access lifted a block with
+   * `/cujo dismiss`. The dismissal is claimed atomically in the store before
+   * GitHub is written, so two comments racing for one block dismiss the
+   * review once; a GitHub write that fails releases the claim so the next
+   * comment can try again.
+   *
+   * The trusted side's record moves whatever GitHub holds. Zero matching
+   * reviews is not a failure — somebody may have dismissed the bot's review
+   * by hand on GitHub first — and a runner built without a GitHub client
+   * still moves the row, because the row is what the check run, the card and
+   * the reaction read.
    */
-  async approve(
-    runId: string,
-    decision: "allow" | "deny",
-    approver: string,
-  ): Promise<ApproveResult> {
+  async dismiss(runId: string, approver: string): Promise<DismissResult> {
     // Deliberately not `this.state(runId)` before the run is known to exist:
-    // `state()` inserts, and nothing ever removes, so an authenticated POST to
-    // /runs/<anything>/approve would grow the map for the life of the process.
-    // A run that does not exist gets a plain child logger and no state.
-    const refuse = (reason: ApproveRefusal, detail?: string): ApproveResult => {
+    // `state()` inserts, and nothing ever removes, so a comment naming a run
+    // that does not exist would grow the map for the life of the process.
+    const refuse = (reason: DismissRefusal, detail?: string): DismissResult => {
       const log = this.states.has(runId)
         ? this.state(runId).log
         : this.log.child({ run_id: runId });
-      log.warn("approve.rejected", { decision, actor: approver, reason });
+      log.warn("dismiss.rejected", { actor: approver, reason });
       return { ok: false, reason, detail: detail ?? REFUSAL_TEXT[reason] };
     };
-    const view = this.view(runId);
-    if (!view) return refuse("no_such_run");
-    const log = this.state(runId).log;
-    if (view.run.status !== "blocked_pending" || !view.projection.approval) {
-      return refuse("not_blocked_pending", `run is ${view.run.status}, not blocked_pending`);
+    const run = this.store.getRun(runId);
+    if (!run) return refuse("no_such_run");
+    if (run.status !== "blocked") {
+      return refuse("not_blocked", `run is ${run.status}, not blocked`);
     }
     if (!this.store.claimDecision(runId, approver, new Date().toISOString())) {
       return refuse("already_decided");
     }
-    this.stopPolling(runId);
-    let turnId: string;
+    const log = this.state(runId).log;
+    const login = approver.replace(/^github:/, "");
     try {
-      turnId = await this.harness.resume(view.run.sessionId, view.projection.approval, decision);
+      if (this.github) {
+        const mine = (await this.github.listBotReviews(run.repo, run.prNumber)).filter(
+          (review) => review.state === "CHANGES_REQUESTED" && review.commitId === run.headSha,
+        );
+        for (const review of mine) {
+          await this.github.dismissReview(
+            run.repo,
+            run.prNumber,
+            review.id,
+            `Dismissed by @${login} with /cujo dismiss.`,
+          );
+        }
+      }
     } catch (error) {
       this.store.clearDecision(runId);
-      this.startPolling(runId);
-      log.warn("approve.rejected", {
-        decision,
+      log.warn("dismiss.rejected", {
         actor: approver,
-        reason: "resume_failed",
+        reason: "github_failed",
         ...errorFields(error),
       });
-      return { ok: false, reason: "resume_failed", detail: `resume failed: ${String(error)}` };
+      return {
+        ok: false,
+        reason: "github_failed",
+        detail: `github write failed: ${String(error)}`,
+      };
     }
-    // The audit line for a decision a human made. `actor` is the Access email
-    // the store has just recorded as the approver, so the log and the row
-    // agree by construction.
-    this.state(runId).log.info("approve.applied", { decision, actor: approver, turn_id: turnId });
-    // Cujo's own resume, recorded before the subscribe and before its
-    // turn.created, so the fold never mistakes it for an external one, on
-    // this process or after a restart.
-    this.state(runId).cujoResumeTurnIds.add(turnId);
-    this.store.addCujoTurn(runId, turnId);
-    this.adoptTurn(runId, turnId);
-    void this.follow(runId, view.run.sessionId, turnId).then(() => this.refold(runId));
+    // Written the way `refold` writes a status, minus the fold: no event says
+    // a block was lifted, so the projection is moved by hand and the same
+    // line announces it.
+    const projection = this.store.getProjection(runId);
+    if (projection) {
+      projection.status = "dismissed";
+      this.store.putProjection(runId, projection);
+    }
+    this.store.updateRun(runId, { status: "dismissed" });
+    log.info("run.status.changed", { from: "blocked", to: "dismissed" });
+    // The audit line for a decision a human made. `actor` is the login the
+    // store has just recorded as the approver, so the log and the row agree
+    // by construction.
+    log.info("dismiss.applied", { actor: approver });
+    this.emitChange(runId);
     return { ok: true };
   }
 
@@ -1309,10 +1061,9 @@ export class Runner {
       // span (decision 99). Compute how much budget remains from the
       // active turn's own start time; if the budget is already spent,
       // fire immediately rather than granting a fresh window that every
-      // redeploy renews. The anchor is the latest turn.created event,
-      // not run.createdAt, because a run that went through preparation
-      // and an approval wait should not charge that time against the
-      // resumed turn's budget.
+      // redeploy renews. The anchor is the latest turn.created event, not
+      // run.createdAt, because a run that went through preparation should
+      // not charge that time against the turn's budget.
       const turnStart = [...s.events].reverse().find((e) => e.type === "turn.created")?.createdAt;
       const anchor = turnStart ? new Date(turnStart).getTime() : new Date(run.createdAt).getTime();
       const elapsed = Date.now() - anchor;
@@ -1329,54 +1080,6 @@ export class Runner {
       void this.follow(run.id, run.sessionId, turnId, remaining).catch((e) => {
         s.log.warn("run.rehydrate.failed", { ...errorFields(e) });
       });
-    } else if (projection.status === "blocked_pending") {
-      this.startPolling(run.id);
     }
-  }
-
-  private startPolling(runId: string): void {
-    const s = this.state(runId);
-    if (s.pollTimer) return;
-    const interval = this.options.pollIntervalMs ?? 15_000;
-    s.pollTimer = setInterval(() => void this.pollForNewTurn(runId), interval);
-    s.pollTimer.unref();
-  }
-
-  private stopPolling(runId: string): void {
-    const s = this.state(runId);
-    if (s.pollTimer) clearInterval(s.pollTimer);
-    s.pollTimer = null;
-  }
-
-  private async pollForNewTurn(runId: string): Promise<void> {
-    const run = this.store.getRun(runId);
-    if (!run || run.status !== "blocked_pending") {
-      this.stopPolling(runId);
-      return;
-    }
-    const s = this.state(runId);
-    try {
-      const turns = await this.harness.listTurns(run.sessionId);
-      const lastKnown = run.turnIds.at(-1);
-      const foreign = this.foreignTurnIds(run);
-      const next = turns.find(
-        (t) =>
-          t.previousTurnId === lastKnown && !s.subscribedTurnIds.has(t.id) && !foreign.has(t.id),
-      );
-      if (!next) return;
-      // A turn this process did not start: somebody started one against the
-      // harness API by hand. The projection records that as `external`, and
-      // this is the moment it was noticed.
-      s.log.info("run.poll.adopted", { turn_id: next.id, reason: "external_turn" });
-      this.adoptTurn(runId, next.id);
-      this.stopPolling(runId);
-      await this.follow(runId, run.sessionId, next.id);
-    } catch (error) {
-      s.log.warn("run.poll.failed", { session_id: run.sessionId, ...errorFields(error) });
-    }
-  }
-
-  stopAll(): void {
-    for (const runId of this.states.keys()) this.stopPolling(runId);
   }
 }

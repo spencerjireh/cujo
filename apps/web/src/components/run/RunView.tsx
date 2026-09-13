@@ -2,10 +2,9 @@
 
 import { useRunStream } from "@/hooks/useRunStream";
 import { runOptions } from "@/lib/api/queries";
-import { gatedReviewPosted, reviewPosted } from "@/lib/api/types";
+import { reviewPosted } from "@/lib/api/types";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ApproveBar } from "./ApproveBar";
 import { CheckReports } from "./CheckReports";
 import { ChecksTimeline } from "./ChecksTimeline";
 import { FindingsList } from "./FindingsList";
@@ -78,26 +77,11 @@ export function RunView({ id }: { id: string }) {
           findings={run.findings}
         />
       ) : null}
-      {/*
-        Both, when there are both. The advisory is already on the pull request
-        while the accusation waits, and showing only one of them is how a human
-        ends up confirming a body they never read.
-      */}
-      {run.gated_review ? (
-        <ReviewPanel
-          review={run.gated_review}
-          posted={gatedReviewPosted(run)}
-          advisoryStands={!!run.review && reviewPosted(run)}
-          checks={run.checks}
-          findings={run.findings}
-        />
-      ) : null}
       {run.mode === "diff" ? null : <CheckReports checks={run.checks} picked={picked} />}
-      {/* Last before the decision, and folded: what the run cost and what
-          produced it are context for the verdict, never an argument for it,
-          and they are the operator's context rather than the author's. */}
+      {/* Last, and folded: what the run cost and what produced it are context
+          for the verdict, never an argument for it, and they are the
+          operator's context rather than the author's. */}
       <RunProvenance run={run} />
-      <ApproveBar run={run} />
     </article>
   );
 }

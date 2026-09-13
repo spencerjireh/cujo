@@ -24,7 +24,7 @@
   "model": null,
   "rubric_sha256": null,
   "expected": {
-    "status": "blocked_unattended",
+    "status": "blocked",
     "hardRules": ["tests_failed"],
     "severity": {
       "critical": 1,

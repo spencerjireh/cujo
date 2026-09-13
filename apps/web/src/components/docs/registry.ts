@@ -1,3 +1,4 @@
+import { Blocking } from "@/components/docs/pages/Blocking";
 import { Board } from "@/components/docs/pages/Board";
 import { Checks } from "@/components/docs/pages/Checks";
 import { Configure } from "@/components/docs/pages/Configure";
@@ -8,7 +9,6 @@ import { HowItWorks } from "@/components/docs/pages/HowItWorks";
 import { Install } from "@/components/docs/pages/Install";
 import { Sandbox } from "@/components/docs/pages/Sandbox";
 import { SelfHost } from "@/components/docs/pages/SelfHost";
-import { TheGate } from "@/components/docs/pages/TheGate";
 import type { ReactNode } from "react";
 
 /**
@@ -28,7 +28,7 @@ export const DOC_COMPONENTS: Record<string, () => ReactNode> = {
   "how-it-works": HowItWorks,
   checks: Checks,
   findings: Findings,
-  "the-gate": TheGate,
+  blocking: Blocking,
   sandbox: Sandbox,
   discord: Discord,
   conversation: Conversation,

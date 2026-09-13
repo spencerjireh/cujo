@@ -211,7 +211,7 @@ const columns = helper.columns([
   }),
 ]);
 
-type Filter = "all" | "live" | "blocked_pending";
+type Filter = "all" | "live" | "blocked";
 
 /**
  * `empty` is what the record says when this filter selects nothing, and it
@@ -222,7 +222,7 @@ type Filter = "all" | "live" | "blocked_pending";
 const FILTERS: { id: Filter; label: string; empty: string }[] = [
   { id: "all", label: "All", empty: "No runs yet." },
   { id: "live", label: "Live", empty: "Nothing is running." },
-  { id: "blocked_pending", label: "Awaiting approval", empty: "No run is waiting on a person." },
+  { id: "blocked", label: "Blocked", empty: "Nothing is blocked." },
 ];
 
 function matches(filter: Filter, status: RunStatus): boolean {

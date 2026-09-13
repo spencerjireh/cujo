@@ -10,9 +10,9 @@ export default meta;
 
 type Story = StoryObj<typeof StatusBadge>;
 
-export const AwaitingApproval: Story = { args: { status: "blocked_pending" } };
 export const Running: Story = { args: { status: "running" } };
-export const Blocked: Story = { args: { status: "blocked_posted" } };
+export const Blocked: Story = { args: { status: "blocked" } };
+export const Dismissed: Story = { args: { status: "dismissed" } };
 export const Superseded: Story = { args: { status: "superseded" } };
 
 /** Every status a run can reach, so the wording can be compared at a glance. */

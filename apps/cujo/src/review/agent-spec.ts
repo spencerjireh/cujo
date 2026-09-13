@@ -151,17 +151,12 @@ export function buildAgentSpec(
   return {
     model: modelRef(config),
     instructions: rubric,
-    // The one gated tool, and the one line that decides what a human is asked
-    // about. `post_blocking_review` is deliberately not here: blocking a merge
-    // on a broken test is mechanical and reversible, and asking about it is
-    // ceremony. Only the accusation waits (decision 42).
-    // `sandbox-mcp` is ungated on purpose: provisioning a box and running a
-    // command in it is what the review *is*, and the gate is for the one
-    // irreversible thing — an accusation reaching a pull request (42). The
-    // empty list means what it says (decision 128); it is no longer the
-    // workaround decision 120 needed against a harness default of everything.
+    // Nothing is gated (decision 138). A block posts at once and the human
+    // decision is the unlock on the pull request, so no tool waits for a
+    // person; the harness keeps its gate as a capability nobody names here.
+    // Both empty lists mean what they say (decision 128).
     mcpServers: [
-      { name: "github-mcp", requireApprovalForTools: ["post_gated_review"] },
+      { name: "github-mcp", requireApprovalForTools: [] },
       { name: "sandbox-mcp", requireApprovalForTools: [] },
     ],
     config: {
@@ -184,9 +179,8 @@ export function buildAgentSpec(
  * `github-mcp` and nothing else, ungated. There is no `sandbox-mcp` on this
  * session, so the untrusted text this agent reads — the diff, the standards
  * files — can at most waste a model turn; it cannot provision a box or run a
- * command. Nothing is gated because the only tool the rubric permits is
- * `post_advisory_review`, which was never gated; a call to either other tool
- * is caught by the fold, not held by the harness.
+ * command. Nothing is gated, as on every spec since decision 138; a call to
+ * the blocking tool is caught by the fold, not held by the harness.
  *
  * The model is `diffModel`. When it is the review model, the same params go
  * with it; when it is a different model, none do — the three sampling settings
