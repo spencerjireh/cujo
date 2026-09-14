@@ -336,7 +336,9 @@ services:
   # `cujo` with a JSON envelope; nothing it produces reaches a pull request.
   # `cujo` does not depend on it: with CUJO_OCR_SIDECAR_URL unset no run asks,
   # and with the service down every ask is an error row and a warning line.
-  # It exits at boot without the three OCR_LLM_* values `ocr` requires.
+  # Without the three OCR_LLM_* values `ocr` requires it still boots, stays
+  # healthy, and refuses every review with 503 (an exited service here once
+  # took the whole compose application down).
   ocr-sidecar:
     build:
       context: .
