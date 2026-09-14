@@ -16,12 +16,6 @@ export { createApp } from "./server";
 
 const PORT = Number(process.env.PORT ?? 8083);
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
-
 function count(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === "") return fallback;
   const value = Number(raw);
@@ -33,21 +27,30 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     service: "ocr-sidecar",
     level: parseLevel(process.env.CUJO_LOG_LEVEL),
   });
-  // The three `ocr` requires, checked here so a misconfigured deploy fails at
-  // boot rather than on the first pull request. Everything else `OCR_LLM_*`
-  // rides along as `ocr` documents it.
-  for (const name of ["OCR_LLM_URL", "OCR_LLM_TOKEN", "OCR_LLM_MODEL"]) requireEnv(name);
+  // The three `ocr` requires. A deploy that lacks them still boots and
+  // answers its healthcheck: this container exiting at start took the whole
+  // compose application down with it once (2026-09-14, the first deploy of
+  // this service), because Coolify reads one exited service as the
+  // application having exited. Unconfigured means every review is refused
+  // with 503 and one warning line at boot, and nothing else is affected.
+  const missing = ["OCR_LLM_URL", "OCR_LLM_TOKEN", "OCR_LLM_MODEL"].filter(
+    (name) => !process.env[name],
+  );
   const llmEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("OCR_LLM_") && value) llmEnv[key] = value;
   }
-  const review = createReviewer({
-    exec: execFileNoShell(),
-    tmpRoot: tmpdir(),
-    timeoutMs: count(process.env.OCR_SIDECAR_TIMEOUT_MS, 20 * 60 * 1000),
-    maxTokensBudget: count(process.env.OCR_MAX_TOKENS_BUDGET, 400_000),
-    llmEnv,
-  });
+  const review =
+    missing.length === 0
+      ? createReviewer({
+          exec: execFileNoShell(),
+          tmpRoot: tmpdir(),
+          timeoutMs: count(process.env.OCR_SIDECAR_TIMEOUT_MS, 20 * 60 * 1000),
+          maxTokensBudget: count(process.env.OCR_MAX_TOKENS_BUDGET, 400_000),
+          llmEnv,
+        })
+      : null;
+  if (!review) log.warn("ocr.unconfigured", { reason: "missing_env", count: missing.length });
   createApp({ review, log }).listen(PORT, () => {
     log.info("service.started", { port: PORT });
   });

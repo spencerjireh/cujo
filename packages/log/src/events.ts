@@ -168,6 +168,7 @@ export const EVENT_NAMES = [
   "ocr.review.finished",
   "ocr.review.failed",
   "ocr.request.refused",
+  "ocr.unconfigured",
   "ocr.run.finished",
   "ocr.run.failed",
   // The one comment a run may post when the agent said nothing (109, 110).
