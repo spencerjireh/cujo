@@ -456,7 +456,7 @@ so no report is folded from it and it is never evidence.
   non-zero with nothing recorded and is detonated the ordinary way. The
   model assembles nothing (decision 112 holds). When a `detonation` check
   finishes, `apps/cujo` writes back every entry that may serve another run:
-  `install_ok` under an exclusive window, no `derived` flag and no decoy
+  `install_ok` under an exclusive window, no hard-rule flag (`wrote_sensitive`, `egress_to_unknown_host`) and no decoy
   read, every egress host on the sensors' own index list (so nothing one
   repository's allowlist permitted can ride into another), an exact
   specifier, and not itself a cached copy. Ranges, tags, branches and bare
