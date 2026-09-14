@@ -144,6 +144,21 @@ export class RunStore {
   }
 
   /**
+   * The opposite of `putSession`: this writer wins. For `/cujo review`
+   * (decision 150), whose whole point is a second look from a clean session —
+   * on the pull request's existing session the model reads its own earlier
+   * review in the history and declines to post again. Only after the head's
+   * live turn, if any, has been superseded: a fresh session under a running
+   * turn would strand it.
+   */
+  replaceSession(repo: string, prNumber: number, sessionId: string): string {
+    this.db
+      .prepare("INSERT OR REPLACE INTO sessions (repo, pr_number, session_id) VALUES (?, ?, ?)")
+      .run(repo, prNumber, sessionId);
+    return sessionId;
+  }
+
+  /**
    * The conversation session for a pull request, or null before anyone has
    * asked anything.
    *
