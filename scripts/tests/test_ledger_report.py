@@ -216,3 +216,12 @@ def test_main_writes_the_two_files(
     assert (out / "runs.csv").read_text().splitlines()[0].startswith("run_id,repo,pr_number")
     assert len((out / "threads.csv").read_text().splitlines()) == 1 + 4
     assert "runs: 2" in capsys.readouterr().err
+
+
+def test_a_missing_db_is_a_usage_error_not_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        ledger_report.main(["--db", str(tmp_path / "nope.db")])
+    assert exit_info.value.code == 2
+    assert "no such file" in capsys.readouterr().err

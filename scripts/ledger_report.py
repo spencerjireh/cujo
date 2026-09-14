@@ -371,6 +371,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if not args.db.is_file():
+        parser.error(f"--db: no such file: {args.db}")
     runs = load_runs(args.db, since=args.since, repo=args.repo)
     run_rows, thread_rows = report(runs, dict(args.price))
     if args.out:
