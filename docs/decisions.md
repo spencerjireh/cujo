@@ -156,6 +156,7 @@ reader can tell a live rule from a recorded one before opening it.
 146. [A report lists what the rules read, and a spawned check owes one](#146-a-report-lists-what-the-rules-read-and-a-spawned-check-owes-one)
 147. [The report is the tool result, not the model's copy of it](#147-the-report-is-the-tool-result-not-the-models-copy-of-it)
 148. [A cached detonation never crosses the model](#148-a-cached-detonation-never-crosses-the-model)
+149. [Open Code Review runs beside a review and posts nothing](#149-open-code-review-runs-beside-a-review-and-posts-nothing)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7498,3 +7499,59 @@ Amends 145: the "crosses the model twice" cost is withdrawn, and the
 entry from a file the parent wrote**, which is 145's design and the cost
 above; **the parent carrying the entry only into the brief and not the
 box**, which halves the cost and keeps the wrong half.
+
+## 149. Open Code Review runs beside a review and posts nothing
+
+The question behind the measurement week is whether Cujo's own diff review
+earns its tokens against an off-the-shelf reader. Alibaba's Open Code Review
+(`ocr`, Apache-2.0, a Go binary, v1.12.0) is that reader: deterministic file
+selection and bundling, a fixed rule set, one model call per bundle, a JSON
+envelope with `--format json --audience agent`. Its v1.12.0 source was read
+before this was written. Its tools are `file_read` over `git show`,
+`file_find` over `git ls-files`, `code_search` over `git grep`, a diff reader
+over an in-memory map, and the two that record a comment and end the loop.
+No shell, no execution of repository code, no HTTP beyond the model call and
+MCP servers named in the user's own config, which this deploy does not set.
+Telemetry is off unless `OCR_ENABLE_TELEMETRY` says otherwise.
+
+So `ocr` runs beside every run, on the same pull request, and what it says is
+kept per run in `run_ocr_reviews` and posted nowhere. A second reviewer on the
+pull request would double the noise the week is measuring; a stored envelope
+is compared by hand against the review that was posted and against the fold's
+findings, and the comparison decides whether diff mode stays. It runs on the
+same model as `CUJO_DIFF_MODEL`, so the comparison is of the tool and not of
+the model.
+
+It is a service of its own, `apps/ocr-sidecar`, and not part of `apps/cujo`
+or of the sandbox. `apps/cujo` has no git, spawns nothing, and runs on a
+read-only rootfs with every capability dropped; the diff review deliberately
+reads the diff from the GitHub API and never clones on the trusted side
+(decision 134). `ocr` needs a checkout and a model key. A checkout with a key
+beside it cannot go in the sandbox — no credential crosses that line — so it
+goes in a trusted container like `github-mcp`: git and one pinned binary, a
+tmpfs, one route, one review at a time, and the same clone-URL refusals
+`sniff.py prepare` makes. It holds no GitHub credential; public repositories
+clone without one, and private repositories are a non-goal.
+
+One thing `ocr` does that a trusted service must not let a pull request do:
+it reads `.opencodereview/rule.json` from the repository it reviews, and
+`--rule` adds a layer above that file rather than replacing it. That is text
+out of a pull request steering a trusted model. The sidecar deletes the
+directory from the checkout before `ocr` runs; the diff is taken from the two
+refs and does not notice.
+
+Accepted: **a second model key**, `OCR_LLM_TOKEN`, held only by the sidecar;
+**a stored envelope nothing in the process reads**, which is the point — the
+week reads it over SQL and the table is dropped or promoted with the result;
+**`apps/cujo` calls it fire-and-forget** from `startRun`, before the mode is
+resolved so both reviews get a shadow, and never waits — a sidecar that is
+down, busy or slow is an error row and a warning line, and the posted review
+is byte-identical with or without it; **binary and checksum pinned** in the
+Dockerfile, both architectures.
+
+Rejected: **`ocr` inside the sandbox**, where the model key would cross the
+trust boundary; **`ocr` inside `apps/cujo`**, which would give that image git,
+a subprocess and a writable path it has never had; **OCR's own GitHub
+Action**, which reviews a different diff base and leaves nothing to join to a
+run; **posting under the review from day one**, which is what the week is
+deciding.

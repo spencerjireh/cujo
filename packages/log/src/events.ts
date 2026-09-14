@@ -162,6 +162,14 @@ export const EVENT_NAMES = [
   "review.stale.skipped",
   "review.stale.dismissed",
   "review.stale.dismiss.failed",
+  // Open Code Review beside a run (decision 149): what `apps/cujo` asked for
+  // and heard back, and what the sidecar itself refused, finished or failed.
+  // Nothing here reaches a pull request.
+  "ocr.review.finished",
+  "ocr.review.failed",
+  "ocr.request.refused",
+  "ocr.run.finished",
+  "ocr.run.failed",
   // The one comment a run may post when the agent said nothing (109, 110).
   "review.announce.posted",
   "review.announce.skipped",

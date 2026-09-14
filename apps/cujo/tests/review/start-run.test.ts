@@ -34,6 +34,11 @@ function harness(over: {
   diff?: Partial<DiffReviewDeps> | null;
   /** Wire the detonation cache with these entries (decision 145). */
   cache?: Record<string, unknown>;
+  /** Wire the shadow review with this answer (decision 149). */
+  ocr?: () => Promise<
+    | { ok: true; result: unknown; exitCode: number | null; durationMs: number }
+    | { ok: false; error: string }
+  >;
 }) {
   const store = new Store(":memory:");
   const run = store.runs.createRun({
@@ -92,6 +97,18 @@ function harness(over: {
         : null;
     },
   };
+  const ocrCalls: unknown[] = [];
+  const ocr = over.ocr
+    ? {
+        client: {
+          review: async (input: unknown) => {
+            ocrCalls.push(input);
+            return over.ocr?.() as never;
+          },
+        },
+        store: store.ocr,
+      }
+    : undefined;
   const deps: StartRunDeps = {
     github,
     store: store.runs,
@@ -100,8 +117,9 @@ function harness(over: {
     reviewRunId: (r: RunRecord) => r.id,
     ...(over.diff === null ? {} : { diff }),
     ...(over.cache ? { detonations } : {}),
+    ...(ocr ? { ocr } : {}),
   };
-  return { store, run, runner, github, createSession, deps, lines, asked, kept };
+  return { store, run, runner, github, createSession, deps, lines, asked, kept, ocrCalls };
 }
 
 /** The brief `Runner.start` was handed, parsed. */
@@ -265,5 +283,72 @@ describe("startRun picks the review", () => {
     await startRun(h.deps, h.run);
     expect(h.github.declaredMode).not.toHaveBeenCalled();
     expect(h.store.runs.getRun(h.run.id)?.mode).toBe("sandbox");
+  });
+});
+
+describe("startRun asks the shadow review (decision 149)", () => {
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+
+  it("asks once with the pull request's shas and text, in both modes, without waiting", async () => {
+    for (const declared of ["sandbox", "diff"] as const) {
+      const h = harness({
+        declared,
+        ocr: async () => ({ ok: true, result: { comments: [] }, exitCode: 0, durationMs: 9 }),
+      });
+      await startRun(h.deps, h.run);
+      expect(h.runner.start).toHaveBeenCalledTimes(1);
+      await settle();
+      expect(h.ocrCalls).toEqual([
+        {
+          repo: "o/r",
+          prNumber: 7,
+          cloneUrl: "https://github.com/o/r.git",
+          baseSha: "base",
+          headSha: "h",
+          title: "t",
+          body: "b",
+        },
+      ]);
+      expect(h.store.ocr.get(h.run.id)).toMatchObject({
+        status: "ok",
+        resultJson: JSON.stringify({ comments: [] }),
+        durationMs: 9,
+      });
+      expect(h.lines.find((l) => l.event === "ocr.review.finished")).toMatchObject({
+        run_id: h.run.id,
+        duration_ms: 9,
+      });
+    }
+  });
+
+  it("asks nobody when no sidecar is composed", async () => {
+    const h = harness({});
+    await startRun(h.deps, h.run);
+    await settle();
+    expect(h.ocrCalls).toEqual([]);
+    expect(h.store.ocr.get(h.run.id)).toBeNull();
+  });
+
+  it("records a refusal as an error row and the run goes on", async () => {
+    const h = harness({ ocr: async () => ({ ok: false, error: "busy" }) });
+    await startRun(h.deps, h.run);
+    await settle();
+    expect(h.runner.start).toHaveBeenCalledTimes(1);
+    expect(h.store.ocr.get(h.run.id)).toMatchObject({ status: "error", error: "busy" });
+    expect(h.lines.find((l) => l.event === "ocr.review.failed")).toMatchObject({
+      error_message: "busy",
+    });
+  });
+
+  it("records a client that throws as an error row and the run goes on", async () => {
+    const h = harness({
+      ocr: async () => {
+        throw new Error("socket hang up");
+      },
+    });
+    await startRun(h.deps, h.run);
+    await settle();
+    expect(h.runner.start).toHaveBeenCalledTimes(1);
+    expect(h.store.ocr.get(h.run.id)).toMatchObject({ status: "error", error: "socket hang up" });
   });
 });

@@ -32,6 +32,7 @@ const APPS = [
   "apps/cujo/src",
   "apps/github-mcp/src",
   "apps/harness/src",
+  "apps/ocr-sidecar/src",
   "apps/sandbox-mcp/src",
   "apps/web/src",
 ];
