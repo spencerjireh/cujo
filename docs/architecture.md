@@ -357,7 +357,9 @@ Coolify in a single `docker-compose` project so the services share a network.
   nothing else; clones into a tmpfs; read-only rootfs, non-root, no
   capabilities. `cujo` does not wait on it: with the URL unset no run asks,
   and with the service down every ask is an error row and a warning line
-  (decision 149).
+  (decision 149). With no model configured it boots anyway, stays healthy and
+  answers 503 to every review: a compose service that exits at start reads to
+  Coolify as the whole application having exited, and did, once.
 
 The DNS records exist. Coolify routes `cujo-ingress.spencerjireh.com` to
 `cujo` and `cujo.spencerjireh.com` to `web`; a hostname is attachable only once

@@ -88,3 +88,24 @@ describe("ocr-sidecar", () => {
     expect((await post(good)).status).toBe(200);
   });
 });
+
+describe("ocr-sidecar with no model configured", () => {
+  const server = createApp({ review: null });
+  let base = "";
+  beforeAll(async () => {
+    await new Promise<void>((resolve) => server.listen(0, () => resolve()));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => server.close());
+
+  it("is healthy and refuses every review with 503", async () => {
+    expect((await fetch(`${base}/healthz`)).status).toBe(200);
+    const res = await fetch(`${base}/review`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(good),
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ ok: false, error: "sidecar has no model configured" });
+  });
+});
