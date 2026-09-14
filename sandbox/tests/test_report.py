@@ -237,3 +237,28 @@ def test_benign_fs_changes_are_bounded_and_the_rules_still_see_everything(home_d
     small = _block(home_dir, fs_changes=benign[:3])
     assert small["fs_changes"] == benign[:3]
     assert small["truncated"]["fs_changes"] is False
+
+
+def test_a_merge_bounds_the_union_and_keeps_the_flag(home_dir: Path) -> None:
+    """Two commands each under the bound are not under it together: the
+    venv and the pip install of one detonation."""
+    from cujo_sniff.report import merge_reports
+
+    def rows(prefix: str, n: int) -> list[dict[str, Any]]:
+        return [
+            {
+                "path": f"env/{prefix}/{i}",
+                "type": "created",
+                "in_workspace": True,
+                "sensitive": False,
+            }
+            for i in range(n)
+        ]
+
+    first = _block(home_dir, fs_changes=rows("venv", 150))
+    second = _block(home_dir, fs_changes=rows("pip", 150))
+    assert first["truncated"]["fs_changes"] is False
+    merged = merge_reports([first, second])
+    assert len(merged["fs_changes"]) == 200
+    assert merged["truncated"]["fs_changes"] is True
+    assert "fs_changes" in merged["truncated"]
