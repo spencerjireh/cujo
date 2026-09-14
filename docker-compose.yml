@@ -352,6 +352,10 @@ services:
       # `openai` for an OpenAI-compatible endpoint, `anthropic` for one that
       # speaks Anthropic's; `ocr` defaults to Anthropic when unset.
       OCR_LLM_PROTOCOL: ${OCR_LLM_PROTOCOL:-openai}
+      # Seconds one model call may take inside ocr. A provider that goes
+      # silent otherwise holds the one review slot until the sidecar's own
+      # ceiling; the first fixture runs lost two rows to exactly that.
+      OCR_LLM_TIMEOUT: ${OCR_LLM_TIMEOUT:-120}
       OCR_MAX_TOKENS_BUDGET: ${OCR_MAX_TOKENS_BUDGET:-400000}
       OCR_SIDECAR_TIMEOUT_MS: ${OCR_SIDECAR_TIMEOUT_MS:-1200000}
     read_only: true
