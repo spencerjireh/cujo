@@ -119,7 +119,7 @@ reader can tell a live rule from a recorded one before opening it.
 109. [A timed-out run posts what it measured, as a comment and never a review](#109-a-timed-out-run-posts-what-it-measured-as-a-comment-and-never-a-review) — amended by 138
 110. [Operational hard rules reach the author, as a follow-up comment](#110-operational-hard-rules-reach-the-author-as-a-follow-up-comment)
 111. [Where a command runs and what the sensors call the workspace are two questions](#111-where-a-command-runs-and-what-the-sensors-call-the-workspace-are-two-questions)
-112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work) — extended by 145
+112. [`sniff.py` assembles the envelope, because asking a model to did not work](#112-sniffpy-assembles-the-envelope-because-asking-a-model-to-did-not-work) — extended by 145, completed by 147
 113. [The sandbox is an interface, reached through MCP and not through the harness](#113-the-sandbox-is-an-interface-reached-through-mcp-and-not-through-the-harness) — refined by 128
 114. [`sandbox-mcp` cannot carry the hardening the other services do](#114-sandbox-mcp-cannot-carry-the-hardening-the-other-services-do)
 115. [`provisioned_ms` replaces the `sandbox.created` event](#115-provisioned_ms-replaces-the-sandboxcreated-event)
@@ -154,6 +154,7 @@ reader can tell a live rule from a recorded one before opening it.
 144. [A push burst is one run](#144-a-push-burst-is-one-run)
 145. [A pinned specifier is detonated once per instance per week](#145-a-pinned-specifier-is-detonated-once-per-instance-per-week)
 146. [A report lists what the rules read, and a spawned check owes one](#146-a-report-lists-what-the-rules-read-and-a-spawned-check-owes-one)
+147. [The report is the tool result, not the model's copy of it](#147-the-report-is-the-tool-result-not-the-models-copy-of-it)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7418,3 +7419,45 @@ off the `sniff.py report` tool result instead of the model's message**,
 which is the right shape and a larger change — the envelope would stop
 crossing through the model at all — and belongs with the per-check rubric in
 the next step, where the output tokens it saves can be measured.
+
+## 147. The report is the tool result, not the model's copy of it
+
+Decision 146 bounded the envelope and the next run showed the bound was not
+the problem. orders-api #48's detonation sub-agent ran `sniff.py report`,
+got 35 KB back, read the exec log for good measure (59 KB), and stopped at
+its output limit at 16,990 tokens with the JSON half written: `report:
+null` again. The envelope of a real install is 30 to 60 KB after every cap
+— two hundred file rows, two hundred reads, the subprocess list, the tails —
+and copying 60 KB through a model with a 16k output limit does not work,
+whichever bound is raised.
+
+Decision 112 already said the model must not assemble the envelope; it
+still asked the model to carry it. It no longer does. The sub-agent runs
+`sniff.py report` as its last command, and the fold reads the envelope off
+the `sandbox_exec` result that carried it: a result with exit code 0 whose
+stdout is one JSON object with `check` naming the thread's title and a
+`runs` array. The final message is a few sentences for the parent, with no
+JSON in it. `sandbox-mcp` hands back a stream that is one JSON object whole,
+so the report crosses uncut (142's bound stays for everything else; sniff's
+own caps are what bound a report).
+
+This is the token change, not only the correctness one. The envelope used to
+cross the model twice — once out of the sub-agent as output tokens, once
+into the parent as the sub-agent's final message — and the parent then
+re-read every check's envelope on each of its own messages. Now it crosses
+into the sub-agent's context once, as a tool result, and the parent gets a
+paragraph. On #45's shape that is four envelopes out of a 26k-token parent
+context and ten thousand output tokens per check that are not spent.
+
+Accepted: **the fold reads a tool result's `stdout`**, which is untrusted
+data from the box and is parsed the way the message was, through the same
+schema and the same rules; **a session on an older rubric** still pastes the
+envelope and still folds, because the message is the fallback when no
+report result exists; **a sub-agent that runs `sniff.py report` twice**
+reported the second time.
+
+Rejected: **raising the model's output limit** (146 said why); **`sniff.py
+report` printing a pointer to a file** the fold cannot read; **the parent
+reading each check's file** through `sandbox_read_file`, which puts the
+envelope in the parent's context again and asks the parent to carry it into
+its review call.

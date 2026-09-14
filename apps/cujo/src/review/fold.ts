@@ -172,6 +172,38 @@ export function parseReport(text: string): unknown | null {
  * finite number, contributes nothing. The field is a measurement, and a
  * measurement nobody made is absent rather than zero.
  */
+/**
+ * The envelope `sniff.py report` printed, off the `sandbox_exec` result that
+ * carried it (decision 147). The result is `{ok, exit_code, stdout, ...}` and
+ * the stdout is one JSON object whose `check` names the check and whose
+ * `runs` is the list `sniff.py` assembled — that pair is what says this exec
+ * was the report command and not a wrapped run, which prints an entry with
+ * `check` too but never `runs`. Undefined for anything else.
+ */
+function reportFromToolResult(content: string, check: string): unknown | undefined {
+  // Cheap pre-check: the envelope's key survives the result's escaping.
+  if (!content.includes("runs")) return undefined;
+  let result: unknown;
+  try {
+    result = JSON.parse(content);
+  } catch {
+    return undefined;
+  }
+  if (!isObject(result) || result.exit_code !== 0 || typeof result.stdout !== "string") {
+    return undefined;
+  }
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(result.stdout);
+  } catch {
+    return undefined;
+  }
+  if (!isObject(envelope) || envelope.check !== check || !Array.isArray(envelope.runs)) {
+    return undefined;
+  }
+  return envelope;
+}
+
 function provisionedMs(content: unknown): number | undefined {
   if (typeof content !== "string" || !content.includes("provisioned_ms")) return undefined;
   let parsed: unknown;
@@ -272,6 +304,11 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
   // responses are deduped by id for the same reason messages are.
   const ledgerRows = new Map<string, LedgerThread>();
   const toolResponses = new Set<string>();
+  // The envelope each check thread's `sniff.py report` printed, by thread
+  // id, read off the tool result rather than the model's final message
+  // (decision 147). The last one wins: a sub-agent that ran the command
+  // twice reported the second time.
+  const toolReports = new Map<string, unknown>();
   const rowFor = (threadId: string): LedgerThread => {
     if (threadId === "main") return ledgerThread(p.ledger, ledgerRows, threadId, "main", 1);
     const check = p.checks.find((c) => c.threadId === threadId);
@@ -373,13 +410,19 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // refusal by design, so it has to be read off the event itself.
         check.finishReason = event.state.output?.finishReason ?? null;
         check.refused = Boolean(event.state.output?.refusal);
+        // The tool result first, the message's fenced JSON second: the result
+        // is what `sniff.py` printed, whole, and the message is a copy the
+        // model may have cut at its output limit (decision 147). A session
+        // pinned to a rubric that still pastes the envelope folds as before.
+        const report =
+          toolReports.get(event.threadId) ?? parseReport(messageText(event.state.output));
         if (event.state.status === "done") {
           check.status = "done";
-          check.report = parseReport(messageText(event.state.output));
+          check.report = report;
         } else {
           check.status = "error";
           check.error = event.state.error;
-          check.report = parseReport(messageText(event.state.output));
+          check.report = report;
         }
         // Both inputs are in hand exactly here: the thread's two timestamps and
         // the report holding the wrapped commands' own durations.
@@ -436,6 +479,13 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         if (!toolResponses.has(event.id)) {
           toolResponses.add(event.id);
           addToolResult(p.ledger, rowFor(event.threadId), event);
+        }
+        if (event.toolName === "sandbox_exec" && !event.isError) {
+          const check = p.checks.find((c) => c.threadId === event.threadId);
+          if (check) {
+            const envelope = reportFromToolResult(event.content, check.title);
+            if (envelope !== undefined) toolReports.set(event.threadId, envelope);
+          }
         }
         break;
       }
