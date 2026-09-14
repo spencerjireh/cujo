@@ -300,6 +300,94 @@ describe("fold", () => {
     });
   });
 
+  describe("a cached detonation is substituted for its stub (decision 148)", () => {
+    const stored = {
+      dependency: "Humanize==4.9.0",
+      source: "pypi",
+      install_ok: true,
+      egress: [{ host: "pypi.org" }],
+    };
+    const cached = [
+      {
+        source: "pypi",
+        specifier: "humanize==4.9.0",
+        report: stored,
+        cachedFromRun: "run-earlier",
+        cachedAt: "2026-09-10T00:00:00.000Z",
+      },
+    ];
+    const envelope = (runs: unknown[]) =>
+      JSON.stringify({ schema_version: 1, check: "detonation", runs, derived: {} });
+    const execResult = (stdout: string): Ev => ({
+      type: "tool.response",
+      id: "r1",
+      createdAt: at,
+      threadId: "th-det",
+      toolCallId: "c1",
+      toolName: "sandbox_exec",
+      content: JSON.stringify({ ok: true, exit_code: 0, stdout, stderr: "", duration_ms: 1 }),
+      isError: false,
+    });
+
+    it("puts the stored entry where the stub was, marked with where it came from", () => {
+      const p = fold(
+        [
+          turnCreated("t1"),
+          threadCreated("th-det", "detonation"),
+          execResult(
+            envelope([
+              // The sub-agent's own spelling of the key is normalised to match.
+              { schema_version: 1, dependency: "humanize == 4.9.0", source: "pypi", cached: true },
+              { dependency: "rich==13.0.0", source: "pypi", install_ok: true },
+            ]),
+          ),
+          threadDone("th-det", "done"),
+          turnDone(),
+        ],
+        { cachedDetonations: cached },
+      );
+      const runs = (p.checks[0]?.report as { runs: Record<string, unknown>[] }).runs;
+      expect(runs[0]).toEqual({
+        ...stored,
+        cached_from_run: "run-earlier",
+        cached_at: "2026-09-10T00:00:00.000Z",
+      });
+      expect(runs[1]?.dependency).toBe("rich==13.0.0");
+    });
+
+    it("leaves a stub alone when the run was briefed with no entry for it", () => {
+      const stub = { schema_version: 1, dependency: "left-pad@1.3.0", source: "npm", cached: true };
+      const p = fold(
+        [
+          turnCreated("t1"),
+          threadCreated("th-det", "detonation"),
+          execResult(envelope([stub])),
+          threadDone("th-det", "done"),
+          turnDone(),
+        ],
+        { cachedDetonations: cached },
+      );
+      expect((p.checks[0]?.report as { runs: unknown[] }).runs[0]).toEqual(stub);
+    });
+
+    it("substitutes nothing on a check that is not detonation, or with no entries", () => {
+      const stub = {
+        schema_version: 1,
+        dependency: "humanize==4.9.0",
+        source: "pypi",
+        cached: true,
+      };
+      const events: Ev[] = [
+        turnCreated("t1"),
+        threadCreated("th-det", "detonation"),
+        execResult(envelope([stub])),
+        threadDone("th-det", "done"),
+        turnDone(),
+      ];
+      expect((fold(events).checks[0]?.report as { runs: unknown[] }).runs[0]).toEqual(stub);
+    });
+  });
+
   it("counts one attempt per check on the common path", () => {
     const p = fold([
       turnCreated("t1"),

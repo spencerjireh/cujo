@@ -184,7 +184,6 @@ describe("buildTurnMessage", () => {
         source: "pypi" as const,
         run_id: null,
         cached_at: "2026-09-10T00:00:00.000Z",
-        report: { dependency: "humanize==4.9.0", install_ok: true },
       },
     ];
     expect(payloadOf(buildTurnMessage(pr, "", cached)).detonation_cached).toEqual(cached);

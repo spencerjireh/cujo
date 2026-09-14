@@ -21,6 +21,7 @@ import {
   emptyLedger,
   ledgerThread,
 } from "./ledger";
+import { type Source, normalizeSpecifier } from "./specifiers";
 import { checkTimings, emptySetup, settleSetup } from "./timings";
 import {
   CHECK_NAMES,
@@ -71,6 +72,50 @@ export interface FoldOptions {
    * from before there were two reviews is.
    */
   mode?: ReviewMode;
+  /**
+   * The detonation entries this run was briefed as cached (decision 148).
+   * A sub-agent records a stub for each, and the fold puts the stored entry
+   * in the stub's place before the rules read the report, so the evidence
+   * never crosses the model. Read from the store per run; absent for a run
+   * briefed with none.
+   */
+  cachedDetonations?: readonly CachedDetonationEntry[];
+}
+
+/** What the fold needs of a cached entry: the key and the report to substitute. */
+interface CachedDetonationEntry {
+  source: string;
+  specifier: string;
+  report: unknown;
+  cachedFromRun: string | null;
+  cachedAt: string;
+}
+
+/**
+ * A detonation report with each stub the sub-agent recorded for a cached
+ * specifier replaced by the entry the run was briefed with (decision 148).
+ * A stub carries `cached: true` beside `dependency` and `source` and nothing
+ * the rules read; a stub with no entry to stand in for it stays, and the
+ * schema says so as `report_invalid`. Matched on the normalised specifier,
+ * the same key the cache is.
+ */
+function substituteCachedDetonations(
+  report: unknown,
+  cached: readonly CachedDetonationEntry[],
+): unknown {
+  if (cached.length === 0 || !isObject(report) || !Array.isArray(report.runs)) return report;
+  const byKey = new Map(cached.map((c) => [`${c.source} ${c.specifier}`, c]));
+  let changed = false;
+  const runs = report.runs.map((entry) => {
+    if (!isObject(entry) || entry.cached !== true) return entry;
+    const source = typeof entry.source === "string" ? entry.source : "";
+    const dependency = typeof entry.dependency === "string" ? entry.dependency : "";
+    const hit = byKey.get(`${source} ${normalizeSpecifier(source as Source, dependency)}`);
+    if (!hit || !isObject(hit.report)) return entry;
+    changed = true;
+    return { ...hit.report, cached_from_run: hit.cachedFromRun, cached_at: hit.cachedAt };
+  });
+  return changed ? { ...report, runs } : report;
 }
 
 function emptyUsage(): UsageTotals {
@@ -414,8 +459,11 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // is what `sniff.py` printed, whole, and the message is a copy the
         // model may have cut at its output limit (decision 147). A session
         // pinned to a rubric that still pastes the envelope folds as before.
+        const raw = toolReports.get(event.threadId) ?? parseReport(messageText(event.state.output));
         const report =
-          toolReports.get(event.threadId) ?? parseReport(messageText(event.state.output));
+          check.title === "detonation" && options.cachedDetonations
+            ? substituteCachedDetonations(raw, options.cachedDetonations)
+            : raw;
         if (event.state.status === "done") {
           check.status = "done";
           check.report = report;

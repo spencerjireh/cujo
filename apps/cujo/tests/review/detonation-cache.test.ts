@@ -105,9 +105,14 @@ describe("cacheableDetonations (decision 145)", () => {
     expect(cacheableDetonations({ checks: [check([reached])] })).toEqual([]);
   });
 
-  it("never re-caches an entry that was itself a cached copy", () => {
+  it("never re-caches an entry that was itself a cached copy, nor a stub", () => {
     const copy = entry({ cached_from_run: "run-1", cached_at: "2026-09-10T00:00:00Z" });
     expect(cacheableDetonations({ checks: [check([copy])] })).toEqual([]);
+    // A stub the fold could not substitute (decision 148) is not an entry
+    // the schema accepts, so the report reads as invalid and nothing in it
+    // is written back — the one substituted is a full entry by then.
+    const stub = { schema_version: 1, dependency: "humanize==4.9.0", source: "pypi", cached: true };
+    expect(cacheableDetonations({ checks: [check([entry(), stub])] })).toEqual([]);
   });
 
   it("skips a report the schema rejects, a check that is not detonation, and one still running", () => {
@@ -159,13 +164,21 @@ describe("lookupCachedDetonations", () => {
     };
     const out = lookupCachedDetonations(store, added, new Date());
     expect(asked).toEqual(["pypi humanize==4.9.0", "npm left-pad@1.3.0"]);
-    expect(out).toEqual([
+    expect(out.brief).toEqual([
       {
         dependency: "humanize==4.9.0",
         source: "pypi",
         run_id: "run-1",
         cached_at: "2026-09-10T00:00:00.000Z",
+      },
+    ]);
+    expect(out.kept).toEqual([
+      {
+        source: "pypi",
+        specifier: "humanize==4.9.0",
         report: entry(),
+        cachedFromRun: "run-1",
+        cachedAt: "2026-09-10T00:00:00.000Z",
       },
     ]);
   });
@@ -173,7 +186,8 @@ describe("lookupCachedDetonations", () => {
   it("withholds the source run's id when that run is private", () => {
     const store = { get: () => stored({ runIsPublic: false }) };
     const out = lookupCachedDetonations(store, [added[0] as AddedSpecifier], new Date());
-    expect(out[0]?.run_id).toBeNull();
+    expect(out.brief[0]?.run_id).toBeNull();
+    expect(out.kept[0]?.cachedFromRun).toBeNull();
     expect(JSON.stringify(out)).not.toContain("run-1");
   });
 });

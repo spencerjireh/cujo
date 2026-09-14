@@ -153,33 +153,23 @@ def _resolve(source: str, spec: str, env_dir: Path, stdout_tail: str) -> str | N
     return None
 
 
-def _cached_entry(
-    ctx: Context, args: argparse.Namespace, source: str, spec_clean: str
-) -> dict[str, Any]:
-    """An earlier run's entry for this specifier, recorded as this run's (decision 145).
+def _cached_stub(ctx: Context, source: str, spec_clean: str) -> dict[str, Any]:
+    """A stub for a specifier the brief named as cached (decisions 145, 148).
 
-    Nothing is installed and no window opens. The file is what the parent
-    wrote from its brief, verbatim; the entry is matched on `(source,
-    dependency)` and copied through with two marks saying where it came from.
-    A specifier the file does not hold is a non-zero exit with nothing
-    recorded, so the caller detonates it the ordinary way.
+    Nothing is installed, no window opens, and nothing the rules read is
+    written here: the entry the earlier run recorded never enters the box.
+    The trusted side puts it in this stub's place when it reads the report,
+    matched on `(source, dependency)`, so the stub carries exactly the two
+    keys of that match and a mark saying what it is.
     """
-    try:
-        cached = json.loads(Path(args.cached).read_text())
-    except (OSError, ValueError) as error:
-        raise SystemExit(f"detonate: cannot read {args.cached}: {error}") from error
-    if not isinstance(cached, list):
-        raise SystemExit(f"detonate: {args.cached} is not a JSON array")
-    for item in cached:
-        if not isinstance(item, dict) or not isinstance(item.get("report"), dict):
-            continue
-        if item.get("source") == source and item.get("dependency") == spec_clean:
-            entry = dict(item["report"])
-            entry["cached_from_run"] = item.get("run_id")
-            entry["cached_at"] = item.get("cached_at")
-            record_run(ctx, "detonation", entry)
-            return entry
-    raise SystemExit(f"detonate: {spec_clean} is not in {args.cached}; detonate it")
+    entry = {
+        "schema_version": SCHEMA_VERSION,
+        "dependency": scrub(spec_clean),
+        "source": source,
+        "cached": True,
+    }
+    record_run(ctx, "detonation", entry)
+    return entry
 
 
 def _resolved_text(
@@ -197,8 +187,8 @@ def cmd_detonate(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     spec = args.dependency
     source = args.source if args.source != "auto" else detect_source(spec)
     spec_clean = spec.removeprefix("npm:").removeprefix("gem:").removeprefix("go:")
-    if getattr(args, "cached", None):
-        return _cached_entry(ctx, args, source, spec_clean)
+    if getattr(args, "cached", False):
+        return _cached_stub(ctx, source, spec_clean)
     env_dir = state_paths(ctx)["envs"] / hashlib.sha1(spec.encode()).hexdigest()[:12]
     shutil.rmtree(env_dir, ignore_errors=True)
     env_dir.mkdir(parents=True)
