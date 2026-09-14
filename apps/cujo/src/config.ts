@@ -89,6 +89,14 @@ export interface Config {
   diffTimeoutMs: number;
   /** Bytes of patch text the diff review is handed (Contract 11). */
   diffBytes: number;
+  /**
+   * Where the `ocr-sidecar` service answers, `CUJO_OCR_SIDECAR_URL`, or null
+   * for no shadow review at all (decision 149). Optional the way Discord is:
+   * unset, and no run asks.
+   */
+  ocrSidecarUrl: string | null;
+  /** How long one shadow review may take, clone included. */
+  ocrTimeoutMs: number;
   /** Concurrent public run streams this process will hold (decision 34). */
   publicStreamLimit: number;
   /**
@@ -272,6 +280,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     diffBudgetTokens: count(env.CUJO_DIFF_BUDGET_TOKENS, 400_000),
     diffTimeoutMs: count(env.CUJO_DIFF_TIMEOUT_MS, 10 * 60 * 1000),
     diffBytes: count(env.CUJO_DIFF_BYTES, 60_000),
+    // `||`: the compose optional arrives empty, and an empty URL is not a
+    // sidecar.
+    ocrSidecarUrl: env.CUJO_OCR_SIDECAR_URL || null,
+    ocrTimeoutMs: count(env.CUJO_OCR_TIMEOUT_MS, 21 * 60 * 1000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
     converseLimit: count(env.CUJO_CONVERSE_LIMIT, 3, { zeroOk: true }),
     converseWindowMs: count(env.CUJO_CONVERSE_WINDOW_MS, 60 * 60 * 1000),

@@ -141,6 +141,11 @@ services:
       CUJO_DIFF_BUDGET_TOKENS: ${CUJO_DIFF_BUDGET_TOKENS:-400000}
       CUJO_DIFF_TIMEOUT_MS: ${CUJO_DIFF_TIMEOUT_MS:-600000}
       CUJO_DIFF_BYTES: ${CUJO_DIFF_BYTES:-60000}
+      # Open Code Review beside every run (decision 149). Unset, and no run
+      # asks the sidecar; set, and its answer is stored per run and posted
+      # nowhere. The timeout covers the sidecar's own clone and review.
+      CUJO_OCR_SIDECAR_URL: ${CUJO_OCR_SIDECAR_URL:-}
+      CUJO_OCR_TIMEOUT_MS: ${CUJO_OCR_TIMEOUT_MS:-1260000}
       # The model provider, registered on the harness at start (decision 127).
       # The harness holds nothing until this process tells it; there is no
       # console to configure it in.
@@ -319,6 +324,50 @@ services:
           'node',
           '-e',
           "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # Open Code Review beside every run (decision 149). Trusted: it holds one
+  # model key and no GitHub credential. It clones into a tmpfs and answers
+  # `cujo` with a JSON envelope; nothing it produces reaches a pull request.
+  # `cujo` does not depend on it: with CUJO_OCR_SIDECAR_URL unset no run asks,
+  # and with the service down every ask is an error row and a warning line.
+  # It exits at boot without the three OCR_LLM_* values `ocr` requires.
+  ocr-sidecar:
+    build:
+      context: .
+      dockerfile: apps/ocr-sidecar/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 8083
+      OCR_LLM_URL: ${OCR_LLM_URL:-}
+      OCR_LLM_TOKEN: ${OCR_LLM_TOKEN:-}
+      OCR_LLM_MODEL: ${OCR_LLM_MODEL:-}
+      # `openai` for an OpenAI-compatible endpoint, `anthropic` for one that
+      # speaks Anthropic's; `ocr` defaults to Anthropic when unset.
+      OCR_LLM_PROTOCOL: ${OCR_LLM_PROTOCOL:-openai}
+      OCR_MAX_TOKENS_BUDGET: ${OCR_MAX_TOKENS_BUDGET:-400000}
+      OCR_SIDECAR_TIMEOUT_MS: ${OCR_SIDECAR_TIMEOUT_MS:-1200000}
+    read_only: true
+    tmpfs:
+      # Clones and ocr's own HOME live here; sized so one runaway checkout
+      # cannot take the host's memory.
+      - /tmp:size=2g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8083/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 5s
       timeout: 5s

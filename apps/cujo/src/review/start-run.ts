@@ -15,6 +15,7 @@ import type { DetonationCacheStore } from "../store/detonations";
 import { buildDiffTurnMessage, buildTurnMessage, manifestChanged } from "./agent-spec";
 import { lookupCachedDetonations } from "./detonation-cache";
 import { resolveMode } from "./mode";
+import { type OcrShadowDeps, shadowReview } from "./ocr-shadow";
 import { type PrepareCaps, prepareReviewPackage } from "./prepare";
 import type { Runner } from "./runner.service";
 import { addedSpecifiers } from "./specifiers";
@@ -46,6 +47,11 @@ export interface StartRunDeps {
    * it — every test that predates the cache — briefs the agent as before.
    */
   detonations?: Pick<DetonationCacheStore, "get" | "putForRun">;
+  /**
+   * The shadow review (decision 149). Optional so a composition without a
+   * sidecar — and every test that predates it — asks nobody.
+   */
+  ocr?: Pick<OcrShadowDeps, "client" | "store">;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -153,6 +159,14 @@ export async function startRun(
         runLogger(deps.log, old).info("run.superseded", { reason: "newer_head", to: run.id });
         await deps.runner.supersede(old.id);
       }
+    }
+    // The shadow review (decision 149), before the mode is resolved so both
+    // reviews get one, and never awaited so neither waits for it. Its own
+    // catch: a sidecar failure is a warning line and not a failed run.
+    if (deps.ocr) {
+      void shadowReview({ ...deps.ocr, log }, pr, run).catch((error) =>
+        log.warn("ocr.review.failed", errorFields(error)),
+      );
     }
     // Which review this is (decision 135): the repository's word from base,
     // under the two floors, over the deploy default. Read here and not in the

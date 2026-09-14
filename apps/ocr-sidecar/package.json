@@ -1,0 +1,15 @@
+{
+  "name": "@cujo/ocr-sidecar",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cujo/log": "workspace:*",
+    "zod": "3.25.76"
+  }
+}

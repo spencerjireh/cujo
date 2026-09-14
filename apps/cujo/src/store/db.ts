@@ -276,6 +276,20 @@ export const SCHEMA = `
     cached_at TEXT NOT NULL,
     PRIMARY KEY (run_id, source, specifier)
   );
+  -- What Open Code Review said about a run (decision 149), verbatim and
+  -- read by nothing in this process: the measurement week compares it by
+  -- hand over SQL. Never joined by /public, never posted.
+  CREATE TABLE IF NOT EXISTS run_ocr_reviews (
+    run_id TEXT PRIMARY KEY REFERENCES runs (id),
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_json TEXT,
+    error TEXT,
+    exit_code INTEGER,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    duration_ms INTEGER
+  );
 `;
 
 /**
