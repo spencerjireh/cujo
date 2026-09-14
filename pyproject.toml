@@ -24,7 +24,7 @@ target-version = "py312"
 # Without it the import is read as third-party and `ruff check` fails I001 --
 # and, worse, `ruff check --fix` "resolves" it by merging the import blocks,
 # which goes green while making the misclassification permanent.
-src = ["sandbox"]
+src = ["sandbox", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -33,11 +33,11 @@ select = ["E", "F", "I", "UP", "B"]
 # `repo_checks/` holds tests about this repository's own configuration rather
 # than about `cujo_sniff`. It is deliberately not called `tests`, which would
 # shadow the `tests` package that `sandbox/tests/conftest.py` imports from.
-testpaths = ["sandbox/tests", "repo_checks"]
+testpaths = ["sandbox/tests", "repo_checks", "scripts/tests"]
 # Nothing is installed, so the directory is the path -- which is also the
 # arrangement inside the sandbox, where `sniff.py` and `cujo_sniff/` are
 # siblings and `sys.path[0]` is what finds the package.
-pythonpath = ["sandbox"]
+pythonpath = ["sandbox", "scripts"]
 # `-n auto` because nearly every test here spawns `python3 -m cujo_sniff` and
 # waits on it, so the suite is bound by process startup and IO rather than by
 # CPU. Every test already owns its directories -- the `cli` fixture roots HOME,
