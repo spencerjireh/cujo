@@ -1200,6 +1200,16 @@ what the pull request carries, and the run describes the second. A refused
 post leaves `review` null and ends the turn `error` naming the refusal; a
 later call in the same turn that GitHub accepts is the review.
 
+**A check's report is the result of `sniff.py report`, not the model's copy of
+it** (decision 147). The sub-agent runs that command last, and the fold reads
+the envelope off the `sandbox_exec` result that carried it: a result with exit
+code 0 whose stdout is one JSON object with `check` naming the thread's title
+and a `runs` array. The last such result on the thread is the report; the
+final message's fenced JSON is read only when no such result exists, which is
+what a session on an older rubric produces. `sandbox-mcp` hands back a stream
+that is one JSON object whole, whatever its size, so the envelope crosses
+uncut (decision 142's bound applies to everything else).
+
 The four checks are matched to subagent threads by title. The parent titles
 each spawned thread exactly `tests`, `probes`, `smoke`, or `detonation`; a
 thread with any other title is shown but not treated as a check. A check's

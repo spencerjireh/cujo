@@ -113,8 +113,28 @@ const EXEC_DESCRIPTION = [
   "Run one command as a list of arguments. No shell, so no pipelines, no",
   "redirection and no `&&`. Returns exit code, stdout, stderr and duration.",
   `A stream over ${EXEC_STREAM_CAP} bytes comes back as its head and tail with a`,
-  "marker naming the file in the sandbox that holds all of it.",
+  "marker naming the file in the sandbox that holds all of it, unless it is one",
+  "JSON object, which comes back whole.",
 ].join(" ");
+
+/**
+ * A stream that is one JSON object is a report, and a report is not clipped.
+ *
+ * `sniff.py` prints exactly one JSON object per command and bounds every
+ * list in it itself (decision 146), so its size is already the sensors'
+ * business; and the fold reads a check's envelope off this very result
+ * (decision 147), where a head-and-tail cut would be a cut in the evidence.
+ * Anything else — a test runner, an install log — is prose and is clipped.
+ */
+function isOneJsonObject(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+  try {
+    return typeof JSON.parse(trimmed) === "object";
+  } catch {
+    return false;
+  }
+}
 
 /** Head and tail of a stream over the cap, with the marker between them. */
 function clipped(text: string, total: number, path: string | null): string {
@@ -210,7 +230,7 @@ export function registerSandboxTools(
         const bound = async (stream: "stdout" | "stderr"): Promise<string> => {
           const text = result[stream];
           const total = Buffer.byteLength(text, "utf8");
-          if (total <= EXEC_STREAM_CAP) return text;
+          if (total <= EXEC_STREAM_CAP || isOneJsonObject(text)) return text;
           const path = `${EXEC_LOG_DIR}/${serial}-${stream}.log`;
           try {
             await runtime.writeFile(args.sandbox_id, path, text);
