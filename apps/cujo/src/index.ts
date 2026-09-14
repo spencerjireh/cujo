@@ -5,6 +5,7 @@ import { GitHubReader } from "./clients/github";
 import { GitHubChecks } from "./clients/github-checks";
 import { GitHubReactions } from "./clients/github-reactions";
 import { Harness } from "./clients/harness";
+import { OcrSidecar } from "./clients/ocr-sidecar";
 import { loadConfig } from "./config";
 import { ConverseService } from "./converse/converse.service";
 import { ConverseRateLimit } from "./converse/rate-limit";
@@ -159,6 +160,12 @@ async function main(): Promise<void> {
   // than from `config`, so the digest is of the string a session would actually
   // be handed, tarball URL substituted and all.
   const provenance = { model: config.model, rubricSha256: specFingerprint(spec) };
+  // The shadow review (decision 149). Optional: with no sidecar URL no run
+  // asks, and the table stays empty.
+  const ocr = config.ocrSidecarUrl
+    ? { client: new OcrSidecar(config.ocrSidecarUrl, config.ocrTimeoutMs), store: store.ocr }
+    : undefined;
+
   // The diff review's half of the same (Contract 11): its own spec, so its own
   // digest and model, plus the budget the spec carries; a fresh session per
   // run (decision 137); and the three caps `prepare` cuts the package to.
@@ -274,6 +281,7 @@ async function main(): Promise<void> {
         runner,
         diff,
         detonations: store.detonations,
+        ocr,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
         onClaimed,
@@ -386,6 +394,7 @@ async function main(): Promise<void> {
       runner,
       diff,
       detonations: store.detonations,
+      ocr,
       // What the review's footer names. A public run gets its id; anything
       // else gets nothing, since a private run has no page for a stranger
       // reading the pull request to open. `github-mcp` turns the id into a
