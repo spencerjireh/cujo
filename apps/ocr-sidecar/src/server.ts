@@ -11,7 +11,8 @@ import { ReviewRequest, checkCloneUrl } from "./request";
 import type { Reviewer } from "./review";
 
 export interface AppOptions {
-  review: Reviewer;
+  /** Null when the deploy carries no model settings: healthy, and refusing. */
+  review: Reviewer | null;
   log?: Logger;
   /** Bytes of request body accepted; a title and a body fit in far less. */
   maxBodyBytes?: number;
@@ -71,6 +72,15 @@ export function createApp(options: AppOptions) {
         pr_number: parsed.prNumber,
       });
       json(res, 400, { ok: false, error: refusal });
+      return;
+    }
+    if (!options.review) {
+      log.warn("ocr.request.refused", {
+        reason: "unconfigured",
+        repo: parsed.repo,
+        pr_number: parsed.prNumber,
+      });
+      json(res, 503, { ok: false, error: "sidecar has no model configured" });
       return;
     }
     if (busy) {
