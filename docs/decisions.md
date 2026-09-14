@@ -7557,6 +7557,15 @@ Action**, which reviews a different diff base and leaves nothing to join to a
 run; **posting under the review from day one**, which is what the week is
 deciding.
 
+Amended the same day: the call is a start and then polls, not one request.
+Node's fetch stops waiting for response headers after five minutes whatever
+the caller's signal says, and the first shadow reviews that ran longer came
+back to `apps/cujo` as `fetch failed` while the sidecar was still working
+(orders-api #43, 300 s, and the next run refused as `busy` behind it).
+`POST /review` answers 202 with an id at once; `GET /review/:id` says
+`running` or `done` with the outcome, kept for an hour. The one-at-a-time rule
+and the 429 stay.
+
 ## 150. `/cujo review` starts a fresh session
 
 Decision 63 made `/cujo review` re-review the current head on the pull

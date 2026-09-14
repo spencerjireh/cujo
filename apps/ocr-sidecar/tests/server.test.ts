@@ -15,6 +15,8 @@ const good = {
   body: "b",
 };
 
+const settle = () => new Promise((r) => setTimeout(r, 30));
+
 describe("ocr-sidecar", () => {
   const seen: ReviewRequest[] = [];
   let release: (() => void) | null = null;
@@ -25,6 +27,7 @@ describe("ocr-sidecar", () => {
         release = resolve;
       });
     }
+    if (input.title === "throw") throw new Error("reviewer exploded");
     return { ok: true, result: { comments: [1, 2] }, exitCode: 0, durationMs: 5 };
   };
   const server = createApp({ review, maxBodyBytes: 4096 });
@@ -42,6 +45,12 @@ describe("ocr-sidecar", () => {
       headers: { "content-type": "application/json" },
       body: typeof body === "string" ? body : JSON.stringify(body),
     });
+  const startId = async (body: unknown) => {
+    const res = await post(body);
+    expect(res.status).toBe(202);
+    return ((await res.json()) as { id: string }).id;
+  };
+  const collect = async (id: string) => (await fetch(`${base}/review/${id}`)).json();
 
   it("responds 200 ok on /healthz and 404 elsewhere", async () => {
     expect(await (await fetch(`${base}/healthz`)).json()).toEqual({
@@ -50,16 +59,19 @@ describe("ocr-sidecar", () => {
     });
     expect((await fetch(`${base}/review`)).status).toBe(404);
     expect((await fetch(`${base}/other`, { method: "POST" })).status).toBe(404);
+    expect((await fetch(`${base}/review/not-an-id`)).status).toBe(404);
+    expect(
+      (await fetch(`${base}/review/${"0".repeat(8)}-0000-0000-0000-${"0".repeat(12)}`)).status,
+    ).toBe(404);
   });
 
-  it("answers a valid request with the reviewer's outcome", async () => {
-    const res = await post(good);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      ok: true,
-      result: { comments: [1, 2] },
-      exitCode: 0,
-      durationMs: 5,
+  it("starts a valid request with 202 and an id, then hands back the outcome on collect", async () => {
+    const id = await startId(good);
+    await settle();
+    expect(await collect(id)).toEqual({
+      id,
+      state: "done",
+      outcome: { ok: true, result: { comments: [1, 2] }, exitCode: 0, durationMs: 5 },
     });
     expect(seen.at(-1)).toMatchObject({ repo: "o/r", prNumber: 7 });
   });
@@ -79,13 +91,26 @@ describe("ocr-sidecar", () => {
     expect((await post({ ...good, body: "x".repeat(8192) })).status).toBe(413);
   });
 
-  it("is 429 while a review is running, then free again", async () => {
-    const held = post({ ...good, title: "hold" });
-    await new Promise((r) => setTimeout(r, 50));
+  it("reports running while the review runs, refuses a second start with 429, then frees up", async () => {
+    const id = await startId({ ...good, title: "hold" });
+    await settle();
+    expect(await collect(id)).toEqual({ id, state: "running" });
     expect((await post(good)).status).toBe(429);
     release?.();
-    expect((await held).status).toBe(200);
-    expect((await post(good)).status).toBe(200);
+    await settle();
+    expect(await collect(id)).toMatchObject({ state: "done", outcome: { ok: true } });
+    expect((await post(good)).status).toBe(202);
+  });
+
+  it("turns a reviewer that throws into a failed outcome, and frees up", async () => {
+    await settle();
+    const id = await startId({ ...good, title: "throw" });
+    await settle();
+    expect(await collect(id)).toMatchObject({
+      state: "done",
+      outcome: { ok: false, error: "reviewer exploded" },
+    });
+    expect((await post(good)).status).toBe(202);
   });
 });
 
