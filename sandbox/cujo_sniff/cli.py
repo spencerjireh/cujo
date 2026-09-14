@@ -212,8 +212,8 @@ def build_parser() -> argparse.ArgumentParser:
     det.add_argument("--source", choices=["pypi", "npm", "go", "gem", "auto"], default="auto")
     det.add_argument(
         "--cached",
-        metavar="PATH",
-        help="record the entry for this specifier from this JSON file instead of installing",
+        action="store_true",
+        help="record a stub for a specifier the brief named as cached; nothing is installed",
     )
     det.set_defaults(func=cmd_detonate)
 

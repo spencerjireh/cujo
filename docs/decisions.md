@@ -152,9 +152,10 @@ reader can tell a live rule from a recorded one before opening it.
 142. [Exec output is bounded at the tool, and the rest stays in the box](#142-exec-output-is-bounded-at-the-tool-and-the-rest-stays-in-the-box)
 143. [A timeout is an answer, not a failure](#143-a-timeout-is-an-answer-not-a-failure)
 144. [A push burst is one run](#144-a-push-burst-is-one-run)
-145. [A pinned specifier is detonated once per instance per week](#145-a-pinned-specifier-is-detonated-once-per-instance-per-week)
+145. [A pinned specifier is detonated once per instance per week](#145-a-pinned-specifier-is-detonated-once-per-instance-per-week) — amended by 148
 146. [A report lists what the rules read, and a spawned check owes one](#146-a-report-lists-what-the-rules-read-and-a-spawned-check-owes-one)
 147. [The report is the tool result, not the model's copy of it](#147-the-report-is-the-tool-result-not-the-models-copy-of-it)
+148. [A cached detonation never crosses the model](#148-a-cached-detonation-never-crosses-the-model)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7461,3 +7462,39 @@ report` printing a pointer to a file** the fold cannot read; **the parent
 reading each check's file** through `sandbox_read_file`, which puts the
 envelope in the parent's context again and asks the parent to carry it into
 its review call.
+
+## 148. A cached detonation never crosses the model
+
+Decision 145 accepted that a cached entry "crosses the model twice" and
+said the ledger would price it. It did, on the first replay: orders-api #50
+reused #49's `tabulate==0.9.0` entry and billed 856k tokens against #49's
+679k. The 43 KB entry sat in the brief through all twenty-one of the
+parent's messages and was written back into the box by the parent's own
+hand; the install it saved had cost 79k. The cache was a net loss of about
+180k tokens per hit, and the only thing it saved was twelve seconds.
+
+So the entry stays on the trusted side. The brief names a cached specifier
+by `dependency`, `source`, `cached_at` and, for a public source run,
+`run_id` — a hundred bytes. The run keeps the entries it was briefed with in
+`run_detonation_cache`, written at the lookup and read at every fold of
+that run, so a live fold, a refold and a rehydrate substitute the same
+thing. Inside the box the sub-agent runs `sniff.py detonate --cached` for a
+listed specifier, which records a stub — the key and a mark, nothing a rule
+reads — and installs nothing. When the fold reads the detonation report it
+puts the kept entry in each stub's place, marked `cached_from_run` and
+`cached_at`, before the schema or a hard rule sees it. The evidence the
+rules read is the earlier run's whole entry; the model carried a line.
+
+Accepted: **a stub the fold cannot substitute** — a specifier the brief
+never listed and the model marked cached on its own — stays a stub, fails
+the schema as `report_invalid`, and nothing from that report is written
+back; **the entries a run was briefed with are what it reads back**, even
+if the cache row was refreshed by another run meanwhile, because that is
+what this run was told; **`sniff.py detonate --cached` is a flag now**, not
+a path, and the file the parent used to write does not exist.
+
+Amends 145: the "crosses the model twice" cost is withdrawn, and the
+`--cached PATH` mechanism with it. Rejected: **the sub-agent reading the
+entry from a file the parent wrote**, which is 145's design and the cost
+above; **the parent carrying the entry only into the brief and not the
+box**, which halves the cost and keeps the wrong half.

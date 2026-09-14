@@ -10,7 +10,7 @@ import { cacheableDetonations } from "./detonation-cache";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
 import { validateEvent } from "./event-schema";
 import { isMaliceClaim, isOperationalRule } from "./findings";
-import { REVIEW_POST_FAILED, fold, lastTurnOutcome } from "./fold";
+import { type FoldOptions, REVIEW_POST_FAILED, fold, lastTurnOutcome } from "./fold";
 import type { UiLinks } from "./links";
 import { runLogger } from "./start-run";
 import { checkTimings } from "./timings";
@@ -166,7 +166,7 @@ export class Runner {
       | (DismissStaleReviewsDeps["github"] & Pick<GitHubReader, "createComment">)
       | null = null,
     /** Where a finished detonation's reusable entries go (decision 145). */
-    private readonly detonations: Pick<DetonationCacheStore, "put"> | null = null,
+    private readonly detonations: Pick<DetonationCacheStore, "put" | "forRun"> | null = null,
   ) {
     this.retryDelaysMs = options.retryDelaysMs ?? [2_000, 5_000, 15_000];
   }
@@ -216,10 +216,19 @@ export class Runner {
       : this.options.turnTimeoutMs;
   }
 
+  /** The mode and, for a run briefed with cached detonations, the entries the fold substitutes. */
+  private foldOptions(runId: string, run: RunRecord | null): FoldOptions {
+    const cached = this.detonations?.forRun(runId) ?? [];
+    return {
+      ...(run ? { mode: run.mode } : {}),
+      ...(cached.length > 0 ? { cachedDetonations: cached } : {}),
+    };
+  }
+
   private refold(runId: string): Projection {
     const s = this.state(runId);
     const run = this.store.getRun(runId);
-    const projection = fold(s.events, run ? { mode: run.mode } : {});
+    const projection = fold(s.events, this.foldOptions(runId, run));
     if (s.superseded) projection.status = "superseded";
     const previousStatus = run?.status;
     // The run may have recorded a turn whose turn.created has not arrived yet.
@@ -538,7 +547,7 @@ export class Runner {
         this.foreignTurnIds(run),
       );
       if (events.length === 0) return null;
-      return fold(events, { mode: run.mode });
+      return fold(events, this.foldOptions(run.id, run));
     } catch (error) {
       s.log.warn("run.hydrate.failed", { session_id: run.sessionId, ...errorFields(error) });
       return null;

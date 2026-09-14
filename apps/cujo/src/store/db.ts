@@ -262,6 +262,20 @@ export const SCHEMA = `
     created_at TEXT NOT NULL,
     PRIMARY KEY (source, specifier)
   );
+  -- The cached entries a run was briefed with (decision 148): the fold reads
+  -- them back when the sub-agent's report carries the stub for one, so the
+  -- evidence never crosses the model. Written at the lookup, read at every
+  -- fold of that run; the cache row may have moved on by then, and this is
+  -- what that run was told.
+  CREATE TABLE IF NOT EXISTS run_detonation_cache (
+    run_id TEXT NOT NULL REFERENCES runs (id),
+    source TEXT NOT NULL,
+    specifier TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    cached_from_run TEXT,
+    cached_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, source, specifier)
+  );
 `;
 
 /**

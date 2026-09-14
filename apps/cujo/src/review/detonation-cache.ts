@@ -10,20 +10,25 @@
 
 import type {
   DetonationCacheStore,
+  RunCachedDetonation,
   CachedDetonation as StoredDetonation,
 } from "../store/detonations";
 import { validateReport } from "./report-schema";
 import { type AddedSpecifier, type Source, isExact, normalizeSpecifier } from "./specifiers";
 import type { CheckState, Projection } from "./types";
 
-/** One entry as the brief carries it, field by field and never a spread of a store row. */
+/**
+ * One entry as the brief carries it, field by field and never a spread of a
+ * store row. No report: the evidence stays on the trusted side and the fold
+ * substitutes it for the sub-agent's stub (decision 148), so the model
+ * carries a key and a date, not thirty kilobytes.
+ */
 export interface CachedDetonation {
   dependency: string;
   source: Source;
   /** The producing run's id when that run is public, else null (decision 36). */
   run_id: string | null;
   cached_at: string;
-  report: unknown;
 }
 
 /**
@@ -51,26 +56,38 @@ export const INDEX_HOSTS: ReadonlySet<string> = new Set([
 
 const SOURCES: ReadonlySet<string> = new Set(["pypi", "npm", "gem", "go"]);
 
-/** The cached entries for the exact specifiers this head adds, in the order they were added. */
+/**
+ * The cached entries for the exact specifiers this head adds, in the order
+ * they were added: what the brief carries, and what the run keeps for the
+ * fold to substitute (decision 148).
+ */
 export function lookupCachedDetonations(
   store: Pick<DetonationCacheStore, "get">,
   added: readonly AddedSpecifier[],
   now: Date,
-): CachedDetonation[] {
-  const out: CachedDetonation[] = [];
+): { brief: CachedDetonation[]; kept: RunCachedDetonation[] } {
+  const brief: CachedDetonation[] = [];
+  const kept: RunCachedDetonation[] = [];
   for (const spec of added) {
     if (!spec.exact) continue;
     const hit: StoredDetonation | null = store.get(spec.source, spec.specifier, now);
     if (!hit) continue;
-    out.push({
+    const cachedFromRun = hit.runIsPublic ? hit.runId : null;
+    brief.push({
       dependency: hit.specifier,
       source: hit.source,
-      run_id: hit.runIsPublic ? hit.runId : null,
+      run_id: cachedFromRun,
       cached_at: hit.createdAt,
+    });
+    kept.push({
+      source: hit.source,
+      specifier: hit.specifier,
       report: hit.report,
+      cachedFromRun,
+      cachedAt: hit.createdAt,
     });
   }
-  return out;
+  return { brief, kept };
 }
 
 export interface CacheableDetonation {
@@ -85,6 +102,7 @@ interface DependencyEntry {
   install_ok: boolean;
   window_exclusive: boolean;
   cached_from_run?: unknown;
+  cached?: unknown;
   derived: Record<string, unknown>;
   egress: { host: string }[];
   secret_probe?: { decoy_read?: unknown };
@@ -117,6 +135,7 @@ export function cacheableDetonations(
       const source = entry.source as Source;
       if (!entry.install_ok || !entry.window_exclusive) continue;
       if (entry.cached_from_run !== undefined && entry.cached_from_run !== null) continue;
+      if (entry.cached === true) continue;
       // The flags a hard rule reads (Contract 3), not every flag the sensors
       // derive: every pip install writes `~/.cache/pip`, which is
       // `wrote_outside_workspace` and a finding for nobody, and an install's
