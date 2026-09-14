@@ -214,14 +214,6 @@ async function main(): Promise<void> {
         detail: "I could not tell whether this repository is public. Try again.",
       };
     }
-    let sessionId = store.runs.getSession(input.repo, input.prNumber);
-    if (!sessionId) {
-      sessionId = store.runs.putSession(
-        input.repo,
-        input.prNumber,
-        await harness.createSession(spec),
-      );
-    }
     // A run for this head that is still in flight owns a live turn on the
     // session. Deleting its row would leave that turn running: it would keep
     // folding into a row that no longer exists, and it could still post a
@@ -250,6 +242,17 @@ async function main(): Promise<void> {
       // The partial unique index on runs_head excludes terminal statuses,
       // so the superseded row does not block the replacement's insert.
     }
+    // A fresh session, always (decision 150). On the pull request's existing
+    // session the model reads its own earlier review of this head in the
+    // history and declines to post a second one: orders-api #45 on
+    // 2026-09-14 ended in one message, "already reviewed in the prior
+    // turn", and no review. After the supersede above, so no live turn is
+    // stranded on the session this replaces; the next push follows it.
+    const sessionId = store.runs.replaceSession(
+      input.repo,
+      input.prNumber,
+      await harness.createSession(spec),
+    );
     const { run, created } = store.runs.createRun({
       repo: input.repo,
       prNumber: input.prNumber,
