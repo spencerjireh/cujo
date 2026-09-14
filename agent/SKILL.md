@@ -283,9 +283,9 @@ sensed: one that merely carries the exported environment produces no report and 
 evidence. The sensors serve one wrapped command at a time, so a second `run` waits for
 the first to finish; that wait is expected and is not a hang.
 
-**You do not assemble the report. One command does.** Every `run` and `detonate`
-records its own entry, so when the check is finished ask for the whole envelope
-and copy what it prints:
+**You do not assemble the report. One command does, and Cujo reads it from
+that command.** Every `run` and `detonate` records its own entry, so when the
+check is finished ask for the whole envelope, **as the last command you run**:
 
 ```
 python3 /opt/cujo/sniff.py report --check <name> --extra '<json>'
@@ -297,11 +297,13 @@ sensors know nothing about. Everything else is filled in for you: `check`,
 `derived`, `sensors` and `truncated` roll-up over all of them. Nothing in
 `--extra` can overwrite any of those.
 
-The sub-agent ends its final message with exactly one fenced ```json block, no
-prose after it, holding **that command's output verbatim**. Do not rebuild it, do
-not reorder it, do not trim an entry to the fields you think matter, and do not
-retype a roll-up — the whole reason this command exists is that copying one blob
-is something a model does reliably and copying thirty fields per entry is not.
+Cujo takes the envelope from that command's own result (decision 147), so **do
+not paste it into your final message**: a report of a real install runs to tens
+of kilobytes, and a copy stops at your output limit with the JSON half written,
+which is a report nobody can read. Your final message is a short plain-text
+summary for the parent — what ran, what passed and failed, what the sensors saw
+— of a few sentences, with no JSON in it. If `sniff.py report` exited non-zero,
+say so and say why; do not build an envelope by hand.
 
 Cujo still checks the envelope against a schema and records a `warn` when it does
 not hold. A report that fails the check is still read by the hard rules: the

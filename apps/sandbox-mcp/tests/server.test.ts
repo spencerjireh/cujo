@@ -218,6 +218,19 @@ describe("the tools", () => {
       await client.close();
     });
 
+    it("hands back a long stream whole when it is one JSON object (decision 147)", async () => {
+      const client = await connect();
+      const report = JSON.stringify({
+        check: "detonation",
+        runs: [{ pad: "x".repeat(40 * 1024) }],
+      });
+      runtime.nextOutput = { stdout: report, stderr: "" };
+      const result = await exec(client);
+      expect(result.stdout).toBe(report);
+      expect(runtime.writes).toHaveLength(0);
+      await client.close();
+    });
+
     it("still cuts, and says the rest was not kept, when the write fails", async () => {
       const client = await connect();
       runtime.nextOutput = { stdout: long, stderr: "" };

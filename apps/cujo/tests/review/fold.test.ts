@@ -222,6 +222,84 @@ describe("fold", () => {
     expect(p.status).toBe("blocked");
   });
 
+  describe("the report is the tool result (decision 147)", () => {
+    const execResult = (threadId: string, id: string, stdout: string, exitCode = 0): Ev => ({
+      type: "tool.response",
+      id,
+      createdAt: at,
+      threadId,
+      toolCallId: `call-${id}`,
+      toolName: "sandbox_exec",
+      content: JSON.stringify({
+        ok: true,
+        exit_code: exitCode,
+        stdout,
+        stderr: "",
+        duration_ms: 3,
+      }),
+      isError: false,
+    });
+    const envelope = (check: string, mark: string) =>
+      JSON.stringify({ schema_version: 1, check, runs: [{ mark }], derived: {} });
+
+    it("reads a check's envelope off the sniff.py report result, whole", () => {
+      const p = fold([
+        turnCreated("t1"),
+        threadCreated("th-tests", "tests"),
+        execResult("th-tests", "r1", envelope("tests", "from the tool")),
+        // The model's own copy stopped at its output limit: no fence closes.
+        threadDone("th-tests", 'Ran the suite.\n```json\n{"check":"tests","runs":[{"mark":"cut'),
+        turnDone(),
+      ]);
+      expect(p.checks[0]?.report).toEqual({
+        schema_version: 1,
+        check: "tests",
+        runs: [{ mark: "from the tool" }],
+        derived: {},
+      });
+    });
+
+    it("prefers the tool result to a message that pasted a different copy", () => {
+      const p = fold([
+        turnCreated("t1"),
+        threadCreated("th-tests", "tests"),
+        execResult("th-tests", "r1", envelope("tests", "from the tool")),
+        threadDone("th-tests", `\`\`\`json\n${envelope("tests", "retyped")}\n\`\`\``),
+        turnDone(),
+      ]);
+      expect((p.checks[0]?.report as { runs: { mark: string }[] }).runs[0]?.mark).toBe(
+        "from the tool",
+      );
+    });
+
+    it("takes the last report command when the sub-agent ran it twice", () => {
+      const p = fold([
+        turnCreated("t1"),
+        threadCreated("th-tests", "tests"),
+        execResult("th-tests", "r1", envelope("tests", "first")),
+        execResult("th-tests", "r2", envelope("tests", "second")),
+        threadDone("th-tests", "done"),
+        turnDone(),
+      ]);
+      expect((p.checks[0]?.report as { runs: { mark: string }[] }).runs[0]?.mark).toBe("second");
+    });
+
+    it("ignores a wrapped run's entry, a failed command, another check's envelope, and prose", () => {
+      const p = fold([
+        turnCreated("t1"),
+        threadCreated("th-tests", "tests"),
+        // A `sniff.py run` entry carries `check` but never `runs`.
+        execResult("th-tests", "r1", JSON.stringify({ check: "tests", argv: ["pytest"], exit: 0 })),
+        execResult("th-tests", "r2", envelope("tests", "failed"), 1),
+        execResult("th-tests", "r3", envelope("probes", "other")),
+        execResult("th-tests", "r4", "collected 8 items\n8 passed"),
+        threadDone("th-tests", `\`\`\`json\n${envelope("tests", "pasted")}\n\`\`\``),
+        turnDone(),
+      ]);
+      expect((p.checks[0]?.report as { runs: { mark: string }[] }).runs[0]?.mark).toBe("pasted");
+    });
+  });
+
   it("counts one attempt per check on the common path", () => {
     const p = fold([
       turnCreated("t1"),
