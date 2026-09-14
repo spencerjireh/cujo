@@ -7353,7 +7353,7 @@ because decision 112 was about exactly that and stands.
 
 The write-back is the selective half. When a `detonation` check finishes,
 `apps/cujo` stores an entry only when the install succeeded under an
-exclusive sensor window, no derived flag tripped, the decoy was not read,
+exclusive sensor window, no hard rule tripped (`wrote_sensitive`, `egress_to_unknown_host`, a decoy read — not `wrote_outside_workspace`, which every pip install trips on its own cache, nor `spawned_subprocess`, which is the installer itself),
 the specifier is exact, the entry is not itself a copy, and every host the
 install reached is on the sensors' own index list (`KNOWN_INDEX_HOSTS`,
 mirrored on the trusted side and held to it by a test). The last rule is

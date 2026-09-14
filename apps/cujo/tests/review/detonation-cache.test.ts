@@ -81,9 +81,23 @@ describe("cacheableDetonations (decision 145)", () => {
       entry({ install_ok: false }),
       entry({ window_exclusive: false }),
       entry({ derived: { ...entry().derived, wrote_sensitive: true } }),
+      entry({ derived: { ...entry().derived, egress_to_unknown_host: true } }),
       entry({ secret_probe: { decoy_read: true, decoy_in_egress: null } }),
     ];
     expect(cacheableDetonations({ checks: [check(cases)] })).toEqual([]);
+  });
+
+  it("keeps an entry whose only flags are the ones no rule reads (decision 145)", () => {
+    // Every pip install writes ~/.cache/pip and spawns its own child; both
+    // are recorded, neither is a finding, and neither makes the install
+    // unsafe to reuse.
+    const pip = entry({
+      derived: { ...entry().derived, wrote_outside_workspace: true, spawned_subprocess: true },
+      fs_changes: [
+        { path: "~/.cache/pip/http-v2/a", type: "created", in_workspace: false, sensitive: false },
+      ],
+    });
+    expect(cacheableDetonations({ checks: [check([pip])] })).toHaveLength(1);
   });
 
   it("skips an entry that reached a host outside the index list, whatever `known` said", () => {

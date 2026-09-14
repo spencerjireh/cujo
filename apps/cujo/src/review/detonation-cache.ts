@@ -98,8 +98,8 @@ function isDependencyEntry(entry: unknown): entry is DependencyEntry {
 
 /**
  * The entries of a run's detonation reports that may serve another run:
- * the install succeeded under an exclusive sensor window, nothing tripped
- * (no derived flag, no decoy read), every host reached is an index host, the
+ * the install succeeded under an exclusive sensor window, no hard rule
+ * tripped (no sensitive write, no unknown host, no decoy read), every host reached is an index host, the
  * specifier is exact, and the entry is not itself a cached copy. Anything else is that run's own business.
  */
 export function cacheableDetonations(
@@ -117,7 +117,13 @@ export function cacheableDetonations(
       const source = entry.source as Source;
       if (!entry.install_ok || !entry.window_exclusive) continue;
       if (entry.cached_from_run !== undefined && entry.cached_from_run !== null) continue;
-      if (Object.values(entry.derived ?? {}).some((flag) => flag === true)) continue;
+      // The flags a hard rule reads (Contract 3), not every flag the sensors
+      // derive: every pip install writes `~/.cache/pip`, which is
+      // `wrote_outside_workspace` and a finding for nobody, and an install's
+      // own child process is `spawned_subprocess`. Neither says the thing is
+      // unsafe to reuse; the three below do.
+      const derived = entry.derived ?? {};
+      if (derived.wrote_sensitive === true || derived.egress_to_unknown_host === true) continue;
       if (entry.secret_probe?.decoy_read === true) continue;
       if ((entry.egress ?? []).some((row) => !INDEX_HOSTS.has(row.host))) continue;
       const specifier = normalizeSpecifier(source, entry.dependency);
