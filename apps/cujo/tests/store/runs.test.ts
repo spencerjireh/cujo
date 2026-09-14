@@ -61,6 +61,16 @@ describe("run store", () => {
     expect(store.runs.getSession("o/r", 7)).toBe("s1");
   });
 
+  it("replaces the session for a re-review, and the next push follows it", () => {
+    const store = new Store(":memory:");
+    store.runs.putSession("o/r", 7, "s1");
+    expect(store.runs.replaceSession("o/r", 7, "s2")).toBe("s2");
+    expect(store.runs.getSession("o/r", 7)).toBe("s2");
+    // A first write through `replaceSession` is fine too: nothing to replace.
+    expect(store.runs.replaceSession("o/r", 8, "s3")).toBe("s3");
+    expect(store.runs.putSession("o/r", 8, "s4")).toBe("s3");
+  });
+
   it("holds the conversation session apart from the review's", () => {
     // The whole of decision 47 rests on these never being the same id: a turn
     // on the review's session cancels a live review, is refused while its
