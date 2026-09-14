@@ -1221,7 +1221,7 @@ describe("Runner writes a finished detonation through to the cache (decision 145
       { turnTimeoutMs: 10_000 },
       createLogger({ service: "cujo", sink: () => {} }),
       null,
-      { put },
+      { put, forRun: () => [] },
     );
     return { store, r, runner };
   }

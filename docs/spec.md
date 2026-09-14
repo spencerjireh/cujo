@@ -213,10 +213,11 @@ For a `pull_request` event the `apps/cujo` webhook module:
    the repo is public — `run_id`, which the agent passes back to the review
    tool (Contract 4). An id and not a URL: the payload reaches an agent that
    is about to read a stranger's pull request, so it names no host. When a
-   manifest changed, also `detonation_cached` (decision 145): for each exact
-   specifier the manifest hunks add that this instance detonated within seven
-   days, the entry that run recorded, its `cached_at`, and its `run_id` only
-   when that run is public. Omitted when there is none. For a
+   manifest changed, also `detonation_cached` (decisions 145, 148): for each
+   exact specifier the manifest hunks add that this instance detonated within
+   seven days, its `dependency`, `source`, `cached_at`, and `run_id` only when
+   that run is public — never the entry itself, which stays on the trusted
+   side. Omitted when there is none. For a
    **diff** run, creates a fresh session on the diff spec (decision 137),
    prepares the package (Contract 11), stamps the run with the diff spec's
    model, rubric digest and budget and the new session, and starts one turn
@@ -447,14 +448,17 @@ so no report is folded from it and it is never evidence.
   (`name==X`, `name@X`, `module@vX.Y.Z`, `name:X`) or a git commit
   (`git+url@<40 hex>`) — is looked up on the trusted side before the turn
   starts, in a table keyed on `(source, normalised specifier)` with a
-  seven-day TTL enforced on read. A hit reaches the agent in the brief; the
-  parent writes the brief's array verbatim to
-  `/tmp/cujo-state/detonation-cache.json`, and the sub-agent runs
-  `sniff.py detonate --dependency <spec> --source <src> --cached <that file>`,
-  which records the earlier entry as this run's, marked `cached_from_run`
-  and `cached_at`, and installs nothing; a specifier the file lacks exits
-  non-zero with nothing recorded and is detonated the ordinary way. The
-  model assembles nothing (decision 112 holds). When a `detonation` check
+  seven-day TTL enforced on read. A hit reaches the agent in the brief as a
+  key and a date, and the entry itself is kept on the run
+  (`run_detonation_cache`, decision 148). The sub-agent runs
+  `sniff.py detonate --dependency <spec> --source <src> --cached` for a
+  listed specifier, which records a stub — `dependency`, `source`,
+  `cached: true` — and installs nothing; when the fold reads the report it
+  puts the kept entry in the stub's place, marked `cached_from_run` and
+  `cached_at`, before the schema or a rule sees it, matched on the
+  normalised specifier. A stub with no entry to stand in for it stays a
+  stub and the schema says so. The model assembles nothing and carries
+  nothing (decision 112 holds). When a `detonation` check
   finishes, `apps/cujo` writes back every entry that may serve another run:
   `install_ok` under an exclusive window, no hard-rule flag (`wrote_sensitive`, `egress_to_unknown_host`) and no decoy
   read, every egress host on the sensors' own index list (so nothing one
