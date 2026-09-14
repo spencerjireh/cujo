@@ -157,6 +157,7 @@ reader can tell a live rule from a recorded one before opening it.
 147. [The report is the tool result, not the model's copy of it](#147-the-report-is-the-tool-result-not-the-models-copy-of-it)
 148. [A cached detonation never crosses the model](#148-a-cached-detonation-never-crosses-the-model)
 149. [Open Code Review runs beside a review and posts nothing](#149-open-code-review-runs-beside-a-review-and-posts-nothing)
+150. [`/cujo review` starts a fresh session](#150-cujo-review-starts-a-fresh-session)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7555,3 +7556,29 @@ a subprocess and a writable path it has never had; **OCR's own GitHub
 Action**, which reviews a different diff base and leaves nothing to join to a
 run; **posting under the review from day one**, which is what the week is
 deciding.
+
+## 150. `/cujo review` starts a fresh session
+
+Decision 63 made `/cujo review` re-review the current head on the pull
+request's own session, the one every push turns on. That session carries the
+history, and the history carries the review the model already posted for
+this head. On 2026-09-14, `/cujo review` on orders-api #45 produced one
+message and no review: the model read its earlier advisory review of the
+same commit in its context, said posting again "would duplicate the
+evidence already on the PR", and ended the turn. The run recorded `turn
+ended without a review`; the ledger shows 451 tokens in and 326 out, no
+sandbox, no check. The command's whole point is a second look, and the
+session made the second look impossible.
+
+So `/cujo review` creates a session and makes it the pull request's, after
+the head's live turn, if any, has been superseded. The next push turns on
+the new session, whose history is the re-review. `putSession` stays
+first-writer-wins for the webhook, where two deliveries racing for one pull
+request must agree; `replaceSession` is this command's and nobody else's.
+
+Accepted: **the old session is abandoned on the harness**, a row and a
+transcript nobody reads again; **a re-review has no memory of the pull
+request's earlier heads**, which is what a clean look is. Rejected: **a
+line in the brief telling the model this is a re-review**, which asks a model
+to ignore what it can see; **deleting the old session on the harness**,
+which decision 104 already argued against for runs and which holds here.
