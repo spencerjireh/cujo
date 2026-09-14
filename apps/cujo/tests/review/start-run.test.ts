@@ -72,7 +72,11 @@ function harness(over: {
     ...over.diff,
   };
   const asked: string[] = [];
+  const kept: unknown[] = [];
   const detonations = {
+    putForRun: (_runId: string, entries: readonly unknown[]) => {
+      kept.push(...entries);
+    },
     get: (source: string, specifier: string) => {
       asked.push(`${source} ${specifier}`);
       const report = over.cache?.[`${source} ${specifier}`];
@@ -97,7 +101,7 @@ function harness(over: {
     ...(over.diff === null ? {} : { diff }),
     ...(over.cache ? { detonations } : {}),
   };
-  return { store, run, runner, github, createSession, deps, lines, asked };
+  return { store, run, runner, github, createSession, deps, lines, asked, kept };
 }
 
 /** The brief `Runner.start` was handed, parsed. */
@@ -207,13 +211,24 @@ describe("startRun picks the review", () => {
     await startRun(h.deps, h.run);
     // Only the exact pin is asked for; the range never reaches the store.
     expect(h.asked).toEqual(["pypi humanize==4.9.0"]);
+    // The brief carries the key and the date; the report stays on the
+    // trusted side, kept on the run for the fold (decision 148).
     expect(briefOf(h.runner).detonation_cached).toEqual([
       {
         dependency: "humanize==4.9.0",
         source: "pypi",
         run_id: "run-earlier",
         cached_at: "2026-09-10T00:00:00.000Z",
+      },
+    ]);
+    expect(JSON.stringify(briefOf(h.runner))).not.toContain("install_ok");
+    expect(h.kept).toEqual([
+      {
+        source: "pypi",
+        specifier: "humanize==4.9.0",
         report,
+        cachedFromRun: "run-earlier",
+        cachedAt: "2026-09-10T00:00:00.000Z",
       },
     ]);
     expect(h.lines.find((l) => l.event === "run.detonation.cached")).toMatchObject({ count: 1 });

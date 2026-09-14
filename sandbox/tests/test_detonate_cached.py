@@ -1,10 +1,9 @@
-"""`sniff.py detonate --cached` and the `resolved` field (decision 145).
+"""`sniff.py detonate --cached` and the `resolved` field (decisions 145, 148).
 
-The cache file is what the parent wrote from its brief; an entry matched on
-`(source, dependency)` is recorded as this run's without an install, marked
-with where it came from. A specifier the file lacks exits non-zero with
-nothing recorded, so the caller detonates it the ordinary way. `resolved` is
-read best effort after a real install and is `None` on any doubt.
+A specifier the brief named as cached is recorded as a stub — the key and a
+mark, nothing the rules read — without an install; the trusted side puts the
+earlier run's entry in the stub's place. `resolved` is read best effort after
+a real install and is `None` on any doubt.
 """
 
 from __future__ import annotations
@@ -16,10 +15,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
 from cujo_sniff.cli import cmd_report
-from cujo_sniff.context import Context, state_paths
+from cujo_sniff.context import Context
 from cujo_sniff.detonate import _name_of, _resolve, cmd_detonate
 from cujo_sniff.run_ledger import read_runs
 
@@ -49,88 +46,42 @@ REPORT: dict[str, Any] = {
 }
 
 
-def _cache_file(ctx: Context, entries: list[dict[str, Any]]) -> Path:
-    path = state_paths(ctx)["detonation_cache"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(entries))
-    return path
+def _args(dependency: str = "humanize==4.9.0", source: str = "pypi") -> argparse.Namespace:
+    return argparse.Namespace(dependency=dependency, source=source, cached=True)
 
 
-def _args(cached: Path, dependency: str = "humanize==4.9.0") -> argparse.Namespace:
-    return argparse.Namespace(dependency=dependency, source="pypi", cached=str(cached))
-
-
-def test_cached_entry_is_recorded_without_installing(ctx: Context) -> None:
-    path = _cache_file(
-        ctx,
-        [
-            {
-                "dependency": "humanize==4.9.0",
-                "source": "pypi",
-                "run_id": "run-earlier",
-                "cached_at": "2026-09-10T00:00:00.000Z",
-                "report": REPORT,
-            }
-        ],
-    )
+def test_cached_records_a_stub_without_installing(ctx: Context) -> None:
     with patch("cujo_sniff.detonate.run_sensed") as run_sensed:
-        entry = cmd_detonate(ctx, _args(path))
+        entry = cmd_detonate(ctx, _args())
     run_sensed.assert_not_called()
-    assert entry["cached_from_run"] == "run-earlier"
-    assert entry["cached_at"] == "2026-09-10T00:00:00.000Z"
+    assert entry == {
+        "schema_version": entry["schema_version"],
+        "dependency": "humanize==4.9.0",
+        "source": "pypi",
+        "cached": True,
+    }
     recorded = read_runs(ctx, "detonation")
     assert len(recorded) == 1
-    assert recorded[0]["dependency"] == "humanize==4.9.0"
-    assert recorded[0]["cached_from_run"] == "run-earlier"
+    assert recorded[0]["cached"] is True
+    # Nothing the rules read is in a stub: no install verdict, no sensor block.
+    for key in ("install_ok", "egress", "fs_changes", "derived", "secret_probe"):
+        assert key not in recorded[0]
 
 
-def test_cached_keeps_the_report_verbatim(ctx: Context) -> None:
-    path = _cache_file(
-        ctx, [{"dependency": "humanize==4.9.0", "source": "pypi", "run_id": None, "report": REPORT}]
+def test_cached_stub_strips_the_source_prefix_like_an_install_does(ctx: Context) -> None:
+    entry = cmd_detonate(
+        ctx, argparse.Namespace(dependency="npm:left-pad@1.3.0", source="auto", cached=True)
     )
-    entry = cmd_detonate(ctx, _args(path))
-    for key, value in REPORT.items():
-        assert entry[key] == value
-    assert entry["cached_from_run"] is None
+    assert entry["dependency"] == "left-pad@1.3.0"
+    assert entry["source"] == "npm"
 
 
-def test_cached_refuses_a_specifier_the_file_lacks(ctx: Context) -> None:
-    path = _cache_file(
-        ctx, [{"dependency": "rich==13.0.0", "source": "pypi", "run_id": None, "report": REPORT}]
-    )
-    with patch("cujo_sniff.detonate.run_sensed") as run_sensed:
-        with pytest.raises(SystemExit, match="not in"):
-            cmd_detonate(ctx, _args(path))
-    run_sensed.assert_not_called()
-    assert read_runs(ctx, "detonation") == []
-
-
-def test_cached_matches_on_source_too(ctx: Context) -> None:
-    path = _cache_file(
-        ctx, [{"dependency": "humanize==4.9.0", "source": "npm", "run_id": None, "report": REPORT}]
-    )
-    with pytest.raises(SystemExit, match="not in"):
-        cmd_detonate(ctx, _args(path))
-
-
-def test_cached_refuses_a_file_that_is_not_an_array(ctx: Context) -> None:
-    path = state_paths(ctx)["detonation_cache"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("{}")
-    with pytest.raises(SystemExit, match="not a JSON array"):
-        cmd_detonate(ctx, _args(path))
-
-
-def test_cached_report_assembles_with_the_envelope(ctx: Context) -> None:
-    path = _cache_file(
-        ctx,
-        [{"dependency": "humanize==4.9.0", "source": "pypi", "run_id": "r", "report": REPORT}],
-    )
-    cmd_detonate(ctx, _args(path))
+def test_cached_stub_assembles_with_the_envelope(ctx: Context) -> None:
+    cmd_detonate(ctx, _args())
     envelope = cmd_report(ctx, argparse.Namespace(check="detonation", extra=None))
     assert envelope["check"] == "detonation"
     assert [r["dependency"] for r in envelope["runs"]] == ["humanize==4.9.0"]
-    assert envelope["runs"][0]["cached_from_run"] == "r"
+    assert envelope["runs"][0]["cached"] is True
 
 
 def test_name_of_each_source() -> None:

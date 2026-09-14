@@ -268,6 +268,7 @@ export class RunStore {
     this.db.prepare("DELETE FROM run_announcements WHERE run_id = ?").run(id);
     this.notifications.deleteRunMessages(id);
     this.db.prepare("DELETE FROM run_pr_meta WHERE run_id = ?").run(id);
+    this.db.prepare("DELETE FROM run_detonation_cache WHERE run_id = ?").run(id);
     this.db.prepare("DELETE FROM runs WHERE id = ?").run(id);
   }
 

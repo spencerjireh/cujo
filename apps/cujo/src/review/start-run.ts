@@ -45,7 +45,7 @@ export interface StartRunDeps {
    * The detonation cache (decision 145). Optional so a composition without
    * it — every test that predates the cache — briefs the agent as before.
    */
-  detonations?: Pick<DetonationCacheStore, "get">;
+  detonations?: Pick<DetonationCacheStore, "get" | "putForRun">;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -201,14 +201,17 @@ export async function startRun(
     const cached =
       deps.detonations && manifestChanged(pr.changedFiles)
         ? lookupCachedDetonations(deps.detonations, addedSpecifiers(pr.files), new Date())
-        : [];
-    if (cached.length > 0) {
+        : { brief: [], kept: [] };
+    if (cached.kept.length > 0) {
+      // Kept on the run before the turn exists, so every fold of this run —
+      // live, refold, rehydrate — substitutes the same entries (decision 148).
+      deps.detonations?.putForRun(run.id, cached.kept);
       log.info("run.detonation.cached", {
-        count: cached.length,
-        dependencies: cached.map((c) => `${c.source} ${c.dependency}`).join(", "),
+        count: cached.kept.length,
+        dependencies: cached.kept.map((c) => `${c.source} ${c.specifier}`).join(", "),
       });
     }
-    await deps.runner.start(current, buildTurnMessage(pr, deps.reviewRunId(current), cached));
+    await deps.runner.start(current, buildTurnMessage(pr, deps.reviewRunId(current), cached.brief));
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim
     // the head (RunStore.createRun) instead of being refused as a duplicate.

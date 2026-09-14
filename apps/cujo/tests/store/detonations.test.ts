@@ -93,6 +93,46 @@ describe("the detonation cache (decision 145)", () => {
     expect(got?.runIsPublic).toBe(false);
   });
 
+  it("keeps what a run was briefed with, and lets it go with the run (decision 148)", () => {
+    const store = new Store(":memory:");
+    const { run } = store.runs.createRun(head);
+    store.detonations.putForRun(run.id, [
+      {
+        source: "pypi",
+        specifier: "humanize==4.9.0",
+        report,
+        cachedFromRun: "run-earlier",
+        cachedAt: at,
+      },
+      {
+        source: "npm",
+        specifier: "left-pad@1.3.0",
+        report: { s: "npm" },
+        cachedFromRun: null,
+        cachedAt: at,
+      },
+    ]);
+    expect(store.detonations.forRun(run.id)).toEqual([
+      {
+        source: "pypi",
+        specifier: "humanize==4.9.0",
+        report,
+        cachedFromRun: "run-earlier",
+        cachedAt: at,
+      },
+      {
+        source: "npm",
+        specifier: "left-pad@1.3.0",
+        report: { s: "npm" },
+        cachedFromRun: null,
+        cachedAt: at,
+      },
+    ]);
+    expect(store.detonations.forRun("nobody")).toEqual([]);
+    store.runs.deleteRun(run.id);
+    expect(store.detonations.forRun(run.id)).toEqual([]);
+  });
+
   it("says whether the source run was public", () => {
     const store = new Store(":memory:");
     const { run } = store.runs.createRun({ ...head, isPublic: false });

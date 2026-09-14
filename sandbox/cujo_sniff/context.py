@@ -84,9 +84,6 @@ def state_paths(ctx: Context) -> dict[str, Path]:
         # `sniff.py report` reads them back so the envelope is assembled here
         # rather than retyped by a model (decision 112).
         "runs_dir": ctx.state_dir / "runs",
-        # Where the parent writes the brief's cached detonations, for
-        # `sniff.py detonate --cached` to read (decision 145).
-        "detonation_cache": ctx.state_dir / "detonation-cache.json",
         "envs": ctx.envs_dir,
     }
 
