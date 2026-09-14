@@ -36,11 +36,34 @@ TRUNCATION_KEYS = (
     "stdout_tail",
     "stderr_tail",
     "files_read",
+    "fs_changes",
     "snapshot",
     "hashes",
     "sensor_logs",
     "script_content",
 )
+
+
+def bound_fs_changes(fs_changes: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """The rows the rules read, and a bounded sample of the rest (decision 146).
+
+    Every sensitive or outside-workspace row stays whatever the count; the
+    benign in-workspace rows stop at `MAX_FS_CHANGES`. Applied per command and
+    again after a merge, because two commands each under the bound are not
+    under it together.
+    """
+    kept: list[dict[str, Any]] = []
+    benign = 0
+    dropped = 0
+    for change in fs_changes:
+        if change["sensitive"] or not change["in_workspace"]:
+            kept.append(change)
+        elif benign < MAX_FS_CHANGES:
+            kept.append(change)
+            benign += 1
+        else:
+            dropped += 1
+    return kept, dropped > 0
 
 
 def health(armed: bool, detail: str) -> dict[str, Any]:
@@ -133,17 +156,7 @@ def build_sensor_block(
     # The rows the rules read stay whatever their number; the benign ones are
     # bounded. The derived flags below read the full list, so a cut here can
     # hide a path and never a signal (decision 146).
-    kept_changes: list[dict[str, Any]] = []
-    benign_kept = 0
-    dropped_changes = 0
-    for change in fs_changes:
-        if change["sensitive"] or not change["in_workspace"]:
-            kept_changes.append(change)
-        elif benign_kept < MAX_FS_CHANGES:
-            kept_changes.append(change)
-            benign_kept += 1
-        else:
-            dropped_changes += 1
+    kept_changes, changes_cut = bound_fs_changes(fs_changes)
     # Said as what it is. The audited command holds `CUJO_AUDIT_LOG` and can
     # append this row itself, so an armed hook and a command claiming one look
     # identical from here -- as they do for every other sensor, all of which
@@ -167,7 +180,7 @@ def build_sensor_block(
         "truncated": {
             **truncated,
             "files_read": dropped_reads > 0,
-            "fs_changes": dropped_changes > 0,
+            "fs_changes": changes_cut,
         },
         "derived": {
             "egress_to_unknown_host": unknown,
@@ -268,4 +281,8 @@ def merge_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
         k: any(r.get("truncated", {}).get(k, False) for r in reports) for k in TRUNCATION_KEYS
     }
     merged["derived"] = {k: any(r["derived"][k] for r in reports) for k in reports[0]["derived"]}
+    # The derived flags above already read every row; the merged list is
+    # bounded like each command's was (decision 146).
+    merged["fs_changes"], cut = bound_fs_changes(merged["fs_changes"])
+    merged["truncated"]["fs_changes"] = merged["truncated"]["fs_changes"] or cut
     return merged
