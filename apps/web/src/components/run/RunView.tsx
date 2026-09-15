@@ -2,19 +2,17 @@
 
 import { useRunStream } from "@/hooks/useRunStream";
 import { runOptions } from "@/lib/api/queries";
-import { reviewPosted } from "@/lib/api/types";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { CheckReports } from "./CheckReports";
 import { ChecksTimeline } from "./ChecksTimeline";
-import { FindingsList } from "./FindingsList";
-import { ReviewPanel } from "./ReviewPanel";
+import { EvidenceLog } from "./EvidenceLog";
 import { RunHeader } from "./RunHeader";
 import { RunProvenance } from "./RunProvenance";
 
 /**
- * Timeline first: the lanes are the page's thesis, then the findings they
- * produced, then the review those findings justify, then the decision.
+ * Timeline first: the lanes are the page's thesis. Then the evidence log
+ * (decision 154), which is the lanes expanded in order — what each check ran,
+ * saw and concluded, then the review — and last the operator's context.
  */
 export function RunView({ id }: { id: string }) {
   const { data: run, error } = useQuery(runOptions(id));
@@ -68,16 +66,7 @@ export function RunView({ id }: { id: string }) {
           onSelect={(check) => setPicked((was) => ({ check, nonce: (was?.nonce ?? 0) + 1 }))}
         />
       )}
-      <FindingsList findings={run.findings} status={run.status} />
-      {run.review ? (
-        <ReviewPanel
-          review={run.review}
-          posted={reviewPosted(run)}
-          checks={run.checks}
-          findings={run.findings}
-        />
-      ) : null}
-      {run.mode === "diff" ? null : <CheckReports checks={run.checks} picked={picked} />}
+      <EvidenceLog run={run} picked={picked} />
       {/* Last, and folded: what the run cost and what produced it are context
           for the verdict, never an argument for it, and they are the
           operator's context rather than the author's. */}
