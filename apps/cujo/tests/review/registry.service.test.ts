@@ -4,13 +4,13 @@ import { RegistryService } from "../../src/review/registry.service";
 import { Store } from "../../src/store";
 import type { InstalledRepo } from "../../src/store/repositories";
 
-function harness(listing: InstalledRepo[] | Error, intervalMs = 60_000) {
+function harness(listing: InstalledRepo[] | Error, intervalMs = 60_000, complete = true) {
   const store = new Store(":memory:");
   const lines: Record<string, unknown>[] = [];
   const log = createLogger({ service: "cujo", sink: (line) => lines.push(JSON.parse(line)) });
   const listInstalledRepos = vi.fn(async () => {
     if (listing instanceof Error) throw listing;
-    return listing;
+    return { repos: listing, complete };
   });
   const service = new RegistryService({
     log,
@@ -46,6 +46,17 @@ describe("RegistryService.sync (decision 151)", () => {
     expect(h.store.repositories.get("o/b")?.enabled).toBe(false);
     expect(h.logged("registry.removed")).toMatchObject([{ repo: "o/stale", reason: "sync" }]);
     expect(h.logged("registry.synced")).toMatchObject([{ count: 2, active: 2 }]);
+  });
+
+  it("removes nothing on a listing the page cap cut short", async () => {
+    const h = harness([{ repo: "o/a", installationId: 1, isPrivate: false }], 60_000, false);
+    h.store.repositories.upsertInstalled(
+      [{ repo: "o/held", installationId: 1, isPrivate: false }],
+      "2026-09-14T00:00:00.000Z",
+    );
+    expect(await h.service.sync()).toEqual({ seen: 1, removed: 0 });
+    expect(h.store.repositories.listActive().map((r) => r.repo)).toEqual(["o/a", "o/held"]);
+    expect(h.logged("registry.removed")).toEqual([]);
   });
 
   it("starts with an immediate pass, never overlaps, and stops cleanly", async () => {

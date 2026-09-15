@@ -341,10 +341,13 @@ describe("GitHubReader.installedRepos", () => {
   it("lists each repository with its installation and visibility, for the registry", async () => {
     const { impl } = fakeAppFetch(["o/a", "o/private"]);
     const reader = new GitHubReader("1", "pem", impl);
-    expect(await reader.listInstalledRepos()).toEqual([
-      { repo: "o/a", installationId: 42, isPrivate: false },
-      { repo: "o/private", installationId: 42, isPrivate: true },
-    ]);
+    expect(await reader.listInstalledRepos()).toEqual({
+      repos: [
+        { repo: "o/a", installationId: 42, isPrivate: false },
+        { repo: "o/private", installationId: 42, isPrivate: true },
+      ],
+      complete: true,
+    });
   });
 
   it("caches, because autocomplete asks on every keystroke", async () => {
@@ -391,6 +394,24 @@ describe("GitHubReader.installedRepos", () => {
     const reader = new GitHubReader("1", "pem", impl as unknown as typeof fetch);
     expect(await reader.installedRepos()).toEqual(["o/a"]);
     expect(pages).toContain("/app/installations?per_page=100&page=2");
+  });
+
+  it("says so when the page cap cut the listing short, so a reconciler removes nothing", async () => {
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/app/installations")) {
+        return new Response(JSON.stringify([{ id: 1 }]), { status: 200 });
+      }
+      // Every repositories page is full, so the cap is what ends the walk.
+      const body = {
+        repositories: Array.from({ length: 100 }, (_, i) => ({ full_name: `o/r${i}` })),
+      };
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    const reader = new GitHubReader("1", "pem", impl as unknown as typeof fetch);
+    const listing = await reader.listInstalledRepos();
+    expect(listing.complete).toBe(false);
+    expect(listing.repos.length).toBeGreaterThan(100);
   });
 
   it("throws rather than return a short list when GitHub refuses", async () => {

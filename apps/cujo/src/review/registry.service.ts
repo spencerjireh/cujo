@@ -37,13 +37,17 @@ export class RegistryService {
    */
   async sync(): Promise<{ seen: number; removed: number }> {
     const at = (this.deps.now ?? (() => new Date()))().toISOString();
-    const listed = await this.deps.github.listInstalledRepos();
+    const { repos: listed, complete } = await this.deps.github.listInstalledRepos();
     this.deps.repositories.upsertInstalled(listed, at);
     const keep = new Set(listed.map((entry) => normalizeRepo(entry.repo)));
-    const gone = this.deps.repositories
-      .listActive()
-      .map((row) => row.repo)
-      .filter((repo) => !keep.has(repo));
+    // A listing the page cap cut short is not evidence of absence: what it
+    // did list is upserted, and nothing is removed until a complete pass.
+    const gone = complete
+      ? this.deps.repositories
+          .listActive()
+          .map((row) => row.repo)
+          .filter((repo) => !keep.has(repo))
+      : [];
     const removed = gone.length ? this.deps.repositories.markRemoved(gone, at) : [];
     for (const repo of removed) this.deps.log.info("registry.removed", { repo, reason: "sync" });
     // One line per sync, which is one line every few hours: `count` is what
