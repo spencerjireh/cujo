@@ -156,9 +156,14 @@ export class Settings {
     return new Settings(store, current, log, now);
   }
 
-  /** The effective values now. A snapshot: hold it for one operation, not longer. */
+  /**
+   * The effective values now. A snapshot, and a deep one: the provider is an
+   * object with a list inside it, and a consumer that edited a shared copy
+   * would be editing what the next registration sends. Hold it for one
+   * operation, not longer.
+   */
   current(): ModelSettings {
-    return { ...this.snapshot };
+    return structuredClone(this.snapshot);
   }
 
   /** Where each value came from, for a board that shows the source. */
