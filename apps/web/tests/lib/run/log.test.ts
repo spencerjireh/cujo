@@ -127,6 +127,40 @@ describe("buildLog (decision 154)", () => {
     expect(CHECK_NAMES.length).toBe(4);
   });
 
+  it("counts hosts reached only when none of them was unknown", () => {
+    const known = buildLog(
+      run({
+        checks: [
+          check({
+            title: "tests",
+            report: {
+              egress: [{ host: "pypi.org" }, { host: "files.pythonhosted.org" }],
+              derived: {},
+            },
+          }),
+        ],
+      }),
+    ).find((e) => e.kind === "check");
+    if (known?.kind !== "check") throw new Error("no check");
+    expect(known.egressHosts).toBe(2);
+    const unknown = buildLog(
+      run({
+        checks: [
+          check({
+            title: "detonation",
+            report: {
+              egress: [{ host: "evil.example" }],
+              derived: { egress_to_unknown_host: true },
+            },
+          }),
+        ],
+      }),
+    ).find((e) => e.kind === "check");
+    if (unknown?.kind !== "check") throw new Error("no check");
+    expect(unknown.egressHosts).toBeNull();
+    expect(unknown.alarms.map((a) => a.text)).toEqual(["egress to an unknown host"]);
+  });
+
   it("labels an offset the way the timeline speaks", () => {
     expect(offsetLabel(null)).toBeNull();
     expect(offsetLabel(0)).toBe("+0s");
