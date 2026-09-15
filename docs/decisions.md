@@ -160,6 +160,7 @@ reader can tell a live rule from a recorded one before opening it.
 150. [`/cujo review` starts a fresh session](#150-cujo-review-starts-a-fresh-session)
 151. [A repository registry, fed by the installation events](#151-a-repository-registry-fed-by-the-installation-events)
 152. [The models and the provider live in the store, seeded once from the environment](#152-the-models-and-the-provider-live-in-the-store-seeded-once-from-the-environment)
+153. [The owner plane: GitHub sign-in on the App's own OAuth, any admin of the installation](#153-the-owner-plane-github-sign-in-on-the-apps-own-oauth-any-admin-of-the-installation)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7689,3 +7690,56 @@ the source and leave the board nowhere to write; **moving every setting at
 once**, which touches every subsystem's construction for no page that asks
 for it yet; **validating settings with a new schema**, when the environment's
 validators already say what a good value is.
+
+## 153. The owner plane: GitHub sign-in on the App's own OAuth, any admin of the installation
+
+Decision 57 deleted the operator plane and left `apps/cujo` with no
+authenticated route at all, because the only write path had gone to the pull
+request with the human gate. Track 10 brings a write path back: an owner who
+turns a repository off (decision 151) or changes the model (decision 152)
+needs somewhere to say so, and the board has had nowhere to put a change
+since 57. The credential question was answered in 34 and stands: not an API
+key, which makes everyone who holds it the same principal and has nowhere
+safe to live in a browser. The principal is a GitHub login.
+
+So a third route group, `/auth` and `/owner`, on the internal host beside
+`/public`, reached only through `apps/web`'s proxy. Sign-in is GitHub's
+OAuth web flow on the GitHub App's own client id and secret, so there is one
+identity to manage and one settings page on GitHub. `apps/cujo` starts a
+sign-in by minting a `state` it remembers for ten minutes; `apps/web` sends
+the browser to GitHub; the callback comes back through `apps/web` to
+`apps/cujo`, which consumes the state, trades the code for a user token,
+asks who the token is and which installations they can see, and decides
+whether they are an owner: the account itself for an installation on a user
+account, an organisation admin for one on an organisation — any admin of
+the installation, settled on 2026-09-15. The verdict and the login go on a
+session that lives a week; the token is used for those three calls and
+never stored. The session id is the browser's cookie, `HttpOnly` and
+`SameSite=Lax`, stored hashed on this side so a copy of the database is not
+a copy of every session. The proxy turns the cookie into a bearer on the
+one prefix that reads one, and forwards the write verbs there and nowhere
+else; the board itself still has no write route.
+
+What the plane serves in this slice: who is signed in; the settings of
+decision 152, read with the provider key masked and written validated as a
+whole, so a bad second key leaves a good first one unapplied, and a masked
+key sent back means "keep the one you have"; the registry of decision 151,
+listed and switched. Every write logs the actor.
+
+Accepted: **401 on the owner plane without a session**, which reverses one
+half of 57's "404, not 401" — that rule said a 401 is a route somebody could
+still reach with the right header, and now there is a right header by
+design; outside `/public`, `/auth` and `/owner` the answer is still 404, and
+with no client configured the two new prefixes are 404 too; **a signed-in
+non-owner is 403**, told why, and can do nothing; **the owner verdict is
+made at sign-in and held for the session**, so a person removed from the
+organisation stays an owner for up to a week — the price of not storing a
+token, and short enough; **no page yet**: the plane is exercised with the
+proxy and a cookie until slice g draws it.
+
+Rejected: **a separate OAuth App**, a second identity for the same product;
+**storing the user token** to re-check the verdict, which puts a credential
+in the store for a question a week's expiry answers well enough; **a shared
+token or password**, for 34's reasons; **serving the plane on its own
+hostname**, which 34 tried and 57 removed, and which the internal-name
+proxy makes unnecessary.

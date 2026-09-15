@@ -2,6 +2,7 @@ import { type Logger, logFailureCount } from "@cujo/log";
 import { Hono } from "hono";
 import { type InteractionDeps, interactionRoutes } from "./ingress/discord-interactions";
 import { type WebhookDeps, webhookRoutes } from "./ingress/github-webhook";
+import { type OwnerDeps, ownerRoutes } from "./owner";
 import { type PublicDeps, publicRoutes } from "./public";
 import type { StreamLimit } from "./public/stream-limit";
 import { type Plane, type RequestEnv, requestLogger, withRay } from "./request-log";
@@ -21,6 +22,12 @@ export interface AppOptions {
   webhook: WebhookDeps;
   /** Absent when the Discord slash commands are not configured. */
   interactions?: InteractionDeps;
+  /**
+   * The owner plane (decision 153): `/auth` and `/owner` on the internal
+   * host, behind `apps/web`'s proxy. Absent when the App's OAuth client is
+   * not configured, and then both paths are 404 as they were before it.
+   */
+  owner?: OwnerDeps;
   /** The process logger. Every request gets a child of it, bound to its ray. */
   log: Logger;
 }
@@ -80,11 +87,12 @@ function readyz(options: AppOptions, limit: StreamLimit) {
  * here, not only at the edge: the webhook host never serves /public and the
  * read host never serves /webhook. Any other Host gets 404.
  *
- * Neither plane has a credential. The ingress host takes signed requests and
- * nothing else; the read host serves the anonymous board and nothing else.
- * There is no third, authenticated plane — decision 57 deleted it, so a route
- * that is not on this list is not reachable at all rather than reachable to
- * whoever holds a token.
+ * The ingress host takes signed requests and nothing else. The read host
+ * serves the anonymous board and, when the App's OAuth client is configured,
+ * the owner plane under `/auth` and `/owner` (decision 153): a session made
+ * by GitHub sign-in, carried by `apps/web` as a bearer. Unconfigured, both
+ * paths are 404 like every other path outside `/public`, which is what
+ * decision 57 made the rule.
  *
  * The UI itself is `apps/web`; this process serves only the JSON API, which
  * that app reaches over the compose network under `internalHost`. Because that
@@ -114,6 +122,11 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
   read.all("/webhook", (c) => c.json({ ok: false, error: "not found" }, 404));
   read.all("/discord/interactions", (c) => c.json({ ok: false, error: "not found" }, 404));
   read.route("/public", publicPlane.app);
+  if (options.owner) {
+    const plane = ownerRoutes(options.owner);
+    read.route("/auth", plane.auth);
+    read.route("/owner", plane.owner);
+  }
   // Everything else on this host is 404. That is the whole rule now: there is
   // no credential to present and no plane behind this line, so a path that is
   // not `/public` is not served rather than served to whoever authenticates
@@ -152,7 +165,12 @@ export function createApp(options: AppOptions): Hono<RequestEnv> {
         // Exactly the mount, not every path that starts with those characters:
         // `/publicity` is a 404 and not the board, so calling it public would
         // file the wrong path under the plane that serves run data.
-        plane = path === "/public" || path.startsWith("/public/") ? "public" : "unknown";
+        plane =
+          path === "/public" || path.startsWith("/public/")
+            ? "public"
+            : options.owner && /^\/(auth|owner)(\/|$)/.test(path)
+              ? "owner"
+              : "unknown";
         probe = PROBE_PATHS.has(path);
         return read.fetch(forwarded);
       }

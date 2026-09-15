@@ -103,7 +103,10 @@ You need your own GitHub App: Contents read, Metadata read, Pull requests
 write, Checks write, Issues read; events `pull_request`, `issue_comment`,
 `pull_request_review_comment`, `repository` (the `installation` events arrive
 on their own); webhook to `/webhook` with
-`GITHUB_WEBHOOK_SECRET`. On a laptop, `cloudflared tunnel --url
+`GITHUB_WEBHOOK_SECRET`. For the board's sign-in, the App's own OAuth: set
+its callback URL to `<board origin>/api/auth/callback`, generate a client
+secret, and pass the client id and secret as `GITHUB_OAUTH_CLIENT_ID` and
+`GITHUB_OAUTH_CLIENT_SECRET`; without them the board is read-only. On a laptop, `cloudflared tunnel --url
 http://localhost:8080` is enough. `.env.example` documents the model
 provider, the review mode, the diff budget and Discord; the
 [self-host page](https://cujo.spencerjireh.com/docs/self-host) has the rest.
