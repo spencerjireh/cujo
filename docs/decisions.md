@@ -161,6 +161,7 @@ reader can tell a live rule from a recorded one before opening it.
 151. [A repository registry, fed by the installation events](#151-a-repository-registry-fed-by-the-installation-events)
 152. [The models and the provider live in the store, seeded once from the environment](#152-the-models-and-the-provider-live-in-the-store-seeded-once-from-the-environment)
 153. [The owner plane: GitHub sign-in on the App's own OAuth, any admin of the installation](#153-the-owner-plane-github-sign-in-on-the-apps-own-oauth-any-admin-of-the-installation)
+154. [The run page is an evidence log](#154-the-run-page-is-an-evidence-log)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7743,3 +7744,46 @@ in the store for a question a week's expiry answers well enough; **a shared
 token or password**, for 34's reasons; **serving the plane on its own
 hostname**, which 34 tried and 57 removed, and which the internal-name
 proxy makes unnecessary.
+
+## 154. The run page is an evidence log
+
+The run page held the same facts three times in three shapes: the findings
+grouped by check, every group shut (decision 93); the review as posted, with
+its own table of what ran and the findings again in prose; and the reports,
+every card shut. The measurement week's tally was read off this page, and
+reading it meant opening every group and every card on every run, then
+reconciling the review's copy of the findings with the list's. The page
+answered "what is the worst thing here" at the top and made "what happened,
+and what is the evidence" a sequence of clicks.
+
+So below the timeline the page is now one column, the evidence log: what
+happened in the order it happened, each entry beside its evidence. Setup,
+then each check as it started, then the review, then the end. A check's
+entry says when it started (measured from the turn's creation, the way the
+timeline's lanes are), what it ran (each wrapped command with its exit and
+duration), what the sensors saw (the alarms, worst first, and the count of
+hosts reached), what it concluded (its findings, with their evidence), and
+what it cost (tokens from the ledger). The review's entry is one line about
+what was posted and the model's lede. The three sections it replaces are
+deleted, with their stories.
+
+The rule from decision 93 that nothing opens itself now holds for bulk and
+not for facts. The evidence tables, the raw report, the `info` findings and
+the composed review body fold, closed; a finding above `info`, the commands
+and the sensor facts are on the page. A person deciding whether to lift a
+block should not have to click to see the finding the block rests on, and
+the composed body repeats the log, so it is the one thing that gains from
+folding. The timeline's pick still opens one entry's tables and scrolls to
+it.
+
+Accepted: **the one memorable device is the gutter**, a time column and the
+check's name beside a rule that runs the length of the log, on the same axis
+the lanes above draw; **`hard_rule_hits` stays unrendered**, since every hit
+is already in `findings` with `source: "hard_rule"`; **the review's "what
+ran" table is gone**, because the log is that table with the evidence
+attached; **the entry builder is a pure function** (`lib/run/log.ts`) and the
+shape of the page is a unit test.
+
+Rejected: **cards and dots**, the generic activity-timeline; **opening every
+fold by default**, which is decision 85's page again; **keeping the three
+sections and adding a fourth**, which is how the page got here.
