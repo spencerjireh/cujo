@@ -491,7 +491,10 @@ function installed(
   entries: { full_name: string; private: boolean }[],
   at: string,
 ): void {
-  deps.repositories?.upsertInstalled(
+  // Logged only for what a store took: without a registry composed the
+  // delivery is acknowledged and the audit trail names nothing.
+  if (!deps.repositories) return;
+  deps.repositories.upsertInstalled(
     entries.map((e) => ({ repo: e.full_name, installationId, isPrivate: e.private })),
     at,
   );

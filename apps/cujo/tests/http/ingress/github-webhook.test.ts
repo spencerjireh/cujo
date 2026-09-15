@@ -748,10 +748,11 @@ describe("webhook", () => {
       expect(store.repositories.listAll()).toEqual([]);
     });
 
-    it("is inert without a registry composed", async () => {
-      const { app } = build();
+    it("is inert without a registry composed, and logs no installation it did not record", async () => {
+      const { app, logged } = build();
       const res = await post(app, "installation", installation("created"));
       expect(await res.json()).toEqual({ ok: true, installation_id: 42, installed: 2 });
+      expect(logged("registry.installed")).toEqual([]);
     });
   });
 
