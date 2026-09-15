@@ -70,9 +70,12 @@ export interface PrepareDeps {
 /** How many earlier runs to look back through for a review that posted. */
 const PREVIOUS_RUNS = 10;
 
-function cut(text: string, bytes: number): { text: string; truncated: boolean } {
+/** Bytes of one standards file, and of the owner's instructions (decision 155). */
+export const STANDARDS_FILE_BYTES = 16_000;
+
+/** Cut on a line so the tail is a whole line or nothing. Shared with the instructions reader. */
+export function cut(text: string, bytes: number): { text: string; truncated: boolean } {
   if (Buffer.byteLength(text, "utf8") <= bytes) return { text, truncated: false };
-  // Cut on a line so the tail of the file is a whole line or nothing.
   const head = Buffer.from(text, "utf8").subarray(0, bytes).toString("utf8");
   const lastLine = head.lastIndexOf("\n");
   return { text: lastLine > 0 ? head.slice(0, lastLine) : head, truncated: true };

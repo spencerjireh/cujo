@@ -24,6 +24,7 @@ import {
 } from "./review/agent-spec";
 import { PrCommandService } from "./review/commands/pr-command.service";
 import { publicRunId } from "./review/links";
+import { STANDARDS_FILE_BYTES } from "./review/prepare";
 import { PushDebounce } from "./review/push-debounce";
 import { RegistryService } from "./review/registry.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
@@ -206,7 +207,11 @@ async function main(): Promise<void> {
         budgetTokens: current.diffBudgetTokens,
       };
     },
-    caps: { diffBytes: config.diffBytes, standardsFileBytes: 16_000, standardsTotalBytes: 48_000 },
+    caps: {
+      diffBytes: config.diffBytes,
+      standardsFileBytes: STANDARDS_FILE_BYTES,
+      standardsTotalBytes: 48_000,
+    },
   };
 
   /**
