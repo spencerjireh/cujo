@@ -12,8 +12,10 @@ import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { RunStore } from "../store";
 import type { DetonationCacheStore } from "../store/detonations";
+import type { RepositorySettingsStore } from "../store/repository-settings";
 import { buildDiffTurnMessage, buildTurnMessage, manifestChanged } from "./agent-spec";
 import { lookupCachedDetonations } from "./detonation-cache";
+import { readInstructions } from "./instructions";
 import { resolveMode } from "./mode";
 import { type OcrShadowDeps, shadowReview } from "./ocr-shadow";
 import { type PrepareCaps, prepareReviewPackage } from "./prepare";
@@ -52,6 +54,12 @@ export interface StartRunDeps {
    * sidecar — and every test that predates it — asks nobody.
    */
   ocr?: Pick<OcrShadowDeps, "client" | "store">;
+  /**
+   * What the owner set per repository on the board (decision 155): the mode
+   * under the repository's own file, and instructions. Optional so a
+   * composition without it reads only the file, as before.
+   */
+  repositorySettings?: Pick<RepositorySettingsStore, "get">;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -173,15 +181,25 @@ export async function startRun(
     // webhook because it needs the pull request — the manifest flag and the
     // author — and the webhook never reads it. Without diff deps there is one
     // review, and it is the one every run was claimed as.
+    const board = deps.repositorySettings?.get(run.repo);
     const { mode, reason } = deps.diff
       ? resolveMode({
           deployDefault: deps.diff.deployDefault,
           declared: await deps.github.declaredMode(run.repo, pr.baseSha),
+          board: board?.mode ?? null,
           manifestChanged: manifestChanged(pr.changedFiles),
           authorIsBot: pr.authorIsBot,
         })
       : { mode: "sandbox" as const, reason: "deploy_default" as const };
     log.info("run.mode.resolved", { mode, reason });
+    // The owner's guidance for this repository (decision 155): the file at
+    // base, else the board, else nothing. Read for both reviews, and only in
+    // a composition that has the board's layer — every test that predates it
+    // composes a reader with no `readFile`, and briefs as before.
+    const instructions = deps.repositorySettings
+      ? await readInstructions(deps.github, deps.repositorySettings, run.repo, pr.baseSha)
+      : null;
+    if (instructions) log.info("run.instructions.read", { reason: instructions.source });
     if (mode === "diff" && deps.diff) {
       // The row was claimed on the pull request's sandbox session with the
       // sandbox spec's provenance; a diff run has a session and a spec of its
@@ -193,6 +211,7 @@ export async function startRun(
         { github: deps.github, store: deps.store, caps: deps.diff.caps },
         pr,
         run,
+        instructions,
       );
       const current = deps.store.updateRun(run.id, {
         sessionId,
@@ -225,7 +244,10 @@ export async function startRun(
         dependencies: cached.kept.map((c) => `${c.source} ${c.specifier}`).join(", "),
       });
     }
-    await deps.runner.start(current, buildTurnMessage(pr, deps.reviewRunId(current), cached.brief));
+    await deps.runner.start(
+      current,
+      buildTurnMessage(pr, deps.reviewRunId(current), cached.brief, instructions),
+    );
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim
     // the head (RunStore.createRun) instead of being refused as a duplicate.

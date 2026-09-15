@@ -92,6 +92,28 @@ describe("isDocsOnly", () => {
   });
 });
 
+describe("the instructions key (decision 155)", () => {
+  it("rides in the sandbox brief only when there is something to say", () => {
+    const pr = {
+      repo: "o/r",
+      prNumber: 1,
+      title: "t",
+      body: "b",
+      baseSha: "base",
+      headSha: "head",
+      cloneUrl: "https://github.com/o/r.git",
+      changedFiles: ["a.py"],
+      files: [],
+      authorLogin: "x",
+      authorId: 1,
+      authorIsBot: false,
+    };
+    const guidance = { source: "file" as const, text: "Mind the money math.", truncated: false };
+    expect(buildTurnMessage(pr, "", [], guidance)).toContain('"instructions": {');
+    expect(buildTurnMessage(pr, "", [], null)).not.toContain("instructions");
+  });
+});
+
 describe("buildTurnMessage", () => {
   it("wraps the PR facts in a fenced JSON block with the manifest flag", () => {
     const message = buildTurnMessage({
@@ -481,6 +503,7 @@ describe("buildDiffTurnMessage", () => {
       cap: 20,
     },
     standards: [{ path: "CONTRIBUTING.md", text: "## Standards\n- Pin.", truncated: false }],
+    instructions: null,
     previousFindings: [{ severity: "warn", title: "old", path: "app/orders.py", line: 3 }],
   };
   const payloadOf = (message: string) =>

@@ -6,6 +6,7 @@ import type { AgentSpec, ModelParams, ReasoningEffort } from "@cujo/harness-cont
 import type { PullRequestInfo } from "../clients/github";
 import type { Config } from "../config";
 import type { CachedDetonation } from "./detonation-cache";
+import type { Instructions } from "./instructions";
 import type { ReviewPackage } from "./prepare";
 
 const MANIFESTS = [
@@ -277,6 +278,7 @@ export function buildTurnMessage(
   pr: PullRequestInfo,
   runId = "",
   cached: readonly CachedDetonation[] = [],
+  instructions: Instructions | null = null,
 ): string {
   const docsOnly = isDocsOnly(pr.changedFiles);
   const payload = {
@@ -295,6 +297,9 @@ export function buildTurnMessage(
     // adds (decision 145). Omitted when empty, like the two above, so a
     // brief with nothing cached reads as it always did.
     ...(cached.length > 0 ? { detonation_cached: cached } : {}),
+    // The owner's own guidance for this repository (decision 155), when
+    // there is any. Omitted when there is none, like the keys above.
+    ...(instructions ? { instructions } : {}),
   };
   return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }
@@ -319,6 +324,7 @@ export function buildDiffTurnMessage(pkg: ReviewPackage, runId = ""): string {
     ...(docsOnly ? { docs_only: true } : {}),
     ...(runId ? { run_id: runId } : {}),
     standards: pkg.standards,
+    ...(pkg.instructions ? { instructions: pkg.instructions } : {}),
     diff: {
       files: pkg.diff.kept,
       omitted: pkg.diff.omitted,
