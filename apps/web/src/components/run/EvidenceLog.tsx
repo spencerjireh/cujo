@@ -70,7 +70,13 @@ function Entry({
   children,
 }: { at: number | null; name: string; id?: string; children: React.ReactNode }) {
   return (
-    <li id={id} className="grid scroll-mt-4 gap-2 md:grid-cols-[8rem_1fr] md:gap-0">
+    // Focusable so the timeline's pick can put the keyboard here as well as
+    // scroll here; `-1` keeps it out of the Tab order.
+    <li
+      id={id}
+      tabIndex={-1}
+      className="grid scroll-mt-4 gap-2 outline-none md:grid-cols-[8rem_1fr] md:gap-0"
+    >
       <Gutter at={at} name={name} />
       <div className="min-w-0 border-l border-line pb-8 pl-4 md:pl-6">{children}</div>
     </li>
@@ -403,6 +409,9 @@ export function EvidenceLog({
     const target = listRef.current?.querySelector<HTMLElement>(`#log-${CSS.escape(picked.check)}`);
     if (!target) return;
     target.scrollIntoView({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    // The scroll on its own is a change nobody using a keyboard or a screen
+    // reader is told about; the focus is the part that matters.
+    target.focus({ preventScroll: true });
   }, [picked]);
 
   return (
