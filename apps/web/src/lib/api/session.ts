@@ -1,4 +1,3 @@
-import "server-only";
 import { cookies } from "next/headers";
 import { ApiError } from "./client";
 import { sessionFromCookie } from "./owner";
@@ -6,8 +5,9 @@ import { fetchMe } from "./owner-client";
 
 /**
  * The session id off the request's cookie, for a server component that reads
- * the owner plane on the reader's behalf. Server only: this is the one place
- * the cookie is read outside the proxy, and it is read to be passed on as a
+ * the owner plane on the reader's behalf. Server only by construction:
+ * `next/headers` throws outside a request scope. This is the one place the
+ * cookie is read outside the proxy, and it is read to be passed on as a
  * bearer, never to be printed.
  */
 async function sessionFromRequest(): Promise<string | null> {
