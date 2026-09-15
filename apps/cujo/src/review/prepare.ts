@@ -1,6 +1,7 @@
 import type { GitHubReader, PullRequestInfo } from "../clients/github";
 import type { RunStore } from "../store/runs";
 import { type CompressedDiff, compressDiff } from "./compress";
+import type { Instructions } from "./instructions";
 import type { Finding, RunRecord } from "./types";
 
 /**
@@ -46,6 +47,8 @@ export interface ReviewPackage {
   >;
   diff: CompressedDiff;
   standards: StandardsFile[];
+  /** The owner's guidance for this repository, when there is any (decision 155). */
+  instructions: Instructions | null;
   previousFindings: PreviousFinding[];
 }
 
@@ -135,6 +138,7 @@ export async function prepareReviewPackage(
   deps: PrepareDeps,
   pr: PullRequestInfo,
   run: Pick<RunRecord, "id" | "repo" | "prNumber">,
+  instructions: Instructions | null = null,
 ): Promise<ReviewPackage> {
   const standards = await readStandards(deps.github, pr.repo, pr.baseSha, deps.caps);
   return {
@@ -149,6 +153,7 @@ export async function prepareReviewPackage(
     },
     diff: compressDiff(pr.files, deps.caps.diffBytes),
     standards,
+    instructions,
     previousFindings: previousFindings(deps.store, run),
   };
 }
