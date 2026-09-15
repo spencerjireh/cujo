@@ -163,6 +163,7 @@ reader can tell a live rule from a recorded one before opening it.
 153. [The owner plane: GitHub sign-in on the App's own OAuth, any admin of the installation](#153-the-owner-plane-github-sign-in-on-the-apps-own-oauth-any-admin-of-the-installation)
 154. [The run page is an evidence log](#154-the-run-page-is-an-evidence-log)
 155. [Per-repository settings and instructions, the file winning](#155-per-repository-settings-and-instructions-the-file-winning)
+156. [The owner's pages: repositories, one repository, and sign-in on the footer](#156-the-owners-pages-repositories-one-repository-and-sign-in-on-the-footer)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7833,3 +7834,40 @@ board setting override what a repository says about itself; **editing the
 file from the board by opening a pull request**, ruled out earlier and still
 open (#162); **instructions in `.cujo.yml`**, a policy file the sandbox
 parses by regex, where a paragraph of prose does not belong.
+
+## 156. The owner's pages: repositories, one repository, and sign-in on the footer
+
+The owner plane (decision 153) and the per-repository layer (decision 155)
+existed as routes and nothing else; an owner exercised them with a cookie
+and curl. The board is for anyone, and it has stayed that way; these are
+the first pages that are for one person.
+
+Two routes. `/repos` lists what the App holds — name, visibility, when it
+was installed, the switch of decision 151 — with a lost repository dimmed
+and dated rather than dropped, since its switch survives a reinstall.
+`/repos/<owner>/<name>` shows how one repository is reviewed in the three
+layers, says in a sentence which layer the next run will use and why, lets
+the owner set the board's mode and instructions, shows a file that speaks
+beside them read-only, and lists the repository's runs off the public list.
+Both are server-rendered against the reader's session cookie, prefetched
+into the query cache, and never indexed.
+
+Sign-in lives on the footer's rule beside the manual and the theme control,
+as a client component that asks the owner plane on mount: signed out is one
+quiet button, signed in is the repositories link and a sign-out, and an
+instance with no OAuth client configured draws nothing there at all. A
+client component and not a server read in the layout, because a layout
+that reads the cookie renders every page per request, and the manual is
+meant to stay static and indexed (decision 98).
+
+Accepted: **a signed-out or non-owner visitor gets an invitation, not a
+404**, since saying who the page is for is more useful than pretending it
+is not there and nothing on it is disclosed; **the pages draw the board's
+values as the only editable ones**, with a file's value beside them, which
+is the precedence of decision 155 made visible; **the sentences under each
+control are pure functions with tests**, so what the page claims about the
+layers is checked and not only drawn.
+
+Rejected: **a server read of the session in the layout**; **a separate
+sign-in page**, when a button and GitHub's own page are the whole flow;
+**editing a file-set value from the board**, still open (#162).
