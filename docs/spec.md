@@ -69,8 +69,18 @@ The split between deterministic code and agent reasoning is fixed:
 The Cujo GitHub App subscribes to `pull_request` events (`opened`,
 `synchronize`, `ready_for_review`), to `repository` events (`privatized`, `publicized`), to
 `issue_comment` events (`created`), and to `pull_request_review_comment` events
-(`created`). The signature is checked before the event type, so all four arrive
+(`created`). It also receives `installation` events (`created`, `deleted`,
+`suspend`, `unsuspend`) and `installation_repositories` events (`added`,
+`removed`), which GitHub delivers to every App without a subscription or a
+permission; they feed the repository registry (decision 151) and nothing
+else. The signature is checked before the event type, so all six arrive
 on the same route with the same one gate in front of them.
+
+A repository the owner has turned off in the registry gets no work: its
+`pull_request`, `issue_comment` and `pull_request_review_comment` deliveries
+are answered 200 with `ignored: "disabled"` and one `info` line, the same
+way a draft and the skip label are. A repository the registry has not heard
+of is not disabled.
 
 Two of those subscriptions are not free. GitHub releases `issue_comment` on the
 `issues` permission and on nothing else, even though every comment Cujo acts on

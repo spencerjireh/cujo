@@ -17,6 +17,7 @@ import type { PrCommandService } from "../../review/commands/pr-command.service"
 import type { PushDebounce } from "../../review/push-debounce";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
+import type { RepositoryStore } from "../../store/repositories";
 import type { RequestEnv } from "../request-log";
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
@@ -73,6 +74,39 @@ export interface WebhookDeps extends StartRunDeps {
    * means every delivery starts at once, which is what a test wants.
    */
   debounce?: Pick<PushDebounce, "schedule">;
+  /**
+   * The repository registry (decision 151): fed by the installation events
+   * and asked, on every other delivery, whether the owner turned the
+   * repository off. Absent means no registry and nothing is ever disabled,
+   * which is what every test that predates it assumes.
+   */
+  repositories?: Pick<
+    RepositoryStore,
+    "upsertInstalled" | "markRemoved" | "markInstallationRemoved" | "isDisabled"
+  >;
+}
+
+/**
+ * The owner's switch (decision 151). `info`, like `draft` and the skip label:
+ * a deliberate choice that answers "why was this never reviewed?" in the
+ * audit trail. Answered 200 so GitHub does not retry a delivery nobody wants.
+ */
+function disabled(
+  deps: WebhookDeps,
+  c: Context<RequestEnv>,
+  log: Logger,
+  eventType: string,
+  repo: string,
+  prNumber?: number,
+): Response | null {
+  if (!deps.repositories?.isDisabled(repo)) return null;
+  log.info("webhook.ignored", {
+    event_type: eventType,
+    reason: "disabled",
+    repo,
+    ...(prNumber !== undefined ? { pr_number: prNumber } : {}),
+  });
+  return c.json({ ok: true, ignored: "disabled" }, 200);
 }
 
 interface IssueCommentEvent {
@@ -182,6 +216,15 @@ function handleIssueComment(
     log.debug("webhook.ignored", { event_type: "issue_comment", reason: "not_a_pull_request" });
     return c.json({ ok: true, ignored: "issue" }, 200);
   }
+  const off = disabled(
+    deps,
+    c,
+    log,
+    "issue_comment",
+    event.repository.full_name,
+    event.issue.number,
+  );
+  if (off) return off;
   if (!deps.prCommands && !deps.converse) {
     log.debug("webhook.ignored", { event_type: "issue_comment", reason: "not_configured" });
     return c.json({ ok: true, ignored: "not_configured" }, 200);
@@ -254,6 +297,15 @@ function handleReviewComment(
     });
     return c.json({ ok: true, ignored: "action" }, 200);
   }
+  const off = disabled(
+    deps,
+    c,
+    log,
+    "pull_request_review_comment",
+    event.repository.full_name,
+    event.pull_request.number,
+  );
+  if (off) return off;
   if (!deps.converse) {
     log.debug("webhook.ignored", {
       event_type: "pull_request_review_comment",
@@ -361,6 +413,166 @@ function handleRepository(
   return c.json({ ok: true, repo: event.repository.full_name, is_public: isPublic, changed }, 200);
 }
 
+interface InstallationEvent {
+  action: string;
+  installation: { id: number };
+  /** Present on `created`, `deleted`, `suspend` and `unsuspend`; absent on the rest. */
+  repositories: { full_name: string; private: boolean }[];
+}
+
+/** One repository entry as both installation events carry it, or null. */
+function parseRepoEntry(value: unknown): { full_name: string; private: boolean } | null {
+  if (!isRecord(value) || typeof value.full_name !== "string") return null;
+  return { full_name: value.full_name, private: value.private === true };
+}
+
+function parseRepoEntries(value: unknown): { full_name: string; private: boolean }[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const out: { full_name: string; private: boolean }[] = [];
+  for (const item of value) {
+    const entry = parseRepoEntry(item);
+    if (!entry) return null;
+    out.push(entry);
+  }
+  return out;
+}
+
+/** The same boundary check the comment handlers make, for the App's own events. */
+function parseInstallation(body: string): InstallationEvent | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!isRecord(raw)) return null;
+  const { action, installation, repositories } = raw;
+  if (typeof action !== "string") return null;
+  if (!isRecord(installation) || typeof installation.id !== "number") return null;
+  const entries = parseRepoEntries(repositories);
+  if (!entries) return null;
+  return { action, installation: { id: installation.id }, repositories: entries };
+}
+
+interface InstallationRepositoriesEvent {
+  action: string;
+  installation: { id: number };
+  repositories_added: { full_name: string; private: boolean }[];
+  repositories_removed: { full_name: string; private: boolean }[];
+}
+
+function parseInstallationRepositories(body: string): InstallationRepositoriesEvent | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!isRecord(raw)) return null;
+  const { action, installation } = raw;
+  if (typeof action !== "string") return null;
+  if (!isRecord(installation) || typeof installation.id !== "number") return null;
+  const added = parseRepoEntries(raw.repositories_added);
+  const removed = parseRepoEntries(raw.repositories_removed);
+  if (!added || !removed) return null;
+  return {
+    action,
+    installation: { id: installation.id },
+    repositories_added: added,
+    repositories_removed: removed,
+  };
+}
+
+function installed(
+  deps: WebhookDeps,
+  log: Logger,
+  installationId: number,
+  entries: { full_name: string; private: boolean }[],
+  at: string,
+): void {
+  deps.repositories?.upsertInstalled(
+    entries.map((e) => ({ repo: e.full_name, installationId, isPrivate: e.private })),
+    at,
+  );
+  for (const entry of entries) {
+    log.info("registry.installed", { repo: entry.full_name, installation_id: installationId });
+  }
+}
+
+/**
+ * The App gained or lost an installation (decision 151). `created` and
+ * `unsuspend` list the repositories the installation covers and they are
+ * upserted; `deleted` and `suspend` remove every row under the installation,
+ * since GitHub delivers nothing for a suspended one either. The permissions
+ * action and anything else are acknowledged and not acted on.
+ */
+function handleInstallation(
+  deps: WebhookDeps,
+  c: Context<RequestEnv>,
+  body: string,
+  log: Logger,
+): Response {
+  const event = parseInstallation(body);
+  if (!event) {
+    log.debug("webhook.ignored", { event_type: "installation", reason: "malformed" });
+    return c.json({ ok: true, ignored: "malformed" }, 200);
+  }
+  const at = new Date().toISOString();
+  const id = event.installation.id;
+  if (event.action === "created" || event.action === "unsuspend") {
+    installed(deps, log, id, event.repositories, at);
+    return c.json({ ok: true, installation_id: id, installed: event.repositories.length }, 200);
+  }
+  if (event.action === "deleted" || event.action === "suspend") {
+    const removed = deps.repositories?.markInstallationRemoved(id, at) ?? 0;
+    log.info("registry.removed", { installation_id: id, count: removed, reason: event.action });
+    return c.json({ ok: true, installation_id: id, removed }, 200);
+  }
+  log.debug("webhook.ignored", {
+    event_type: "installation",
+    action: event.action,
+    reason: "action",
+  });
+  return c.json({ ok: true, ignored: "action" }, 200);
+}
+
+/** Repositories added to or removed from an installation (decision 151). */
+function handleInstallationRepositories(
+  deps: WebhookDeps,
+  c: Context<RequestEnv>,
+  body: string,
+  log: Logger,
+): Response {
+  const event = parseInstallationRepositories(body);
+  if (!event) {
+    log.debug("webhook.ignored", { event_type: "installation_repositories", reason: "malformed" });
+    return c.json({ ok: true, ignored: "malformed" }, 200);
+  }
+  const at = new Date().toISOString();
+  const id = event.installation.id;
+  if (event.action === "added") {
+    installed(deps, log, id, event.repositories_added, at);
+    return c.json(
+      { ok: true, installation_id: id, installed: event.repositories_added.length },
+      200,
+    );
+  }
+  if (event.action === "removed") {
+    const names = event.repositories_removed.map((e) => e.full_name);
+    const removed = deps.repositories?.markRemoved(names, at) ?? 0;
+    for (const repo of names)
+      log.info("registry.removed", { repo, installation_id: id, reason: "removed" });
+    return c.json({ ok: true, installation_id: id, removed }, 200);
+  }
+  log.debug("webhook.ignored", {
+    event_type: "installation_repositories",
+    action: event.action,
+    reason: "action",
+  });
+  return c.json({ ok: true, ignored: "action" }, 200);
+}
+
 /**
  * Contract 1. Answers 202 as soon as the run is claimed; the GitHub reads,
  * the turn start, and the fold all happen after the response.
@@ -394,6 +606,10 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     }
     const eventType = c.req.header("x-github-event");
     if (eventType === "repository") return handleRepository(deps, c, body, log);
+    if (eventType === "installation") return handleInstallation(deps, c, body, log);
+    if (eventType === "installation_repositories") {
+      return handleInstallationRepositories(deps, c, body, log);
+    }
     if (eventType === "issue_comment") return handleIssueComment(deps, c, body, log);
     if (eventType === "pull_request_review_comment") {
       return handleReviewComment(deps, c, body, log);
@@ -446,6 +662,8 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
       });
       return c.json({ ok: true, ignored: "label" }, 200);
     }
+    const off = disabled(deps, c, log, "pull_request", repo, prNumber);
+    if (off) return off;
     if (deps.isReady && !deps.isReady()) {
       // GitHub does not retry on its own, but a 503 shows in the delivery
       // log and the head is claimed by nothing, so a redelivery works.

@@ -6,6 +6,7 @@ import {
 } from "@cujo/gh-app-auth";
 import { type Logger, createLogger } from "@cujo/log";
 import type { ReviewMode } from "../review/types";
+import type { InstalledRepo } from "../store/repositories";
 
 /**
  * One changed file as GitHub lists it. `patch` is the unified hunks for that
@@ -304,18 +305,30 @@ export class GitHubReader {
 
   private async scanInstalledRepos(): Promise<string[]> {
     const names = new Set<string>();
+    for (const entry of await this.listInstalledRepos()) names.add(entry.repo);
+    return [...names].sort();
+  }
+
+  /**
+   * Every repository under every installation of the App, with the
+   * installation it belongs to and whether it is private: what the registry
+   * is reconciled from (decision 151). Uncached; the caller decides when to
+   * ask, and the reconciler asks rarely.
+   */
+  async listInstalledRepos(): Promise<InstalledRepo[]> {
+    const out: InstalledRepo[] = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
       const installations = await this.getAsApp<{ id: number }[]>(
         `/app/installations?per_page=100&page=${page}`,
       );
-      for (const installation of installations) await this.addRepos(installation.id, names);
+      for (const installation of installations) await this.addRepos(installation.id, out);
       if (installations.length < 100) break;
       if (page === MAX_PAGES) this.log.warn("github.page_cap", { path: "/app/installations" });
     }
-    return [...names].sort();
+    return out;
   }
 
-  private async addRepos(installationId: number, into: Set<string>): Promise<void> {
+  private async addRepos(installationId: number, into: InstalledRepo[]): Promise<void> {
     const token = await getInstallationToken({
       appId: this.appId,
       privateKey: this.privateKey,
@@ -333,8 +346,12 @@ export class GitHubReader {
         },
       );
       if (!res.ok) throw new GitHubError(res.status, "/installation/repositories");
-      const body = (await res.json()) as { repositories: { full_name: string }[] };
-      for (const repo of body.repositories) into.add(repo.full_name);
+      const body = (await res.json()) as {
+        repositories: { full_name: string; private?: boolean }[];
+      };
+      for (const repo of body.repositories) {
+        into.push({ repo: repo.full_name, installationId, isPrivate: repo.private === true });
+      }
       if (body.repositories.length < 100) return;
       // A cap that stops silently reads as "that is all of them"; say so.
       if (page === MAX_PAGES) {

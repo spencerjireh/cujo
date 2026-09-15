@@ -646,6 +646,201 @@ describe("webhook", () => {
     });
   });
 
+  describe("the installation events (decision 151)", () => {
+    const post = (
+      app: ReturnType<typeof build>["app"],
+      eventType: string,
+      body: string,
+      signature = sign(body),
+    ) =>
+      app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: { "x-github-event": eventType, "x-hub-signature-256": signature },
+          body,
+        }),
+      );
+    const installation = (action: string, repos: string[] = ["O/R", "o/two"]) =>
+      JSON.stringify({
+        action,
+        installation: { id: 42 },
+        repositories: repos.map((full_name) => ({ full_name, private: false })),
+      });
+    const change = (action: "added" | "removed", repos: string[]) =>
+      JSON.stringify({
+        action,
+        installation: { id: 42 },
+        repositories_added: action === "added" ? repos.map((full_name) => ({ full_name })) : [],
+        repositories_removed: action === "removed" ? repos.map((full_name) => ({ full_name })) : [],
+      });
+
+    it("records the repositories an installation is created with", async () => {
+      const { app, store, logged } = build({ repositories: true });
+      const res = await post(app, "installation", installation("created"));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, installation_id: 42, installed: 2 });
+      expect(store.repositories.listActive().map((r) => r.displayName)).toEqual(["O/R", "o/two"]);
+      expect(logged("registry.installed")).toMatchObject([
+        { repo: "O/R", installation_id: 42 },
+        { repo: "o/two", installation_id: 42 },
+      ]);
+    });
+
+    it("removes every row under a deleted or suspended installation, and restores on unsuspend", async () => {
+      const { app, store } = build({ repositories: true });
+      await post(app, "installation", installation("created"));
+      const res = await post(app, "installation", installation("suspend"));
+      expect(await res.json()).toEqual({ ok: true, installation_id: 42, removed: 2 });
+      expect(store.repositories.listActive()).toEqual([]);
+      await post(app, "installation", installation("unsuspend"));
+      expect(store.repositories.listActive()).toHaveLength(2);
+      const gone = await post(app, "installation", installation("deleted"));
+      expect(await gone.json()).toEqual({ ok: true, installation_id: 42, removed: 2 });
+    });
+
+    it("adds and removes repositories as an installation changes", async () => {
+      const { app, store, logged } = build({ repositories: true });
+      await post(app, "installation_repositories", change("added", ["o/new"]));
+      expect(store.repositories.get("o/new")).toMatchObject({
+        installationId: 42,
+        isPrivate: false,
+      });
+      const res = await post(
+        app,
+        "installation_repositories",
+        change("removed", ["o/new", "o/never"]),
+      );
+      expect(await res.json()).toEqual({ ok: true, installation_id: 42, removed: 1 });
+      expect(store.repositories.listActive()).toEqual([]);
+      expect(logged("registry.removed")).toMatchObject([
+        { repo: "o/new", installation_id: 42, reason: "removed" },
+        { repo: "o/never", installation_id: 42, reason: "removed" },
+      ]);
+    });
+
+    it("acknowledges the other actions, a malformed body, and refuses a bad signature", async () => {
+      const { app, store } = build({ repositories: true });
+      expect(
+        await (await post(app, "installation", installation("new_permissions_accepted"))).json(),
+      ).toEqual({
+        ok: true,
+        ignored: "action",
+      });
+      expect(
+        await (await post(app, "installation", JSON.stringify({ action: "created" }))).json(),
+      ).toEqual({
+        ok: true,
+        ignored: "malformed",
+      });
+      expect(
+        await (
+          await post(
+            app,
+            "installation_repositories",
+            JSON.stringify({ action: "added", installation: { id: 42 }, repositories_added: "no" }),
+          )
+        ).json(),
+      ).toEqual({ ok: true, ignored: "malformed" });
+      expect((await post(app, "installation", installation("created"), "sha256=00")).status).toBe(
+        401,
+      );
+      expect(store.repositories.listAll()).toEqual([]);
+    });
+
+    it("is inert without a registry composed", async () => {
+      const { app } = build();
+      const res = await post(app, "installation", installation("created"));
+      expect(await res.json()).toEqual({ ok: true, installation_id: 42, installed: 2 });
+    });
+  });
+
+  describe("a repository the owner turned off (decision 151)", () => {
+    const at = "2026-09-15T00:00:00.000Z";
+    it("gets no run, with an info line, and the delivery is 200", async () => {
+      const { app, store, runner, logged } = build({ repositories: true });
+      store.repositories.upsertInstalled(
+        [{ repo: "o/r", installationId: 1, isPrivate: false }],
+        at,
+      );
+      store.repositories.setEnabled("o/r", false, at);
+      const res = await deliver(app);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, ignored: "disabled" });
+      expect(runner.start).not.toHaveBeenCalled();
+      expect(store.runs.listRuns()).toEqual([]);
+      expect(logged("webhook.ignored")).toMatchObject([
+        { event_type: "pull_request", reason: "disabled", repo: "o/r", pr_number: 7 },
+      ]);
+    });
+
+    it("gets no command and no conversation either", async () => {
+      const prCommands = { handle: vi.fn(async () => {}) };
+      const converse = { handle: vi.fn(async () => {}) };
+      const { app, store } = build({ repositories: true, prCommands, converse });
+      store.repositories.upsertInstalled(
+        [{ repo: "o/r", installationId: 1, isPrivate: false }],
+        at,
+      );
+      store.repositories.setEnabled("o/r", false, at);
+      const comment = JSON.stringify({
+        action: "created",
+        repository: { full_name: "o/r" },
+        issue: { number: 7, pull_request: { url: "u" } },
+        comment: { id: 1, body: "/cujo review", user: { login: "octocat" } },
+      });
+      const res = await app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: { "x-github-event": "issue_comment", "x-hub-signature-256": sign(comment) },
+          body: comment,
+        }),
+      );
+      expect(await res.json()).toEqual({ ok: true, ignored: "disabled" });
+      expect(prCommands.handle).not.toHaveBeenCalled();
+      expect(converse.handle).not.toHaveBeenCalled();
+      const thread = JSON.stringify({
+        action: "created",
+        repository: { full_name: "o/r" },
+        pull_request: { number: 7 },
+        comment: { id: 2, body: "@cujo-guard prove it", user: { login: "octocat" } },
+      });
+      const res2 = await app.fetch(
+        req(HOOK, "/webhook", {
+          method: "POST",
+          headers: {
+            "x-github-event": "pull_request_review_comment",
+            "x-hub-signature-256": sign(thread),
+          },
+          body: thread,
+        }),
+      );
+      expect(await res2.json()).toEqual({ ok: true, ignored: "disabled" });
+      expect(converse.handle).not.toHaveBeenCalled();
+    });
+
+    it("leaves an unknown repository, and an enabled one, exactly as before", async () => {
+      const { app, store, nextSettled } = build({ repositories: true });
+      const done = nextSettled();
+      expect((await deliver(app)).status).toBe(202);
+      await done;
+      expect(store.runs.listRuns()).toHaveLength(1);
+      store.repositories.upsertInstalled(
+        [{ repo: "o/r", installationId: 1, isPrivate: false }],
+        at,
+      );
+      const again = JSON.stringify({
+        action: "opened",
+        number: 8,
+        repository: { full_name: "o/r" },
+        pull_request: { head: { sha: "h2" } },
+      });
+      const done2 = nextSettled();
+      expect((await deliver(app, again)).status).toBe(202);
+      await done2;
+      expect(store.runs.listRuns()).toHaveLength(2);
+    });
+  });
+
   const headPayload = (sha: string) =>
     JSON.stringify({
       action: "synchronize",

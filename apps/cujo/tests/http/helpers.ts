@@ -65,6 +65,8 @@ export function build(
     provenance: { model: string; rubricSha256: string };
     /** The push window (decision 144). Absent means every push starts at once. */
     debounce: PushDebounce;
+    /** The repository registry (decision 151). Absent means nothing is ever disabled. */
+    repositories: boolean;
   }> = {},
 ) {
   const store = new Store(":memory:");
@@ -115,6 +117,7 @@ export function build(
       ...(overrides.prCommands ? { prCommands: overrides.prCommands as never } : {}),
       ...(overrides.converse ? { converse: overrides.converse as never } : {}),
       ...(overrides.debounce ? { debounce: overrides.debounce } : {}),
+      ...(overrides.repositories ? { repositories: store.repositories } : {}),
     },
     ...(overrides.interactions
       ? {
