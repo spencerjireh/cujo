@@ -276,6 +276,14 @@ export const SCHEMA = `
     cached_at TEXT NOT NULL,
     PRIMARY KEY (run_id, source, specifier)
   );
+  -- What an owner set for one repository on the board (decision 155): the
+  -- fallback layer under the repository's own file.
+  CREATE TABLE IF NOT EXISTS repository_settings (
+    repo TEXT PRIMARY KEY,
+    mode TEXT,
+    instructions TEXT,
+    updated_at TEXT NOT NULL
+  );
   -- Who is signed in to the board (decision 153): a sign-in in progress,
   -- and a session with its owner verdict. The browser's id is stored hashed.
   CREATE TABLE IF NOT EXISTS web_logins (

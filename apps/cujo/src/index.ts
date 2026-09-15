@@ -314,6 +314,7 @@ async function main(): Promise<void> {
         diff,
         detonations: store.detonations,
         ocr,
+        repositorySettings: store.repositorySettings,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
         onClaimed,
@@ -437,6 +438,8 @@ async function main(): Promise<void> {
           sessions: store.webSessions,
           settings,
           repositories: store.repositories,
+          repositorySettings: store.repositorySettings,
+          github,
           log,
         }
       : undefined;
@@ -462,6 +465,7 @@ async function main(): Promise<void> {
       detonations: store.detonations,
       ocr,
       repositories: store.repositories,
+      repositorySettings: store.repositorySettings,
       // What the review's footer names. A public run gets its id; anything
       // else gets nothing, since a private run has no page for a stranger
       // reading the pull request to open. `github-mcp` turns the id into a

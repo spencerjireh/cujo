@@ -34,6 +34,10 @@ function harness(over: {
   diff?: Partial<DiffReviewDeps> | null;
   /** Wire the detonation cache with these entries (decision 145). */
   cache?: Record<string, unknown>;
+  /** The board's layer for the repository (decision 155). */
+  board?: { mode?: "sandbox" | "diff" | null; instructions?: string | null };
+  /** `.cujo/REVIEW.md` at base, when the repository carries one. */
+  reviewFile?: string;
   /** Wire the shadow review with this answer (decision 149). */
   ocr?: () => Promise<
     | { ok: true; result: unknown; exitCode: number | null; durationMs: number }
@@ -65,7 +69,11 @@ function harness(over: {
       return over.declared ?? null;
     }),
     readFile: vi.fn(async (_r: string, path: string) =>
-      path === "CONTRIBUTING.md" ? "## Standards\n" : null,
+      path === "CONTRIBUTING.md"
+        ? "## Standards\n"
+        : path === ".cujo/REVIEW.md"
+          ? (over.reviewFile ?? null)
+          : null,
     ),
   } as unknown as GitHubReader;
   const createSession = vi.fn(async () => "s-diff");
@@ -118,6 +126,17 @@ function harness(over: {
     ...(over.diff === null ? {} : { diff }),
     ...(over.cache ? { detonations } : {}),
     ...(ocr ? { ocr } : {}),
+    ...(over.board
+      ? {
+          repositorySettings: {
+            get: () => ({
+              mode: over.board?.mode ?? null,
+              instructions: over.board?.instructions ?? null,
+              updatedAt: "t",
+            }),
+          },
+        }
+      : {}),
   };
   return { store, run, runner, github, createSession, deps, lines, asked, kept, ocrCalls };
 }
@@ -350,5 +369,44 @@ describe("startRun asks the shadow review (decision 149)", () => {
     await settle();
     expect(h.runner.start).toHaveBeenCalledTimes(1);
     expect(h.store.ocr.get(h.run.id)).toMatchObject({ status: "error", error: "socket hang up" });
+  });
+});
+
+describe("startRun reads the board and the repository's instructions (decision 155)", () => {
+  it("takes the board's mode under the file's, and reports the reason", async () => {
+    const h = harness({ board: { mode: "diff" } });
+    await startRun(h.deps, h.run);
+    expect(h.store.runs.getRun(h.run.id)?.mode).toBe("diff");
+    expect(h.lines.find((l) => l.event === "run.mode.resolved")).toMatchObject({ reason: "board" });
+    const file = harness({ board: { mode: "diff" }, declared: "sandbox" });
+    await startRun(file.deps, file.run);
+    expect(file.store.runs.getRun(file.run.id)?.mode).toBe("sandbox");
+  });
+
+  it("hands the instructions to the sandbox brief and to the diff package, file first", async () => {
+    const h = harness({ board: { instructions: "From the board." } });
+    await startRun(h.deps, h.run);
+    expect(briefOf(h.runner).instructions).toEqual({
+      source: "board",
+      text: "From the board.",
+      truncated: false,
+    });
+    expect(h.lines.find((l) => l.event === "run.instructions.read")).toMatchObject({
+      reason: "board",
+    });
+    const d = harness({
+      declared: "diff",
+      board: { instructions: "From the board." },
+      reviewFile: "From the file.\n",
+    });
+    await startRun(d.deps, d.run);
+    expect(briefOf(d.runner).instructions).toEqual({
+      source: "file",
+      text: "From the file.\n",
+      truncated: false,
+    });
+    const none = harness({});
+    await startRun(none.deps, none.run);
+    expect("instructions" in briefOf(none.runner)).toBe(false);
   });
 });

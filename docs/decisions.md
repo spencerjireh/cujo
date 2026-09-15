@@ -162,6 +162,7 @@ reader can tell a live rule from a recorded one before opening it.
 152. [The models and the provider live in the store, seeded once from the environment](#152-the-models-and-the-provider-live-in-the-store-seeded-once-from-the-environment)
 153. [The owner plane: GitHub sign-in on the App's own OAuth, any admin of the installation](#153-the-owner-plane-github-sign-in-on-the-apps-own-oauth-any-admin-of-the-installation)
 154. [The run page is an evidence log](#154-the-run-page-is-an-evidence-log)
+155. [Per-repository settings and instructions, the file winning](#155-per-repository-settings-and-instructions-the-file-winning)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7787,3 +7788,48 @@ shape of the page is a unit test.
 Rejected: **cards and dots**, the generic activity-timeline; **opening every
 fold by default**, which is decision 85's page again; **keeping the three
 sections and adding a fourth**, which is how the page got here.
+
+## 155. Per-repository settings and instructions, the file winning
+
+Per-repository policy was a two-key `.cujo.yml` read by regex — `mode` and
+`discord_guild` — plus the commands the sandbox reads at base. Nothing an
+owner wrote for one repository reached a review beyond the standards files
+that happen to be there. Track 10's owner now has a plane to write on
+(decision 153), and the first thing to write per repository is how it should
+be reviewed.
+
+Two things move. The review mode gains a board layer between the instance's
+default and the repository's file: `deploy default < board < repository
+file`, settled with the user on 2026-09-15. Commands stay the file's alone —
+`install`, `test`, `boot`, `smoke`, `allow_hosts` are what the sandbox runs,
+and a pull request must not be able to talk a box into anything the base
+branch did not say. For every other key the file wins where it sets it and
+the board is the fallback, so a repository stays self-describing and the
+board fills what it leaves unsaid. The board shows all three layers and
+which one the next run will use, so an owner reading it is not surprised by
+a file they forgot.
+
+And instructions: a text in the owner's words, what to weigh, what to leave
+alone, which paths not to comment on, read by both reviews beside the
+standards files. From `.cujo/REVIEW.md` at the pull request's base when the
+repository carries one, else from the board, capped at the standards file
+cap and cut on a line. It rides in both briefs as `instructions` with its
+source, and both rubrics say what it may do: narrow and weigh, never switch
+a hard rule off, never move a severity the evidence does not support. It is
+text somebody wrote, and the rubrics' rule that repository text is data and
+not instructions to the model still holds; this is the one channel where an
+owner's text is meant to steer, within those limits.
+
+Accepted: **`resolveMode` gains `board` and the reason `board`** in the
+log and on the run page; **the instructions read happens only in a
+composition that has the board's layer**, so every earlier test composes a
+reader with no `readFile` and briefs as before; **an empty file or an empty
+board text is no instructions**; **the file is read at base for the review
+and at the default branch for the board's display**, which are the same
+commit except when a pull request targets another branch.
+
+Rejected: **the board winning over the file**, which would let a forgotten
+board setting override what a repository says about itself; **editing the
+file from the board by opening a pull request**, ruled out earlier and still
+open (#162); **instructions in `.cujo.yml`**, a policy file the sandbox
+parses by regex, where a paragraph of prose does not belong.
