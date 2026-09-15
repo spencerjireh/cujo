@@ -32,6 +32,10 @@ vi.mock("next/font/google", () => ({
 // test is about.
 vi.mock("@/components/ThemeToggle", () => ({ ThemeToggle: () => null }));
 
+// The sign-in buttons ask the owner plane through the query client; who is
+// signed in is not what this test is about either.
+vi.mock("@/components/owner/SessionButtons", () => ({ SessionButtons: () => null }));
+
 afterEach(cleanup);
 
 describe("site navigation to the manual", () => {
