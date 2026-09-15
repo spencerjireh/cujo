@@ -560,10 +560,13 @@ function handleInstallationRepositories(
   }
   if (event.action === "removed") {
     const names = event.repositories_removed.map((e) => e.full_name);
-    const removed = deps.repositories?.markRemoved(names, at) ?? 0;
-    for (const repo of names)
+    // Logged for what the store flagged, not for what the delivery named: a
+    // repository the table never held is not a removal.
+    const removed = deps.repositories?.markRemoved(names, at) ?? [];
+    for (const repo of removed) {
       log.info("registry.removed", { repo, installation_id: id, reason: "removed" });
-    return c.json({ ok: true, installation_id: id, removed }, 200);
+    }
+    return c.json({ ok: true, installation_id: id, removed: removed.length }, 200);
   }
   log.debug("webhook.ignored", {
     event_type: "installation_repositories",

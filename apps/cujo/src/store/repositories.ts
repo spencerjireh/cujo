@@ -87,14 +87,21 @@ export class RepositoryStore {
     }
   }
 
-  /** The App lost these repositories. Rows stay, flagged, so `enabled` survives. */
-  markRemoved(repos: readonly string[], at: string): number {
+  /**
+   * The App lost these repositories. Rows stay, flagged, so `enabled`
+   * survives. Returns the names actually flagged, so a caller logs a removal
+   * only for a row that existed and was active: a name the table never held
+   * is not a removal, whatever the delivery said.
+   */
+  markRemoved(repos: readonly string[], at: string): string[] {
     const stmt = this.db.prepare(
       "UPDATE repositories SET removed_at = ?, updated_at = ? WHERE repo = ? AND removed_at IS NULL",
     );
-    let changed = 0;
-    for (const repo of repos) changed += Number(stmt.run(at, at, normalizeRepo(repo)).changes);
-    return changed;
+    const removed: string[] = [];
+    for (const repo of repos) {
+      if (Number(stmt.run(at, at, normalizeRepo(repo)).changes) === 1) removed.push(repo);
+    }
+    return removed;
   }
 
   /** The whole installation went: every active row under it is removed. */
