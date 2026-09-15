@@ -420,6 +420,12 @@ async function main(): Promise<void> {
   });
   registry.start();
 
+  // Expired board sessions and abandoned sign-ins (decision 153) go once an
+  // hour. No line: an empty sweep is the normal outcome, and a session that
+  // expired said so to its owner at the 401.
+  const sessionSweep = setInterval(() => store.webSessions.sweep(new Date()), 60 * 60 * 1000);
+  sessionSweep.unref?.();
+
   // The owner plane (decision 153). Both halves of the OAuth client or none:
   // without them the internal host has no `/auth` and no `/owner`.
   const owner =
@@ -488,6 +494,7 @@ async function main(): Promise<void> {
     log.info("service.stopping", { reason });
     visibility.stop();
     registry.stop();
+    clearInterval(sessionSweep);
     server.close();
     // A push still waiting out its window starts now: a row that never got a
     // turn is an error on the next boot, and one that did is followed there.
