@@ -330,8 +330,11 @@ Coolify in a single `docker-compose` project so the services share a network.
   public repos only and names no approver. `/docs` under it is the user-facing
   manual: statically rendered, dependent on nothing this deploy runs, and the
   one path `robots.txt` allows (decision 98). Two footer buttons, *Manual* and
-  *Install the App*, and a link on the hero legend lead to it. There is no second plane and no
-  credential: the operator one was deleted with its hostname (decision 57), and
+  *Install the App*, and a link on the hero legend lead to it. `/repos` and
+  `/repos/<owner>/<name>` are the owner's pages (decision 156): rendered
+  against the session cookie, never indexed, and an invitation to sign in for
+  anyone else; a third footer button signs in or out. The operator plane
+  of old was deleted with its hostname (decision 57), and
   a block is lifted with `/cujo dismiss` on the pull request (decisions 49,
   138). It proxies the JSON API at `/api/cujo/*` — forwarding only
   `/public/*`, and `GET` only, since the board has no write route — and the run

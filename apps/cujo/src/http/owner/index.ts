@@ -17,6 +17,7 @@ import { resolveOwner } from "../../auth/owner";
 import type { GitHubReader } from "../../clients/github";
 import type { GitHubOAuth } from "../../clients/github-oauth";
 import { INSTRUCTIONS_BYTES, INSTRUCTIONS_PATH } from "../../review/instructions";
+import { cut } from "../../review/prepare";
 import { REVIEW_MODES, type ReviewMode } from "../../review/types";
 import { type ModelSettings, type SettingKey, type Settings, parseSetting } from "../../settings";
 import type { RepositoryStore } from "../../store/repositories";
@@ -255,10 +256,11 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
         : board.mode
           ? { value: board.mode, source: "board" as const }
           : { value: instanceMode, source: "instance" as const },
+      // Cut the way the brief cuts it, so the board shows what a run reads.
       instructions: fileInstructions?.trim()
-        ? { value: fileInstructions, source: "file" as const }
+        ? { ...cut(fileInstructions, INSTRUCTIONS_BYTES), source: "file" as const }
         : board.instructions?.trim()
-          ? { value: board.instructions, source: "board" as const }
+          ? { ...cut(board.instructions, INSTRUCTIONS_BYTES), source: "board" as const }
           : null,
     };
     return c.json({

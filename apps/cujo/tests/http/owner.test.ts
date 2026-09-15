@@ -32,6 +32,8 @@ function build(
     owner?: boolean;
     /** The repository's own files at its default branch, by path. */
     files?: Record<string, string>;
+    /** GitHub does not answer for the file. */
+    githubDown?: boolean;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -42,6 +44,7 @@ function build(
   const files = new Map<string, string>(Object.entries(options.files ?? {}));
   const github = {
     declaredMode: vi.fn(async () => {
+      if (options.githubDown) throw new Error("GitHub 502");
       const yaml = files.get(".cujo.yml");
       return yaml ? (yaml.includes("diff") ? ("diff" as const) : ("sandbox" as const)) : null;
     }),
@@ -299,6 +302,14 @@ describe("the owner plane", () => {
       instance: { mode: "sandbox" },
       effective: { mode: { value: "diff", source: "file" }, instructions: null },
     });
+    const down = build({ githubDown: true });
+    const { session: s2 } = await down.signIn();
+    down.store.repositories.upsertInstalled(
+      [{ repo: "o/r", installationId: 10, isPrivate: false }],
+      "t0",
+    );
+    expect((await down.call("/owner/repositories/o/r/settings", {}, s2)).status).toBe(502);
+    expect(down.logged("owner.repository.file.failed")).toHaveLength(1);
     const set = await h.call(
       "/owner/repositories/o/r/settings",
       { method: "PATCH", body: JSON.stringify({ mode: "sandbox", instructions: "Ignore docs/." }) },
@@ -313,7 +324,7 @@ describe("the owner plane", () => {
       board: { mode: "sandbox", instructions: "Ignore docs/." },
       effective: {
         mode: { value: "diff", source: "file" },
-        instructions: { value: "Ignore docs/.", source: "board" },
+        instructions: { text: "Ignore docs/.", truncated: false, source: "board" },
       },
     });
     expect(h.store.repositorySettings.get("o/r")).toMatchObject({

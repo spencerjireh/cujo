@@ -1,5 +1,6 @@
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Mark } from "@/components/brand/Mark";
+import { SessionButtons } from "@/components/owner/SessionButtons";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
@@ -153,6 +154,9 @@ export function SiteFooter() {
           <Link href="/docs/install" className={FOOTER_BUTTON}>
             Install the App
           </Link>
+          {/* Sign in, or who is signed in, for the owner's pages (decision
+              156). Asked on mount, so the layout stays static. */}
+          <SessionButtons className={FOOTER_BUTTON} />
           <ThemeToggle />
         </div>
       </div>
