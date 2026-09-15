@@ -14,9 +14,13 @@ import type { Logger } from "@cujo/log";
 import { errorFields } from "@cujo/log";
 import { Hono } from "hono";
 import { resolveOwner } from "../../auth/owner";
+import type { GitHubReader } from "../../clients/github";
 import type { GitHubOAuth } from "../../clients/github-oauth";
+import { INSTRUCTIONS_BYTES, INSTRUCTIONS_PATH } from "../../review/instructions";
+import { REVIEW_MODES, type ReviewMode } from "../../review/types";
 import { type ModelSettings, type SettingKey, type Settings, parseSetting } from "../../settings";
 import type { RepositoryStore } from "../../store/repositories";
+import type { RepositorySettingsStore } from "../../store/repository-settings";
 import type { WebSession, WebSessionStore } from "../../store/web-sessions";
 import type { RequestEnv } from "../request-log";
 
@@ -29,11 +33,22 @@ export interface OwnerDeps {
   sessions: WebSessionStore;
   settings: Pick<Settings, "current" | "sources" | "set">;
   repositories: Pick<RepositoryStore, "listAll" | "setEnabled" | "get">;
+  /** The board's per-repository layer (decision 155). */
+  repositorySettings: Pick<RepositorySettingsStore, "get" | "set">;
+  /** For what the repository's own file says, read at its default branch. */
+  github: Pick<GitHubReader, "declaredMode" | "readFile">;
   log: Logger;
   now?: () => Date;
 }
 
 type OwnerEnv = RequestEnv & { Variables: RequestEnv["Variables"] & { session: WebSession } };
+
+/**
+ * Where the board reads a repository's own file: GitHub's contents API
+ * resolves `HEAD` to the default branch, and the registry does not hold the
+ * branch's name. The review reads the same file at the pull request's base.
+ */
+const DEFAULT_BRANCH_REF = "HEAD";
 
 const SETTABLE: readonly SettingKey[] = [
   "model",
@@ -212,6 +227,98 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
     }
     c.get("log").info("owner.repository.changed", { repo, enabled: body.enabled });
     return c.json({ ok: true, repository: deps.repositories.get(repo) });
+  });
+
+  /**
+   * The three layers for one repository, and what wins (decision 155):
+   * the file at the default branch where it sets a key, else the board,
+   * else the instance. The board mirrors the file's value and says so, so
+   * an owner sees what the next run will do and where that came from.
+   */
+  owner.get("/repositories/:owner/:name/settings", async (c) => {
+    const repo = `${c.req.param("owner")}/${c.req.param("name")}`;
+    if (!deps.repositories.get(repo)) return c.json({ ok: false, error: "not found" }, 404);
+    const board = deps.repositorySettings.get(repo);
+    let fileMode: ReviewMode | null = null;
+    let fileInstructions: string | null = null;
+    try {
+      fileMode = await deps.github.declaredMode(repo, DEFAULT_BRANCH_REF);
+      fileInstructions = await deps.github.readFile(repo, INSTRUCTIONS_PATH, DEFAULT_BRANCH_REF);
+    } catch (error) {
+      c.get("log").warn("owner.repository.file.failed", { repo, ...errorFields(error) });
+      return c.json({ ok: false, error: "GitHub did not answer for the repository's file" }, 502);
+    }
+    const instanceMode = deps.settings.current().reviewMode;
+    const effective = {
+      mode: fileMode
+        ? { value: fileMode, source: "file" as const }
+        : board.mode
+          ? { value: board.mode, source: "board" as const }
+          : { value: instanceMode, source: "instance" as const },
+      instructions: fileInstructions?.trim()
+        ? { value: fileInstructions, source: "file" as const }
+        : board.instructions?.trim()
+          ? { value: board.instructions, source: "board" as const }
+          : null,
+    };
+    return c.json({
+      ok: true,
+      board: { mode: board.mode, instructions: board.instructions, updated_at: board.updatedAt },
+      file: { mode: fileMode, instructions: fileInstructions, path: INSTRUCTIONS_PATH },
+      instance: { mode: instanceMode },
+      effective,
+    });
+  });
+
+  owner.patch("/repositories/:owner/:name/settings", async (c) => {
+    const repo = `${c.req.param("owner")}/${c.req.param("name")}`;
+    if (!deps.repositories.get(repo)) return c.json({ ok: false, error: "not found" }, 404);
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return c.json({ ok: false, error: "invalid" }, 400);
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return c.json({ ok: false, error: "invalid" }, 400);
+    }
+    const patch: { mode?: ReviewMode | null; instructions?: string | null } = {};
+    if ("mode" in body) {
+      const mode = body.mode;
+      if (mode !== null && !REVIEW_MODES.includes(mode as ReviewMode)) {
+        return c.json(
+          { ok: false, error: `mode must be one of ${REVIEW_MODES.join(", ")} or null` },
+          400,
+        );
+      }
+      patch.mode = mode as ReviewMode | null;
+    }
+    if ("instructions" in body) {
+      const text = body.instructions;
+      if (text !== null && typeof text !== "string") {
+        return c.json({ ok: false, error: "instructions must be text or null" }, 400);
+      }
+      if (typeof text === "string" && Buffer.byteLength(text, "utf8") > INSTRUCTIONS_BYTES) {
+        return c.json(
+          { ok: false, error: `instructions must be at most ${INSTRUCTIONS_BYTES} bytes` },
+          400,
+        );
+      }
+      patch.instructions =
+        typeof text === "string" && text.trim() === "" ? null : (text as string | null);
+    }
+    if (!("mode" in patch) && !("instructions" in patch)) {
+      return c.json({ ok: false, error: "nothing to change" }, 400);
+    }
+    const saved = deps.repositorySettings.set(repo, patch, now().toISOString());
+    c.get("log").info("owner.repository.settings.changed", {
+      repo,
+      count: Object.keys(patch).length,
+    });
+    return c.json({
+      ok: true,
+      board: { mode: saved.mode, instructions: saved.instructions, updated_at: saved.updatedAt },
+    });
   });
 
   owner.all("*", (c) => c.json({ ok: false, error: "not found" }, 404));

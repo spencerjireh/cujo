@@ -17,6 +17,18 @@ describe("resolveMode", () => {
     });
   });
 
+  it("puts the board between the deploy default and the file (decision 155)", () => {
+    expect(resolveMode({ ...plain, board: "diff" })).toEqual({ mode: "diff", reason: "board" });
+    expect(resolveMode({ ...plain, board: "diff", declared: "sandbox" })).toEqual({
+      mode: "sandbox",
+      reason: "declared",
+    });
+    expect(resolveMode({ ...plain, board: null })).toEqual({
+      mode: "sandbox",
+      reason: "deploy_default",
+    });
+  });
+
   it("lets the repository's declaration override the deploy default either way", () => {
     expect(resolveMode({ ...plain, declared: "diff" })).toEqual({
       mode: "diff",

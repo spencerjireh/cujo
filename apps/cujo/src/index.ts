@@ -24,6 +24,7 @@ import {
 } from "./review/agent-spec";
 import { PrCommandService } from "./review/commands/pr-command.service";
 import { publicRunId } from "./review/links";
+import { STANDARDS_FILE_BYTES } from "./review/prepare";
 import { PushDebounce } from "./review/push-debounce";
 import { RegistryService } from "./review/registry.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
@@ -206,7 +207,11 @@ async function main(): Promise<void> {
         budgetTokens: current.diffBudgetTokens,
       };
     },
-    caps: { diffBytes: config.diffBytes, standardsFileBytes: 16_000, standardsTotalBytes: 48_000 },
+    caps: {
+      diffBytes: config.diffBytes,
+      standardsFileBytes: STANDARDS_FILE_BYTES,
+      standardsTotalBytes: 48_000,
+    },
   };
 
   /**
@@ -314,6 +319,7 @@ async function main(): Promise<void> {
         diff,
         detonations: store.detonations,
         ocr,
+        repositorySettings: store.repositorySettings,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
         onClaimed,
@@ -437,6 +443,8 @@ async function main(): Promise<void> {
           sessions: store.webSessions,
           settings,
           repositories: store.repositories,
+          repositorySettings: store.repositorySettings,
+          github,
           log,
         }
       : undefined;
@@ -462,6 +470,7 @@ async function main(): Promise<void> {
       detonations: store.detonations,
       ocr,
       repositories: store.repositories,
+      repositorySettings: store.repositorySettings,
       // What the review's footer names. A public run gets its id; anything
       // else gets nothing, since a private run has no page for a stranger
       // reading the pull request to open. `github-mcp` turns the id into a

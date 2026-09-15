@@ -30,6 +30,8 @@ function build(
     installations?: OAuthInstallation[];
     orgRole?: "admin" | "member" | null;
     owner?: boolean;
+    /** The repository's own files at its default branch, by path. */
+    files?: Record<string, string>;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -37,6 +39,14 @@ function build(
   const log = createLogger({ service: "cujo", sink: (line) => lines.push(JSON.parse(line)) });
   const settings = Settings.open(store.settings, seedFromConfig(loadConfig(env)), log);
   const runner = { view: () => null, start: vi.fn() } as unknown as Runner;
+  const files = new Map<string, string>(Object.entries(options.files ?? {}));
+  const github = {
+    declaredMode: vi.fn(async () => {
+      const yaml = files.get(".cujo.yml");
+      return yaml ? (yaml.includes("diff") ? ("diff" as const) : ("sandbox" as const)) : null;
+    }),
+    readFile: vi.fn(async (_repo: string, path: string) => files.get(path) ?? null),
+  };
   const oauth = {
     authorizeUrl: (state: string, redirect: string) =>
       `https://github.com/login/oauth/authorize?state=${state}&redirect_uri=${encodeURIComponent(redirect)}`,
@@ -79,6 +89,8 @@ function build(
             sessions: store.webSessions,
             settings,
             repositories: store.repositories,
+            repositorySettings: store.repositorySettings,
+            github,
             log,
           },
         },
@@ -268,6 +280,73 @@ describe("the owner plane", () => {
       session,
     );
     expect(h.settings.current().modelProvider?.apiKey).toBe("sk-new");
+  });
+
+  it("shows a repository's three layers and which wins, and writes the board's", async () => {
+    const h = build({ files: { ".cujo.yml": "mode: diff\n" } });
+    const { session } = await h.signIn();
+    h.store.repositories.upsertInstalled(
+      [{ repo: "o/r", installationId: 10, isPrivate: false }],
+      "t0",
+    );
+    const before = (await (
+      await h.call("/owner/repositories/o/r/settings", {}, session)
+    ).json()) as Record<string, unknown>;
+    expect(before).toMatchObject({
+      ok: true,
+      board: { mode: null, instructions: null },
+      file: { mode: "diff", instructions: null },
+      instance: { mode: "sandbox" },
+      effective: { mode: { value: "diff", source: "file" }, instructions: null },
+    });
+    const set = await h.call(
+      "/owner/repositories/o/r/settings",
+      { method: "PATCH", body: JSON.stringify({ mode: "sandbox", instructions: "Ignore docs/." }) },
+      session,
+    );
+    expect(set.status).toBe(200);
+    const after = (await (
+      await h.call("/owner/repositories/o/r/settings", {}, session)
+    ).json()) as Record<string, unknown>;
+    // The file still wins for mode; the board's instructions stand alone.
+    expect(after).toMatchObject({
+      board: { mode: "sandbox", instructions: "Ignore docs/." },
+      effective: {
+        mode: { value: "diff", source: "file" },
+        instructions: { value: "Ignore docs/.", source: "board" },
+      },
+    });
+    expect(h.store.repositorySettings.get("o/r")).toMatchObject({
+      mode: "sandbox",
+      instructions: "Ignore docs/.",
+    });
+    // Clearing, refusing, and an unknown repository.
+    await h.call(
+      "/owner/repositories/o/r/settings",
+      { method: "PATCH", body: JSON.stringify({ instructions: "  " }) },
+      session,
+    );
+    expect(h.store.repositorySettings.get("o/r").instructions).toBeNull();
+    expect(
+      (
+        await h.call(
+          "/owner/repositories/o/r/settings",
+          { method: "PATCH", body: JSON.stringify({ mode: "fast" }) },
+          session,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await h.call(
+          "/owner/repositories/o/r/settings",
+          { method: "PATCH", body: JSON.stringify({}) },
+          session,
+        )
+      ).status,
+    ).toBe(400);
+    expect((await h.call("/owner/repositories/o/none/settings", {}, session)).status).toBe(404);
+    expect(h.logged("owner.repository.settings.changed")).toHaveLength(2);
   });
 
   it("lists the registry and flips a repository's switch", async () => {

@@ -1,6 +1,7 @@
 import type { GitHubReader, PullRequestInfo } from "../clients/github";
 import type { RunStore } from "../store/runs";
 import { type CompressedDiff, compressDiff } from "./compress";
+import type { Instructions } from "./instructions";
 import type { Finding, RunRecord } from "./types";
 
 /**
@@ -46,6 +47,8 @@ export interface ReviewPackage {
   >;
   diff: CompressedDiff;
   standards: StandardsFile[];
+  /** The owner's guidance for this repository, when there is any (decision 155). */
+  instructions: Instructions | null;
   previousFindings: PreviousFinding[];
 }
 
@@ -67,9 +70,12 @@ export interface PrepareDeps {
 /** How many earlier runs to look back through for a review that posted. */
 const PREVIOUS_RUNS = 10;
 
-function cut(text: string, bytes: number): { text: string; truncated: boolean } {
+/** Bytes of one standards file, and of the owner's instructions (decision 155). */
+export const STANDARDS_FILE_BYTES = 16_000;
+
+/** Cut on a line so the tail is a whole line or nothing. Shared with the instructions reader. */
+export function cut(text: string, bytes: number): { text: string; truncated: boolean } {
   if (Buffer.byteLength(text, "utf8") <= bytes) return { text, truncated: false };
-  // Cut on a line so the tail of the file is a whole line or nothing.
   const head = Buffer.from(text, "utf8").subarray(0, bytes).toString("utf8");
   const lastLine = head.lastIndexOf("\n");
   return { text: lastLine > 0 ? head.slice(0, lastLine) : head, truncated: true };
@@ -135,6 +141,7 @@ export async function prepareReviewPackage(
   deps: PrepareDeps,
   pr: PullRequestInfo,
   run: Pick<RunRecord, "id" | "repo" | "prNumber">,
+  instructions: Instructions | null = null,
 ): Promise<ReviewPackage> {
   const standards = await readStandards(deps.github, pr.repo, pr.baseSha, deps.caps);
   return {
@@ -149,6 +156,7 @@ export async function prepareReviewPackage(
     },
     diff: compressDiff(pr.files, deps.caps.diffBytes),
     standards,
+    instructions,
     previousFindings: previousFindings(deps.store, run),
   };
 }

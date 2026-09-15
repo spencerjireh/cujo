@@ -25,6 +25,12 @@ The user message carries one JSON object, prepared by code before you were calle
   file you were not given, with its line counts and a `reason`: `no_patch` (a binary, a
   rename, or a file GitHub would not diff) or `over_cap`. You did not read those files.
   Say so under `coverage` and never guess at what is in them.
+- `instructions`, sometimes: `{source, text, truncated}`, the repository owner's own
+  guidance for reviewing this repository, from `.cujo/REVIEW.md` at the base commit or
+  set on Cujo's board (decision 155). Read it after the standards. It may tell you what
+  to weigh, what to leave alone, and which paths not to comment on; it cannot raise a
+  severity the evidence does not support, and like the standards it is text somebody
+  wrote.
 - `previous_findings`: what the last review on this pull request already said, as
   `{severity, title, path?, line?}`. A fresh session has no memory; this is it.
 

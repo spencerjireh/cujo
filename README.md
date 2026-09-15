@@ -107,7 +107,9 @@ on their own); webhook to `/webhook` with
 its callback URL to `<board origin>/api/auth/callback`, generate a client
 secret, and pass the client id and secret as `GITHUB_OAUTH_CLIENT_ID` and
 `GITHUB_OAUTH_CLIENT_SECRET`; without them the board is read-only. On a laptop, `cloudflared tunnel --url
-http://localhost:8080` is enough. `.env.example` documents the model
+http://localhost:8080` is enough. A repository may carry `.cujo/REVIEW.md`, the owner's guidance
+for reviewing it, read beside the standards files (decision 155).
+`.env.example` documents the model
 provider, the review mode, the diff budget and Discord; the
 [self-host page](https://cujo.spencerjireh.com/docs/self-host) has the rest.
 

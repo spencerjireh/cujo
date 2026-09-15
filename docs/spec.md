@@ -205,7 +205,8 @@ For a `pull_request` event the `apps/cujo` webhook module:
 3. Resolves the **mode** (decision 135), after the read and before any turn,
    and logs `run.mode.resolved` with the reason. In order: the instance's review mode
    (the `reviewMode` setting, seeded from `CUJO_REVIEW_MODE`, decision 152),
-   the instance's answer when the repository gives none; then `mode:` in
+   the instance's answer when nothing else speaks; then the board's setting
+   for the repository (decision 155), what an owner set there; then `mode:` in
    `.cujo.yml` read at the pull request's **base SHA** — the target branch's
    policy, never the pull request's (decision 13), and a commit rather than a
    branch name so a push to the target between the webhook and this read
@@ -228,8 +229,10 @@ For a `pull_request` event the `apps/cujo` webhook module:
    exact specifier the manifest hunks add that this instance detonated within
    seven days, its `dependency`, `source`, `cached_at`, and `run_id` only when
    that run is public — never the entry itself, which stays on the trusted
-   side. Omitted when there is none. For a
-   **diff** run, creates a fresh session on the diff spec (decision 137),
+   side. Omitted when there is none. And `instructions` (decision 155), the
+   owner's guidance for the repository as `{source, text, truncated}`, from
+   `.cujo/REVIEW.md` at base or from the board, omitted when there is none.
+   For a **diff** run, creates a fresh session on the diff spec (decision 137),
    prepares the package (Contract 11), stamps the run with the diff spec's
    model, rubric digest and budget and the new session, and starts one turn
    with the package as its single message; the pull request's own session
@@ -1933,6 +1936,7 @@ same `run_id` rule as Contract 1's:
 | `repo`, `pr_number`, `pr_title`, `pr_body`, `base_sha`, `head_sha`, `manifest_changed`, `docs_only`?, `run_id`? | As in Contract 1. No `clone_url`: the session has nothing to clone with, and the URL would be the one host name in the brief. No author: a login in the brief is a person for the model to address. |
 | `standards[]` | The repository's own instruction files at the **base** commit, in this order: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/copilot-instructions.md`. Each is `{path, text, truncated}`, cut on a line at 16 KB, and the set is cut at 48 KB (a file past the line is dropped whole). Base and not head for the reason `.cujo.yml` is (decision 13): a pull request that rewrites CONTRIBUTING.md to permit itself has changed nothing until it is merged. A missing file is skipped; a read that failed ends the run in `error`, because "the repo has no standards" and "GitHub did not answer" are different facts. |
 | `diff` | `{files, omitted, bytes, cap}`. `files` is every changed file whose hunks fit under `CUJO_DIFF_BYTES`, as `{path, status, additions, deletions, patch}`, kept **whole** — a hunk cut mid-line is a line the model will anchor a finding to and `github-mcp` will refuse. Order is rank, then GitHub's order: source, then prose (`isDocsPath`), then generated and vendored paths, then lockfiles. `omitted` lists every file not given, with its counts and a `reason`: `no_patch` (a binary, a rename, or a file GitHub would not diff) or `over_cap`. The model is told what it did not read, the way a sensor report says what it could not observe (decision 54). |
+| `instructions`? | The owner's guidance for this repository (decision 155), as `{source, text, truncated}`: `.cujo/REVIEW.md` at the **base** commit when the repository carries one (`source: "file"`), else what the owner set on the board (`source: "board"`), else the key is absent. Cut on a line at 16 KB. The same key rides in the sandbox brief (Contract 1). It may narrow and weigh what the review says; it cannot switch a hard rule off or move a severity the evidence does not support. |
 | `previous_findings[]` | The agent findings of the newest earlier run on this pull request whose review posted, as `{severity, title, path?, line?}`; hard-rule findings are left out, since a diff run cannot reproduce them. A diff run has a fresh session (decision 137), so this is its whole memory, and the rubric tells it not to say the same thing twice. |
 
 **The session** is the diff spec (`buildDiffSpec`): `agent/DIFF.md` as its
