@@ -23,6 +23,7 @@ import {
 import { PrCommandService } from "./review/commands/pr-command.service";
 import { publicRunId } from "./review/links";
 import { PushDebounce } from "./review/push-debounce";
+import { RegistryService } from "./review/registry.service";
 import { ANY_RUN, type RunView, Runner } from "./review/runner.service";
 import type { DiffReviewDeps } from "./review/start-run";
 import { startRun } from "./review/start-run";
@@ -380,6 +381,17 @@ async function main(): Promise<void> {
   });
   visibility.start();
 
+  // Which repositories the App holds (decision 151): the installation
+  // webhooks are the fast path, this fills the table at boot and reconciles
+  // behind them.
+  const registry = new RegistryService({
+    log,
+    repositories: store.repositories,
+    github,
+    intervalMs: config.registrySyncMs,
+  });
+  registry.start();
+
   const app = createApp({
     log,
     internalHost: config.internalHost,
@@ -398,6 +410,7 @@ async function main(): Promise<void> {
       diff,
       detonations: store.detonations,
       ocr,
+      repositories: store.repositories,
       // What the review's footer names. A public run gets its id; anything
       // else gets nothing, since a private run has no page for a stranger
       // reading the pull request to open. `github-mcp` turns the id into a
@@ -429,6 +442,7 @@ async function main(): Promise<void> {
     // between "Coolify swapped the container" and "the process died".
     log.info("service.stopping", { reason });
     visibility.stop();
+    registry.stop();
     server.close();
     // A push still waiting out its window starts now: a row that never got a
     // turn is an error on the next boot, and one that did is followed there.

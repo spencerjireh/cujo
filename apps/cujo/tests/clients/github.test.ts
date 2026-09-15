@@ -317,7 +317,12 @@ describe("GitHubReader.installedRepos", () => {
       auth.push(new Headers(init?.headers).get("authorization") ?? "");
       const body = url.pathname.endsWith("/app/installations")
         ? [{ id: 42 }]
-        : { repositories: repos.map((full_name) => ({ full_name })) };
+        : {
+            repositories: repos.map((full_name) => ({
+              full_name,
+              private: full_name.endsWith("/private"),
+            })),
+          };
       return new Response(JSON.stringify(body), { status: 200 });
     });
     return { impl: impl as unknown as typeof fetch, calls: impl, auth };
@@ -331,6 +336,15 @@ describe("GitHubReader.installedRepos", () => {
     // installation's.
     expect(auth[0]).toBe("Bearer app_jwt");
     expect(auth[1]).toBe("Bearer ghs_token");
+  });
+
+  it("lists each repository with its installation and visibility, for the registry", async () => {
+    const { impl } = fakeAppFetch(["o/a", "o/private"]);
+    const reader = new GitHubReader("1", "pem", impl);
+    expect(await reader.listInstalledRepos()).toEqual([
+      { repo: "o/a", installationId: 42, isPrivate: false },
+      { repo: "o/private", installationId: 42, isPrivate: true },
+    ]);
   });
 
   it("caches, because autocomplete asks on every keystroke", async () => {

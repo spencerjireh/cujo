@@ -276,6 +276,19 @@ export const SCHEMA = `
     cached_at TEXT NOT NULL,
     PRIMARY KEY (run_id, source, specifier)
   );
+  -- Which repositories the App is installed on (decision 151): fed by the
+  -- installation webhook events, reconciled at boot. A removed row is kept
+  -- and flagged so the owner's \`enabled\` survives a reinstall.
+  CREATE TABLE IF NOT EXISTS repositories (
+    repo TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    installation_id INTEGER NOT NULL,
+    is_private INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    added_at TEXT NOT NULL,
+    removed_at TEXT,
+    updated_at TEXT NOT NULL
+  );
   -- What Open Code Review said about a run (decision 149), verbatim and
   -- read by nothing in this process: the measurement week compares it by
   -- hand over SQL. Never joined by /public, never posted.

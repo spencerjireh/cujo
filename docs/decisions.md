@@ -158,6 +158,7 @@ reader can tell a live rule from a recorded one before opening it.
 148. [A cached detonation never crosses the model](#148-a-cached-detonation-never-crosses-the-model)
 149. [Open Code Review runs beside a review and posts nothing](#149-open-code-review-runs-beside-a-review-and-posts-nothing)
 150. [`/cujo review` starts a fresh session](#150-cujo-review-starts-a-fresh-session)
+151. [A repository registry, fed by the installation events](#151-a-repository-registry-fed-by-the-installation-events)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7591,3 +7592,47 @@ request's earlier heads**, which is what a clean look is. Rejected: **a
 line in the brief telling the model this is a re-review**, which asks a model
 to ignore what it can see; **deleting the old session on the harness**,
 which decision 104 already argued against for runs and which holds here.
+
+## 151. A repository registry, fed by the installation events
+
+Cujo learned which repositories it reviews only from deliveries about pull
+requests. There was no table of them: the public board listed repositories
+that had a run, the Discord autocomplete asked GitHub for the App's
+installations on each keystroke and cached the answer, and nothing could say
+"this one, not that one". Track 10 makes Cujo something an owner manages,
+and the first thing an owner manages is which repositories it works on.
+
+So there is a `repositories` table, keyed by the lowercased `owner/name`
+every other table uses, holding the installation it came from, its
+visibility, the owner's `enabled` flag, and when the App gained and lost it.
+Two sources fill it. The fast path is GitHub's own `installation` and
+`installation_repositories` webhooks, which every App receives without a
+subscription or a permission: `created`, `unsuspend` and `added` upsert the
+repositories they list, `deleted`, `suspend` and `removed` flag them. The
+reconciler behind it, `review/registry.service.ts`, lists the App's
+installations at boot and every six hours and brings the table into line, for
+the delivery that never arrived and for the first boot of a deploy, when the
+table is empty. Both sources are the same shape the visibility service and
+the `repository` webhook already are (decision 34).
+
+`enabled` means no work at all. A disabled repository's `pull_request`,
+`issue_comment` and `pull_request_review_comment` deliveries are answered 200
+and logged at `info` with `reason: "disabled"`, beside `draft` and the skip
+label, because it is the same kind of fact: a person chose this, and the
+audit trail should say so where "why was this never reviewed?" is asked. The
+gate sits in the ingress and not in the store or the run, so a disabled
+repository claims no session, no run row and no harness turn. Nothing sets
+the flag yet except the store itself; the authenticated plane that will is
+the next slice.
+
+Accepted: **a removed row is kept**, flagged with `removed_at`, so that
+`enabled` survives the App losing and regaining a repository and a reinstall
+does not quietly turn review back on; **an unknown repository is not
+disabled** — a delivery can beat the boot sync, and "never heard of it" must
+not read as "told to ignore it"; **the Discord autocomplete keeps its own
+scan** for now, and moves to the registry once the plane exists to edit it.
+
+Rejected: **learning repositories from pull request deliveries alone**,
+which is what existed and cannot list anything; **deleting a removed row**,
+which loses the owner's flag; **an `installation` event as the only source**,
+which leaves the table empty on every deploy that predates it.

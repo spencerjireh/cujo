@@ -162,6 +162,12 @@ export const EVENT_NAMES = [
   "review.stale.skipped",
   "review.stale.dismissed",
   "review.stale.dismiss.failed",
+  // The repository registry (decision 151): what the installation webhooks
+  // added or removed, and the boot-and-interval reconciliation behind them.
+  "registry.installed",
+  "registry.removed",
+  "registry.synced",
+  "registry.sync.failed",
   // Open Code Review beside a run (decision 149): what `apps/cujo` asked for
   // and heard back, and what the sidecar itself refused, finished or failed.
   // Nothing here reaches a pull request.

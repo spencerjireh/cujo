@@ -101,7 +101,8 @@ curl -s -H 'Host: cujo' http://localhost:8080/public/runs
 
 You need your own GitHub App: Contents read, Metadata read, Pull requests
 write, Checks write, Issues read; events `pull_request`, `issue_comment`,
-`pull_request_review_comment`, `repository`; webhook to `/webhook` with
+`pull_request_review_comment`, `repository` (the `installation` events arrive
+on their own); webhook to `/webhook` with
 `GITHUB_WEBHOOK_SECRET`. On a laptop, `cloudflared tunnel --url
 http://localhost:8080` is enough. `.env.example` documents the model
 provider, the review mode, the diff budget and Discord; the
