@@ -46,7 +46,11 @@ export interface CheckEntry {
   alarms: Alarm[];
   /** This check's findings, worst first; `info` is folded by the page. */
   findings: Finding[];
-  /** How many hosts the sandbox reached, or null when the report says nothing. */
+  /**
+   * How many hosts the sandbox reached. Null when the report says nothing,
+   * and null when an unknown host was among them, since that is an alarm
+   * above and the count would say it twice.
+   */
   egressHosts: number | null;
   /** The parsed report, for the evidence tables and the raw view. */
   blocks: SensorBlock[];
@@ -144,6 +148,7 @@ function commandsOf(blocks: SensorBlock[]): LogCommand[] {
 
 function egressHostsOf(blocks: SensorBlock[]): number | null {
   if (blocks.length === 0) return null;
+  if (blocks.some((block) => block.derived?.egress_to_unknown_host)) return null;
   const hosts = new Set<string>();
   for (const block of blocks) for (const entry of block.egress) hosts.add(entry.host);
   return hosts.size;

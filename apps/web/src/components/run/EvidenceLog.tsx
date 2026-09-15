@@ -110,8 +110,10 @@ function Findings({ findings }: { findings: Finding[] }) {
     <div className="mt-3">
       {loud.length > 0 ? (
         <ul className="flex flex-col">
-          {loud.map((finding) => (
-            <FindingRow key={`${finding.severity}-${finding.title}`} finding={finding} />
+          {loud.map((finding, index) => (
+            // Position is part of the key: two probes can report the same
+            // title at the same severity, and they are two rows.
+            <FindingRow key={`${index}-${finding.severity}-${finding.title}`} finding={finding} />
           ))}
         </ul>
       ) : null}
@@ -129,8 +131,8 @@ function Findings({ findings }: { findings: Finding[] }) {
           </Collapsible.Trigger>
           <Collapsible.Content>
             <ul className="flex flex-col">
-              {quiet.map((finding) => (
-                <FindingRow key={`info-${finding.title}`} finding={finding} />
+              {quiet.map((finding, index) => (
+                <FindingRow key={`${index}-info-${finding.title}`} finding={finding} />
               ))}
             </ul>
           </Collapsible.Content>
@@ -174,7 +176,7 @@ function Commands({ entry }: { entry: CheckEntry }) {
 function Observed({ entry }: { entry: CheckEntry }) {
   const rows = [
     ...entry.alarms.map((alarm) => ({ text: alarm.text, tone: alarm.severity as string })),
-    ...(entry.egressHosts !== null && !entry.alarms.some((a) => a.text.startsWith("egress"))
+    ...(entry.egressHosts !== null
       ? [
           {
             text:
