@@ -12,21 +12,16 @@
 
 import type { GitHubReader } from "../clients/github";
 import type { RepositorySettingsStore } from "../store/repository-settings";
+import { STANDARDS_FILE_BYTES, cut } from "./prepare";
 
 export const INSTRUCTIONS_PATH = ".cujo/REVIEW.md";
-export const INSTRUCTIONS_BYTES = 16_000;
+/** The same cap as one standards file, and the same cut, so the two cannot drift. */
+export const INSTRUCTIONS_BYTES = STANDARDS_FILE_BYTES;
 
 export interface Instructions {
   source: "file" | "board";
   text: string;
   truncated: boolean;
-}
-
-function cut(text: string, bytes: number): { text: string; truncated: boolean } {
-  if (Buffer.byteLength(text, "utf8") <= bytes) return { text, truncated: false };
-  const head = Buffer.from(text, "utf8").subarray(0, bytes).toString("utf8");
-  const lastLine = head.lastIndexOf("\n");
-  return { text: lastLine > 0 ? head.slice(0, lastLine) : head, truncated: true };
 }
 
 /**

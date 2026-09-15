@@ -43,6 +43,13 @@ export interface OwnerDeps {
 
 type OwnerEnv = RequestEnv & { Variables: RequestEnv["Variables"] & { session: WebSession } };
 
+/**
+ * Where the board reads a repository's own file: GitHub's contents API
+ * resolves `HEAD` to the default branch, and the registry does not hold the
+ * branch's name. The review reads the same file at the pull request's base.
+ */
+const DEFAULT_BRANCH_REF = "HEAD";
+
 const SETTABLE: readonly SettingKey[] = [
   "model",
   "modelReasoningEffort",
@@ -235,8 +242,8 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
     let fileMode: ReviewMode | null = null;
     let fileInstructions: string | null = null;
     try {
-      fileMode = await deps.github.declaredMode(repo, "HEAD");
-      fileInstructions = await deps.github.readFile(repo, INSTRUCTIONS_PATH, "HEAD");
+      fileMode = await deps.github.declaredMode(repo, DEFAULT_BRANCH_REF);
+      fileInstructions = await deps.github.readFile(repo, INSTRUCTIONS_PATH, DEFAULT_BRANCH_REF);
     } catch (error) {
       c.get("log").warn("owner.repository.file.failed", { repo, ...errorFields(error) });
       return c.json({ ok: false, error: "GitHub did not answer for the repository's file" }, 502);
