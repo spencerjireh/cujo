@@ -8,7 +8,7 @@ import {
   type TurnInputItem,
 } from "@cujo/harness-contract";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
-import type { Config } from "../config";
+import type { Config, ModelProviderConfig } from "../config";
 
 export type { SessionEvent, StreamEvent };
 export type {
@@ -35,6 +35,12 @@ export class HarnessRequestError extends Error {
 export class Harness {
   /** True once every bootstrap registration succeeded; webhooks wait for it. */
   ready = false;
+  /**
+   * Where the provider to register comes from. The environment at first, and
+   * the settings store once `index.ts` points this at it (decision 152), so a
+   * provider changed at runtime is what the next registration carries.
+   */
+  modelProvider: () => ModelProviderConfig | null;
   private readonly baseUrl: string;
 
   constructor(
@@ -45,6 +51,7 @@ export class Harness {
     // No token: the harness sits on the compose network and answers to nobody
     // else; there is no credential to present.
     this.baseUrl = config.harnessBaseUrl.replace(/\/+$/, "");
+    this.modelProvider = () => config.bootstrap.modelProvider;
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -100,28 +107,35 @@ export class Harness {
       }),
     );
 
-    const provider = this.config.bootstrap.modelProvider;
+    const provider = this.modelProvider();
     if (provider) {
-      await step(`model-provider ${provider.name}`, () =>
-        this.request("PUT", "/settings/model-providers", {
-          name: provider.name,
-          baseUrl: provider.baseUrl,
-          apiKey: provider.apiKey,
-          models: provider.models.map((m) => ({
-            name: m.name,
-            modelId: m.modelId,
-            contextWindow: provider.contextWindow,
-            maxTokens: provider.maxTokens,
-            reasoning: provider.reasoning,
-          })),
-        }),
-      );
+      await step(`model-provider ${provider.name}`, () => this.registerModelProvider(provider));
     }
 
     // Only a complete bootstrap counts: a turn on an unregistered model fails
     // just as surely as one without github-mcp.
     this.ready = true;
     return applied;
+  }
+
+  /**
+   * One provider, upserted by name (decision 127): the harness persists it and
+   * re-registers it live, so a call after boot takes effect on the next turn.
+   * Called by `bootstrap` and, at runtime, when the setting changes.
+   */
+  async registerModelProvider(provider: ModelProviderConfig): Promise<void> {
+    await this.request("PUT", "/settings/model-providers", {
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      models: provider.models.map((m) => ({
+        name: m.name,
+        modelId: m.modelId,
+        contextWindow: provider.contextWindow,
+        maxTokens: provider.maxTokens,
+        reasoning: provider.reasoning,
+      })),
+    });
   }
 
   /**

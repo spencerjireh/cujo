@@ -18,6 +18,7 @@ import {
   buildAgentSpec,
   buildConverseSpec,
   buildDiffSpec,
+  loadRubric,
   specFingerprint,
 } from "./review/agent-spec";
 import { PrCommandService } from "./review/commands/pr-command.service";
@@ -29,6 +30,7 @@ import type { DiffReviewDeps } from "./review/start-run";
 import { startRun } from "./review/start-run";
 import type { RunRecord } from "./review/types";
 import { VisibilityService } from "./review/visibility.service";
+import { Settings, seedFromConfig } from "./settings";
 import { Store } from "./store";
 
 export { createApp } from "./http/router";
@@ -84,8 +86,22 @@ async function main(): Promise<void> {
     github,
     store.detonations,
   );
-  const spec = buildAgentSpec(config);
-  const diffSpec = buildDiffSpec(config);
+  // The settings an owner changes at runtime (decision 152): seeded from the
+  // environment once, read at use from here on. The specs are built per
+  // session on the values of that moment; the rubrics are read once.
+  const settings = Settings.open(store.settings, seedFromConfig(config), log);
+  harness.modelProvider = () => settings.current().modelProvider;
+  settings.onChange((key, current) => {
+    if (key !== "modelProvider" || !current.modelProvider) return;
+    void harness
+      .registerModelProvider(current.modelProvider)
+      .catch((error) => log.error("harness.bootstrap.failed", errorFields(error)));
+  });
+  const rubric = loadRubric();
+  const diffRubric = loadRubric("DIFF.md");
+  const converseRubric = loadRubric("CONVERSE.md");
+  const spec = () => buildAgentSpec(settings.current(), rubric);
+  const diffSpec = () => buildDiffSpec(settings.current(), diffRubric);
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status
@@ -160,7 +176,12 @@ async function main(): Promise<void> {
   // What every path that claims a run stamps on it. Read from the spec rather
   // than from `config`, so the digest is of the string a session would actually
   // be handed, tarball URL substituted and all.
-  const provenance = { model: config.model, rubricSha256: specFingerprint(spec) };
+  const provenance = {
+    get model() {
+      return settings.current().model;
+    },
+    rubricSha256: specFingerprint(spec()),
+  };
   // The shadow review (decision 149). Optional: with no sidecar URL no run
   // asks, and the table stays empty.
   const ocr = config.ocrSidecarUrl
@@ -170,13 +191,19 @@ async function main(): Promise<void> {
   // The diff review's half of the same (Contract 11): its own spec, so its own
   // digest and model, plus the budget the spec carries; a fresh session per
   // run (decision 137); and the three caps `prepare` cuts the package to.
+  const diffRubricSha256 = specFingerprint(diffSpec());
   const diff: DiffReviewDeps = {
-    deployDefault: config.reviewMode,
-    createSession: () => harness.createSession(diffSpec),
-    provenance: {
-      model: config.diffModel,
-      rubricSha256: specFingerprint(diffSpec),
-      budgetTokens: config.diffBudgetTokens,
+    get deployDefault() {
+      return settings.current().reviewMode;
+    },
+    createSession: () => harness.createSession(diffSpec()),
+    get provenance() {
+      const current = settings.current();
+      return {
+        model: current.diffModel,
+        rubricSha256: diffRubricSha256,
+        budgetTokens: current.diffBudgetTokens,
+      };
     },
     caps: { diffBytes: config.diffBytes, standardsFileBytes: 16_000, standardsTotalBytes: 48_000 },
   };
@@ -252,7 +279,7 @@ async function main(): Promise<void> {
     const sessionId = store.runs.replaceSession(
       input.repo,
       input.prNumber,
-      await harness.createSession(spec),
+      await harness.createSession(spec()),
     );
     const { run, created } = store.runs.createRun({
       repo: input.repo,
@@ -324,7 +351,7 @@ async function main(): Promise<void> {
           runs: store.runs,
           harness,
           github,
-          spec: buildConverseSpec(config),
+          spec: () => buildConverseSpec(settings.current(), converseRubric),
           limit: new ConverseRateLimit({
             limit: config.converseLimit,
             windowMs: config.converseWindowMs,
@@ -417,7 +444,7 @@ async function main(): Promise<void> {
       // link, so no hostname passes through the agent (decision 36).
       reviewRunId: (run: RunRecord) => publicRunId(run),
       onClaimed,
-      createSession: () => harness.createSession(spec),
+      createSession: () => harness.createSession(spec()),
       provenance,
       isReady: () => harness.ready,
       prCommands,

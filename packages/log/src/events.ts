@@ -168,6 +168,10 @@ export const EVENT_NAMES = [
   "registry.removed",
   "registry.synced",
   "registry.sync.failed",
+  // Instance settings (decision 152): an owner changed one, or a stored row
+  // no longer parsed and the environment's value replaced it.
+  "settings.changed",
+  "settings.invalid",
   // Open Code Review beside a run (decision 149): what `apps/cujo` asked for
   // and heard back, and what the sidecar itself refused, finished or failed.
   // Nothing here reaches a pull request.

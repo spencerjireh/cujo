@@ -1,5 +1,5 @@
 /**
- * One database, five stores. `Store` owns the connection and nothing else —
+ * One database, six stores. `Store` owns the connection and nothing else —
  * deliberately no delegating methods, because a facade that forwarded
  * `getRun` and `getDiscordChannel` alike would compile the moment it was
  * written and leave every consumer holding the same wide dependency the split
@@ -14,12 +14,14 @@ import { NotificationStore } from "./notifications";
 import { OcrReviewStore } from "./ocr";
 import { RepositoryStore } from "./repositories";
 import { RunStore } from "./runs";
+import { SettingsStore } from "./settings";
 
 export { RunStore } from "./runs";
 export { NotificationStore } from "./notifications";
 export { DetonationCacheStore } from "./detonations";
 export { OcrReviewStore } from "./ocr";
 export { RepositoryStore } from "./repositories";
+export { SettingsStore } from "./settings";
 
 export class Store {
   private readonly db: Db;
@@ -28,6 +30,7 @@ export class Store {
   readonly detonations: DetonationCacheStore;
   readonly ocr: OcrReviewStore;
   readonly repositories: RepositoryStore;
+  readonly settings: SettingsStore;
 
   constructor(path: string) {
     this.db = openDatabase(path);
@@ -36,6 +39,7 @@ export class Store {
     this.detonations = new DetonationCacheStore(this.db);
     this.ocr = new OcrReviewStore(this.db);
     this.repositories = new RepositoryStore(this.db);
+    this.settings = new SettingsStore(this.db);
   }
 
   close(): void {

@@ -203,7 +203,8 @@ For a `pull_request` event the `apps/cujo` webhook module:
    review, their hunks — with the App installation token (Contents: read,
    Pull requests: read), and whether GitHub calls the author a Bot.
 3. Resolves the **mode** (decision 135), after the read and before any turn,
-   and logs `run.mode.resolved` with the reason. In order: `CUJO_REVIEW_MODE`,
+   and logs `run.mode.resolved` with the reason. In order: the instance's review mode
+   (the `reviewMode` setting, seeded from `CUJO_REVIEW_MODE`, decision 152),
    the instance's answer when the repository gives none; then `mode:` in
    `.cujo.yml` read at the pull request's **base SHA** — the target branch's
    policy, never the pull request's (decision 13), and a commit rather than a
