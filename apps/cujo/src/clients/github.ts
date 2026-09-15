@@ -6,6 +6,14 @@ import {
 } from "@cujo/gh-app-auth";
 import { type Logger, createLogger } from "@cujo/log";
 import type { ReviewMode } from "../review/types";
+import type { InstalledRepo } from "../store/repositories";
+
+/** What the App holds, and whether the listing reached the end of it. */
+export interface InstalledRepoListing {
+  repos: InstalledRepo[];
+  /** False when a page cap cut the listing short; a reconciler must not remove on it. */
+  complete: boolean;
+}
 
 /**
  * One changed file as GitHub lists it. `patch` is the unified hunks for that
@@ -304,18 +312,37 @@ export class GitHubReader {
 
   private async scanInstalledRepos(): Promise<string[]> {
     const names = new Set<string>();
+    for (const entry of (await this.listInstalledRepos()).repos) names.add(entry.repo);
+    return [...names].sort();
+  }
+
+  /**
+   * Every repository under every installation of the App, with the
+   * installation it belongs to and whether it is private: what the registry
+   * is reconciled from (decision 151). Uncached; the caller decides when to
+   * ask, and the reconciler asks rarely.
+   */
+  async listInstalledRepos(): Promise<InstalledRepoListing> {
+    const out: InstalledRepo[] = [];
+    let complete = true;
     for (let page = 1; page <= MAX_PAGES; page++) {
       const installations = await this.getAsApp<{ id: number }[]>(
         `/app/installations?per_page=100&page=${page}`,
       );
-      for (const installation of installations) await this.addRepos(installation.id, names);
+      for (const installation of installations) {
+        if (!(await this.addRepos(installation.id, out))) complete = false;
+      }
       if (installations.length < 100) break;
-      if (page === MAX_PAGES) this.log.warn("github.page_cap", { path: "/app/installations" });
+      if (page === MAX_PAGES) {
+        this.log.warn("github.page_cap", { path: "/app/installations" });
+        complete = false;
+      }
     }
-    return [...names].sort();
+    return { repos: out, complete };
   }
 
-  private async addRepos(installationId: number, into: Set<string>): Promise<void> {
+  /** False when the page cap cut the installation's list short. */
+  private async addRepos(installationId: number, into: InstalledRepo[]): Promise<boolean> {
     const token = await getInstallationToken({
       appId: this.appId,
       privateKey: this.privateKey,
@@ -333,14 +360,20 @@ export class GitHubReader {
         },
       );
       if (!res.ok) throw new GitHubError(res.status, "/installation/repositories");
-      const body = (await res.json()) as { repositories: { full_name: string }[] };
-      for (const repo of body.repositories) into.add(repo.full_name);
-      if (body.repositories.length < 100) return;
+      const body = (await res.json()) as {
+        repositories: { full_name: string; private?: boolean }[];
+      };
+      for (const repo of body.repositories) {
+        into.push({ repo: repo.full_name, installationId, isPrivate: repo.private === true });
+      }
+      if (body.repositories.length < 100) return true;
       // A cap that stops silently reads as "that is all of them"; say so.
       if (page === MAX_PAGES) {
         this.log.warn("github.page_cap", { path: "/installation/repositories" });
+        return false;
       }
     }
+    return true;
   }
 
   /**

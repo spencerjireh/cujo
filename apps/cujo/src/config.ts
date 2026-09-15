@@ -111,6 +111,8 @@ export interface Config {
   converseTimeoutMs: number;
   /** How often to re-ask GitHub whether each repo with a run is still public. */
   visibilityRecheckMs: number;
+  /** How often to re-list the App's installations into the registry (decision 151). */
+  registrySyncMs: number;
   /**
    * Does Cujo react on the pull requests it reviews (decision 38)? On unless
    * `CUJO_PR_REACTIONS=0`. A kill switch, because this is the one thing
@@ -290,6 +292,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     converseTimeoutMs: count(env.CUJO_CONVERSE_TIMEOUT_MS, 10 * 60 * 1000),
     // 0 disables the sweep; the webhook still carries a flip in seconds.
     visibilityRecheckMs: count(env.CUJO_VISIBILITY_RECHECK_MS, 15 * 60 * 1000, { zeroOk: true }),
+    registrySyncMs: count(env.CUJO_REGISTRY_SYNC_MS, 6 * 60 * 60 * 1000, { zeroOk: true }),
     // Only an explicit "0" turns it off, so an unset or misspelt value keeps
     // the pull request answering rather than going quiet without saying why.
     prReactions: env.CUJO_PR_REACTIONS !== "0",
