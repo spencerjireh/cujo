@@ -159,6 +159,7 @@ reader can tell a live rule from a recorded one before opening it.
 149. [Open Code Review runs beside a review and posts nothing](#149-open-code-review-runs-beside-a-review-and-posts-nothing)
 150. [`/cujo review` starts a fresh session](#150-cujo-review-starts-a-fresh-session)
 151. [A repository registry, fed by the installation events](#151-a-repository-registry-fed-by-the-installation-events)
+152. [The models and the provider live in the store, seeded once from the environment](#152-the-models-and-the-provider-live-in-the-store-seeded-once-from-the-environment)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7636,3 +7637,55 @@ Rejected: **learning repositories from pull request deliveries alone**,
 which is what existed and cannot list anything; **deleting a removed row**,
 which loses the owner's flag; **an `installation` event as the only source**,
 which leaves the table empty on every deploy that predates it.
+
+## 152. The models and the provider live in the store, seeded once from the environment
+
+Every setting was an environment variable read once at boot, and the model
+provider was registered on the harness once at boot and never again
+(decision 127). Changing a model meant editing Coolify and redeploying, and a
+redeploy restarts the harness, which ends every review in flight as `harness
+restarted` (seen on 2026-09-14, three times). Track 10 gives Cujo an owner
+who changes things from the board; the things changed most, and at the
+highest cost, are the model and the provider.
+
+So eight keys move into a `settings` table — the review model and its
+sampling (`model`, `modelReasoningEffort`, `modelTemperature`,
+`modelMaxTokens`), the diff review's model and budget, the review mode
+default, and the provider (name, base URL, key, models, context window,
+output cap, reasoning) — and are read at use, not at boot. `Settings.open`
+seeds each key the table lacks from the environment, marked `seed`, and
+reads the rest from the table; after the first boot that knows a key, the
+environment is ignored for it. The agent, diff and conversation specs are
+built when a session is created, on the values of that moment, so a run
+claimed after a change is stamped with the new model. A provider written
+through `Settings.set` is registered on the harness at once, through the
+same upsert bootstrap uses; the harness persists it and re-registers it
+live, and the next turn resolves against it.
+
+What stays in the environment is what a process needs before it has a
+database, and what wires one process to another: the port, the database
+path, the App identity, the webhook secret, the service URLs, the log level.
+Timeouts, limits, Discord and the push window stay there too for now; they
+move when a board page wants them, one slice at a time, with this table as
+the home.
+
+`loadConfig` still parses every one of the moved keys, because the
+environment is the seed and every validator lives there; `Settings.set`
+runs the same validators, so an owner's bad value reads exactly like an
+operator's. Nothing calls `set` yet except tests; the authenticated plane
+(slice b) is what will.
+
+Accepted: **a stored row that no longer parses is replaced by the seed**,
+with one `settings.invalid` line, rather than stopping the boot; **the
+provider key rests in SQLite on the data volume**, the same host and the
+same trust as the environment file it came from — encrypting it with a key
+from the environment is a later decision, and not one this table
+forecloses; **`rubricSha256` is still computed once at boot**, since the
+fingerprint covers the instructions and not the model, and the rubric files
+do not change at runtime.
+
+Rejected: **a hot-reloaded `Config`**, which would keep the environment as
+the source and leave the board nowhere to write; **moving every setting at
+once**, which touches every subsystem's construction for no page that asks
+for it yet; **validating settings with a new schema**, when the environment's
+validators already say what a good value is.

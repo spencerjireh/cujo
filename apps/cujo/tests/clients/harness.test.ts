@@ -53,6 +53,26 @@ function fakeFetch(
   return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
 }
 
+describe("Harness.registerModelProvider (decision 152)", () => {
+  it("upserts the provider the accessor names, so a runtime change reaches the harness", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const h = new Harness(config, log, fetchImpl);
+    const base = config.bootstrap.modelProvider;
+    if (!base) throw new Error("fixture has no provider");
+    const provider = { ...base, name: "other", apiKey: "k2" };
+    h.modelProvider = () => provider;
+    await h.registerModelProvider(provider);
+    expect(bodies[0]).toMatchObject({ name: "other", apiKey: "k2" });
+    // Bootstrap reads the same accessor.
+    await h.bootstrap();
+    expect(bodies.at(-1)).toMatchObject({ name: "other" });
+  });
+});
+
 describe("Harness.bootstrap", () => {
   it("upserts both MCP servers and the model provider, and is ready only after all three", async () => {
     const { calls, fetchImpl } = fakeFetch();

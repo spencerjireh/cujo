@@ -367,7 +367,10 @@ Coolify has parsed the service from the compose file on `main`, which `web`
 already satisfies. `cujo-harness.spencerjireh.com` routed to TrueForge's
 console and has nothing behind it since decision 123.
 Configuration reaches the services as environment variables set in Coolify;
-`.env.example` lists every name.
+`.env.example` lists every name. For `cujo`, the models and the provider are
+an exception since decision 152: the environment seeds them into the `settings`
+table on the first boot that knows each key, and from then on the table is the
+source — a change there takes effect on the next session, with no deploy.
 
 Every service logs structured JSON to stdout through `@cujo/log`, one event per
 line, which is where Coolify reads it. There is no log collector and no tracing
