@@ -162,17 +162,16 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
     const keys = Object.keys(body);
     const unknown = keys.filter((k) => !SETTABLE.includes(k as SettingKey));
     if (unknown.length) return c.json({ ok: false, error: `unknown setting: ${unknown[0]}` }, 400);
-    // A masked key means "keep the one you have": the board never holds the real one.
+    // The mask the board was shown, sent back unchanged, means "keep the one
+    // you have". Compared to the exact mask this process issued, not to a
+    // prefix: a real key that happened to begin with the mask's characters
+    // would otherwise be silently replaced by the stored one.
     const provider = body.modelProvider as Record<string, unknown> | null | undefined;
-    if (
-      provider &&
-      typeof provider === "object" &&
-      typeof provider.apiKey === "string" &&
-      provider.apiKey.startsWith(MASK_PREFIX)
-    ) {
+    if (provider && typeof provider === "object" && typeof provider.apiKey === "string") {
       const current = deps.settings.current().modelProvider;
-      if (!current) return c.json({ ok: false, error: "modelProvider: apiKey is required" }, 400);
-      body.modelProvider = { ...provider, apiKey: current.apiKey };
+      if (current && provider.apiKey === mask(current.apiKey)) {
+        body.modelProvider = { ...provider, apiKey: current.apiKey };
+      }
     }
     // Validate everything before writing anything, so a bad second key does not
     // leave a good first one applied.
@@ -217,5 +216,10 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
 
   owner.all("*", (c) => c.json({ ok: false, error: "not found" }, 404));
 
+  // `owner` carries one more request variable, the session, than the router's
+  // `RequestEnv` declares. Hono's `route()` wants the parent's environment;
+  // the variable is set by this group's own middleware before any handler
+  // reads it, so widening the type at the boundary loses nothing a caller
+  // could reach.
   return { auth, owner: owner as unknown as Hono<RequestEnv> };
 }

@@ -21,6 +21,8 @@ export interface OAuthInstallation {
 
 const API = "https://api.github.com";
 const WEB = "https://github.com";
+/** Ten pages of a hundred: a person who can see more installations than that is not this tool's owner. */
+const MAX_PAGES = 10;
 
 class GitHubOAuthError extends Error {
   constructor(
@@ -30,6 +32,29 @@ class GitHubOAuthError extends Error {
     super(`github ${path} returned ${status}`);
     this.name = "GitHubOAuthError";
   }
+}
+
+function parseInstallations(items: readonly Record<string, unknown>[]): OAuthInstallation[] {
+  const out: OAuthInstallation[] = [];
+  for (const item of items) {
+    const account = item.account as Record<string, unknown> | undefined;
+    if (
+      typeof item.id !== "number" ||
+      typeof item.app_id !== "number" ||
+      !account ||
+      typeof account.login !== "string" ||
+      typeof account.id !== "number" ||
+      (account.type !== "User" && account.type !== "Organization")
+    ) {
+      continue;
+    }
+    out.push({
+      id: item.id,
+      appId: item.app_id,
+      account: { login: account.login, id: account.id, type: account.type },
+    });
+  }
+  return out;
 }
 
 export class GitHubOAuth {
@@ -79,31 +104,19 @@ export class GitHubOAuth {
     return { login: body.login, id: body.id };
   }
 
-  /** Every installation the person can see, of any App. */
+  /** Every installation the person can see, of any App, across every page. */
   async installations(token: string): Promise<OAuthInstallation[]> {
-    const body = await this.get<{ installations?: unknown }>(
-      token,
-      "/user/installations?per_page=100",
-    );
-    if (!Array.isArray(body.installations)) return [];
     const out: OAuthInstallation[] = [];
-    for (const item of body.installations as Record<string, unknown>[]) {
-      const account = item.account as Record<string, unknown> | undefined;
-      if (
-        typeof item.id !== "number" ||
-        typeof item.app_id !== "number" ||
-        !account ||
-        typeof account.login !== "string" ||
-        typeof account.id !== "number" ||
-        (account.type !== "User" && account.type !== "Organization")
-      ) {
-        continue;
-      }
-      out.push({
-        id: item.id,
-        appId: item.app_id,
-        account: { login: account.login, id: account.id, type: account.type },
-      });
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const body = await this.get<{ installations?: unknown }>(
+        token,
+        `/user/installations?per_page=100&page=${page}`,
+      );
+      const items = Array.isArray(body.installations)
+        ? (body.installations as Record<string, unknown>[])
+        : [];
+      out.push(...parseInstallations(items));
+      if (items.length < 100) break;
     }
     return out;
   }

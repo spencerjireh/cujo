@@ -31,7 +31,6 @@ export interface Config {
    * its card carries no link. Empty means no card carries one.
    */
   publicBaseUrl: string;
-  /** Null turns Discord notifications off; the service runs without them. */
   /**
    * The GitHub App's own OAuth client, for the board's sign-in (decision
    * 153). Both or neither: with either missing the owner plane is not served
@@ -39,6 +38,7 @@ export interface Config {
    */
   githubOauthClientId: string | null;
   githubOauthClientSecret: string | null;
+  /** Null turns Discord notifications off; the service runs without them. */
   discordBotToken: string | null;
   /**
    * The Discord application's Ed25519 public key, hex. Null turns the slash
