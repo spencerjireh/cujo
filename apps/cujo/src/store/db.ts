@@ -276,6 +276,20 @@ export const SCHEMA = `
     cached_at TEXT NOT NULL,
     PRIMARY KEY (run_id, source, specifier)
   );
+  -- Who is signed in to the board (decision 153): a sign-in in progress,
+  -- and a session with its owner verdict. The browser's id is stored hashed.
+  CREATE TABLE IF NOT EXISTS web_logins (
+    state TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS web_sessions (
+    id_hash TEXT PRIMARY KEY,
+    login TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    is_owner INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
   -- Instance settings (decision 152): one row per key, JSON value, and
   -- whether the environment seeded it or an owner set it.
   CREATE TABLE IF NOT EXISTS settings (

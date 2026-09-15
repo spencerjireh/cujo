@@ -172,6 +172,18 @@ export const EVENT_NAMES = [
   // no longer parsed and the environment's value replaced it.
   "settings.changed",
   "settings.invalid",
+  // A provider written at runtime could not be registered on the harness.
+  "settings.provider.failed",
+  // The owner plane (decision 153): sign-in, and what an owner changed.
+  "auth.login.started",
+  "auth.login.completed",
+  "auth.login.refused",
+  "auth.logout",
+  "owner.disabled",
+  "owner.settings.changed",
+  "owner.repository.changed",
+  // apps/web asked apps/cujo to start a sign-in and the plane is not served.
+  "auth.unavailable",
   // Open Code Review beside a run (decision 149): what `apps/cujo` asked for
   // and heard back, and what the sidecar itself refused, finished or failed.
   // Nothing here reaches a pull request.

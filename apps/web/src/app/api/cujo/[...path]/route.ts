@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CUJO_API_URL } from "@/lib/api/client";
+import { planeOf, sessionFromCookie, verbAllowed } from "@/lib/api/owner";
 import { refusalFields } from "@/lib/api/upstream";
 import { log } from "@/lib/log";
 import { errorFields } from "@cujo/log";
@@ -13,11 +14,12 @@ import { headers } from "next/headers";
  * published route at all: it is reached over the compose network and nothing
  * else.
  *
- * It forwards only `/public/*`, and no credential, because there is nothing
- * else to reach and none to send (decision 57). `apps/cujo` answers 404 outside
- * that prefix anyway, so this is the second refusal rather than the first — the
- * same defence in depth decision 33 relied on when the origin turned out to be
- * reachable by IP.
+ * It forwards `/public/*` with no credential (decision 57), and `/owner/*`
+ * with the browser's session cookie turned into the bearer `apps/cujo` reads
+ * (decision 153). `apps/cujo` answers 404 outside those prefixes anyway, so
+ * this is the second refusal rather than the first — the same defence in
+ * depth decision 33 relied on when the origin turned out to be reachable by
+ * IP. The owner plane takes the write verbs; the board still only reads.
  */
 
 export const runtime = "nodejs";
@@ -35,13 +37,15 @@ async function forward(request: Request, path: string[]): Promise<Response> {
     log.warn("proxy.rejected", { ...refusalFields(path, "events_path"), ray });
     return Response.json({ ok: false, error: "use /api/public/runs/:id/events" }, { status: 404 });
   }
-  // Unconditional now, where it used to apply only on the public hostname: the
-  // board is the only thing there is to reach.
-  if (path[0] !== "public") {
+  const plane = planeOf(path);
+  if (!plane || !verbAllowed(plane, request.method)) {
     log.warn("proxy.rejected", { ...refusalFields(path, "public_plane"), ray });
     return Response.json({ ok: false, error: "not found" }, { status: 404 });
   }
   const contentType = request.headers.get("content-type");
+  // The cookie never crosses; only the session id it holds, as a bearer, and
+  // only toward the owner plane. Without one the owner plane answers 401.
+  const session = plane === "owner" ? sessionFromCookie(request.headers.get("cookie")) : null;
 
   const target = new URL(`${CUJO_API_URL()}/${path.map(encodeURIComponent).join("/")}`);
   target.search = new URL(request.url).search;
@@ -53,6 +57,7 @@ async function forward(request: Request, path: string[]): Promise<Response> {
       headers: {
         accept: "application/json",
         ...(contentType ? { "content-type": contentType } : {}),
+        ...(session ? { authorization: `Bearer ${session}` } : {}),
         "cf-ray": ray,
       },
       body:
@@ -83,14 +88,24 @@ async function forward(request: Request, path: string[]): Promise<Response> {
 }
 
 /**
- * `GET` only, because anything not exported here is a 405 from Next and there
- * is no other route to reach `apps/cujo` with: this app is what the hostname
- * resolves to. The write verbs existed for the Discord admin API, which went
- * with the operator plane (decision 57), and the board has no write route at
- * all — so the absence is the point rather than an omission.
+ * The write verbs are back for one prefix (decision 153): `forward` refuses
+ * them on `/public`, so the board itself still has no write route, and only
+ * the owner plane, behind a session, sees a PATCH or a POST.
  */
 type Context = { params: Promise<{ path: string[] }> };
 
 export async function GET(request: Request, context: Context) {
+  return forward(request, (await context.params).path);
+}
+
+export async function POST(request: Request, context: Context) {
+  return forward(request, (await context.params).path);
+}
+
+export async function PATCH(request: Request, context: Context) {
+  return forward(request, (await context.params).path);
+}
+
+export async function DELETE(request: Request, context: Context) {
   return forward(request, (await context.params).path);
 }
