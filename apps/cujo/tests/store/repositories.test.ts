@@ -36,11 +36,11 @@ describe("the repository registry (decision 151)", () => {
     store.repositories.upsertInstalled([{ repo: "o/r", installationId: 1, isPrivate: false }], t0);
     expect(store.repositories.setEnabled("O/R", false, t0)).toBe(true);
     expect(store.repositories.setEnabled("o/none", false, t0)).toBe(false);
-    expect(store.repositories.markRemoved(["o/r", "o/none"], t1)).toBe(1);
+    expect(store.repositories.markRemoved(["o/r", "o/none"], t1)).toEqual(["o/r"]);
     expect(store.repositories.get("o/r")).toMatchObject({ enabled: false, removedAt: t1 });
     expect(store.repositories.listActive()).toEqual([]);
     // A second removal of the same row changes nothing.
-    expect(store.repositories.markRemoved(["o/r"], t1)).toBe(0);
+    expect(store.repositories.markRemoved(["o/r"], t1)).toEqual([]);
     store.repositories.upsertInstalled([{ repo: "O/R", installationId: 2, isPrivate: true }], t1);
     expect(store.repositories.get("o/r")).toMatchObject({
       displayName: "O/R",

@@ -44,12 +44,12 @@ export class RegistryService {
       .listActive()
       .map((row) => row.repo)
       .filter((repo) => !keep.has(repo));
-    const removed = gone.length ? this.deps.repositories.markRemoved(gone, at) : 0;
-    for (const repo of gone) this.deps.log.info("registry.removed", { repo, reason: "sync" });
+    const removed = gone.length ? this.deps.repositories.markRemoved(gone, at) : [];
+    for (const repo of removed) this.deps.log.info("registry.removed", { repo, reason: "sync" });
     // One line per sync, which is one line every few hours: `count` is what
     // GitHub listed, `active` the distinct repositories now held.
     this.deps.log.info("registry.synced", { count: listed.length, active: keep.size });
-    return { seen: listed.length, removed };
+    return { seen: listed.length, removed: removed.length };
   }
 
   /** Syncs once now, then on the interval. The immediate pass fills a fresh table. */

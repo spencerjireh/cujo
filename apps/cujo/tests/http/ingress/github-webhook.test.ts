@@ -712,9 +712,10 @@ describe("webhook", () => {
       );
       expect(await res.json()).toEqual({ ok: true, installation_id: 42, removed: 1 });
       expect(store.repositories.listActive()).toEqual([]);
+      // One line, for the row that existed: a name the table never held is
+      // not a removal, whatever the delivery said.
       expect(logged("registry.removed")).toMatchObject([
         { repo: "o/new", installation_id: 42, reason: "removed" },
-        { repo: "o/never", installation_id: 42, reason: "removed" },
       ]);
     });
 
