@@ -113,7 +113,7 @@ function harness(
         return 2;
       },
     },
-    spec: { model: { name: "m" }, mcpServers: [] } as unknown as AgentSpec,
+    spec: () => ({ model: { name: "m" }, mcpServers: [] }) as unknown as AgentSpec,
     limit: new ConverseRateLimit({ limit: over.limit ?? 3, windowMs: 60_000 }),
     turnTimeoutMs: 50,
   });
@@ -341,7 +341,7 @@ describe("ConverseService", () => {
         createComment: async () => 1,
         replyToReviewComment: async () => 2,
       },
-      spec: {} as AgentSpec,
+      spec: () => ({}) as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 50,
     });
@@ -473,7 +473,7 @@ describe("ConverseService", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as AgentSpec,
+      spec: () => ({}) as AgentSpec,
       limit: new ConverseRateLimit({ limit: 5, windowMs: 60_000 }),
       turnTimeoutMs: 5_000,
     });
@@ -551,7 +551,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as AgentSpec,
+      spec: () => ({}) as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 20,
     });
@@ -609,7 +609,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as AgentSpec,
+      spec: () => ({}) as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 20,
     });
@@ -666,7 +666,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as AgentSpec,
+      spec: () => ({}) as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 20,
     });
@@ -723,7 +723,7 @@ describe("the turn timeout", () => {
         },
         replyToReviewComment: async () => 2,
       },
-      spec: {} as AgentSpec,
+      spec: () => ({}) as AgentSpec,
       limit: new ConverseRateLimit({ limit: 3, windowMs: 60_000 }),
       turnTimeoutMs: 5_000,
     });

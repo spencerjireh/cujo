@@ -139,24 +139,27 @@ export interface Config {
    */
   botLogin: string;
   bootstrap: {
-    modelProvider: {
-      name: string;
-      baseUrl: string;
-      apiKey: string;
-      /** `name` is what `CUJO_MODEL` names after the slash; `modelId` is the provider's id. */
-      models: { name: string; modelId: string }[];
-      /**
-       * What the harness needs to know about every one of these models
-       * (decision 127): the window it clamps the output cap against, that cap,
-       * and whether a reasoning effort means anything to it at all. One value
-       * each for every model in the list, because a deploy registers one
-       * provider and, in practice, one model.
-       */
-      contextWindow: number;
-      maxTokens: number;
-      reasoning: boolean;
-    } | null;
+    modelProvider: ModelProviderConfig | null;
   };
+}
+
+/** The provider `apps/cujo` registers on the harness (decision 127). */
+export interface ModelProviderConfig {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  /** `name` is what `CUJO_MODEL` names after the slash; `modelId` is the provider's id. */
+  models: { name: string; modelId: string }[];
+  /**
+   * What the harness needs to know about every one of these models
+   * (decision 127): the window it clamps the output cap against, that cap,
+   * and whether a reasoning effort means anything to it at all. One value
+   * each for every model in the list, because a deploy registers one
+   * provider and, in practice, one model.
+   */
+  contextWindow: number;
+  maxTokens: number;
+  reasoning: boolean;
 }
 
 /**
@@ -170,7 +173,7 @@ export interface Config {
  */
 const EFFORTS: readonly string[] = REASONING_EFFORTS;
 
-function effort(raw: string, name: string): ReasoningEffort {
+export function effort(raw: string, name: string): ReasoningEffort {
   if (!EFFORTS.includes(raw)) {
     throw new Error(
       `${name} has ${JSON.stringify(raw)}, which is not a reasoning effort. Valid values: ${EFFORTS.join(", ")}.`,
@@ -193,7 +196,7 @@ function effort(raw: string, name: string): ReasoningEffort {
  * neither of these sends the request it sent before they existed. An operator
  * turns each on once they know their provider takes it.
  */
-function sampling(raw: string | undefined, name: string): number | null {
+export function sampling(raw: string | undefined, name: string): number | null {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return null;
   const value = Number(trimmed);
@@ -232,7 +235,7 @@ function count(
  * code does not know would otherwise reach `resolveMode` as a string and be
  * stamped on every run. Unset is `sandbox`.
  */
-function mode(raw: string | undefined): ReviewMode {
+export function mode(raw: string | undefined): ReviewMode {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return "sandbox";
   if (!(REVIEW_MODES as readonly string[]).includes(trimmed)) {

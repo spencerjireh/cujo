@@ -56,8 +56,8 @@ export interface ConverseDeps {
   runs: RunStore;
   harness: Pick<Harness, "createSession" | "startTurn" | "subscribe" | "listEvents" | "cancelTurn">;
   github: ConverseGitHub;
-  /** Built once at startup, like the review spec. */
-  spec: AgentSpec;
+  /** Built when a session is created, on the settings of that moment (decision 152). */
+  spec: () => AgentSpec;
   limit: ConverseRateLimit;
   /** How long one answer may take before the person is told it did not finish. */
   turnTimeoutMs: number;
@@ -237,7 +237,7 @@ export class ConverseService {
   private async session(request: ConverseRequest): Promise<string> {
     const existing = this.deps.runs.getConversationSession(request.repo, request.prNumber);
     if (existing) return existing;
-    const created = await this.deps.harness.createSession(this.deps.spec);
+    const created = await this.deps.harness.createSession(this.deps.spec());
     return this.deps.runs.putConversationSession(request.repo, request.prNumber, created);
   }
 

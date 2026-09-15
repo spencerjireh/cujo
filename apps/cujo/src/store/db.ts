@@ -276,6 +276,14 @@ export const SCHEMA = `
     cached_at TEXT NOT NULL,
     PRIMARY KEY (run_id, source, specifier)
   );
+  -- Instance settings (decision 152): one row per key, JSON value, and
+  -- whether the environment seeded it or an owner set it.
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    source TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
   -- Which repositories the App is installed on (decision 151): fed by the
   -- installation webhook events, reconciled at boot. A removed row is kept
   -- and flagged so the owner's \`enabled\` survives a reinstall.
