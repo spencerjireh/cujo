@@ -65,6 +65,21 @@ describe("GitHubOAuth (decision 153)", () => {
     ]);
   });
 
+  it("pages through the installations rather than stopping at the first hundred", async () => {
+    const f = fakeFetch((url) => {
+      const page = Number(url.searchParams.get("page"));
+      const full = Array.from({ length: 100 }, (_, i) => ({
+        id: page * 1000 + i,
+        app_id: 7,
+        account: { login: `o${i}`, id: i, type: "Organization" },
+      }));
+      return new Response(JSON.stringify({ installations: page === 1 ? full : full.slice(0, 1) }));
+    });
+    const oauth = new GitHubOAuth("cid", "secret", f.impl);
+    expect((await oauth.installations("t")).length).toBe(101);
+    expect(f.calls.map((c) => c.url.searchParams.get("page"))).toEqual(["1", "2"]);
+  });
+
   it("answers the organisation role, or null for a non-member", async () => {
     const f = fakeFetch((url) => {
       if (url.pathname.endsWith("/acme"))
