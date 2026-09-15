@@ -1234,9 +1234,10 @@ a structured field. A `thread.done` with `status: error` marks the check
 failed and the parent decides what that means for the findings.
 
 `apps/cujo` serves one read plane, under `/public`, on the internal service
-name in `CUJO_INTERNAL_HOST`. No gate stands in front of it, and there is no
-second plane behind one — the operator API was deleted with its hostname
-(decision 57):
+name in `CUJO_INTERNAL_HOST`. No gate stands in front of it. Beside it, on
+the same name and only when the App's OAuth client is configured, the owner
+plane under `/auth` and `/owner` (decision 153) — the first credentialed
+routes since the operator API was deleted with its hostname (decision 57):
 
 | Route | Returns or does |
 |-------|-----------------|
@@ -1245,8 +1246,25 @@ second plane behind one — the operator API was deleted with its hostname
 | `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `attempts`, `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids` and `delivery_id` (decision 57) — but never `approver`, `decided_at` or `is_public`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
 | `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
 
-There is no write route, and the `/discord/*` routes that were Contract 7's
-admin surface are gone: a channel is bound with `/cujo watch` (Contract 8).
+The `/discord/*` routes that were Contract 7's admin surface are gone: a
+channel is bound with `/cujo watch` (Contract 8). The only write routes are
+on the owner plane:
+
+| Route | Returns or does |
+|-------|-----------------|
+| `POST /auth/login` | Starts a sign-in: a `state` this process remembers for ten minutes, and the GitHub authorize URL carrying it. Called by `apps/web`, which redirects the browser. |
+| `POST /auth/callback` | `{ code, state }` from GitHub's redirect, via `apps/web`. Consumes the state, trades the code for a user token, decides the owner verdict, and answers the session id, the login and `is_owner`. 400 for a state it did not issue or one already used; 502 when GitHub did not complete the sign-in. |
+| `POST /auth/logout` | Ends the session the bearer names. |
+| `GET /owner/me` | The signed-in login, `is_owner`, and the session's expiry. |
+| `GET /owner/settings` | The settings of decision 152 with the provider key masked to its last four characters, and where each value came from (`seed` or `owner`). |
+| `PATCH /owner/settings` | Any of the eight keys. Validated as a whole before anything is written. A masked key sent back keeps the stored one. |
+| `GET /owner/repositories` | The registry (decision 151), removed rows included. |
+| `PATCH /owner/repositories/:owner/:name` | `{ enabled }`. 404 for a repository the registry has not heard of. |
+
+Every `/owner` route wants `Authorization: Bearer <session>` and answers 401
+without one and 403 to a signed-in non-owner. The session id is the value of
+the `cujo_session` cookie `apps/web` sets, and only `apps/web` turns one into
+the other.
 
 The response is built by an allowlist, field by field, and never by removing
 fields from a wider shape: the difference is what happens when a field is added
@@ -1282,21 +1300,25 @@ the process, not only at the edge:
   reaches this process over the compose network and Node's `fetch` always sends
   the target's own authority as `Host`, so a published name could never arrive
   here anyway (decision 57).
-- **404, not 401, outside `/public`.** There is no credential to present since
-  decision 57, so "not the board" cannot mean "behind the check" — it means not
-  served. A 401 would be a route somebody could still reach with the right
-  header; the absence is the point. A request carrying an
-  `Authorization: Bearer` or a `Cf-Access-Jwt-Assertion` is answered exactly as
-  one carrying neither.
+- **404, not 401, outside `/public`, `/auth` and `/owner`.** There is no
+  credential to present anywhere else, so "not the board" cannot mean "behind
+  the check" — it means not served. A request carrying an `Authorization:
+  Bearer` or a `Cf-Access-Jwt-Assertion` to any other path is answered exactly
+  as one carrying neither. On `/owner` there is a credential by design
+  (decision 153), so a missing or expired session is 401 and a non-owner is
+  403; with no OAuth client configured the two prefixes are 404 like the rest.
 - `/public` is mounted on its own router, which is what it was moved to when
   there was a gate that might otherwise have matched it (decision 34). It stays
   that way: the mount is matched exactly, so `/publicity` is a 404 and not the
   board.
 - The UI itself is `apps/web`, a separate service on `cujo.spencerjireh.com`.
-  It proxies `/api/cujo/*` and the run stream to this process, forwarding only
-  `/public/*` and no credential — there is none — so the API is same-origin
-  with the page and needs no published route of its own (decision 27). `GET`
-  only: the board has no write route, so the other verbs are 405 by omission.
+  It proxies `/api/cujo/*` and the run stream to this process, forwarding
+  `/public/*` with no credential and `/owner/*` with the session cookie turned
+  into a bearer (decision 153), so the API is same-origin with the page and
+  needs no published route of its own (decision 27). The board reads only;
+  the write verbs pass on the owner prefix alone. Sign-in is three routes of
+  its own on `apps/web`, `/api/auth/login`, `/api/auth/callback` and
+  `/api/auth/logout`, which call this process's `/auth/*`.
   When this process is unreachable the proxy answers `502` with
   `{ok: false, error: "cujo is unreachable"}`, rather than letting the failed
   fetch surface as an unhandled `500` that says nothing (decision 37). It also
