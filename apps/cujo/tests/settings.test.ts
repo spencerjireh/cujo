@@ -146,6 +146,17 @@ describe("Settings.set", () => {
   });
 });
 
+describe("Settings.current", () => {
+  it("hands out a copy a consumer cannot edit into the next registration", () => {
+    const h = harness();
+    const settings = Settings.open(h.store.settings, h.seed, h.log, h.now);
+    const held = settings.current();
+    held.modelProvider?.models.push({ name: "rogue", modelId: "x" });
+    if (held.modelProvider) held.modelProvider.apiKey = "leaked";
+    expect(settings.current().modelProvider).toEqual(h.seed.modelProvider);
+  });
+});
+
 describe("parseSetting", () => {
   it("normalises the shapes the store may hold", () => {
     expect(parseSetting("model", " p/m ")).toBe("p/m");
