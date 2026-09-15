@@ -31,6 +31,13 @@ export interface Config {
    * its card carries no link. Empty means no card carries one.
    */
   publicBaseUrl: string;
+  /**
+   * The GitHub App's own OAuth client, for the board's sign-in (decision
+   * 153). Both or neither: with either missing the owner plane is not served
+   * and the internal host answers 404 there, as it did before the plane.
+   */
+  githubOauthClientId: string | null;
+  githubOauthClientSecret: string | null;
   /** Null turns Discord notifications off; the service runs without them. */
   discordBotToken: string | null;
   /**
@@ -265,6 +272,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // `||`, not `??`: compose passes an unset optional as `${X:-}`, which is
     // the empty string, and `??` would keep it.
     publicBaseUrl: (env.CUJO_PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
+    githubOauthClientId: env.GITHUB_OAUTH_CLIENT_ID || null,
+    githubOauthClientSecret: env.GITHUB_OAUTH_CLIENT_SECRET || null,
     discordBotToken: env.DISCORD_BOT_TOKEN || null,
     discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
     defaultDiscordGuild: env.CUJO_DEFAULT_DISCORD_GUILD || null,

@@ -1,0 +1,316 @@
+/**
+ * The owner plane (decision 153): sign-in through `/auth`, the session as a
+ * bearer, and what `/owner` allows a signed-in owner and refuses everyone else.
+ */
+
+import { createLogger } from "@cujo/log";
+import { describe, expect, it, vi } from "vitest";
+import type { GitHubReader } from "../../src/clients/github";
+import type { OAuthInstallation } from "../../src/clients/github-oauth";
+import { loadConfig } from "../../src/config";
+import { createApp } from "../../src/http/router";
+import type { Runner } from "../../src/review/runner.service";
+import { Settings, seedFromConfig } from "../../src/settings";
+import { Store } from "../../src/store";
+import { INTERNAL, req } from "./helpers";
+
+const env = {
+  GITHUB_WEBHOOK_SECRET: "s",
+  GITHUB_APP_ID: "7",
+  GITHUB_APP_PRIVATE_KEY: "k",
+  CUJO_MODEL: "p/m",
+  MODEL_PROVIDER_NAME: "p",
+  MODEL_PROVIDER_BASE_URL: "https://llm.example/v1",
+  MODEL_PROVIDER_API_KEY: "sk-secret-1234",
+  MODEL_PROVIDER_MODELS: "m=vendor/m",
+};
+
+function build(
+  options: {
+    installations?: OAuthInstallation[];
+    orgRole?: "admin" | "member" | null;
+    owner?: boolean;
+  } = {},
+) {
+  const store = new Store(":memory:");
+  const lines: Record<string, unknown>[] = [];
+  const log = createLogger({ service: "cujo", sink: (line) => lines.push(JSON.parse(line)) });
+  const settings = Settings.open(store.settings, seedFromConfig(loadConfig(env)), log);
+  const runner = { view: () => null, start: vi.fn() } as unknown as Runner;
+  const oauth = {
+    authorizeUrl: (state: string, redirect: string) =>
+      `https://github.com/login/oauth/authorize?state=${state}&redirect_uri=${encodeURIComponent(redirect)}`,
+    exchangeCode: vi.fn(async (code: string) =>
+      code === "good" ? "ghu_tok" : Promise.reject(new Error("bad code")),
+    ),
+    user: vi.fn(async () => ({ login: "octocat", id: 1 })),
+    installations: vi.fn(
+      async () =>
+        options.installations ?? [
+          { id: 10, appId: 7, account: { login: "octocat", id: 1, type: "User" as const } },
+        ],
+    ),
+    orgRole: vi.fn(async () => options.orgRole ?? null),
+  };
+  const base = {
+    log,
+    internalHost: INTERNAL,
+    webhookHost: "hook.example",
+    public: { runs: store.runs, runner, streamLimit: 200 },
+    webhook: {
+      log,
+      secret: "s",
+      github: {} as GitHubReader,
+      store: store.runs,
+      runner,
+      createSession: async () => "sess",
+      reviewRunId: () => "",
+    },
+  };
+  const app = createApp(
+    options.owner === false
+      ? base
+      : {
+          ...base,
+          owner: {
+            oauth,
+            appId: 7,
+            redirectUri: "https://board.example/api/auth/callback",
+            sessions: store.webSessions,
+            settings,
+            repositories: store.repositories,
+            log,
+          },
+        },
+  );
+  const call = (path: string, init: RequestInit = {}, session?: string) =>
+    app.fetch(
+      req(INTERNAL, path, {
+        ...init,
+        headers: {
+          ...(init.body ? { "content-type": "application/json" } : {}),
+          ...(session ? { authorization: `Bearer ${session}` } : {}),
+          ...(init.headers ?? {}),
+        },
+      }),
+    );
+  const signIn = async () => {
+    const start = (await (await call("/auth/login", { method: "POST" })).json()) as { url: string };
+    const state = new URL(start.url).searchParams.get("state") ?? "";
+    const res = await call("/auth/callback", {
+      method: "POST",
+      body: JSON.stringify({ code: "good", state }),
+    });
+    return (await res.json()) as {
+      ok: boolean;
+      session?: string;
+      login?: string;
+      is_owner?: boolean;
+    };
+  };
+  return {
+    app,
+    store,
+    settings,
+    oauth,
+    call,
+    signIn,
+    logged: (e: string) => lines.filter((l) => l.event === e),
+  };
+}
+
+describe("sign-in", () => {
+  it("starts with a state only this process knows, and finishes into an owner session", async () => {
+    const h = build();
+    const start = await h.call("/auth/login", { method: "POST" });
+    expect(start.status).toBe(200);
+    const { url } = (await start.json()) as { url: string };
+    expect(url).toContain("redirect_uri=https%3A%2F%2Fboard.example%2Fapi%2Fauth%2Fcallback");
+    const done = await h.signIn();
+    expect(done).toMatchObject({ ok: true, login: "octocat", is_owner: true });
+    expect(done.session).toMatch(/^[0-9a-f]{64}$/);
+    expect(h.logged("auth.login.completed")).toMatchObject([
+      { actor: "octocat", is_owner: true, count: 1 },
+    ]);
+    // The token was used and not kept anywhere.
+    expect(JSON.stringify(h.store.webSessions.get(done.session ?? "", new Date()))).not.toContain(
+      "ghu_tok",
+    );
+  });
+
+  it("refuses a state it did not issue, a state used twice, and a code GitHub rejects", async () => {
+    const h = build();
+    const forged = await h.call("/auth/callback", {
+      method: "POST",
+      body: JSON.stringify({ code: "good", state: "forged" }),
+    });
+    expect(forged.status).toBe(400);
+    const start = (await (await h.call("/auth/login", { method: "POST" })).json()) as {
+      url: string;
+    };
+    const state = new URL(start.url).searchParams.get("state") ?? "";
+    const bad = await h.call("/auth/callback", {
+      method: "POST",
+      body: JSON.stringify({ code: "bad", state }),
+    });
+    expect(bad.status).toBe(502);
+    // The state was consumed by the failed attempt.
+    const again = await h.call("/auth/callback", {
+      method: "POST",
+      body: JSON.stringify({ code: "good", state }),
+    });
+    expect(again.status).toBe(400);
+    expect(h.logged("auth.login.refused").map((l) => l.reason)).toEqual([
+      "state",
+      "github",
+      "state",
+    ]);
+    expect((await h.call("/auth/callback", { method: "POST", body: "{nope" })).status).toBe(400);
+  });
+
+  it("signs a non-owner in as a non-owner, and logout ends the session", async () => {
+    const h = build({
+      installations: [
+        { id: 12, appId: 7, account: { login: "acme", id: 2, type: "Organization" } },
+      ],
+      orgRole: "member",
+    });
+    const done = await h.signIn();
+    expect(done).toMatchObject({ ok: true, is_owner: false });
+    expect((await h.call("/owner/me", {}, done.session)).status).toBe(403);
+    const out = await h.call("/auth/logout", { method: "POST" }, done.session);
+    expect(await out.json()).toEqual({ ok: true, ended: true });
+    expect((await h.call("/owner/me", {}, done.session)).status).toBe(401);
+  });
+});
+
+describe("the owner plane", () => {
+  it("is 401 without a session, 404 for an unknown route, and absent without the client", async () => {
+    const h = build();
+    expect((await h.call("/owner/me")).status).toBe(401);
+    expect((await h.call("/owner/me", {}, "f".repeat(64))).status).toBe(401);
+    expect((await h.call("/owner/me", { headers: { authorization: "Bearer short" } })).status).toBe(
+      401,
+    );
+    const { session } = await h.signIn();
+    expect((await h.call("/owner/nothing", {}, session)).status).toBe(404);
+    const off = build({ owner: false });
+    expect((await off.call("/auth/login", { method: "POST" })).status).toBe(404);
+    expect((await off.call("/owner/me")).status).toBe(404);
+  });
+
+  it("answers who is signed in", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    const me = await h.call("/owner/me", {}, session);
+    expect(await me.json()).toMatchObject({ ok: true, login: "octocat", is_owner: true });
+  });
+
+  it("shows settings with the key masked, and changes them validated as a whole", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    const shown = (await (await h.call("/owner/settings", {}, session)).json()) as {
+      settings: { modelProvider: { apiKey: string } };
+      sources: Record<string, string>;
+    };
+    expect(shown.settings.modelProvider.apiKey).toBe("****1234");
+    expect(shown.sources.model).toBe("seed");
+    // A bad second key leaves the good first one unapplied.
+    const bad = await h.call(
+      "/owner/settings",
+      { method: "PATCH", body: JSON.stringify({ reviewMode: "diff", diffBudgetTokens: -5 }) },
+      session,
+    );
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("diffBudgetTokens"),
+    });
+    expect(h.settings.current().reviewMode).toBe("sandbox");
+    const ok = await h.call(
+      "/owner/settings",
+      { method: "PATCH", body: JSON.stringify({ reviewMode: "diff", model: "p/other" }) },
+      session,
+    );
+    expect(ok.status).toBe(200);
+    expect(h.settings.current()).toMatchObject({ reviewMode: "diff", model: "p/other" });
+    expect(h.settings.sources().reviewMode).toBe("owner");
+    expect(
+      (
+        await h.call(
+          "/owner/settings",
+          { method: "PATCH", body: JSON.stringify({ port: 1 }) },
+          session,
+        )
+      ).status,
+    ).toBe(400);
+    expect(h.logged("owner.settings.changed")).toMatchObject([{ actor: "octocat", count: 2 }]);
+  });
+
+  it("keeps the real key when the board sends the masked one back", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    const provider = { ...h.settings.current().modelProvider, apiKey: "****1234", name: "renamed" };
+    const res = await h.call(
+      "/owner/settings",
+      { method: "PATCH", body: JSON.stringify({ modelProvider: provider }) },
+      session,
+    );
+    expect(res.status).toBe(200);
+    expect(h.settings.current().modelProvider).toMatchObject({
+      name: "renamed",
+      apiKey: "sk-secret-1234",
+    });
+    const fresh = { ...provider, apiKey: "sk-new" };
+    await h.call(
+      "/owner/settings",
+      { method: "PATCH", body: JSON.stringify({ modelProvider: fresh }) },
+      session,
+    );
+    expect(h.settings.current().modelProvider?.apiKey).toBe("sk-new");
+  });
+
+  it("lists the registry and flips a repository's switch", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    h.store.repositories.upsertInstalled(
+      [{ repo: "O/R", installationId: 10, isPrivate: false }],
+      "t0",
+    );
+    const list = (await (await h.call("/owner/repositories", {}, session)).json()) as {
+      repositories: { repo: string; enabled: boolean }[];
+    };
+    expect(list.repositories).toMatchObject([{ repo: "o/r", enabled: true }]);
+    const off = await h.call(
+      "/owner/repositories/O/R",
+      { method: "PATCH", body: JSON.stringify({ enabled: false }) },
+      session,
+    );
+    expect(await off.json()).toMatchObject({
+      ok: true,
+      repository: { repo: "o/r", enabled: false },
+    });
+    expect(h.store.repositories.isDisabled("o/r")).toBe(true);
+    expect(
+      (
+        await h.call(
+          "/owner/repositories/o/none",
+          { method: "PATCH", body: JSON.stringify({ enabled: true }) },
+          session,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await h.call(
+          "/owner/repositories/o/r",
+          { method: "PATCH", body: JSON.stringify({ enabled: "yes" }) },
+          session,
+        )
+      ).status,
+    ).toBe(400);
+    expect(h.logged("owner.repository.changed")).toMatchObject([
+      { actor: "octocat", repo: "O/R", enabled: false },
+    ]);
+  });
+});

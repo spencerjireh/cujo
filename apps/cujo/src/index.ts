@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { DiscordClient } from "./clients/discord";
 import { GitHubReader } from "./clients/github";
 import { GitHubChecks } from "./clients/github-checks";
+import { GitHubOAuth } from "./clients/github-oauth";
 import { GitHubReactions } from "./clients/github-reactions";
 import { Harness } from "./clients/harness";
 import { OcrSidecar } from "./clients/ocr-sidecar";
@@ -95,7 +96,7 @@ async function main(): Promise<void> {
     if (key !== "modelProvider" || !current.modelProvider) return;
     void harness
       .registerModelProvider(current.modelProvider)
-      .catch((error) => log.error("harness.bootstrap.failed", errorFields(error)));
+      .catch((error) => log.error("settings.provider.failed", errorFields(error)));
   });
   const rubric = loadRubric();
   const diffRubric = loadRubric("DIFF.md");
@@ -419,6 +420,22 @@ async function main(): Promise<void> {
   });
   registry.start();
 
+  // The owner plane (decision 153). Both halves of the OAuth client or none:
+  // without them the internal host has no `/auth` and no `/owner`.
+  const owner =
+    config.githubOauthClientId && config.githubOauthClientSecret && config.publicBaseUrl
+      ? {
+          oauth: new GitHubOAuth(config.githubOauthClientId, config.githubOauthClientSecret),
+          appId: Number(config.githubAppId),
+          redirectUri: `${config.publicBaseUrl}/api/auth/callback`,
+          sessions: store.webSessions,
+          settings,
+          repositories: store.repositories,
+          log,
+        }
+      : undefined;
+  if (!owner) log.warn("owner.disabled");
+
   const app = createApp({
     log,
     internalHost: config.internalHost,
@@ -428,6 +445,7 @@ async function main(): Promise<void> {
       runner,
       streamLimit: config.publicStreamLimit,
     },
+    ...(owner ? { owner } : {}),
     webhook: {
       log,
       secret: config.githubWebhookSecret,

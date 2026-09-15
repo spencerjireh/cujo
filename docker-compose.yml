@@ -81,6 +81,10 @@ services:
       CUJO_WEBHOOK_HOST: ${CUJO_WEBHOOK_HOST}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
+      # The board's sign-in on the App's own OAuth client (decision 153).
+      # Both or neither; unset, the owner plane is not served.
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
       CUJO_MODEL: ${CUJO_MODEL}
       # How hard the model is asked to think: none, minimal, low, medium, high,

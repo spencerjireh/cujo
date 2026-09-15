@@ -89,6 +89,8 @@ export const FIELD_NAMES = [
   // Booleans.
   "ready",
   "is_public",
+  "is_owner",
+  "enabled",
   "session_created",
   // Free text. The only fields an upstream string can reach, and the reason
   // the scrubber exists.
@@ -196,6 +198,8 @@ export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   count: "count",
   ready: "flag",
   is_public: "flag",
+  is_owner: "flag",
+  enabled: "flag",
   session_created: "flag",
   error_message: "text",
   error_stack: "text",
