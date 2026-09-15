@@ -21,6 +21,8 @@ export default async function Page() {
   const queryClient = getQueryClient();
   if ("me" in reader) {
     queryClient.setQueryData(ownerKeys.me(), { ...reader.me, expires_at: "" });
+    // `prefetchQuery` never throws; a plane that did not answer is the
+    // view's error state, not a failed render.
     await queryClient.prefetchQuery({
       queryKey: ownerKeys.repositories(),
       queryFn: () => fetchRepositories(reader.session),

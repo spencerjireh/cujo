@@ -24,14 +24,14 @@ export default async function Page({ params }: Params) {
   const queryClient = getQueryClient();
   if ("me" in reader) {
     queryClient.setQueryData(ownerKeys.me(), { ...reader.me, expires_at: "" });
-    // Not awaited to a throw: a repository the registry has not heard of is a
-    // 404 the view shows in place, with the list one link away.
-    await queryClient
-      .prefetchQuery({
-        queryKey: ownerKeys.settings(repo),
-        queryFn: () => fetchRepositorySettings(repo, reader.session),
-      })
-      .catch(() => undefined);
+    // `prefetchQuery` never throws: a repository the registry has not heard
+    // of is a 404 the view shows in place, with the list one link away, and
+    // a plane that did not answer is the view's error state. The list page
+    // prefetches the same way.
+    await queryClient.prefetchQuery({
+      queryKey: ownerKeys.settings(repo),
+      queryFn: () => fetchRepositorySettings(repo, reader.session),
+    });
   }
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
