@@ -61,6 +61,12 @@ export interface ConverseDeps {
   limit: ConverseRateLimit;
   /** How long one answer may take before the person is told it did not finish. */
   turnTimeoutMs: number;
+  /**
+   * Whether conversation is on at all (decision 164): a limit of zero on the
+   * board. Read per question, so the switch takes effect at once; a
+   * composition without it is on.
+   */
+  enabled?: () => boolean;
   botLogin?: string;
 }
 
@@ -119,6 +125,10 @@ export class ConverseService {
    * here is a person waiting on a reply that never comes.
    */
   async handle(request: ConverseRequest): Promise<void> {
+    if (this.deps.enabled && !this.deps.enabled()) {
+      request.log.info("converse.disabled");
+      return;
+    }
     let outcome: Outcome;
     try {
       outcome = await this.answer(request);

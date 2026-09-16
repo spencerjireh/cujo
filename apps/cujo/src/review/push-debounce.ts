@@ -17,7 +17,12 @@
 export class PushDebounce {
   private readonly pending = new Map<string, { timer: NodeJS.Timeout; fire: () => void }>();
 
-  constructor(private readonly delayMs: number) {}
+  private readonly delay: () => number;
+
+  /** The window, as a number or as a getter read at every schedule (decision 164). */
+  constructor(delayMs: number | (() => number)) {
+    this.delay = typeof delayMs === "function" ? delayMs : () => delayMs;
+  }
 
   /**
    * Run `fire` after the window, unless another `schedule` for the same key
@@ -25,7 +30,8 @@ export class PushDebounce {
    * waited; with no window it runs at once and says so.
    */
   schedule(key: string, fire: () => void): boolean {
-    if (this.delayMs <= 0) {
+    const delayMs = this.delay();
+    if (delayMs <= 0) {
       fire();
       return false;
     }
@@ -34,7 +40,7 @@ export class PushDebounce {
     const timer = setTimeout(() => {
       this.pending.delete(key);
       fire();
-    }, this.delayMs);
+    }, delayMs);
     timer.unref?.();
     this.pending.set(key, { timer, fire });
     return true;

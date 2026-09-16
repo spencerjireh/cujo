@@ -584,3 +584,39 @@ describe("the owner plane serves every run (decision 159)", () => {
     await first.body?.cancel();
   });
 });
+
+describe("the limits on the board (decision 164)", () => {
+  it("serves the groups beside the settings, and changes a limit live", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    const shown = (await (await h.call("/owner/settings", {}, session)).json()) as {
+      settings: Record<string, unknown>;
+      groups: Record<string, string>;
+    };
+    expect(shown.groups.turnTimeoutMs).toBe("limits");
+    expect(shown.groups.model).toBe("models");
+    expect(shown.settings.turnTimeoutMs).toBe(30 * 60 * 1000);
+    const res = await h.call(
+      "/owner/settings",
+      { method: "PATCH", body: JSON.stringify({ turnTimeoutMs: 900000, ocrEnabled: false }) },
+      session,
+    );
+    expect(res.status).toBe(200);
+    expect(h.settings.current().turnTimeoutMs).toBe(900000);
+    expect(h.settings.current().ocrEnabled).toBe(false);
+    expect(h.settings.sources().turnTimeoutMs).toBe("owner");
+  });
+
+  it("refuses a zero where zero is not off, and writes nothing of the batch", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    const res = await h.call(
+      "/owner/settings",
+      { method: "PATCH", body: JSON.stringify({ pushDebounceMs: 0, diffTimeoutMs: 0 }) },
+      session,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("diffTimeoutMs");
+    expect(h.settings.current().pushDebounceMs).toBe(60_000);
+  });
+});
