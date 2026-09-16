@@ -7991,3 +7991,11 @@ the pull request to the owner page**, since the check run's link is the run's
 page and it is now the right page for whoever may see it; **the owner list
 on the anonymous board**, which is where a private repository's name would
 leak.
+
+Follow-up, the same day: `runUrl` linked nothing for a private run (57),
+which left the check run, the Discord card and the announcement pointing
+at the board's root once the page existed. It now links every run; the
+things that carry it are the repository's own — its pull request, its
+check, its channel — and an owner follows it, while anyone else meets the
+same 404. The review's own footer is unchanged: the brief carries a run id
+only for a public run (36), since the agent's side cannot know who reads.

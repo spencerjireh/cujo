@@ -126,12 +126,12 @@ describe("PrChecks", () => {
     expect(writes[0]?.payload.output.title).toBe("Dismissed by @octocat");
   });
 
-  it("links nothing for a private run", async () => {
+  it("links a private run to its page, which answers to an owner (decision 159)", async () => {
     const { checks, writes } = fake();
     const service = build(checks);
     service.onRunChanged(view("clean", { isPublic: false }));
     await service.flush();
-    expect(writes[0]?.payload.detailsUrl).toBeNull();
+    expect(writes[0]?.payload.detailsUrl).toBe("https://cujo.example.com/runs/run-1");
   });
 
   it("writes once per payload, so a fold storm costs one call", async () => {

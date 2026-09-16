@@ -127,11 +127,9 @@ describe("timeoutBody", () => {
     );
   });
 
-  it("links nothing for a private run, because it has no page", () => {
-    // Decision 57: the board serves public repos only, and there is no second
-    // gated hostname to fall back to. A link into a 404 is worse than none.
+  it("links a private run to its page, which an owner opens (decision 159)", () => {
     const body = timeoutBody(LINKS, run({ isPublic: false }), timedOut(), 1000);
-    expect(body).not.toContain("https://cujo.example");
+    expect(body).toContain("https://cujo.example/runs/b5724912");
   });
 
   it("names a correctness critical, which decision 42 already posts unattended", () => {
