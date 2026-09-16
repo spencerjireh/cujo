@@ -70,6 +70,10 @@ export interface StartRunDeps {
    * it — briefs a clone URL for every run, as before.
    */
   stage?: Pick<StageDeps, "stager">;
+  /** The sandbox spec's token budget (decision 165), stamped on the row; absent means none. */
+  sandboxBudgetTokens?: () => number;
+  /** The sandbox turn's ceiling, told to the parent so it can bound its setup (decision 165). */
+  turnTimeoutMs?: () => number;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -246,7 +250,11 @@ export async function startRun(
     // can carry turn_id. Announcing it here as well produced two events per
     // start — and, when the start failed, a run.turn.started immediately
     // followed by run.turn.start.failed, describing a turn that never was.
-    const current = deps.store.updateRun(run.id, { mode: "sandbox" }) ?? run;
+    const current =
+      deps.store.updateRun(run.id, {
+        mode: "sandbox",
+        ...(deps.sandboxBudgetTokens ? { budgetTokens: deps.sandboxBudgetTokens() } : {}),
+      }) ?? run;
     // What this instance already detonated for the exact specifiers this
     // head adds, handed to the agent in its brief (decision 145). Only when a
     // manifest changed, which is the only case `detonation` runs at all.
@@ -279,7 +287,14 @@ export async function startRun(
         : "";
     await deps.runner.start(
       current,
-      buildTurnMessage(pr, deps.reviewRunId(current), cached.brief, instructions, staged),
+      buildTurnMessage(
+        pr,
+        deps.reviewRunId(current),
+        cached.brief,
+        instructions,
+        staged,
+        deps.turnTimeoutMs?.() ?? 0,
+      ),
     );
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim

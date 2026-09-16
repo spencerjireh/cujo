@@ -12,6 +12,7 @@ const settings: InstanceSettingsView = {
     modelMaxTokens: null,
     diffModel: "openrouter/glm-flash",
     diffBudgetTokens: 400_000,
+    sandboxBudgetTokens: 3_000_000,
     reviewMode: "sandbox",
     modelProvider: {
       name: "openrouter",
@@ -38,6 +39,7 @@ const settings: InstanceSettingsView = {
     modelMaxTokens: "seed",
     diffModel: "seed",
     diffBudgetTokens: "seed",
+    sandboxBudgetTokens: "seed",
     reviewMode: "seed",
     modelProvider: "seed",
     turnTimeoutMs: "owner",
@@ -56,6 +58,7 @@ const settings: InstanceSettingsView = {
     modelMaxTokens: "models",
     diffModel: "models",
     diffBudgetTokens: "models",
+    sandboxBudgetTokens: "models",
     reviewMode: "models",
     modelProvider: "provider",
     turnTimeoutMs: "limits",

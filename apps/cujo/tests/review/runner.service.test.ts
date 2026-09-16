@@ -1261,3 +1261,90 @@ describe("Runner writes a finished detonation through to the cache (decision 145
     expect(store.runs.getRun(r.id)?.status).toBe("clean");
   });
 });
+
+describe("usage recovered on a timed-out turn (decision 165)", () => {
+  it("reads the cancelled turn's metrics and the persisted messages' usage into the projection", async () => {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    async function* stream(): AsyncIterable<StreamEvent> {
+      yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
+      // A stub, the way the stream delivers it: no usage.
+      yield {
+        type: "model.message",
+        id: "mm-1",
+        createdAt: "2026-08-27T10:00:02Z",
+        threadId: "main",
+        content: "",
+      } as StreamEvent;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    let cancelled = 0;
+    const turnState = () =>
+      cancelled > 0
+        ? {
+            status: "cancelled" as const,
+            completedAt: "2026-08-27T10:00:10Z",
+            reason: "client-cancelled" as const,
+            metrics: {
+              totalInputTokens: 1_200_000,
+              totalOutputTokens: 30_000,
+              totalCacheReadTokens: 900_000,
+              totalCacheWriteTokens: 0,
+              totalTokens: 2_130_000,
+            },
+          }
+        : { status: "running" as const };
+    const harness = {
+      startTurn: vi.fn(async () => "t1"),
+      subscribe: vi.fn(async () => stream()),
+      listTurns: vi.fn(async () => [
+        {
+          id: "t1",
+          sessionId: "s",
+          createdAt: "2026-08-27T10:00:01Z",
+          previousTurnId: null,
+          state: turnState(),
+        },
+      ]),
+      cancelTurn: vi.fn(async () => {
+        cancelled += 1;
+      }),
+      listEvents: vi.fn(async () => [
+        { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
+        {
+          turnId: "t1",
+          event: {
+            type: "model.message",
+            id: "mm-1",
+            createdAt: "2026-08-27T10:00:02Z",
+            threadId: "main",
+            content: "setting up",
+            usage: {
+              inputTokens: 1_200_000,
+              outputTokens: 30_000,
+              cacheReadTokens: 900_000,
+              cacheWriteTokens: 0,
+            },
+          },
+        },
+      ]),
+    } as unknown as Harness;
+    const runner = new Runner(
+      store.runs,
+      harness,
+      { turnTimeoutMs: 50, retryDelaysMs: [] },
+      createLogger({ service: "cujo", sink: () => {} }),
+    );
+    await runner.start(r, "brief");
+    await vi.waitFor(() => expect(cancelled).toBe(1));
+    await vi.waitFor(() => {
+      const p = store.runs.getProjection(r.id);
+      expect(p?.usage.inputTokens).toBe(1_200_000);
+    });
+    const p = store.runs.getProjection(r.id);
+    expect(p?.status).toBe("error");
+    expect(p?.error).toContain("turn timeout");
+    expect(p?.usage.cacheReadTokens).toBe(900_000);
+    expect(p?.ledger.threads[0]).toMatchObject({ title: "main", inputTokens: 1_200_000 });
+  });
+});

@@ -76,7 +76,9 @@ export function createSubAgentTool(deps: SubAgentDeps): ToolDefinition {
         modelRuntime: deps.models.runtime,
         model: deps.model,
         thinkingLevel: deps.thinkingLevel,
-        systemPrompt: deps.spec.instructions,
+        // A check's own page when the spec names one for this child, else
+        // the parent's whole rubric (decision 165).
+        systemPrompt: deps.spec.subagents?.[params.name] ?? deps.spec.instructions,
         tools: deps.tools,
         sessionManager: SessionManager.inMemory(deps.cwd),
         compaction: deps.spec.config.compaction.enabled,

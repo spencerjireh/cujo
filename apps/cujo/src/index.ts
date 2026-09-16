@@ -20,6 +20,7 @@ import {
   buildAgentSpec,
   buildConverseSpec,
   buildDiffSpec,
+  loadCheckRubrics,
   loadRubric,
   specFingerprint,
 } from "./review/agent-spec";
@@ -113,7 +114,8 @@ async function main(): Promise<void> {
   const rubric = loadRubric();
   const diffRubric = loadRubric("DIFF.md");
   const converseRubric = loadRubric("CONVERSE.md");
-  const spec = () => buildAgentSpec(settings.current(), rubric);
+  const checkRubrics = loadCheckRubrics();
+  const spec = () => buildAgentSpec(settings.current(), rubric, checkRubrics);
   const diffSpec = () => buildDiffSpec(settings.current(), diffRubric);
 
   // Contract 7. Optional: with no token the service runs and simply does not
@@ -342,6 +344,8 @@ async function main(): Promise<void> {
         ocr,
         stage,
         repositorySettings: store.repositorySettings,
+        sandboxBudgetTokens: () => settings.current().sandboxBudgetTokens,
+        turnTimeoutMs: () => settings.current().turnTimeoutMs,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
         onClaimed,
@@ -506,6 +510,8 @@ async function main(): Promise<void> {
       stage,
       repositories: store.repositories,
       repositorySettings: store.repositorySettings,
+      sandboxBudgetTokens: () => settings.current().sandboxBudgetTokens,
+      turnTimeoutMs: () => settings.current().turnTimeoutMs,
       // What the review's footer names. A public run gets its id; anything
       // else gets nothing, since a private run has no page for a stranger
       // reading the pull request to open. `github-mcp` turns the id into a

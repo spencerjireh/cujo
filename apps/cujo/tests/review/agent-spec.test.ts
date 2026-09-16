@@ -9,6 +9,7 @@ import {
   isDocsOnly,
   isDocsPath,
   isLockfilePath,
+  loadCheckRubrics,
   loadRubric,
   manifestChanged,
   specFingerprint,
@@ -398,15 +399,18 @@ describe("the runtime config both specs run under", () => {
   it("carries nothing the harness does not know", () => {
     // The TrueForge keys (`sandbox`, `askUserQuestions`, `generativeUi`,
     // `contextManagement`) are gone with it; the contract's schema is strict.
-    for (const spec of [buildAgentSpec(config, "r"), buildConverseSpec(config, "r")]) {
-      expect(Object.keys(spec.config).sort()).toEqual(["compaction", "iterationLimit"]);
-    }
-    // The diff review is the one spec with a budget (decision 132).
-    expect(Object.keys(buildDiffSpec(diffConfig, "r").config).sort()).toEqual([
+    expect(Object.keys(buildConverseSpec(config, "r").config).sort()).toEqual([
       "compaction",
       "iterationLimit",
-      "tokenBudget",
     ]);
+    // The two reviews carry a budget (decisions 132, 165); a conversation does not.
+    for (const spec of [buildAgentSpec(config, "r"), buildDiffSpec(diffConfig, "r")]) {
+      expect(Object.keys(spec.config).sort()).toEqual([
+        "compaction",
+        "iterationLimit",
+        "tokenBudget",
+      ]);
+    }
   });
 });
 
@@ -616,5 +620,32 @@ describe("buildTurnMessage for a private repository (decision 158)", () => {
     expect(json.staged).toBe("0123456789abcdef0123456789abcdef");
     expect(json).not.toHaveProperty("clone_url");
     expect(message).not.toContain("github.com");
+  });
+});
+
+describe("the checks' own rubrics (decision 165)", () => {
+  const config = { model: "p/m", sandboxBudgetTokens: 3_000_000 } as Config;
+
+  it("hands each check a page a tenth of the parent's, on the common ground", () => {
+    const pages = loadCheckRubrics();
+    expect(Object.keys(pages).sort()).toEqual(["detonation", "probes", "smoke", "tests"]);
+    for (const [name, page] of Object.entries(pages)) {
+      expect(page).toContain("sniff.py report --check");
+      expect(page).toContain(`Your check is \`${name}\``);
+      expect(page.length).toBeLessThan(4000);
+    }
+    expect(pages.probes).toContain("/tmp/cujo-probes/");
+  });
+
+  it("carries them on the sandbox spec, budgeted, and digests them with the rubric", () => {
+    const spec = buildAgentSpec(config, "the rubric", { tests: "run the tests" });
+    expect(spec.subagents).toEqual({ tests: "run the tests" });
+    expect(spec.config.tokenBudget).toBe(3_000_000);
+    expect(specFingerprint(spec)).not.toBe(
+      specFingerprint(buildAgentSpec(config, "the rubric", { tests: "run them twice" })),
+    );
+    expect(specFingerprint(spec)).toBe(
+      specFingerprint(buildAgentSpec(config, "the rubric", { tests: "run the tests" })),
+    );
   });
 });

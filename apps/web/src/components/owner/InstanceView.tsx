@@ -79,6 +79,7 @@ function Models({
     modelTemperature: s.modelTemperature === null ? "" : String(s.modelTemperature),
     modelMaxTokens: s.modelMaxTokens === null ? "" : String(s.modelMaxTokens),
     diffBudgetTokens: String(s.diffBudgetTokens),
+    sandboxBudgetTokens: String(s.sandboxBudgetTokens),
     reviewMode: s.reviewMode,
   });
   useEffect(() => {
@@ -89,6 +90,7 @@ function Models({
       modelTemperature: s.modelTemperature === null ? "" : String(s.modelTemperature),
       modelMaxTokens: s.modelMaxTokens === null ? "" : String(s.modelMaxTokens),
       diffBudgetTokens: String(s.diffBudgetTokens),
+      sandboxBudgetTokens: String(s.sandboxBudgetTokens),
       reviewMode: s.reviewMode,
     });
   }, [s]);
@@ -105,6 +107,7 @@ function Models({
       modelTemperature: draft.modelTemperature === "" ? null : Number(draft.modelTemperature),
       modelMaxTokens: draft.modelMaxTokens === "" ? null : Number(draft.modelMaxTokens),
       diffBudgetTokens: Number(draft.diffBudgetTokens),
+      sandboxBudgetTokens: Number(draft.sandboxBudgetTokens),
       reviewMode: draft.reviewMode,
     });
   };
@@ -161,6 +164,14 @@ function Models({
             className={FIELD}
             value={draft.diffBudgetTokens}
             onChange={set("diffBudgetTokens")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="sandbox review budget" hint="billed tokens per run, children included">
+          <input
+            className={FIELD}
+            value={draft.sandboxBudgetTokens}
+            onChange={set("sandboxBudgetTokens")}
             inputMode="numeric"
           />
         </Field>

@@ -463,8 +463,8 @@ export class Runner {
         try {
           const turns = await this.harness.listTurns(run.sessionId);
           const mine = turns.find((t) => t.id === timedOutTurn);
-          if (mine?.state.status !== "running") return;
-          await this.harness.cancelTurn(run.sessionId);
+          if (mine?.state.status === "running") await this.harness.cancelTurn(run.sessionId);
+          await this.recoverUsage(runId, run.sessionId, timedOutTurn);
         } catch (error) {
           this.state(runId).log.warn("run.cancel.failed", {
             session_id: run.sessionId,
@@ -489,6 +489,34 @@ export class Runner {
         });
       });
     }
+  }
+
+  /**
+   * What a timed-out turn cost (decision 165). The stream delivers
+   * `model.message` as a stub with no usage and the terminal event is the
+   * watchdog's own, so without this a run that hit the ceiling recorded
+   * zero tokens — and those are the runs that cost most. The persisted
+   * messages carry their usage, and the harness's cancelled state carries
+   * the turn's metrics; both are read back once the cancel has settled.
+   */
+  private async recoverUsage(runId: string, sessionId: string, turnId: string): Promise<void> {
+    await this.hydrate(runId);
+    const turn = (await this.harness.listTurns(sessionId)).find((t) => t.id === turnId);
+    const state = turn?.state;
+    if (state && state.status !== "running" && state.metrics) {
+      this.push(runId, {
+        type: "turn.done",
+        id: `cujo-timeout-usage-${turnId}`,
+        createdAt: new Date().toISOString(),
+        threadId: MAIN_THREAD,
+        state,
+      });
+      this.state(runId).log.info("run.usage.recovered", {
+        turn_id: turnId,
+        count: state.metrics.totalTokens ?? 0,
+      });
+    }
+    this.refold(runId);
   }
 
   /**
