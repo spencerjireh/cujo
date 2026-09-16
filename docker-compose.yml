@@ -133,7 +133,10 @@ services:
       # one run on the last head (decision 144). 0 starts every push at once.
       CUJO_PUSH_DEBOUNCE_MS: ${CUJO_PUSH_DEBOUNCE_MS:-60000}
       # One turn, stream retries included. The harness has no timeout of its
-      # own; this watchdog is what ends a review that hangs.
+      # own; this watchdog is what ends a review that hangs. A seed, like the
+      # push window, the diff ceiling and byte cap, and the conversation
+      # limits: the instance page holds them after the first boot (decision
+      # 164), and the value here changes nothing on a deploy that has seeded.
       CUJO_TURN_TIMEOUT_MS: ${CUJO_TURN_TIMEOUT_MS:-1800000}
       # The review a repository gets when its .cujo.yml names none: `sandbox`
       # runs the pull request, `diff` reads it on the trusted side and never

@@ -20,6 +20,11 @@ import type { ReviewMode } from "./review/types";
 import type { SettingsStore } from "./store/settings";
 
 /** The fields consumers read; the same names as `Config`, so a `Pick` of either fits. */
+/**
+ * The instance's settings: the models and the provider (decision 152), and
+ * the limits and switches that move a run's cost or length (decision 164).
+ * The name is the original one; every key here is read live at use.
+ */
 export interface ModelSettings {
   model: string;
   modelReasoningEffort: Config["modelReasoningEffort"];
@@ -29,20 +34,63 @@ export interface ModelSettings {
   diffBudgetTokens: number;
   reviewMode: ReviewMode;
   modelProvider: ModelProviderConfig | null;
+  /** The ceiling on a sandbox turn, in milliseconds. */
+  turnTimeoutMs: number;
+  /** The ceiling on a diff turn, which reads and posts. */
+  diffTimeoutMs: number;
+  /** Bytes of diff the diff review is handed. */
+  diffBytes: number;
+  /** How long a burst of pushes is folded into one run; 0 runs each at once. */
+  pushDebounceMs: number;
+  /** Questions per pull request per window; 0 turns conversation off. */
+  converseLimit: number;
+  converseWindowMs: number;
+  /** The ceiling on one answer. */
+  converseTimeoutMs: number;
+  /** Whether the OCR sidecar is asked beside every sandbox run; its URL stays in the environment. */
+  ocrEnabled: boolean;
 }
 
 export type SettingKey = keyof ModelSettings;
 
-const SETTING_KEYS: readonly SettingKey[] = [
-  "model",
-  "modelReasoningEffort",
-  "modelTemperature",
-  "modelMaxTokens",
-  "diffModel",
-  "diffBudgetTokens",
-  "reviewMode",
-  "modelProvider",
-];
+/** Which form on the instance page a key belongs to. */
+export type SettingGroup = "models" | "provider" | "limits";
+
+/**
+ * The one list of keys, with the form each is drawn on. `SETTING_KEYS` and
+ * the owner route's allowlist derive from it, and the route serves the
+ * groups so the board draws a form per group without a list of its own.
+ */
+export const SETTING_GROUPS: Readonly<Record<SettingKey, SettingGroup>> = {
+  model: "models",
+  modelReasoningEffort: "models",
+  modelTemperature: "models",
+  modelMaxTokens: "models",
+  diffModel: "models",
+  diffBudgetTokens: "models",
+  reviewMode: "models",
+  modelProvider: "provider",
+  turnTimeoutMs: "limits",
+  diffTimeoutMs: "limits",
+  diffBytes: "limits",
+  pushDebounceMs: "limits",
+  converseLimit: "limits",
+  converseWindowMs: "limits",
+  converseTimeoutMs: "limits",
+  ocrEnabled: "limits",
+};
+
+export const SETTING_KEYS: readonly SettingKey[] = Object.keys(SETTING_GROUPS) as SettingKey[];
+
+/** A whole number, the way `count` reads one from the environment. */
+function wholeNumber(key: string, raw: unknown, options: { zeroOk?: boolean } = {}): number {
+  const value = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a whole number`);
+  }
+  if (value === 0 && !options.zeroOk) throw new Error(`${key} must be above zero`);
+  return value;
+}
 
 const ProviderSchema = z
   .object({
@@ -86,6 +134,19 @@ export function parseSetting<K extends SettingKey>(key: K, raw: unknown): ModelS
     }
     case "reviewMode":
       return mode(typeof raw === "string" ? raw : undefined) as ModelSettings[K];
+    case "turnTimeoutMs":
+    case "diffTimeoutMs":
+    case "diffBytes":
+    case "converseWindowMs":
+    case "converseTimeoutMs":
+      return wholeNumber(key, raw) as ModelSettings[K];
+    case "pushDebounceMs":
+    case "converseLimit":
+      return wholeNumber(key, raw, { zeroOk: true }) as ModelSettings[K];
+    case "ocrEnabled": {
+      if (typeof raw !== "boolean") throw new Error("ocrEnabled must be true or false");
+      return raw as ModelSettings[K];
+    }
     case "modelProvider": {
       if (raw === null) return null as ModelSettings[K];
       const parsed = ProviderSchema.safeParse(raw);
@@ -108,6 +169,16 @@ export function seedFromConfig(config: Config): ModelSettings {
     diffBudgetTokens: config.diffBudgetTokens,
     reviewMode: config.reviewMode,
     modelProvider: config.bootstrap.modelProvider,
+    turnTimeoutMs: config.turnTimeoutMs,
+    diffTimeoutMs: config.diffTimeoutMs,
+    diffBytes: config.diffBytes,
+    pushDebounceMs: config.pushDebounceMs,
+    converseLimit: config.converseLimit,
+    converseWindowMs: config.converseWindowMs,
+    converseTimeoutMs: config.converseTimeoutMs,
+    // On when a sidecar is configured, the way it always was; the switch is
+    // then the owner's, and the URL stays what the environment says.
+    ocrEnabled: config.ocrSidecarUrl !== null,
   };
 }
 

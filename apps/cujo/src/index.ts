@@ -81,18 +81,28 @@ async function main(): Promise<void> {
   // no link (decision 57). Built before the runner because the runner needs it
   // too, for the one comment a run may post (decisions 109, 110).
   const links = { publicBaseUrl: config.publicBaseUrl };
+  // The settings an owner changes at runtime (decision 152): seeded from the
+  // environment once, read at use from here on. The specs are built per
+  // session on the values of that moment; the rubrics are read once. Opened
+  // before the runner, whose ceilings are read from here per run (decision
+  // 164): a change on the board applies to the next turn, no redeploy.
+  const settings = Settings.open(store.settings, seedFromConfig(config), log);
   const runner = new Runner(
     store.runs,
     harness,
-    { turnTimeoutMs: config.turnTimeoutMs, diffTurnTimeoutMs: config.diffTimeoutMs, links },
+    {
+      get turnTimeoutMs() {
+        return settings.current().turnTimeoutMs;
+      },
+      get diffTurnTimeoutMs() {
+        return settings.current().diffTimeoutMs;
+      },
+      links,
+    },
     log,
     github,
     store.detonations,
   );
-  // The settings an owner changes at runtime (decision 152): seeded from the
-  // environment once, read at use from here on. The specs are built per
-  // session on the values of that moment; the rubrics are read once.
-  const settings = Settings.open(store.settings, seedFromConfig(config), log);
   harness.modelProvider = () => settings.current().modelProvider;
   settings.onChange((key, current) => {
     if (key !== "modelProvider" || !current.modelProvider) return;
@@ -169,7 +179,7 @@ async function main(): Promise<void> {
   };
   // A push burst is one run (decision 144): a `synchronize` waits out the
   // window before its run starts, and a newer push inside it takes the slot.
-  const debounce = new PushDebounce(config.pushDebounceMs);
+  const debounce = new PushDebounce(() => settings.current().pushDebounceMs);
 
   // `/cujo dismiss` on the pull request is the unlock (decisions 45, 138), so
   // it is composed here with the same GitHub client the reviews read through
@@ -188,7 +198,11 @@ async function main(): Promise<void> {
   // The shadow review (decision 149). Optional: with no sidecar URL no run
   // asks, and the table stays empty.
   const ocr = config.ocrSidecarUrl
-    ? { client: new OcrSidecar(config.ocrSidecarUrl, config.ocrTimeoutMs), store: store.ocr }
+    ? {
+        client: new OcrSidecar(config.ocrSidecarUrl, config.ocrTimeoutMs),
+        store: store.ocr,
+        enabled: () => settings.current().ocrEnabled,
+      }
     : undefined;
 
   // Where a private repository's trees go for its sandbox (decision 158):
@@ -213,7 +227,9 @@ async function main(): Promise<void> {
       };
     },
     caps: {
-      diffBytes: config.diffBytes,
+      get diffBytes() {
+        return settings.current().diffBytes;
+      },
       standardsFileBytes: STANDARDS_FILE_BYTES,
       standardsTotalBytes: 48_000,
     },
@@ -356,24 +372,29 @@ async function main(): Promise<void> {
   // Design 3, and the only service that shares the harness client with the
   // reviewer without sharing anything else. Not built with `runner`: a
   // conversation turn must never reach `refold`, which writes run status and
-  // repaints the pull request reaction (decision 47). `converseLimit: 0` turns
-  // the whole feature off and the webhook still answers 200.
-  const converse =
-    config.converseLimit > 0
-      ? new ConverseService({
-          runs: store.runs,
-          harness,
-          github,
-          spec: () => buildConverseSpec(settings.current(), converseRubric),
-          limit: new ConverseRateLimit({
-            limit: config.converseLimit,
-            windowMs: config.converseWindowMs,
-          }),
-          turnTimeoutMs: config.converseTimeoutMs,
-          botLogin: config.botLogin,
-        })
-      : null;
-  if (!converse) log.warn("converse.disabled");
+  // repaints the pull request reaction (decision 47). A limit of zero on the
+  // board turns the feature off per question (decision 164); the service
+  // is always built, so the switch needs no redeploy.
+  const converse = new ConverseService({
+    runs: store.runs,
+    harness,
+    github,
+    spec: () => buildConverseSpec(settings.current(), converseRubric),
+    limit: new ConverseRateLimit({
+      get limit() {
+        return settings.current().converseLimit;
+      },
+      get windowMs() {
+        return settings.current().converseWindowMs;
+      },
+    }),
+    get turnTimeoutMs() {
+      return settings.current().converseTimeoutMs;
+    },
+    enabled: () => settings.current().converseLimit > 0,
+    botLogin: config.botLogin,
+  });
+  if (settings.current().converseLimit === 0) log.warn("converse.disabled");
 
   // Contract 8. The slash commands need the application's public key as well
   // as the bot token; with either missing, notifications still work and the
@@ -496,7 +517,7 @@ async function main(): Promise<void> {
       isReady: () => harness.ready,
       prCommands,
       debounce,
-      ...(converse ? { converse } : {}),
+      converse,
     },
     ...(interactions ? { interactions } : {}),
   });

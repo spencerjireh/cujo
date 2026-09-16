@@ -62,7 +62,15 @@ describe("the instance page's sentences (decision 157)", () => {
         diffBudgetTokens: "seed",
         reviewMode: "seed",
         modelProvider: "seed",
+        turnTimeoutMs: "owner",
+        diffTimeoutMs: "seed",
+        diffBytes: "seed",
+        pushDebounceMs: "seed",
+        converseLimit: "seed",
+        converseWindowMs: "seed",
+        converseTimeoutMs: "seed",
+        ocrEnabled: "seed",
       }),
-    ).toEqual(["model", "diffModel"]);
+    ).toEqual(["model", "diffModel", "turnTimeoutMs"]);
   });
 });

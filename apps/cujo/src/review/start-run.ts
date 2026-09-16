@@ -54,7 +54,10 @@ export interface StartRunDeps {
    * The shadow review (decision 149). Optional so a composition without a
    * sidecar — and every test that predates it — asks nobody.
    */
-  ocr?: Pick<OcrShadowDeps, "client" | "store">;
+  ocr?: Pick<OcrShadowDeps, "client" | "store"> & {
+    /** The board's switch (decision 164), read per run; absent means on. */
+    enabled?: () => boolean;
+  };
   /**
    * What the owner set per repository on the board (decision 155): the mode
    * under the repository's own file, and instructions. Optional so a
@@ -178,7 +181,12 @@ export async function startRun(
     // The shadow review (decision 149), before the mode is resolved so both
     // reviews get one, and never awaited so neither waits for it. Its own
     // catch: a sidecar failure is a warning line and not a failed run.
-    if (deps.ocr && !run.isPublic) {
+    const ocrOn = deps.ocr !== undefined && (deps.ocr.enabled?.() ?? true);
+    if (deps.ocr && !ocrOn) {
+      // Switched off on the board (decision 164): nothing is asked and no
+      // row is written, the way an instance with no sidecar behaves.
+      log.info("ocr.skipped", { reason: "disabled" });
+    } else if (deps.ocr && !run.isPublic) {
       // The sidecar holds no GitHub credential and clones by URL, which a
       // private repository refuses (decision 158). A line, not a failed row.
       log.info("ocr.skipped", { reason: "private" });

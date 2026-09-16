@@ -8042,3 +8042,40 @@ the layout's own comment gives; **sending an owner straight to `/repos`**,
 since an owner is also the person who shares the landing's link; **a
 recent-runs strip**, which would make the landing a second board; **a
 sitemap**, until there are more than two indexed roots.
+
+## 164. The limits and switches live on the board
+
+Every knob that moves a run's cost or length lived in the deploy's
+environment: the turn ceilings, the diff byte cap, the push window, the
+conversation limit and its window and ceiling, and whether the OCR sidecar
+is asked at all. Changing one meant a redeploy, and a redeploy kills every
+run in flight, so the day the ceiling had to move for one pull request cost
+two runs. Decision 152 put the models and the provider in a store seeded
+from the environment and read live, and said the timeouts and limits would
+move "when a board page wants them". The instance page wants them.
+
+So `settings.ts` carries them: `turnTimeoutMs`, `diffTimeoutMs`,
+`diffBytes`, `pushDebounceMs`, `converseLimit`, `converseWindowMs`,
+`converseTimeoutMs` and `ocrEnabled`, seeded from the same environment
+variables on the first boot that knows them and read at use from then on.
+The runner reads its ceilings per run; the push debounce reads its window
+per schedule; the conversation service is always built and reads its limit
+per question, so zero is a switch and not a boot-time absence; the shadow
+review asks the switch per run. One table in `settings.ts` names every key
+and the form it belongs to, `SETTING_KEYS` and the owner route's allowlist
+derive from it, and the route serves the groups, so the four hand-kept
+copies of the key list are one. The instance page draws a third form,
+"Limits and switches", in seconds.
+
+Accepted: **the OCR switch is a setting and its URL is not**, since the URL
+wires two processes together and the switch is what costs money; **a
+limit applies at its next use**, and a run under way keeps the window it
+started with, which is what a ceiling means; **whole numbers in
+milliseconds on the wire, seconds in the form**; **the same `zeroOk` rule
+the environment had**, so the push window and the conversation limit
+accept zero and the ceilings do not.
+
+Rejected: **moving the interval services, the stream limit, the OAuth
+client, service URLs and secrets**, which a process needs before it has a
+store or which wire it to another process; **a hot-reloaded `Config`**,
+still (152); **a per-repository ceiling**, until a repository needs one.

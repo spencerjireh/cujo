@@ -1279,8 +1279,8 @@ on the owner plane:
 | `POST /auth/callback` | `{ code, state }` from GitHub's redirect, via `apps/web`. Consumes the state, trades the code for a user token, decides the owner verdict, and answers the session id, the login and `is_owner`. 400 for a state it did not issue or one already used; 502 when GitHub did not complete the sign-in. |
 | `POST /auth/logout` | Ends the session the bearer names. |
 | `GET /owner/me` | The signed-in login, `is_owner`, and the session's expiry. |
-| `GET /owner/settings` | The settings of decision 152 with the provider key masked to its last four characters, and where each value came from (`seed` or `owner`). |
-| `PATCH /owner/settings` | Any of the eight keys. Validated as a whole before anything is written. A masked key sent back keeps the stored one. |
+| `GET /owner/settings` | Every key `settings.ts` lists — the models and the provider (decision 152), the limits and switches (decision 164) — with the provider key masked to its last four characters, where each value came from (`seed` or `owner`), and `groups`, which form each key is drawn on. |
+| `PATCH /owner/settings` | Any of those keys. Validated as a whole before anything is written. A masked key sent back keeps the stored one. A limit is read at its next use — the next run's ceiling, the next push's window, the next question — and a run under way keeps what it started with. |
 | `GET /owner/bot` | The App as GitHub sees it (decision 157): the App, its permissions against the five the reviews need with a verdict each, its installations with the registry's count of repositories under each, and its last twenty webhook deliveries with the status this process answered. 502 when GitHub does not answer. |
 | `GET /owner/health` | The same answer `/readyz` gives — harness, store, uptime — for a signed-in owner. |
 | `GET /owner/repositories` | The registry (decision 151), removed rows included. |
