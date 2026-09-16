@@ -170,6 +170,9 @@ export interface InstanceSettings {
   converseWindowMs: number;
   converseTimeoutMs: number;
   ocrEnabled: boolean;
+  executeDeclared: boolean;
+  executeStepTimeoutMs: number;
+  executedReportBytes: number;
 }
 
 type SettingSource = "seed" | "owner";

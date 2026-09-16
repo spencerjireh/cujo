@@ -159,6 +159,12 @@ services:
       # A private repository's trees, staged for its sandbox (decision 158):
       # how long fetching and handing over one tree may take.
       CUJO_STAGE_TIMEOUT_MS: ${CUJO_STAGE_TIMEOUT_MS:-300000}
+      # The judge path (decision 161): declared commands run here with no
+      # model. 0 is the rollback switch; the step bound covers one install
+      # or one test run; the report bytes cap what the brief carries.
+      CUJO_EXECUTE_DECLARED: ${CUJO_EXECUTE_DECLARED:-1}
+      CUJO_EXECUTE_STEP_TIMEOUT_MS: ${CUJO_EXECUTE_STEP_TIMEOUT_MS:-900000}
+      CUJO_EXECUTED_REPORT_BYTES: ${CUJO_EXECUTED_REPORT_BYTES:-24000}
       # The model provider, registered on the harness at start (decision 127).
       # The harness holds nothing until this process tells it; there is no
       # console to configure it in.

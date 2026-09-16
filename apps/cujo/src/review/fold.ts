@@ -26,6 +26,7 @@ import { checkTimings, emptySetup, settleSetup } from "./timings";
 import {
   CHECK_NAMES,
   type CheckName,
+  type CheckState,
   type DraftedReview,
   type Finding,
   type Projection,
@@ -80,6 +81,29 @@ export interface FoldOptions {
    * briefed with none.
    */
   cachedDetonations?: readonly CachedDetonationEntry[];
+  /**
+   * The checks the trusted side executed for this run before the turn
+   * existed (decision 161), each a Contract 2 envelope with the time it
+   * took. They have no thread and no tokens; the fold seats them as checks
+   * before any event is applied, so the hard rules read them exactly as they
+   * read a sub-agent's report. Read from the store per run.
+   */
+  executed?: readonly ExecutedCheck[];
+  /** The box the executor provisioned, when it did: what `sandbox_create` used to say. */
+  sandbox?: { provisionedMs: number };
+}
+
+/** One check the executor ran: the envelope and its span. */
+export interface ExecutedCheck {
+  check: string;
+  report: unknown;
+  startedAt: string;
+  endedAt: string;
+}
+
+/** The thread id an executed check is filed under; never a harness thread's. */
+export function executedThreadId(check: string): string {
+  return `executed:${check}`;
 }
 
 /** What the fold needs of a cached entry: the key and the report to substitute. */
@@ -354,6 +378,30 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
   // (decision 147). The last one wins: a sub-agent that ran the command
   // twice reported the second time.
   const toolReports = new Map<string, unknown>();
+  // Executed checks first (decision 161): seated before the events so every
+  // rule below reads them, and so a `thread.created` for the same check
+  // name later in the stream counts as a second attempt at it. The setup
+  // window and the box's provisioning come from the executor too.
+  for (const executed of options.executed ?? []) {
+    const check: CheckState = {
+      threadId: executedThreadId(executed.check),
+      title: executed.check,
+      isCheck: (CHECK_NAMES as readonly string[]).includes(executed.check as CheckName),
+      status: "done",
+      report: executed.report,
+      error: null,
+      startedAt: executed.startedAt,
+      endedAt: executed.endedAt,
+      attempts: 1,
+    };
+    check.timings = checkTimings(check);
+    p.checks.push(check);
+  }
+  if (options.sandbox) p.setup.sandboxProvisionedMs = options.sandbox.provisionedMs;
+  if (p.checks.length > 0) {
+    p.hardRuleHits = [...hardRuleFindings(p.checks), ...invalidReportFindings(p.checks)];
+    p.findings = mergeFindings(p.hardRuleHits, []);
+  }
   const rowFor = (threadId: string): LedgerThread => {
     if (threadId === "main") return ledgerThread(p.ledger, ledgerRows, threadId, "main", 1);
     const check = p.checks.find((c) => c.threadId === threadId);
@@ -374,6 +422,15 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // The run's first turn, not its latest: a turn retried adds another,
         // and the setup window belongs to the first.
         p.setup.turnCreatedAt ??= event.createdAt;
+        // On the judge path the setup happened before the turn, in the
+        // executor: the window runs from its first step to the turn's
+        // creation, and closes here rather than at a check thread.
+        const first = options.executed?.[0];
+        if (first && p.setup.firstCheckAt === null) {
+          p.setup.agentStartedAt ??= first.startedAt;
+          p.setup.firstCheckAt = event.createdAt;
+          settleSetup(p.setup);
+        }
         break;
       }
       case "model.message": {
@@ -433,8 +490,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         });
         // Setup ends at the first thread the rubric named for a check, and not
         // at any thread: a helper subagent spawned mid-setup would otherwise
-        // close the window early and report a setup that never happened.
-        if (isCheck && p.setup.firstCheckAt === null) {
+        // close the window early and report a setup that never happened. On
+        // the judge path the window is the executor's, settled below at
+        // `turn.created`, and no thread moves it.
+        if (isCheck && p.setup.firstCheckAt === null && !options.executed?.length) {
           p.setup.firstCheckAt = event.createdAt ?? null;
           settleSetup(p.setup);
         }

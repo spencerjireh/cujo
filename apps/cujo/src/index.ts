@@ -7,6 +7,7 @@ import { GitHubOAuth } from "./clients/github-oauth";
 import { GitHubReactions } from "./clients/github-reactions";
 import { Harness } from "./clients/harness";
 import { OcrSidecar } from "./clients/ocr-sidecar";
+import { SandboxMcp } from "./clients/sandbox-mcp";
 import { SandboxStager } from "./clients/sandbox-stage";
 import { loadConfig } from "./config";
 import { ConverseService } from "./converse/converse.service";
@@ -20,6 +21,7 @@ import {
   buildAgentSpec,
   buildConverseSpec,
   buildDiffSpec,
+  buildJudgeSpec,
   loadCheckRubrics,
   loadRubric,
   specFingerprint,
@@ -88,6 +90,9 @@ async function main(): Promise<void> {
   // before the runner, whose ceilings are read from here per run (decision
   // 164): a change on the board applies to the next turn, no redeploy.
   const settings = Settings.open(store.settings, seedFromConfig(config), log);
+  // The sandbox service's tools, for the executor and for destroying the
+  // boxes it hands over (decision 161).
+  const sandboxMcp = new SandboxMcp(config.sandboxMcpUrl);
   const runner = new Runner(
     store.runs,
     harness,
@@ -103,6 +108,7 @@ async function main(): Promise<void> {
     log,
     github,
     store.detonations,
+    { client: sandboxMcp, store: store.executions },
   );
   harness.modelProvider = () => settings.current().modelProvider;
   settings.onChange((key, current) => {
@@ -113,10 +119,12 @@ async function main(): Promise<void> {
   });
   const rubric = loadRubric();
   const diffRubric = loadRubric("DIFF.md");
+  const judgeRubric = loadRubric("JUDGE.md");
   const converseRubric = loadRubric("CONVERSE.md");
   const checkRubrics = loadCheckRubrics();
   const spec = () => buildAgentSpec(settings.current(), rubric, checkRubrics);
   const diffSpec = () => buildDiffSpec(settings.current(), diffRubric);
+  const judgeSpec = () => buildJudgeSpec(settings.current(), judgeRubric);
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status
@@ -210,6 +218,27 @@ async function main(): Promise<void> {
   // Where a private repository's trees go for its sandbox (decision 158):
   // the staging door beside the MCP endpoint the agent already uses.
   const stage = { stager: new SandboxStager(config.sandboxMcpUrl, config.stageTimeoutMs) };
+
+  // The judge path (decision 161): declared commands executed with no model,
+  // the parent on its own spec with its own digest, like the diff review.
+  const judgeRubricSha256 = specFingerprint(judgeSpec());
+  const judge = {
+    get enabled() {
+      return settings.current().executeDeclared;
+    },
+    sandbox: sandboxMcp,
+    executions: store.executions,
+    createSession: () => harness.createSession(judgeSpec()),
+    get provenance() {
+      return { model: settings.current().model, rubricSha256: judgeRubricSha256 };
+    },
+    get stepTimeoutMs() {
+      return settings.current().executeStepTimeoutMs;
+    },
+    get reportBytes() {
+      return settings.current().executedReportBytes;
+    },
+  };
 
   // The diff review's half of the same (Contract 11): its own spec, so its own
   // digest and model, plus the budget the spec carries; a fresh session per
@@ -343,6 +372,7 @@ async function main(): Promise<void> {
         detonations: store.detonations,
         ocr,
         stage,
+        judge,
         repositorySettings: store.repositorySettings,
         sandboxBudgetTokens: () => settings.current().sandboxBudgetTokens,
         turnTimeoutMs: () => settings.current().turnTimeoutMs,
@@ -435,6 +465,15 @@ async function main(): Promise<void> {
         log.child({ run_id: run.id }).error("run.rehydrate.failed", errorFields(error)),
       );
   }
+  // The boxes the executor handed to runs that are over (decision 161): a
+  // restart destroys what it still owes, and a run still running keeps its
+  // box until its turn ends.
+  void runner
+    .sweepSandboxes()
+    .then((count) => {
+      if (count > 0) log.info("sandbox.swept", { count });
+    })
+    .catch((error) => log.warn("sandbox.destroy.failed", errorFields(error)));
 
   // Reconciles the public board's `is_public` stamps behind the `repository`
   // webhook, and backfills the rows that predate the column (decision 34).
@@ -508,6 +547,7 @@ async function main(): Promise<void> {
       detonations: store.detonations,
       ocr,
       stage,
+      judge,
       repositories: store.repositories,
       repositorySettings: store.repositorySettings,
       sandboxBudgetTokens: () => settings.current().sandboxBudgetTokens,

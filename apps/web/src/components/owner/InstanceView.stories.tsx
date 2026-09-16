@@ -31,6 +31,9 @@ const settings: InstanceSettingsView = {
     converseWindowMs: 3_600_000,
     converseTimeoutMs: 600_000,
     ocrEnabled: false,
+    executeDeclared: true,
+    executeStepTimeoutMs: 900_000,
+    executedReportBytes: 24_000,
   },
   sources: {
     model: "owner",
@@ -50,6 +53,9 @@ const settings: InstanceSettingsView = {
     converseWindowMs: "seed",
     converseTimeoutMs: "seed",
     ocrEnabled: "seed",
+    executeDeclared: "seed",
+    executeStepTimeoutMs: "seed",
+    executedReportBytes: "seed",
   },
   groups: {
     model: "models",
@@ -69,6 +75,9 @@ const settings: InstanceSettingsView = {
     converseWindowMs: "limits",
     converseTimeoutMs: "limits",
     ocrEnabled: "limits",
+    executeDeclared: "limits",
+    executeStepTimeoutMs: "limits",
+    executedReportBytes: "limits",
   },
 };
 
