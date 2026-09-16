@@ -818,3 +818,95 @@ def out_files(out: dict[str, object]) -> dict[str, str]:
     files = out["files"]
     assert isinstance(files, dict)
     return files
+
+
+class TestStaged:
+    """`--staged`: trees a private repository's sandbox was handed (decision 158)."""
+
+    @pytest.fixture
+    def stage(self, tmp_path: Path) -> Path:
+        """Two plain trees, as `sandbox_create` unpacks them: no `.git` in either."""
+        stage = tmp_path / "work" / "stage"
+        base = stage / "base"
+        head = stage / "head"
+        for tree in (base, head):
+            tree.mkdir(parents=True)
+            (tree / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+        (base / ".cujo.yml").write_text("test: pytest -q\nallow_hosts:\n  - api.example\n")
+        (head / ".cujo.yml").write_text("allow_hosts:\n  - evil.example\n")
+        (head / "added.py").write_text("x = 1\n")
+        return stage
+
+    def run(self, tmp_path: Path, ctx: Context, **overrides: object) -> dict[str, Any]:
+        args = argparse.Namespace(
+            clone_url=None,
+            staged=str(tmp_path / "work" / "stage"),
+            head_sha="a" * 40,
+            base_sha="b" * 40,
+            pr_number=PR_NUMBER,
+            repo=REPO,
+            head=str(tmp_path / "work" / "head"),
+            base=str(tmp_path / "work" / "base"),
+        )
+        for key, value in overrides.items():
+            setattr(args, key, value)
+        return cmd_prepare(ctx, args)
+
+    def test_adopts_both_trees_as_repositories_and_reports_them(
+        self, tmp_path: Path, ctx: Context, stage: Path
+    ) -> None:
+        report = self.run(tmp_path, ctx)
+        assert report["ok"] is True, report
+        assert report["source"] == "staged"
+        head = Path(report["head"])
+        base = Path(report["base"])
+        # The trees moved into place, and the staging directory is gone.
+        assert (head / "added.py").read_text() == "x = 1\n"
+        assert not (base / "added.py").exists()
+        assert not stage.exists()
+        # Each is a repository of one commit, so a tool that asks git finds an answer.
+        for tree in (head, base):
+            assert git(tree, "rev-parse", "--is-inside-work-tree") == "true"
+            assert git(tree, "rev-list", "--count", "HEAD") == "1"
+            assert "pyproject.toml" in git(tree, "ls-files")
+        # Policy from base, build files from head, exactly as a clone reports them.
+        assert report["cujo_yml_status"] == "read"
+        assert "api.example" in report["cujo_yml"]
+        assert "evil.example" not in report["cujo_yml"]
+        assert "pyproject.toml" in report["files"]
+        assert [s["argv"][3] for s in report["steps"]][:3] == ["init", "add", "-c"]
+
+    def test_refuses_a_missing_tree_before_touching_anything(
+        self, tmp_path: Path, ctx: Context, stage: Path
+    ) -> None:
+        import shutil
+
+        shutil.rmtree(stage / "head")
+        report = self.run(tmp_path, ctx)
+        assert report["ok"] is False
+        assert "head tree is missing" in report["error"]
+        assert (stage / "base").is_dir()
+        assert not (tmp_path / "work" / "base").exists()
+
+    def test_refuses_a_tree_that_is_a_symlink(
+        self, tmp_path: Path, ctx: Context, stage: Path
+    ) -> None:
+        import shutil
+
+        shutil.rmtree(stage / "head")
+        (stage / "head").symlink_to(tmp_path)
+        report = self.run(tmp_path, ctx)
+        assert report["ok"] is False
+        assert "symlink" in report["error"]
+
+    def test_refuses_both_sources_and_neither(
+        self, tmp_path: Path, ctx: Context, stage: Path
+    ) -> None:
+        both = self.run(tmp_path, ctx, clone_url="https://github.com/spencerjireh/demo.git")
+        assert both["ok"] is False and "exactly one" in both["error"]
+        neither = self.run(tmp_path, ctx, staged=None)
+        assert neither["ok"] is False and "exactly one" in neither["error"]
+        assert stage.is_dir()
+
+    def test_clone_reports_its_source(self, prepare: Callable[..., dict[str, Any]]) -> None:
+        assert prepare()["source"] == "clone"

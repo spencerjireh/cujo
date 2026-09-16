@@ -279,6 +279,12 @@ export function buildTurnMessage(
   runId = "",
   cached: readonly CachedDetonation[] = [],
   instructions: Instructions | null = null,
+  /**
+   * The staging ticket for a private repository (decision 158), or `""`. One
+   * of `clone_url` and `staged` is in the brief and never both: a public
+   * repository's box clones for itself, a private one's trees were copied in.
+   */
+  staged = "",
 ): string {
   const docsOnly = isDocsOnly(pr.changedFiles);
   const payload = {
@@ -288,7 +294,7 @@ export function buildTurnMessage(
     pr_body: pr.body,
     base_sha: pr.baseSha,
     head_sha: pr.headSha,
-    clone_url: pr.cloneUrl,
+    ...(staged ? { staged } : { clone_url: pr.cloneUrl }),
     changed_files: pr.changedFiles,
     manifest_changed: manifestChanged(pr.changedFiles),
     ...(docsOnly ? { docs_only: true } : {}),

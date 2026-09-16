@@ -32,6 +32,14 @@ export interface SandboxSpec {
    * is validated before a runtime ever sees it (decision 116).
    */
   allowHosts: readonly string[];
+  /**
+   * Archives of the base and head trees to copy into the box once it is up
+   * (decision 158), as paths on this process's own filesystem. Set for a
+   * private repository, whose trees were fetched on the trusted side because
+   * the box holds no credential to clone with. Absent means the box clones
+   * for itself, which is what a public repository does.
+   */
+  staged?: { base: string; head: string };
 }
 
 export interface Sandbox {

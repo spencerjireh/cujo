@@ -12,6 +12,7 @@
  */
 
 import { execFile } from "node:child_process";
+import type { Readable } from "node:stream";
 
 export interface DockerResult {
   stdout: string;
@@ -26,7 +27,8 @@ interface DockerOptions {
   timeoutMs?: number;
   /** Bytes of each stream to keep. A runaway build log must not be unbounded. */
   maxBuffer?: number;
-  stdin?: string;
+  /** Fed to the command's stdin and closed. A stream is piped, never buffered. */
+  stdin?: string | Readable;
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -65,8 +67,12 @@ export function dockerCli(binary = "docker"): Docker {
           resolve({ stdout, stderr, exitCode: timedOut ? null : code, timedOut });
         },
       );
-      if (options.stdin !== undefined) {
+      if (typeof options.stdin === "string") {
         child.stdin?.end(options.stdin);
+      } else if (options.stdin !== undefined && child.stdin) {
+        // A staged archive is streamed through here (decision 158): piped,
+        // so a tree of any size costs this process one chunk at a time.
+        options.stdin.pipe(child.stdin);
       }
     });
 }
