@@ -8,7 +8,10 @@
  * rather than as a dead transport.
  */
 
+import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createLogger } from "@cujo/log";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -16,6 +19,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ExecRequest, Sandbox, SandboxRuntime, SandboxSpec } from "../src/runtime";
 import { SandboxError } from "../src/runtime";
 import { createApp } from "../src/server";
+import { StagingStore, mintTicket } from "../src/stage";
 
 /** A runtime that records what it was asked for and provisions nothing. */
 class FakeRuntime implements SandboxRuntime {
@@ -49,9 +53,17 @@ class FakeRuntime implements SandboxRuntime {
 }
 
 const runtime = new FakeRuntime();
+const stageDir = await mkdtemp(join(tmpdir(), "cujo-stage-"));
+const stage = new StagingStore({
+  dir: stageDir,
+  maxBytes: 1024,
+  ttlMs: 60_000,
+  log: createLogger({ service: "sandbox-mcp", sink: () => {} }),
+});
 const server = createApp({
   runtime,
   log: createLogger({ service: "sandbox-mcp", sink: () => {} }),
+  stage,
 });
 let base = "";
 
@@ -62,6 +74,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await rm(stageDir, { recursive: true, force: true });
 });
 
 async function connect(): Promise<Client> {
@@ -109,7 +122,7 @@ describe("the tools", () => {
     const create = tools.find((t) => t.name === "sandbox_create");
     // The deployment's image comes from this process's own environment, for the
     // reason `github-mcp` holds `publicBaseUrl` in its env rather than taking it.
-    expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual(["allow_hosts"]);
+    expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual(["allow_hosts", "staged"]);
     await client.close();
   });
 
@@ -335,5 +348,78 @@ describe("readiness (decision 118)", () => {
 
   it("is ready at once when no readiness promise is given", async () => {
     expect((await fetch(`${base}/healthz`)).status).toBe(200);
+  });
+});
+
+describe("staged trees (decision 158)", () => {
+  const put = (ticket: string, tree: string, text: string) =>
+    fetch(`${base}/stage/${ticket}/${tree}`, { method: "PUT", body: text });
+
+  it("takes an archive per tree over PUT and says how many bytes it kept", async () => {
+    const ticket = mintTicket();
+    const res = await put(ticket, "base", "tar");
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ ok: true, bytes: 3 });
+  });
+
+  it("refuses a bad ticket, a bad tree, a repeat and an oversize body by status", async () => {
+    const ticket = mintTicket();
+    expect((await put("nope", "base", "x")).status).toBe(400);
+    expect((await put(ticket, "tail", "x")).status).toBe(400);
+    await put(ticket, "head", "x");
+    expect((await put(ticket, "head", "x")).status).toBe(409);
+    expect((await put(mintTicket(), "head", "y".repeat(2048))).status).toBe(413);
+    expect((await fetch(`${base}/stage/${ticket}/head`)).status).toBe(405);
+  });
+
+  it("copies both trees into the box it creates, once", async () => {
+    const ticket = mintTicket();
+    await put(ticket, "base", "b");
+    await put(ticket, "head", "h");
+    const client = await connect();
+    const result = await client.callTool({ name: "sandbox_create", arguments: { staged: ticket } });
+    expect(payload(result).ok).toBe(true);
+    expect(runtime.specs.at(-1)?.staged).toMatchObject({
+      base: expect.stringContaining("base.tgz"),
+      head: expect.stringContaining("head.tgz"),
+    });
+    // Spent: the same ticket buys nothing twice.
+    const again = await client.callTool({ name: "sandbox_create", arguments: { staged: ticket } });
+    expect((again as { isError?: boolean }).isError).toBe(true);
+    expect(payload(again).problem).toContain("unknown, used or expired");
+    await client.close();
+  });
+
+  it("refuses a ticket with only one tree staged, and provisions nothing", async () => {
+    const ticket = mintTicket();
+    await put(ticket, "base", "b");
+    const client = await connect();
+    const before = runtime.specs.length;
+    const result = await client.callTool({ name: "sandbox_create", arguments: { staged: ticket } });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(runtime.specs.length).toBe(before);
+    await client.close();
+  });
+
+  it("refuses a ticket that is not one at the schema", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "sandbox_create", arguments: { staged: "../x" } });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    await client.close();
+  });
+
+  it("is 404 without a staging store", async () => {
+    const bare = createApp({
+      runtime,
+      log: createLogger({ service: "sandbox-mcp", sink: () => {} }),
+    });
+    await new Promise<void>((resolve) => bare.listen(0, () => resolve()));
+    const port = (bare.address() as AddressInfo).port;
+    const res = await fetch(`http://127.0.0.1:${port}/stage/${mintTicket()}/base`, {
+      method: "PUT",
+      body: "x",
+    });
+    expect(res.status).toBe(404);
+    await new Promise<void>((resolve) => bare.close(() => resolve()));
   });
 });

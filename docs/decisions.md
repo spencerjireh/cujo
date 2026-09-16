@@ -7905,3 +7905,47 @@ the provider's name and base URL to anyone; **reading GitHub on every
 visit**, when nothing there changes by the second; **editing per-model
 limits per model**, when a deploy registers one provider and, in practice,
 one model (decision 127).
+
+## 158. Private repositories: the trees are staged on the trusted side, and the box clones nothing
+
+Private repositories were a non-goal (134, 149): the sandbox holds no
+credential and never will, so a private pull request's brief carried a clone
+URL the box could not use, and the run failed at `prepare`. Track 10 makes
+Cujo a reviewer for one person's repositories, most of which are private.
+
+So a private repository's trees go in as bytes. `apps/cujo` fetches GitHub's
+archive of the base commit and of the head commit with the installation
+token — a fork's head commit is served by the base repository, which keeps it
+under `refs/pull/<n>/head` — and streams each to a staging route on
+`sandbox-mcp` under a 32-hex ticket minted for the run. The brief carries
+`staged: <ticket>` where a public repository's brief carries `clone_url`,
+never both. The agent's `sandbox_create` with the ticket copies both trees
+into the box it makes, through the same exec-stdin path `sandbox_write_file`
+uses, and the entry is gone. `sniff.py prepare --staged /work/stage` adopts
+them: each tree becomes a repository of one synthetic commit, and the rest
+of `prepare` — policy from base, build files from head — runs as for a
+clone. The token is used on the trusted side and dropped; the ticket buys one
+copy into one box and reads nothing back; the box sees a tree, not a URL.
+
+Accepted: **archives, not a clone**, because no trusted service had to gain
+git for it and a tree is what the checks run — a build tool that asks git a
+question gets a one-commit answer, which is said in the report as
+`source: "staged"`; **the staging door on `sandbox-mcp`**, since it already
+holds the box and the exec path, and a second service with the docker socket
+would be a second thing to guard; **its own tmpfs**, so a private tree never
+rests on the host's disk; **single use and thirty minutes**, so a ticket read
+out of a transcript later buys nothing; **a per-tree cap** (256 MiB), which
+is a refusal the run reports rather than a tmpfs that fills; **staging before
+the turn**, so a failure costs no session; **the shadow review skips a
+private repository** with a line, since the sidecar clones by URL and holds
+no credential; **`daytona` refuses a ticket**, having no upload path.
+
+Rejected: **a token in the box**, in any form — a signed archive URL is a
+credential too; **a git bundle**, which needs git on the trusted side and
+carries history the checks do not use; **the harness or the model fetching
+the trees**, which would put the installation token where the model's
+tool calls are; **`docker cp` from a staged file**, which the `writeFile`
+comment already ruled out for landing bytes on the host.
+
+The public plane still hides a private run; who may see one is the next
+slice.

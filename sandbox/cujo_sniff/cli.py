@@ -174,7 +174,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     prep = sub.add_parser("prepare", help="clone head and base, and read the build files")
-    prep.add_argument("--clone-url", required=True)
+    # Where the two trees come from: a clone the box makes itself, for a public
+    # repository, or trees `sandbox_create` already copied in under `--staged`,
+    # for a private one whose archives were fetched outside the box because
+    # no credential may enter it (decision 158). One or the other, never both.
+    source = prep.add_mutually_exclusive_group(required=True)
+    source.add_argument("--clone-url")
+    source.add_argument("--staged", metavar="DIR")
     prep.add_argument("--head-sha", required=True)
     prep.add_argument("--base-sha", required=True)
     # The head commit is fetched as `refs/pull/<n>/head`, which is the only way

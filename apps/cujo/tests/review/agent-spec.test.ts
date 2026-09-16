@@ -589,3 +589,32 @@ describe("modelRef, through the specs", () => {
     });
   });
 });
+
+describe("buildTurnMessage for a private repository (decision 158)", () => {
+  it("carries the staging ticket and no clone URL", () => {
+    const message = buildTurnMessage(
+      {
+        repo: "o/r",
+        prNumber: 7,
+        title: "t",
+        body: "b",
+        baseSha: "b".repeat(40),
+        headSha: "h".repeat(40),
+        cloneUrl: "https://github.com/o/r.git",
+        changedFiles: ["app.py"],
+        authorLogin: null,
+        authorId: null,
+        files: [],
+        authorIsBot: false,
+      },
+      "",
+      [],
+      null,
+      "0123456789abcdef0123456789abcdef",
+    );
+    const json = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
+    expect(json.staged).toBe("0123456789abcdef0123456789abcdef");
+    expect(json).not.toHaveProperty("clone_url");
+    expect(message).not.toContain("github.com");
+  });
+});

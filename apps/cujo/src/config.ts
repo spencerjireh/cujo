@@ -104,6 +104,11 @@ export interface Config {
   ocrSidecarUrl: string | null;
   /** How long one shadow review may take, clone included. */
   ocrTimeoutMs: number;
+  /**
+   * How long staging one tree of a private repository may take, GitHub's
+   * archive to the sandbox service's last byte (decision 158).
+   */
+  stageTimeoutMs: number;
   /** Concurrent public run streams this process will hold (decision 34). */
   publicStreamLimit: number;
   /**
@@ -298,6 +303,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // sidecar.
     ocrSidecarUrl: env.CUJO_OCR_SIDECAR_URL || null,
     ocrTimeoutMs: count(env.CUJO_OCR_TIMEOUT_MS, 21 * 60 * 1000),
+    stageTimeoutMs: count(env.CUJO_STAGE_TIMEOUT_MS, 5 * 60 * 1000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
     converseLimit: count(env.CUJO_CONVERSE_LIMIT, 3, { zeroOk: true }),
     converseWindowMs: count(env.CUJO_CONVERSE_WINDOW_MS, 60 * 60 * 1000),

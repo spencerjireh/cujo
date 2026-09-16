@@ -242,6 +242,29 @@ export class GitHubReader {
     return (await res.json()) as T;
   }
 
+  /**
+   * The tree at one commit, as GitHub's gzipped tar, streamed (decision 158).
+   *
+   * Read with the installation token, which is how a private repository's
+   * trees reach the trusted side; the token goes on the API request and
+   * `fetch` drops it on the cross-origin redirect to the archive host. A
+   * fork's head commit is served by the base repository, since GitHub keeps
+   * it there under `refs/pull/<n>/head`. The stream is the caller's to drain.
+   */
+  async archive(repo: string, sha: string): Promise<ReadableStream<Uint8Array>> {
+    const path = `/repos/${repo}/tarball/${sha}`;
+    const res = await this.fetchImpl(`${API}${path}`, {
+      headers: {
+        authorization: `Bearer ${await this.token(repo)}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "cujo",
+      },
+      redirect: "follow",
+    });
+    if (!res.ok || !res.body) throw new GitHubError(res.status, path);
+    return res.body;
+  }
+
   async pullRequest(repo: string, prNumber: number): Promise<PullRequestInfo> {
     const pr = await this.get<{
       title: string;

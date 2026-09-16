@@ -38,6 +38,10 @@ function harness(over: {
   board?: { mode?: "sandbox" | "diff" | null; instructions?: string | null };
   /** `.cujo/REVIEW.md` at base, when the repository carries one. */
   reviewFile?: string;
+  /** The run's repository is private (decision 158). */
+  isPublic?: boolean;
+  /** Wire the staging door, answering with this, or throwing it. */
+  stage?: { fail?: Error };
   /** Wire the shadow review with this answer (decision 149). */
   ocr?: () => Promise<
     | { ok: true; result: unknown; exitCode: number | null; durationMs: number }
@@ -50,7 +54,7 @@ function harness(over: {
     prNumber: 7,
     headSha: "h",
     sessionId: "s-pr",
-    isPublic: true,
+    isPublic: over.isPublic ?? true,
     model: "p/m",
     rubricSha256: "sandbox-rubric",
   }).run;
@@ -63,6 +67,7 @@ function harness(over: {
   } as unknown as Runner;
   const github = {
     alreadyReviewed: vi.fn(async () => false),
+    archive: vi.fn(async (_repo: string, sha: string) => sha),
     pullRequest: vi.fn(async () => over.pr ?? pr()),
     declaredMode: vi.fn(async () => {
       if (over.declaredError) throw over.declaredError;
@@ -117,6 +122,18 @@ function harness(over: {
         store: store.ocr,
       }
     : undefined;
+  const staged: { ticket: string; tree: string; body: unknown }[] = [];
+  const stage = over.stage
+    ? {
+        stager: {
+          put: async (ticket: string, tree: "base" | "head", body: ReadableStream) => {
+            if (over.stage?.fail) throw over.stage.fail;
+            staged.push({ ticket, tree, body });
+            return 1;
+          },
+        },
+      }
+    : undefined;
   const deps: StartRunDeps = {
     github,
     store: store.runs,
@@ -124,6 +141,7 @@ function harness(over: {
     log,
     reviewRunId: (r: RunRecord) => r.id,
     ...(over.diff === null ? {} : { diff }),
+    ...(stage ? { stage } : {}),
     ...(over.cache ? { detonations } : {}),
     ...(ocr ? { ocr } : {}),
     ...(over.board
@@ -138,7 +156,7 @@ function harness(over: {
         }
       : {}),
   };
-  return { store, run, runner, github, createSession, deps, lines, asked, kept, ocrCalls };
+  return { store, run, runner, github, createSession, deps, lines, asked, kept, ocrCalls, staged };
 }
 
 /** The brief `Runner.start` was handed, parsed. */
@@ -408,5 +426,63 @@ describe("startRun reads the board and the repository's instructions (decision 1
     const none = harness({});
     await startRun(none.deps, none.run);
     expect("instructions" in briefOf(none.runner)).toBe(false);
+  });
+});
+
+describe("startRun stages a private repository's trees (decision 158)", () => {
+  it("briefs a ticket and no clone URL, with both trees staged under it", async () => {
+    const h = harness({ isPublic: false, stage: {} });
+    await startRun(h.deps, h.run);
+    const brief = briefOf(h.runner);
+    expect(brief.staged).toMatch(/^[0-9a-f]{32}$/);
+    expect(brief).not.toHaveProperty("clone_url");
+    expect(h.github.archive).toHaveBeenCalledTimes(2);
+    expect(h.staged.map((s) => [s.tree, s.body])).toEqual([
+      ["base", "base"],
+      ["head", "h"],
+    ]);
+    expect(new Set(h.staged.map((s) => s.ticket)).size).toBe(1);
+    expect(h.staged[0]?.ticket).toBe(brief.staged);
+    expect(h.lines.find((l) => l.event === "run.staged")).toMatchObject({ bytes: 2 });
+  });
+
+  it("briefs a public repository's clone URL and stages nothing", async () => {
+    const h = harness({ isPublic: true, stage: {} });
+    await startRun(h.deps, h.run);
+    expect(briefOf(h.runner)).toHaveProperty("clone_url");
+    expect(h.staged).toEqual([]);
+    expect(h.github.archive).not.toHaveBeenCalled();
+  });
+
+  it("fails the run before any turn when staging fails", async () => {
+    const h = harness({
+      isPublic: false,
+      stage: { fail: new Error("staging the base tree failed: full") },
+    });
+    await startRun(h.deps, h.run);
+    expect(h.runner.start).not.toHaveBeenCalled();
+    expect(h.runner.fail).toHaveBeenCalledWith(
+      h.run.id,
+      expect.stringContaining("staging the base tree failed"),
+    );
+    expect(h.lines.find((l) => l.event === "run.prepare.failed")).toBeDefined();
+  });
+
+  it("briefs a clone URL for a private repository when no staging door is composed", async () => {
+    const h = harness({ isPublic: false });
+    await startRun(h.deps, h.run);
+    expect(briefOf(h.runner)).toHaveProperty("clone_url");
+  });
+
+  it("skips the shadow review for a private repository with a line", async () => {
+    const h = harness({
+      isPublic: false,
+      stage: {},
+      ocr: async () => ({ ok: true, result: {}, exitCode: 0, durationMs: 1 }),
+    });
+    await startRun(h.deps, h.run);
+    expect(h.ocrCalls).toEqual([]);
+    expect(h.lines.find((l) => l.event === "ocr.skipped")).toMatchObject({ reason: "private" });
+    expect(h.store.ocr.get(h.run.id)).toBeNull();
   });
 });
