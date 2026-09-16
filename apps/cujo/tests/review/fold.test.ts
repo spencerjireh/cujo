@@ -1480,12 +1480,12 @@ describe("executed checks (decision 161)", () => {
     expect(p.findings[0]).toMatchObject({ severity: "critical", check: "tests" });
   });
 
-  it("owes no tests report at the end of the turn, and still owes the others", () => {
+  it("owes no tests report at the end of the turn, owes probes, and owes smoke only when it ran", () => {
     const p = fold([turnCreated("t1"), turnDone()], {
       executed: executed({ base_pass_head_fail: [] }),
     });
     const missing = p.findings.filter((f) => f.rule === "check_missing").map((f) => f.check);
-    expect(missing).toEqual(["probes", "smoke"]);
+    expect(missing).toEqual(["probes"]);
   });
 
   it("closes the setup window at the turn's creation, from the executor's start", () => {

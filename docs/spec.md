@@ -185,12 +185,14 @@ on and a `.cujo.yml` at the base commit that parses and declares `test`, the
 run is a **judge run**: `apps/cujo` provisions the box through `sandbox-mcp`
 itself, runs `sniff.py prepare` and `setup`, the declared `install` on each
 tree and the declared `test` on base then head, asks `sniff.py report` for the
-`tests` envelope, and starts a turn on the judge spec (`agent/JUDGE.md`) whose
-brief carries `sandbox: {id, env}`, `policy`, `executed: {tests: {report,
-truncated}}` and a `coverage` prefilled with what ran — and neither
+`tests` envelope, and, when the policy declares `boot`, runs `sniff.py smoke` on head then base
+for the `smoke` envelope (decision 162); then starts a turn on the judge spec
+(`agent/JUDGE.md`) whose brief carries `sandbox: {id, env}`, `policy`,
+`executed: {tests: {report, truncated}, smoke?: {…}}` and a `coverage`
+prefilled with what ran — and neither
 `clone_url` nor `staged`, since the box is prepared. The parent reads the
-evidence, spawns `probes` by default and the checks the executor does not
-run yet, and posts; `apps/cujo` destroys the box when the turn ends. Any
+evidence, spawns `probes` by default and `detonation` when a manifest
+changed, and posts; `apps/cujo` destroys the box when the turn ends. Any
 other run is a **gather run**, the path below, on `agent/SKILL.md`. Logged as
 `run.path.resolved` with `path_kind` and a reason (`declared`, `undeclared`,
 `disabled`); a file that does not parse logs `policy.invalid` and takes the
@@ -490,7 +492,14 @@ and none of the lists (decision 166). The four names print the entry whole.
   does not cover.
 - **`smoke`** — boot the app with the configured or inferred command, hit the
   configured or inferred endpoints, stop it. Report status codes, response
-  tails, and the log tail.
+  tails, and the log tail. On a judge run this is `sniff.py smoke` (decision
+  162), run by `apps/cujo` on head then base with the declared `boot` line and
+  `smoke` requests: the boot runs as one sensed command in its own process
+  group, the requests are made from the sensor process while it listens, and
+  the group is stopped inside the same window; one `runs[]` entry per tree
+  carries `tree`, `port`, `port_source`, `ready`, `requests[]` and the app's
+  sensor block, and `endpoints[]` and `log_tail` are joined from the two on
+  the trusted side.
 - **`detonation`** — runs only when the changed-file list includes a
   dependency manifest (`requirements*.txt`, `pyproject.toml`, `setup.py`,
   `setup.cfg`, `Pipfile`, `uv.lock`, `package.json`, `package-lock.json`,
