@@ -18,10 +18,11 @@ import Link from "next/link";
 /**
  * The page a reader lands on when they have decided to try it.
  *
- * Requirements come before the steps. Both of them — public, and branch
- * protection — are things that make Cujo look broken rather than unsupported if
- * you find them out afterwards: a private repository silently has no page, and
- * a block on an unprotected branch posts and holds nothing.
+ * Requirements come before the steps. Both of them — the App on the repository,
+ * and branch protection — are things that make Cujo look broken rather than
+ * unsupported if you find them out afterwards: a repository the App is not
+ * installed on gets nothing at all, and a block on an unprotected branch posts
+ * and holds nothing.
  */
 export function Install() {
   return (
@@ -29,10 +30,10 @@ export function Install() {
       <Section id="requirements" title="Two things the repository needs">
         <UL>
           <LI>
-            <strong className="font-medium text-fg">It must be public.</strong> Nothing in this
-            system holds a clone credential, which is the same property that keeps secrets out of
-            the sandbox. A private repository has nothing to be cloned with, and no page on this
-            board.
+            <strong className="font-medium text-fg">The App installed on it.</strong> Public or
+            private: a private repository&rsquo;s trees reach the sandbox through the App&rsquo;s
+            own access, fetched outside the box and copied in, so the box still holds no credential.
+            Its runs are visible on this board only to an owner of the installation, signed in.
           </LI>
           <LI>
             <strong className="font-medium text-fg">
