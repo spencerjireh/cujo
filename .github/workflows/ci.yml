@@ -63,6 +63,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -f apps/${{ matrix.service }}/Dockerfile -t cujo-${{ matrix.service }}:ci .
+      # An image that builds is not an image that boots. A bundled CommonJS
+      # dependency threw on its first line under ESM and the container exited
+      # before any config was read, which took the deploy and the site with
+      # it. Every service refuses to start without its configuration, so a
+      # boot with none must reach that refusal and not a module error.
+      - name: the image boots far enough to refuse its configuration
+        run: |
+          timeout 60 docker run --rm cujo-${{ matrix.service }}:ci > boot.log 2>&1 || true
+          cat boot.log
+          if grep -qiE "Dynamic require of|Cannot find module|Cannot find package|ERR_MODULE_NOT_FOUND" boot.log; then
+            echo "::error::${{ matrix.service }}: the bundle does not load"
+            exit 1
+          fi
 
   # The two images that are not a workspace app: the sandbox a review runs in,
   # and the gateway that filters its egress (decisions 116, 117).
