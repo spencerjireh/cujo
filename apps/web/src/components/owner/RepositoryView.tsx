@@ -140,7 +140,7 @@ function Runs({ repo }: { repo: string }) {
     <div>
       <h2 className="text-lg">Runs</h2>
       <p className="mt-1 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-        The newest runs on this repository. A private repository&rsquo;s runs have no page yet.
+        The newest runs on this repository, a private one&rsquo;s included.
       </p>
       {list.isPending ? (
         <p className="mt-3 text-sm text-fg-muted">Loading…</p>
