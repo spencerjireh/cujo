@@ -14,7 +14,7 @@ describe("webhook", () => {
   const payload = JSON.stringify({
     action: "opened",
     number: 7,
-    repository: { full_name: "o/r" },
+    repository: { full_name: "o/r", private: false },
     pull_request: { head: { sha: "h" } },
   });
 
@@ -69,7 +69,7 @@ describe("webhook", () => {
     const draft = JSON.stringify({
       action: "opened",
       number: 7,
-      repository: { full_name: "o/r" },
+      repository: { full_name: "o/r", private: false },
       pull_request: { head: { sha: "h" }, draft: true },
     });
     const { app, runner } = build();
@@ -83,7 +83,7 @@ describe("webhook", () => {
     const labelled = JSON.stringify({
       action: "opened",
       number: 7,
-      repository: { full_name: "o/r" },
+      repository: { full_name: "o/r", private: false },
       pull_request: {
         head: { sha: "h" },
         labels: [{ name: "bug" }, { name: "cujo:skip" }],
@@ -100,7 +100,7 @@ describe("webhook", () => {
     const ready = JSON.stringify({
       action: "ready_for_review",
       number: 7,
-      repository: { full_name: "o/r" },
+      repository: { full_name: "o/r", private: false },
       pull_request: { head: { sha: "h" }, draft: false },
     });
     const { app, runner, nextSettled } = build();
@@ -115,7 +115,7 @@ describe("webhook", () => {
     const normal = JSON.stringify({
       action: "opened",
       number: 7,
-      repository: { full_name: "o/r" },
+      repository: { full_name: "o/r", private: false },
       pull_request: {
         head: { sha: "h" },
         draft: false,
@@ -332,7 +332,7 @@ describe("webhook", () => {
     const commentEvent = (over: Record<string, unknown> = {}) =>
       JSON.stringify({
         action: "created",
-        repository: { full_name: "o/r" },
+        repository: { full_name: "o/r", private: false },
         issue: { number: 7, pull_request: { url: "https://api.github.com/…/pulls/7" } },
         comment: { id: 55, body: "/cujo dismiss", user: { login: "maintainer" } },
         ...over,
@@ -474,7 +474,7 @@ describe("webhook", () => {
     const reviewComment = (over: Record<string, unknown> = {}) =>
       JSON.stringify({
         action: "created",
-        repository: { full_name: "o/r" },
+        repository: { full_name: "o/r", private: false },
         pull_request: { number: 7 },
         comment: { id: 88, body: "@cujo-guard seed the db", user: { login: "maintainer" } },
         ...over,
@@ -786,7 +786,7 @@ describe("webhook", () => {
       store.repositories.setEnabled("o/r", false, at);
       const comment = JSON.stringify({
         action: "created",
-        repository: { full_name: "o/r" },
+        repository: { full_name: "o/r", private: false },
         issue: { number: 7, pull_request: { url: "u" } },
         comment: { id: 1, body: "/cujo review", user: { login: "octocat" } },
       });
@@ -802,7 +802,7 @@ describe("webhook", () => {
       expect(converse.handle).not.toHaveBeenCalled();
       const thread = JSON.stringify({
         action: "created",
-        repository: { full_name: "o/r" },
+        repository: { full_name: "o/r", private: false },
         pull_request: { number: 7 },
         comment: { id: 2, body: "@cujo-guard prove it", user: { login: "octocat" } },
       });
@@ -833,7 +833,7 @@ describe("webhook", () => {
       const again = JSON.stringify({
         action: "opened",
         number: 8,
-        repository: { full_name: "o/r" },
+        repository: { full_name: "o/r", private: false },
         pull_request: { head: { sha: "h2" } },
       });
       const done2 = nextSettled();
@@ -847,7 +847,7 @@ describe("webhook", () => {
     JSON.stringify({
       action: "synchronize",
       number: 7,
-      repository: { full_name: "o/r" },
+      repository: { full_name: "o/r", private: false },
       pull_request: { head: { sha } },
     });
 
@@ -1107,13 +1107,13 @@ describe("the webhook logs every branch it takes", () => {
     const draftBody = JSON.stringify({
       action: "opened",
       number: 7,
-      repository: { full_name: "o/r" },
+      repository: { full_name: "o/r", private: false },
       pull_request: { head: { sha: "h" }, draft: true },
     });
     const labelBody = JSON.stringify({
       action: "opened",
       number: 7,
-      repository: { full_name: "o/r" },
+      repository: { full_name: "o/r", private: false },
       pull_request: { head: { sha: "h" }, labels: [{ name: "cujo:skip" }] },
     });
     const { app, logged } = build();

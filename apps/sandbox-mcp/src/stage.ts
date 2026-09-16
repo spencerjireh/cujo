@@ -110,7 +110,7 @@ export class StagingStore {
       await rm(path, { force: true });
       throw error;
     }
-    this.log.info("stage.received", { reason: tree, bytes });
+    this.log.info("stage.received", { path: tree, bytes });
     return { bytes };
   }
 
