@@ -141,7 +141,9 @@ function Runs({ repo }: { repo: string }) {
       <p className="mt-1 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
         The newest runs on this repository. A private repository&rsquo;s runs have no page yet.
       </p>
-      {runs.length === 0 ? (
+      {list.isPending ? (
+        <p className="mt-3 text-sm text-fg-muted">Loading…</p>
+      ) : runs.length === 0 ? (
         <p className="mt-3 text-sm text-fg-muted">No runs on the board for this repository.</p>
       ) : (
         <ul className="mt-3 flex flex-col border-b border-line">
