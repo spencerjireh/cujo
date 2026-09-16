@@ -16,6 +16,7 @@ import type { SandboxRuntime } from "./runtime";
 import { DaytonaRuntime } from "./runtimes/daytona";
 import { LocalRuntime } from "./runtimes/local";
 import { createApp } from "./server";
+import { StagingStore } from "./stage";
 
 export { createApp } from "./server";
 export { LocalRuntime } from "./runtimes/local";
@@ -30,6 +31,14 @@ const PORT = Number(process.env.PORT ?? 8082);
 const IMAGES_DIR = process.env.CUJO_SANDBOX_IMAGES_DIR ?? "/app/images";
 /** How often expired sandboxes are reaped. Cheap, and a leak here is containers. */
 const REAP_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Where a private repository's trees wait for their sandbox (decision 158):
+ * a tmpfs of this service's own in the deployment. Empty turns staging off.
+ */
+const STAGE_DIR = process.env.CUJO_STAGE_DIR ?? "/stage";
+const STAGE_MAX_BYTES = Number(process.env.CUJO_STAGE_MAX_BYTES ?? 256 * 1024 * 1024);
+const STAGE_TTL_MS = 30 * 60 * 1000;
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -89,7 +98,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
           { docker: dockerCli(), log },
         )
       : undefined;
-  createApp({ runtime, log, ready }).listen(PORT, () => {
+  const stage =
+    runtime instanceof LocalRuntime && STAGE_DIR !== ""
+      ? new StagingStore({ dir: STAGE_DIR, maxBytes: STAGE_MAX_BYTES, ttlMs: STAGE_TTL_MS, log })
+      : undefined;
+  stage?.start(REAP_INTERVAL_MS);
+  createApp({ runtime, log, ready, stage }).listen(PORT, () => {
     log.info("service.started", { port: PORT, reason: runtime.name, ready: ready === undefined });
   });
   ready?.catch((error) => {

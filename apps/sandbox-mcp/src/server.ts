@@ -18,6 +18,7 @@ import { type Logger, createLogger, errorFields } from "@cujo/log";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { SandboxRuntime } from "./runtime";
+import { StagingError, type StagingStore } from "./stage";
 import { registerSandboxTools } from "./tools";
 
 export interface AppOptions {
@@ -31,6 +32,13 @@ export interface AppOptions {
    * registry it was never on. Absent means ready.
    */
   ready?: Promise<void>;
+  /**
+   * Where a private repository's trees wait for their sandbox (decision 158).
+   * Absent means `PUT /stage/...` is 404 and `sandbox_create` refuses a
+   * `staged` ticket, which is what a deployment with no staging directory
+   * wants to hear rather than a box with nothing in it.
+   */
+  stage?: StagingStore;
 }
 
 /** A body bigger than this is not a tool call. `writeFile` is the widest caller. */
@@ -56,10 +64,43 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return text.length === 0 ? undefined : JSON.parse(text);
 }
 
-function createMcpServer(runtime: SandboxRuntime, log?: Logger): McpServer {
+function createMcpServer(
+  runtime: SandboxRuntime,
+  log?: Logger,
+  stage: StagingStore | null = null,
+): McpServer {
   const server = new McpServer({ name: "cujo-sandbox-mcp", version: "0.1.0" });
-  registerSandboxTools(server, runtime, log);
+  registerSandboxTools(server, runtime, log, stage);
   return server;
+}
+
+/** `PUT /stage/<ticket>/<base|head>`, a gzipped tar as the body, streamed. */
+const STAGE_PATH = /^\/stage\/([^/]+)\/([^/]+)$/;
+
+async function handleStage(
+  req: IncomingMessage,
+  res: ServerResponse,
+  stage: StagingStore,
+  ticket: string,
+  tree: string,
+  log: Logger,
+): Promise<void> {
+  if (req.method !== "PUT") {
+    json(res, 405, { ok: false, error: "PUT" });
+    return;
+  }
+  try {
+    const { bytes } = await stage.put(ticket, tree, req);
+    json(res, 201, { ok: true, bytes });
+  } catch (error) {
+    if (error instanceof StagingError) {
+      const status = error.kind === "too_large" ? 413 : error.kind === "exists" ? 409 : 400;
+      json(res, status, { ok: false, error: error.message });
+      return;
+    }
+    log.error("stage.put.failed", errorFields(error));
+    json(res, 500, { ok: false, error: "could not stage" });
+  }
 }
 
 export function createApp(options: AppOptions) {
@@ -83,6 +124,12 @@ export function createApp(options: AppOptions) {
       return;
     }
 
+    const staged = STAGE_PATH.exec(url.pathname);
+    if (staged?.[1] !== undefined && staged[2] !== undefined && options.stage) {
+      await handleStage(req, res, options.stage, staged[1], staged[2], log);
+      return;
+    }
+
     if (url.pathname !== "/mcp") {
       json(res, 404, { ok: false });
       return;
@@ -97,7 +144,7 @@ export function createApp(options: AppOptions) {
       return;
     }
 
-    const mcp = createMcpServer(options.runtime, log);
+    const mcp = createMcpServer(options.runtime, log, options.stage ?? null);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();

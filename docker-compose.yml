@@ -153,6 +153,9 @@ services:
       # nowhere. The timeout covers the sidecar's own clone and review.
       CUJO_OCR_SIDECAR_URL: ${CUJO_OCR_SIDECAR_URL:-}
       CUJO_OCR_TIMEOUT_MS: ${CUJO_OCR_TIMEOUT_MS:-1260000}
+      # A private repository's trees, staged for its sandbox (decision 158):
+      # how long fetching and handing over one tree may take.
+      CUJO_STAGE_TIMEOUT_MS: ${CUJO_STAGE_TIMEOUT_MS:-300000}
       # The model provider, registered on the harness at start (decision 127).
       # The harness holds nothing until this process tells it; there is no
       # console to configure it in.
@@ -239,10 +242,19 @@ services:
       # Only read when CUJO_SANDBOX_RUNTIME is `daytona`.
       DAYTONA_API_URL: ${DAYTONA_API_URL:-}
       DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
+      # Where a private repository's trees wait for their sandbox (decision
+      # 158): the tmpfs below, single use, swept after thirty minutes. The cap
+      # is per tree; the tmpfs holds two of them.
+      CUJO_STAGE_DIR: /stage
+      CUJO_STAGE_MAX_BYTES: ${CUJO_STAGE_MAX_BYTES:-268435456}
     volumes:
       # The whole reason the hardening above cannot apply. The daemon is the
       # host's; this service is a client of it.
       - /var/run/docker.sock:/var/run/docker.sock
+      - type: tmpfs
+        target: /stage
+        tmpfs:
+          size: 629145600
     security_opt:
       - no-new-privileges:true
     healthcheck:

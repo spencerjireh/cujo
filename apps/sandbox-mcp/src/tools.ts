@@ -21,6 +21,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { validateAllowlist } from "./allowlist";
 import { SandboxError, type SandboxRuntime } from "./runtime";
+import type { StagingStore } from "./stage";
 
 /** Caps, so one tool call cannot hand a runtime an unbounded argument. */
 const MAX_ARGV = 64;
@@ -45,6 +46,16 @@ const createShape = {
         "Hostnames only: no scheme, port, path, CIDR or wildcard, each of which is " +
         "refused rather than trimmed. Everything else is blocked at the network " +
         "layer by a gateway the sandbox cannot reach.",
+    ),
+  staged: z
+    .string()
+    .regex(/^[0-9a-f]{32}$/)
+    .optional()
+    .describe(
+      "The `staged` ticket from the input block, when it has one: the base and " +
+        "head trees of a private repository were fetched outside the sandbox and " +
+        "are copied into this one under /work/stage. Single use. Pass it " +
+        "verbatim and only from the input block; never compose one.",
     ),
 };
 
@@ -167,6 +178,7 @@ export function registerSandboxTools(
   server: McpServer,
   runtime: SandboxRuntime,
   log: Logger = createLogger({ service: "sandbox-mcp" }),
+  stage: StagingStore | null = null,
 ): void {
   // Names the log files of clipped output; per process, which is enough
   // because the path only has to be unique within one box's lifetime.
@@ -190,8 +202,20 @@ export function registerSandboxTools(
         log.warn("sandbox.allowlist.refused", { reason: "invalid" });
         return refusal(allow.problem);
       }
+      // A private repository's trees (decision 158): taken from the staging
+      // store before the box exists, released after, whatever happened. A
+      // ticket nobody staged, or one already used, is a refusal and not a
+      // box with an empty `/work/stage` that `prepare` would then report.
+      const staged = args.staged ? await stage?.take(args.staged) : undefined;
+      if (args.staged && !staged) {
+        log.warn("stage.refused", { reason: stage ? "unknown_ticket" : "no_store" });
+        return refusal("no staged trees under that ticket; it is unknown, used or expired");
+      }
       try {
-        const sandbox = await runtime.create({ allowHosts: allow.hosts });
+        const sandbox = await runtime.create({
+          allowHosts: allow.hosts,
+          ...(staged ? { staged: staged.trees } : {}),
+        });
         return asToolResult({
           ok: true,
           sandbox_id: sandbox.id,
@@ -203,6 +227,8 @@ export function registerSandboxTools(
       } catch (error) {
         log.error("sandbox.create.failed", errorFields(error));
         return refusal(error instanceof SandboxError ? error.message : "could not provision");
+      } finally {
+        await staged?.release();
       }
     },
   );

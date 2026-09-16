@@ -348,6 +348,51 @@ def _same_commit(fetched: str, claimed: str) -> bool:
 _PR_REF = "refs/cujo/pr"
 
 
+def _check_staged(stage: Path) -> str | None:
+    """Why a staged directory cannot be used, or None when both trees are there.
+
+    `sandbox_create` unpacked the two archives here (decision 158), so this is
+    trusted-side output and not the pull request's -- but the *path* arrived on
+    argv, composed by the model, and a tree that is a symlink or missing is
+    refused rather than followed or guessed at.
+    """
+    for tree in ("base", "head"):
+        path = stage / tree
+        if path.is_symlink():
+            return f"staged {tree} tree is a symlink"
+        if not path.is_dir():
+            return f"staged {tree} tree is missing"
+    return None
+
+
+def _adopt_staged(tree: str, source: Path, target: Path, steps: list[dict[str, Any]]) -> str | None:
+    """Move one staged tree into place and make it a repository of one commit.
+
+    A commit, and not a bare `git init`, so that a build tool which asks git a
+    question -- `rev-parse`, `ls-files`, a hook -- finds an answer instead of
+    an empty repository. The commit is synthetic and its id means nothing; the
+    trees themselves are exactly the base and head commits, fetched by SHA on
+    the trusted side, which is the guarantee the `refs/pull/<n>/head` check
+    gives a clone. Every `.gitignore` in the tree still applies to what the
+    commit records; the files are on disk either way.
+    """
+    shutil.move(str(source), str(target))
+    identity = ["-c", "user.name=cujo", "-c", "user.email=cujo@sandbox.invalid"]
+    for name, argv in (
+        ("init", ["git", "-C", str(target), "init", "-q"]),
+        ("add", ["git", "-C", str(target), "add", "-A", "--", "."]),
+        (
+            "commit",
+            ["git", "-C", str(target), *identity, "commit", "-q", "--allow-empty", "-m", tree],
+        ),
+    ):
+        step, _ = _git(argv)
+        steps.append(step)
+        if step["exit"] != 0:
+            return f"git {name} of the staged {tree} tree failed with exit {step['exit']}"
+    return None
+
+
 def cmd_prepare(_ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     head = Path(args.head)
     base = Path(args.base)
@@ -358,9 +403,21 @@ def cmd_prepare(_ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
 
     if not _REPO.fullmatch(args.repo):
         return fail(f"repo is not an owner/name: {scrub(args.repo)!r}")
-    refused = check_clone_url(args.clone_url, args.repo)
-    if refused:
-        return fail(refused)
+    # `argparse` makes the two exclusive; a caller that builds the namespace
+    # itself gets the same answer here.
+    clone_url: str | None = getattr(args, "clone_url", None)
+    staged: str | None = getattr(args, "staged", None)
+    if (clone_url is None) == (staged is None):
+        return fail("exactly one of --clone-url and --staged is required")
+    if clone_url is not None:
+        refused = check_clone_url(clone_url, args.repo)
+        if refused:
+            return fail(refused)
+    stage = Path(staged) if staged is not None else None
+    if stage is not None:
+        blocked = _check_staged(stage)
+        if blocked:
+            return fail(blocked)
     for label, sha in (("head", args.head_sha), ("base", args.base_sha)):
         if not _SHA.fullmatch(sha):
             return fail(f"{label} sha is not a commit id: {scrub(sha)!r}")
@@ -401,12 +458,20 @@ def cmd_prepare(_ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     # a same-repository pull request too, so one path serves both and the fork
     # case is exercised by every run rather than only by the runs least likely
     # to be watched.
+    if stage is not None:
+        for tree, target in (("head", head), ("base", base)):
+            problem = _adopt_staged(tree, stage / tree, target, steps)
+            if problem:
+                return fail(problem)
+        shutil.rmtree(stage, ignore_errors=True)
+        return _report(head, base, steps, source="staged")
+
     fetch = f"+refs/pull/{args.pr_number}/head:{_PR_REF}"
     for argv in (
-        ["git", "clone", args.clone_url, str(head)],
+        ["git", "clone", clone_url, str(head)],
         ["git", "-C", str(head), "fetch", "--quiet", "origin", fetch],
     ):
-        step, _ = _git(argv, redact=args.clone_url)
+        step, _ = _git(argv, redact=clone_url)
         steps.append(step)
         if step["exit"] != 0:
             return fail(f"{argv[0]} {argv[1]} failed with exit {step['exit']}")
@@ -430,10 +495,15 @@ def cmd_prepare(_ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
         ["git", "-C", str(head), "checkout", "--detach", args.head_sha],
         ["git", "-C", str(head), "worktree", "add", "--detach", str(base), args.base_sha],
     ):
-        step, _ = _git(argv, redact=args.clone_url)
+        step, _ = _git(argv, redact=clone_url)
         steps.append(step)
         if step["exit"] != 0:
             return fail(f"{argv[0]} {argv[1]} failed with exit {step['exit']}")
+    return _report(head, base, steps, source="clone")
+
+
+def _report(head: Path, base: Path, steps: list[dict[str, Any]], *, source: str) -> dict[str, Any]:
+    """Read the policy from base and the build files from head, and say so."""
 
     # Policy comes from base and never from head, so a pull request cannot
     # allowlist its own exfiltration host (spec Contract 2). It has its own,
@@ -474,6 +544,9 @@ def cmd_prepare(_ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
         "ok": True,
         "head": str(head),
         "base": str(base),
+        # Where the trees came from: a clone this command made, or trees
+        # staged outside the box for a private repository (decision 158).
+        "source": source,
         "cujo_yml": cujo_yml,
         # Why `cujo_yml` is what it is: "read", "absent", "too_large", or
         # "unreadable". Four outcomes and not one nullable string, because the

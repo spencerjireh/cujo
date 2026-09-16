@@ -676,3 +676,26 @@ describe("GitHubReader.appState (decision 157)", () => {
     expect((impl as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBe(calls);
   });
 });
+
+describe("GitHubReader.archive (decision 158)", () => {
+  it("asks for the tarball of one commit with the installation token and hands the stream back", async () => {
+    const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.github.com/repos/o/r/tarball/abc123");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer ghs_token");
+      expect(init?.redirect).toBe("follow");
+      return new Response("tar bytes", { status: 200 });
+    });
+    const body = await new GitHubReader("1", "pem", impl as unknown as typeof fetch).archive(
+      "o/r",
+      "abc123",
+    );
+    expect(await new Response(body).text()).toBe("tar bytes");
+  });
+
+  it("throws a GitHubError with the status when the archive is refused", async () => {
+    const impl = vi.fn(async () => new Response("", { status: 404 }));
+    await expect(
+      new GitHubReader("1", "pem", impl as unknown as typeof fetch).archive("o/r", "abc123"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+});

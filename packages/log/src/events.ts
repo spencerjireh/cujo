@@ -187,6 +187,7 @@ export const EVENT_NAMES = [
   "owner.bot.read.failed",
   // A repository's own guidance reached a brief, and where it came from (decision 155).
   "run.instructions.read",
+  "run.staged",
   // apps/web asked apps/cujo to start a sign-in and the plane is not served.
   "auth.unavailable",
   // Open Code Review beside a run (decision 149): what `apps/cujo` asked for
@@ -194,6 +195,7 @@ export const EVENT_NAMES = [
   // Nothing here reaches a pull request.
   "ocr.review.finished",
   "ocr.review.failed",
+  "ocr.skipped",
   "ocr.request.refused",
   "ocr.unconfigured",
   "ocr.run.finished",
@@ -210,6 +212,12 @@ export const EVENT_NAMES = [
   "sandbox.create.failed",
   "sandbox.exec.failed",
   "sandbox.exec.clipped",
+  // A private repository's trees, staged for their sandbox (decision 158).
+  "stage.received",
+  "stage.consumed",
+  "stage.refused",
+  "stage.expired",
+  "stage.put.failed",
   "sandbox.exec.clip_unsaved",
   "sandbox.write.failed",
   "sandbox.read.failed",

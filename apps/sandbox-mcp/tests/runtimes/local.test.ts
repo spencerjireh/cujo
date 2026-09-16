@@ -8,7 +8,8 @@
  * rather than left holding a network.
  */
 
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
@@ -353,5 +354,47 @@ describe("LocalRuntime.reapExpired", () => {
     // And it is gone, so a later call finds nothing rather than reaping twice.
     expect(await r.reapExpired(Date.now() + 4000)).toBe(0);
     await expect(r.exec(box.id, { argv: ["true"] })).rejects.toThrow("no such sandbox");
+  });
+});
+
+describe("LocalRuntime.create with staged trees (decision 158)", () => {
+  function staged() {
+    const dir = mkdtempSync(join(tmpdir(), "cujo-staged-"));
+    writeFileSync(join(dir, "base.tgz"), "base tar");
+    writeFileSync(join(dir, "head.tgz"), "head tar");
+    return { base: join(dir, "base.tgz"), head: join(dir, "head.tgz") };
+  }
+
+  it("unpacks each tree into the box through exec stdin, once the gateway is armed", async () => {
+    const { docker, calls } = fakeDocker();
+    const mock = docker as unknown as {
+      mock: { calls: [readonly string[], { stdin?: unknown }?][] };
+    };
+    await runtime(docker).create({ allowHosts: [], staged: staged() });
+    const unpacks = calls.filter((c) => c[0] === "exec" && c.some((a) => a.includes("tar -xzf")));
+    expect(unpacks.map((c) => c.at(-1))).toEqual(["/work/stage/base", "/work/stage/head"]);
+    // After the gateway armed, so the box exists and is filtered when the bytes land.
+    expect(indexOf(calls, "exec")).toBeGreaterThan(indexOf(calls, "logs"));
+    // Piped, never an argument: the archive is a stream on the docker call.
+    const withStdin = mock.mock.calls.filter(([args]) => args[0] === "exec");
+    for (const [, options] of withStdin) {
+      expect(typeof (options?.stdin as { pipe?: unknown })?.pipe).toBe("function");
+    }
+  });
+
+  it("fails the provision, and reaps the box, when a tree does not unpack", async () => {
+    const { docker, calls } = fakeDocker((args) =>
+      args[0] === "exec" ? { ...ok, exitCode: 2, stderr: "gzip: bad magic" } : null,
+    );
+    await expect(runtime(docker).create({ allowHosts: [], staged: staged() })).rejects.toThrow(
+      "could not unpack the staged base tree: gzip: bad magic",
+    );
+    expect(indexOf(calls, "rm")).toBeGreaterThan(-1);
+  });
+
+  it("unpacks nothing for a spec without staged trees", async () => {
+    const { docker, calls } = fakeDocker();
+    await runtime(docker).create({ allowHosts: [] });
+    expect(calls.some((c) => c.some((a) => a.includes("tar -xzf")))).toBe(false);
   });
 });
