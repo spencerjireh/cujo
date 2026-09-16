@@ -49,6 +49,46 @@ function build(
       return yaml ? (yaml.includes("diff") ? ("diff" as const) : ("sandbox" as const)) : null;
     }),
     readFile: vi.fn(async (_repo: string, path: string) => files.get(path) ?? null),
+    appState: vi.fn(async () => {
+      if (options.githubDown) throw new Error("GitHub 502");
+      return {
+        app: {
+          slug: "cujo-guard",
+          name: "Cujo",
+          htmlUrl: "https://github.com/apps/cujo-guard",
+          permissions: {
+            contents: "read",
+            metadata: "read",
+            pull_requests: "write",
+            checks: "read",
+            issues: "read",
+          },
+          events: ["pull_request"],
+        },
+        installations: [
+          {
+            id: 10,
+            account: { login: "octocat", type: "User" },
+            suspended: false,
+            repositorySelection: "selected",
+            permissions: {},
+            events: [],
+          },
+        ],
+        deliveries: [
+          {
+            id: 1,
+            event: "pull_request",
+            action: "opened",
+            deliveredAt: "2026-09-16T10:00:00Z",
+            status: "OK",
+            statusCode: 202,
+            durationS: 0.3,
+            redelivery: false,
+          },
+        ],
+      };
+    }),
   };
   const oauth = {
     authorizeUrl: (state: string, redirect: string) =>
@@ -94,6 +134,7 @@ function build(
             repositories: store.repositories,
             repositorySettings: store.repositorySettings,
             github,
+            health: () => ({ harness: "ready" as const, store: "ok" as const, uptimeMs: 1234 }),
             log,
           },
         },
@@ -358,6 +399,56 @@ describe("the owner plane", () => {
     ).toBe(400);
     expect((await h.call("/owner/repositories/o/none/settings", {}, session)).status).toBe(404);
     expect(h.logged("owner.repository.settings.changed")).toHaveLength(2);
+  });
+
+  it("shows the App beside what the reviews need from it, and the process's readiness", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    h.store.repositories.upsertInstalled(
+      [
+        { repo: "o/r", installationId: 10, isPrivate: false },
+        { repo: "o/gone", installationId: 10, isPrivate: false },
+      ],
+      "t0",
+    );
+    h.store.repositories.markRemoved(["o/gone"], "t1");
+    const bot = (await (await h.call("/owner/bot", {}, session)).json()) as Record<string, unknown>;
+    expect(bot).toMatchObject({
+      ok: true,
+      app: { slug: "cujo-guard" },
+      installations: [{ id: 10, repositories: 1 }],
+      deliveries: [{ id: 1, statusCode: 202 }],
+    });
+    const permissions = bot.permissions as {
+      name: string;
+      needed: string;
+      held: string | null;
+      ok: boolean;
+    }[];
+    expect(permissions.find((p) => p.name === "checks")).toEqual({
+      name: "checks",
+      needed: "write",
+      held: "read",
+      ok: false,
+    });
+    expect(permissions.find((p) => p.name === "pull_requests")).toEqual({
+      name: "pull_requests",
+      needed: "write",
+      held: "write",
+      ok: true,
+    });
+    const health = await (await h.call("/owner/health", {}, session)).json();
+    expect(health).toEqual({
+      ok: true,
+      harness: "ready",
+      store: "ok",
+      uptimeMs: 1234,
+      ready: true,
+    });
+    const down = build({ githubDown: true });
+    const { session: s2 } = await down.signIn();
+    expect((await down.call("/owner/bot", {}, s2)).status).toBe(502);
+    expect(down.logged("owner.bot.read.failed")).toHaveLength(1);
   });
 
   it("lists the registry and flips a repository's switch", async () => {

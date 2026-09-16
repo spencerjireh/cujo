@@ -1261,6 +1261,8 @@ on the owner plane:
 | `GET /owner/me` | The signed-in login, `is_owner`, and the session's expiry. |
 | `GET /owner/settings` | The settings of decision 152 with the provider key masked to its last four characters, and where each value came from (`seed` or `owner`). |
 | `PATCH /owner/settings` | Any of the eight keys. Validated as a whole before anything is written. A masked key sent back keeps the stored one. |
+| `GET /owner/bot` | The App as GitHub sees it (decision 157): the App, its permissions against the five the reviews need with a verdict each, its installations with the registry's count of repositories under each, and its last twenty webhook deliveries with the status this process answered. 502 when GitHub does not answer. |
+| `GET /owner/health` | The same answer `/readyz` gives — harness, store, uptime — for a signed-in owner. |
 | `GET /owner/repositories` | The registry (decision 151), removed rows included. |
 | `PATCH /owner/repositories/:owner/:name` | `{ enabled }`. 404 for a repository the registry has not heard of. |
 

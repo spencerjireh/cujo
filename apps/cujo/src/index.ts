@@ -445,6 +445,11 @@ async function main(): Promise<void> {
           repositories: store.repositories,
           repositorySettings: store.repositorySettings,
           github,
+          health: () => ({
+            harness: harness.ready ? ("ready" as const) : ("bootstrapping" as const),
+            store: store.runs.ping() ? ("ok" as const) : ("error" as const),
+            uptimeMs: Math.round(process.uptime() * 1000),
+          }),
           log,
         }
       : undefined;

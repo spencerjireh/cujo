@@ -554,3 +554,125 @@ describe("GitHubReader.createComment", () => {
     ).rejects.toMatchObject({ status: 403, path: "/repos/o/r/issues/7/comments" });
   });
 });
+
+describe("GitHubReader.appState (decision 157)", () => {
+  function fakeApp() {
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/app") {
+        return new Response(
+          JSON.stringify({
+            slug: "cujo-guard",
+            name: "Cujo",
+            html_url: "https://github.com/apps/cujo-guard",
+            permissions: {
+              contents: "read",
+              pull_requests: "write",
+              checks: "write",
+              metadata: "read",
+              issues: "read",
+            },
+            events: ["pull_request", "issue_comment"],
+          }),
+        );
+      }
+      if (url.pathname === "/app/installations") {
+        return new Response(
+          JSON.stringify([
+            {
+              id: 42,
+              account: { login: "octocat", type: "User" },
+              suspended_at: null,
+              repository_selection: "selected",
+              permissions: { contents: "read" },
+              events: ["pull_request"],
+            },
+            {
+              id: 43,
+              account: { login: "acme", type: "Organization" },
+              suspended_at: "2026-09-01T00:00:00Z",
+              repository_selection: "all",
+              permissions: {},
+              events: [],
+            },
+          ]),
+        );
+      }
+      if (url.pathname === "/app/hook/deliveries") {
+        return new Response(
+          JSON.stringify([
+            {
+              id: 1,
+              event: "pull_request",
+              action: "opened",
+              delivered_at: "2026-09-16T10:00:00Z",
+              status: "OK",
+              status_code: 202,
+              duration: 0.31,
+              redelivery: false,
+            },
+            {
+              id: 2,
+              event: "installation",
+              action: null,
+              delivered_at: "2026-09-16T09:00:00Z",
+              status: "Invalid HTTP Response: 503",
+              status_code: 503,
+              duration: 1.2,
+              redelivery: true,
+            },
+          ]),
+        );
+      }
+      return new Response("{}", { status: 404 });
+    });
+    return impl as unknown as typeof fetch;
+  }
+
+  it("reads the App, its installations and its deliveries with the App JWT, and caches", async () => {
+    const impl = fakeApp();
+    const reader = new GitHubReader("1", "pem", impl);
+    const state = await reader.appState();
+    expect(state.app).toEqual({
+      slug: "cujo-guard",
+      name: "Cujo",
+      htmlUrl: "https://github.com/apps/cujo-guard",
+      permissions: {
+        contents: "read",
+        pull_requests: "write",
+        checks: "write",
+        metadata: "read",
+        issues: "read",
+      },
+      events: ["pull_request", "issue_comment"],
+    });
+    expect(state.installations).toEqual([
+      {
+        id: 42,
+        account: { login: "octocat", type: "User" },
+        suspended: false,
+        repositorySelection: "selected",
+        permissions: { contents: "read" },
+        events: ["pull_request"],
+      },
+      {
+        id: 43,
+        account: { login: "acme", type: "Organization" },
+        suspended: true,
+        repositorySelection: "all",
+        permissions: {},
+        events: [],
+      },
+    ]);
+    expect(state.deliveries[1]).toMatchObject({
+      id: 2,
+      event: "installation",
+      action: null,
+      statusCode: 503,
+      redelivery: true,
+    });
+    const calls = (impl as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    await reader.appState();
+    expect((impl as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBe(calls);
+  });
+});

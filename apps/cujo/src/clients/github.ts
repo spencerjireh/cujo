@@ -65,6 +65,56 @@ export interface PullRequestInfo {
  * own `botLogin` constructor arg so a dev App works in local E2E. */
 export const BOT_LOGIN = "cujo-guard[bot]";
 
+/** What GitHub says about the App and its webhook (decision 157). */
+export interface AppState {
+  app: {
+    slug: string;
+    name: string;
+    htmlUrl: string;
+    /** Permission name to level, as the App currently holds them. */
+    permissions: Record<string, string>;
+    events: string[];
+  };
+  installations: {
+    id: number;
+    account: { login: string; type: string };
+    suspended: boolean;
+    repositorySelection: string;
+    permissions: Record<string, string>;
+    events: string[];
+  }[];
+  deliveries: {
+    id: number;
+    event: string;
+    action: string | null;
+    deliveredAt: string;
+    status: string;
+    statusCode: number | null;
+    durationS: number | null;
+    redelivery: boolean;
+  }[];
+}
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function stringMap(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [key, level] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof level === "string") out[key] = level;
+    }
+  }
+  return out;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 /**
  * How much of a reply reaches the pull request. GitHub accepts 65536, so this
  * is not the API's limit but Cujo's: a comment long enough to bury the thread
@@ -154,6 +204,7 @@ class GitHubError extends Error {
 export class GitHubReader {
   private readonly privateKey: string;
   private repoCache: { repos: string[]; expiresAt: number } | null = null;
+  private appStateCache: { state: AppState; expiresAt: number } | null = null;
   private repoScan: Promise<string[]> | null = null;
   private readonly guildCache = new Map<string, { guildId: string | null; expiresAt: number }>();
 
@@ -267,6 +318,68 @@ export class GitHubReader {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The App as GitHub sees it (decision 157): what it is, what it holds,
+   * where it is installed, and what its webhook delivered lately. Three
+   * reads on the App JWT, cached for a minute, since the board asks on every
+   * visit and none of it changes by the second.
+   */
+  async appState(): Promise<AppState> {
+    const cached = this.appStateCache;
+    if (cached && cached.expiresAt > Date.now()) return cached.state;
+    const [app, installations, deliveries] = await Promise.all([
+      this.getAsApp<Record<string, unknown>>("/app"),
+      this.allInstallations(),
+      this.getAsApp<Record<string, unknown>[]>("/app/hook/deliveries?per_page=20"),
+    ]);
+    const state: AppState = {
+      app: {
+        slug: str(app.slug),
+        name: str(app.name),
+        htmlUrl: str(app.html_url),
+        permissions: stringMap(app.permissions),
+        events: stringList(app.events),
+      },
+      installations: installations.map((item) => {
+        const account = (item.account ?? {}) as Record<string, unknown>;
+        return {
+          id: typeof item.id === "number" ? item.id : 0,
+          account: { login: str(account.login), type: str(account.type) },
+          suspended: typeof item.suspended_at === "string",
+          repositorySelection: str(item.repository_selection),
+          permissions: stringMap(item.permissions),
+          events: stringList(item.events),
+        };
+      }),
+      deliveries: deliveries.map((item) => ({
+        id: typeof item.id === "number" ? item.id : 0,
+        event: str(item.event),
+        action: typeof item.action === "string" ? item.action : null,
+        deliveredAt: str(item.delivered_at),
+        status: str(item.status),
+        statusCode: typeof item.status_code === "number" ? item.status_code : null,
+        durationS: typeof item.duration === "number" ? item.duration : null,
+        redelivery: item.redelivery === true,
+      })),
+    };
+    this.appStateCache = { state, expiresAt: Date.now() + REPO_CACHE_MS };
+    return state;
+  }
+
+  /** Every installation, paged the way `listInstalledRepos` pages them. */
+  private async allInstallations(): Promise<Record<string, unknown>[]> {
+    const out: Record<string, unknown>[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const items = await this.getAsApp<Record<string, unknown>[]>(
+        `/app/installations?per_page=100&page=${page}`,
+      );
+      out.push(...items);
+      if (items.length < 100) break;
+      if (page === MAX_PAGES) this.log.warn("github.page_cap", { path: "/app/installations" });
+    }
+    return out;
   }
 
   /** The App JWT's own reads, which belong to no single installation. */
