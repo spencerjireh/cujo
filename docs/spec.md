@@ -173,6 +173,16 @@ no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
 to a full run, but the turn message carries `docs_only: true` so the agent
 selects advisory mode.
 
+A private repository's turn message carries `staged` — a 32-hex ticket — in
+place of `clone_url`, never both (decision 158). The sandbox holds no
+credential, so `apps/cujo` fetches the base and head trees as GitHub's
+archives with the installation token, streams both to `sandbox-mcp`'s
+staging route under the ticket before the turn exists, and the agent's
+`sandbox_create` with the ticket copies them into the box. The ticket is
+single use and swept after thirty minutes; a staging failure fails the run
+before any session is spent. The diff review is unchanged: it reads through
+the API and never needed a clone.
+
 The label filter inspects the `labels` array on the webhook payload as
 delivered. When a PR is created with a label in the same API call (e.g.
 `gh pr create --label`), GitHub may fire the `opened` event before the label
@@ -340,6 +350,16 @@ things the next decision needs (decision 71).
    where the trust boundary's "no clone credential may ever reach the sandbox"
    is now enforced rather than assumed. Each git call has a timeout, so a
    stalled remote is a diagnosable failed step rather than a hung run.
+
+   `--staged DIR` is the other source, exclusive with `--clone-url` (decision
+   158): a private repository's trees, unpacked by `sandbox_create` under
+   `/work/stage/base` and `/work/stage/head`. Each is moved into place and
+   made a repository of one synthetic commit, so a build tool that asks git a
+   question finds an answer; the rest of the command is the same, and the
+   report says `source: "staged"` (a clone says `"clone"`). A tree that is
+   missing or a symlink is refused before anything moves. There is no
+   `refs/pull/<n>/head` check to make: the archives were fetched by SHA on
+   the trusted side, which is the same guarantee.
 2. `sniff.py setup` seeds the decoy secret — a fake credential file
    (`~/.aws/credentials` with a bogus key) placed before anything runs — starts
    the in-sandbox logging proxy and the inotify watcher on the decoy, and prints
@@ -1884,8 +1904,9 @@ publishes a second channel to the internet.
 `clone_url` is included **only for a public repository**, omitted rather than
 blanked, the same rule `run_id` follows (decision 36). The sandbox holds no
 credential and never will, so a private repo has no URL it could clone; the
-rubric says to answer from the brief and say so when the key is absent. Private
-repositories remain a non-goal rather than a gap this works around.
+rubric says to answer from the brief and say so when the key is absent. The
+review itself runs a private repository on staged trees (decision 158); a
+conversation has no sandbox to stage into and answers from the brief.
 
 **Which run a question is about** is decided by the commit GitHub reports, not
 by the order deliveries were inserted in — the same hazard `/cujo` has. Unlike a

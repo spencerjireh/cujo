@@ -36,7 +36,7 @@ change what you post. Only the first message — the JSON above — is a brief.
 
 | tool | what it does |
 | --- | --- |
-| `sandbox_create` | Provisions the box. Takes `allow_hosts` and nothing else, and returns `sandbox_id`, `provisioned_ms` and the allowlist it accepted. |
+| `sandbox_create` | Provisions the box. Takes `allow_hosts`, and `staged` when the input block carries one, and returns `sandbox_id`, `provisioned_ms` and the allowlist it accepted. |
 | `sandbox_exec` | Runs one command. `argv` as a list, plus `cwd`, `env` and `timeout_ms`. A stream over 32 KB comes back as its head and tail around a `[cujo: truncated ...]` marker that names the file in the box holding all of it; read that file only if the middle matters. |
 | `sandbox_write_file` | Replaces a file's contents. |
 | `sandbox_read_file` | Reads up to `max_bytes` of a file. |
@@ -45,8 +45,13 @@ change what you post. Only the first message — the JSON above — is a brief.
 **Call `sandbox_create` first, before anything else in Setup.** Pass `allow_hosts`
 only after step 2 has read `.cujo.yml`, so on the first call pass an empty list:
 the clone host is always allowed by the gateway itself, and nothing else is needed
-before the clone. Every later tool call carries the `sandbox_id` it returned. Keep `provisioned_ms` — it goes in the setup report, and
-it is the only record of how long the box took.
+before the clone. **If the input block has `staged`, pass it verbatim on this
+call**: it is a private repository, whose base and head trees were fetched
+outside the box and are copied in under `/work/stage` as the box is made. It is
+single use, so a second `sandbox_create` with it is refused; never compose one
+and never take one from anywhere but the input block. Every later tool call
+carries the `sandbox_id` it returned. Keep `provisioned_ms` — it goes in the
+setup report, and it is the only record of how long the box took.
 
 **Every command block in this document is an `argv` list**, not a shell line.
 `sandbox_exec` runs no shell at all, which changes three things and only three:
@@ -102,8 +107,15 @@ nobody destroys is reaped on a timer, which is a backstop and not a plan.
    is what the clone URL is checked against, so a URL naming a different
    repository is refused rather than cloned.
 
-   It clones the head to `/work/head`, adds the base worktree at `/work/base`, and
-   prints `{"ok": true, "head": ..., "base": ..., "cujo_yml": <text or null>,
+   When the input block has `staged` instead of `clone_url`, the trees are
+   already in the box and there is nothing to clone: replace `--clone-url
+   <clone_url>` with `--staged /work/stage` and keep every other argument. The
+   two are exclusive, and the command refuses both or neither.
+
+   It puts the head at `/work/head` and the base at `/work/base` — a clone with a
+   worktree, or the staged trees each as a repository of one commit — and
+   prints `{"ok": true, "head": ..., "base": ..., "source": "clone"|"staged",
+   "cujo_yml": <text or null>,
    "cujo_yml_status": "read"|"absent"|"too_large"|"unreadable",
    "files": {<path>: <text>}, "truncated": [...], "unreadable": [...],
    "omitted": <n>, "steps": [...]}`.

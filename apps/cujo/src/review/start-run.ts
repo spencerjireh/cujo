@@ -21,6 +21,7 @@ import { type OcrShadowDeps, shadowReview } from "./ocr-shadow";
 import { type PrepareCaps, prepareReviewPackage } from "./prepare";
 import type { Runner } from "./runner.service";
 import { addedSpecifiers } from "./specifiers";
+import { type StageDeps, stageTrees } from "./stage";
 import type { ReviewMode, RunRecord } from "./types";
 
 /**
@@ -60,6 +61,12 @@ export interface StartRunDeps {
    * composition without it reads only the file, as before.
    */
   repositorySettings?: Pick<RepositorySettingsStore, "get">;
+  /**
+   * Where a private repository's trees are staged for its sandbox (decision
+   * 158). Optional so a composition without it — every test that predates
+   * it — briefs a clone URL for every run, as before.
+   */
+  stage?: Pick<StageDeps, "stager">;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -171,7 +178,11 @@ export async function startRun(
     // The shadow review (decision 149), before the mode is resolved so both
     // reviews get one, and never awaited so neither waits for it. Its own
     // catch: a sidecar failure is a warning line and not a failed run.
-    if (deps.ocr) {
+    if (deps.ocr && !run.isPublic) {
+      // The sidecar holds no GitHub credential and clones by URL, which a
+      // private repository refuses (decision 158). A line, not a failed row.
+      log.info("ocr.skipped", { reason: "private" });
+    } else if (deps.ocr) {
       void shadowReview({ ...deps.ocr, log }, pr, run).catch((error) =>
         log.warn("ocr.review.failed", errorFields(error)),
       );
@@ -244,9 +255,23 @@ export async function startRun(
         dependencies: cached.kept.map((c) => `${c.source} ${c.specifier}`).join(", "),
       });
     }
+    // A private repository's trees, staged before the turn exists (decision
+    // 158): the box cannot clone them, so the brief carries a ticket and no
+    // clone URL. A failure here is the run's failure, below, before any
+    // session was spent on it -- and so is a composition with no staging
+    // door, since a clone URL the box cannot use would spend the session on
+    // a clone that cannot succeed.
+    const stage = deps.stage;
+    if (!run.isPublic && !stage) {
+      throw new Error("private repository, and no staging door is configured");
+    }
+    const staged =
+      !run.isPublic && stage
+        ? await stageTrees({ github: deps.github, stager: stage.stager, log }, pr)
+        : "";
     await deps.runner.start(
       current,
-      buildTurnMessage(pr, deps.reviewRunId(current), cached.brief, instructions),
+      buildTurnMessage(pr, deps.reviewRunId(current), cached.brief, instructions, staged),
     );
   } catch (error) {
     // The run ends in error with no turn, which lets a redelivery re-claim

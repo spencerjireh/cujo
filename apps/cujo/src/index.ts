@@ -7,6 +7,7 @@ import { GitHubOAuth } from "./clients/github-oauth";
 import { GitHubReactions } from "./clients/github-reactions";
 import { Harness } from "./clients/harness";
 import { OcrSidecar } from "./clients/ocr-sidecar";
+import { SandboxStager } from "./clients/sandbox-stage";
 import { loadConfig } from "./config";
 import { ConverseService } from "./converse/converse.service";
 import { ConverseRateLimit } from "./converse/rate-limit";
@@ -190,6 +191,10 @@ async function main(): Promise<void> {
     ? { client: new OcrSidecar(config.ocrSidecarUrl, config.ocrTimeoutMs), store: store.ocr }
     : undefined;
 
+  // Where a private repository's trees go for its sandbox (decision 158):
+  // the staging door beside the MCP endpoint the agent already uses.
+  const stage = { stager: new SandboxStager(config.sandboxMcpUrl, config.stageTimeoutMs) };
+
   // The diff review's half of the same (Contract 11): its own spec, so its own
   // digest and model, plus the budget the spec carries; a fresh session per
   // run (decision 137); and the three caps `prepare` cuts the package to.
@@ -319,6 +324,7 @@ async function main(): Promise<void> {
         diff,
         detonations: store.detonations,
         ocr,
+        stage,
         repositorySettings: store.repositorySettings,
         reviewRunId: (r: RunRecord) => publicRunId(r),
         log,
@@ -474,6 +480,7 @@ async function main(): Promise<void> {
       diff,
       detonations: store.detonations,
       ocr,
+      stage,
       repositories: store.repositories,
       repositorySettings: store.repositorySettings,
       // What the review's footer names. A public run gets its id; anything

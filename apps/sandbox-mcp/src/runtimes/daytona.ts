@@ -81,6 +81,10 @@ export class DaytonaRuntime implements SandboxRuntime {
   }
 
   async create(spec: SandboxSpec): Promise<Sandbox> {
+    // A staged tree would have to be uploaded through the vendor's API, which
+    // this runtime never learned; a private repository needs `local`.
+    if (spec.staged)
+      throw new SandboxError("provision_failed", "this runtime cannot take staged trees");
     const started = Date.now();
     const body = await this.call("/sandbox", {
       method: "POST",

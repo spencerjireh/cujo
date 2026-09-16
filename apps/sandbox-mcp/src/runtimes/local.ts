@@ -38,6 +38,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
 import { type Docker, dockerCli } from "../docker";
 import {
@@ -114,6 +115,11 @@ export const BASELINE_HOSTS: readonly string[] = [
   "rubygems.org",
   "index.rubygems.org",
 ];
+/** Where a staged tree is unpacked inside the box; `prepare --staged` reads it. */
+const STAGE_DIR = "/work/stage";
+/** One tree's unpack. Generous: a large tree through gVisor's filesystem is slow. */
+const STAGE_EXTRACT_TIMEOUT_MS = 10 * 60 * 1000;
+
 const DEFAULT_GATEWAY_READY_TIMEOUT_MS = 15_000;
 /** The line `gateway/entrypoint.sh` prints once its rules and resolver are up. */
 const GATEWAY_ARMED = "gateway.armed";
@@ -265,6 +271,36 @@ export class LocalRuntime implements SandboxRuntime {
       // The first `exec` may come within a second of this returning, and a
       // resolver that is not listening yet is a clone that fails on DNS.
       await this.waitForGateway(gateway);
+
+      if (spec.staged) {
+        // Through exec stdin, like `writeFile`, so the archive is piped from
+        // this service's own staging directory and never lands on the host
+        // (decision 158). `--strip-components=1` drops the one directory
+        // GitHub wraps an archive in. Each tree lands under `/work/stage`,
+        // where `sniff.py prepare --staged` expects to find both.
+        for (const tree of ["base", "head"] as const) {
+          const target = `${STAGE_DIR}/${tree}`;
+          const result = await this.docker(
+            [
+              "exec",
+              "--interactive",
+              container,
+              "sh",
+              "-c",
+              'mkdir -p "$1" && tar -xzf - --strip-components=1 -C "$1"',
+              "sh",
+              target,
+            ],
+            { stdin: createReadStream(spec.staged[tree]), timeoutMs: STAGE_EXTRACT_TIMEOUT_MS },
+          );
+          if (result.exitCode !== 0) {
+            throw new SandboxError(
+              "provision_failed",
+              `could not unpack the staged ${tree} tree: ${result.stderr.trim().slice(0, 200)}`,
+            );
+          }
+        }
+      }
 
       const box: Box = { id, container, gateway, network, createdAt: Date.now() };
       this.boxes.set(id, box);
