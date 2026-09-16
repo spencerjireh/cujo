@@ -32,6 +32,8 @@ export interface ModelSettings {
   modelMaxTokens: number | null;
   diffModel: string;
   diffBudgetTokens: number;
+  /** The ceiling on a sandbox run's billed tokens (decision 165). */
+  sandboxBudgetTokens: number;
   reviewMode: ReviewMode;
   modelProvider: ModelProviderConfig | null;
   /** The ceiling on a sandbox turn, in milliseconds. */
@@ -68,6 +70,7 @@ export const SETTING_GROUPS: Readonly<Record<SettingKey, SettingGroup>> = {
   modelMaxTokens: "models",
   diffModel: "models",
   diffBudgetTokens: "models",
+  sandboxBudgetTokens: "models",
   reviewMode: "models",
   modelProvider: "provider",
   turnTimeoutMs: "limits",
@@ -126,9 +129,10 @@ export function parseSetting<K extends SettingKey>(key: K, raw: unknown): ModelS
       if (raw === null || raw === undefined || raw === "") return null as ModelSettings[K];
       return sampling(String(raw), key) as ModelSettings[K];
     }
-    case "diffBudgetTokens": {
+    case "diffBudgetTokens":
+    case "sandboxBudgetTokens": {
       if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
-        throw new Error("diffBudgetTokens must be a positive integer");
+        throw new Error(`${key} must be a positive integer`);
       }
       return raw as ModelSettings[K];
     }
@@ -167,6 +171,7 @@ export function seedFromConfig(config: Config): ModelSettings {
     modelMaxTokens: config.modelMaxTokens,
     diffModel: config.diffModel,
     diffBudgetTokens: config.diffBudgetTokens,
+    sandboxBudgetTokens: config.sandboxBudgetTokens,
     reviewMode: config.reviewMode,
     modelProvider: config.bootstrap.modelProvider,
     turnTimeoutMs: config.turnTimeoutMs,

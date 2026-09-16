@@ -56,6 +56,15 @@ export const AgentSpecSchema = z
       .object({ name: z.string().regex(/^[^/]+\/.+$/), params: ModelParamsSchema.optional() })
       .strict(),
     instructions: z.string().min(1),
+    /**
+     * Instructions for a sub-agent, by the `name` the parent spawns it under
+     * (decision 165). A child whose name is listed here gets these as its
+     * system prompt instead of the parent's; a child whose name is not
+     * gets the parent's, as before. The parent's rubric is the review; a
+     * check's is a page, and a fresh context per check re-reads whichever
+     * it was given on every message.
+     */
+    subagents: z.record(z.string().min(1), z.string().min(1)).optional(),
     mcpServers: z.array(McpServerRefSchema).default([]),
     config: z
       .object({

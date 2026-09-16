@@ -92,6 +92,11 @@ export interface Config {
   diffModel: string;
   /** `config.tokenBudget` on the diff spec (decision 132): billed tokens per run. */
   diffBudgetTokens: number;
+  /**
+   * The ceiling on a sandbox run's tokens (decision 165), the way the diff
+   * review has one; a run past it ends as an error with what it measured.
+   */
+  sandboxBudgetTokens: number;
   /** How long a diff review may take; it reads, so far less than a sandbox run. */
   diffTimeoutMs: number;
   /** Bytes of patch text the diff review is handed (Contract 11). */
@@ -297,6 +302,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // not a model.
     diffModel: env.CUJO_DIFF_MODEL || required(env, "CUJO_MODEL"),
     diffBudgetTokens: count(env.CUJO_DIFF_BUDGET_TOKENS, 400_000),
+    sandboxBudgetTokens: count(env.CUJO_SANDBOX_BUDGET_TOKENS, 3_000_000),
     diffTimeoutMs: count(env.CUJO_DIFF_TIMEOUT_MS, 10 * 60 * 1000),
     diffBytes: count(env.CUJO_DIFF_BYTES, 60_000),
     // `||`: the compose optional arrives empty, and an empty URL is not a

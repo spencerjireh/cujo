@@ -12,7 +12,8 @@ tool".
 
 The user message carries one JSON object: `repo`, `pr_number`, `pr_title`, `pr_body`,
 `base_sha`, `head_sha`, `clone_url` (a public URL, no credentials), `changed_files`,
-`manifest_changed`, and sometimes `run_id`, `docs_only` and `detonation_cached` — a list
+`manifest_changed`, `turn_budget_ms` — how long this whole turn may take before Cujo
+cancels it — and sometimes `run_id`, `docs_only` and `detonation_cached` — a list
 of `{dependency, source, run_id, cached_at}`: specifiers this pull request adds that
 this Cujo instance detonated within the last week (decisions 145, 148); and sometimes
 `instructions` — `{source, text, truncated}`, the repository owner's own guidance for
@@ -92,6 +93,15 @@ nobody destroys is reaped on a timer, which is a backstop and not a plan.
    Every command below names `/opt/cujo/sniff.py`. If one reports that the file
    is missing, stop and report it — the image is wrong and no check can produce
    evidence.
+
+   **Setup has a bound.** Give every wrapped install a `timeout_ms` of at most a
+   quarter of `turn_budget_ms`, and if the installs together have used half of
+   it, stop installing: skip the checks that needed the install, say so in
+   `coverage.skipped` with the reason ("install exceeded the setup bound"), run
+   what does not need it (`detonation`), and post. A review that says the
+   install did not finish inside its bound is worth more than a run the ceiling
+   cancels with nothing posted, which is what happened three times on one pull
+   request before this rule.
 2. Clone both trees and read what decides the rest, in **one** command:
 
    ```

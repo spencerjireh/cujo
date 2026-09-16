@@ -60,6 +60,7 @@ describe("Settings.open", () => {
         "ocrEnabled",
         "pushDebounceMs",
         "reviewMode",
+        "sandboxBudgetTokens",
         "turnTimeoutMs",
       ].map((k) => [k, "seed"]),
     );
