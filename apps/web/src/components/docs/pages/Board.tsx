@@ -46,11 +46,13 @@ export function Board() {
       <Section id="visibility" title="What it will not show">
         <UL>
           <LI>
-            <strong className="font-medium text-fg">Runs on private repositories.</strong> Not
-            hidden behind a permission — absent. A run whose repository is not public answers 404
-            here, the same answer a run that does not exist gets. Every repository with a run is
-            re-asked periodically whether it is still public, and a repository going private is
-            carried by a webhook within seconds.
+            <strong className="font-medium text-fg">
+              Runs on private repositories, to anyone but their owner.
+            </strong>{" "}
+            A run whose repository is not public answers 404 to a visitor, the same answer a run
+            that does not exist gets; an owner of the installation, signed in with GitHub, sees it
+            on the same page. Every repository with a run is re-asked periodically whether it is
+            still public, and a repository going private is carried by a webhook within seconds.
           </LI>
           <LI>
             <strong className="font-medium text-fg">Who decided anything.</strong> No approver is
@@ -76,7 +78,7 @@ export function Board() {
           reviews public pull requests belonging to people who did not ask to be listed here, and a
           finding quotes their code and the sandbox&rsquo;s observations of it. A link somebody
           chooses to share is a different thing from a result that surfaces beside the repository
-          itself. These documentation pages are indexable; nothing else on this site is.
+          itself. The front page and this manual are indexable; no run is.
         </Note>
       </Section>
     </>
