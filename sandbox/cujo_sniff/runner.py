@@ -17,6 +17,7 @@ import fcntl
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -307,22 +308,33 @@ def run_sensed(
                 )
                 exit_code, out, err = proc.returncode, proc.stdout, proc.stderr
             else:
-                child = subprocess.Popen(
-                    argv,
-                    cwd=str(cwd),
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    errors="replace",
-                    start_new_session=True,
-                )
-                try:
-                    during(child)
-                finally:
-                    if child.poll() is None:
-                        child.kill()
-                    out, err = child.communicate()
+                # Files and not pipes: nothing drains a pipe while `during`
+                # talks to the app, and a server that logs every request
+                # would fill it and block on the write. The tails are read
+                # once the group is gone.
+                with (
+                    tempfile.TemporaryFile("w+", errors="replace") as out_file,
+                    tempfile.TemporaryFile("w+", errors="replace") as err_file,
+                ):
+                    child = subprocess.Popen(
+                        argv,
+                        cwd=str(cwd),
+                        env=env,
+                        stdout=out_file,
+                        stderr=err_file,
+                        text=True,
+                        errors="replace",
+                        start_new_session=True,
+                    )
+                    try:
+                        during(child)
+                    finally:
+                        if child.poll() is None:
+                            child.kill()
+                        child.wait()
+                    out_file.seek(0)
+                    err_file.seek(0)
+                    out, err = out_file.read(), err_file.read()
                 exit_code = child.returncode
         except FileNotFoundError as exc:
             exit_code, out, err = 127, "", str(exc)

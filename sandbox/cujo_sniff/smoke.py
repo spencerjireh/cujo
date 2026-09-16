@@ -49,10 +49,10 @@ _REQUEST = re.compile(r"^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)\s+(/\S*)$")
 
 #: Where a boot line says its port, in the order a reader would look.
 _PORT_PATTERNS = (
-    re.compile(r"(?:^|\s)--port[= ](\d{2,5})(?:\s|$)"),
-    re.compile(r"(?:^|\s)-p[= ]?(\d{2,5})(?:\s|$)"),
-    re.compile(r"(?:^|\s)PORT=(\d{2,5})(?:\s|$)"),
-    re.compile(r":(\d{2,5})(?:\s|$)"),
+    re.compile(r"(?:^|\s)--port[= ](\d{1,5})(?:\s|$)"),
+    re.compile(r"(?:^|\s)-p[= ]?(\d{1,5})(?:\s|$)"),
+    re.compile(r"(?:^|\s)PORT=(\d{1,5})(?:\s|$)"),
+    re.compile(r":(\d{1,5})(?:\s|$)"),
 )
 
 
@@ -131,8 +131,10 @@ def cmd_smoke(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     refuse_nested_window("smoke")
     cwd = Path(args.cwd or os.getcwd()).resolve()
     roots = [Path(root).resolve() for root in args.workspace_root] or [cwd]
+    if len(args.request) > SMOKE_MAX_REQUESTS:
+        raise SystemExit(f"smoke: more than {SMOKE_MAX_REQUESTS} requests; declare fewer")
     requests: list[tuple[str, str]] = []
-    for text in args.request[:SMOKE_MAX_REQUESTS]:
+    for text in args.request:
         parsed = parse_request(text)
         if parsed is None:
             raise SystemExit(f"smoke: a request is `METHOD /path`, not {scrub(text)!r}")
