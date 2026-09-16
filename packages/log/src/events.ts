@@ -184,6 +184,7 @@ export const EVENT_NAMES = [
   "owner.repository.changed",
   "owner.repository.settings.changed",
   "owner.repository.file.failed",
+  "owner.bot.read.failed",
   // A repository's own guidance reached a brief, and where it came from (decision 155).
   "run.instructions.read",
   // apps/web asked apps/cujo to start a sign-in and the plane is not served.

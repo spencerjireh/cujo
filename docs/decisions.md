@@ -164,6 +164,7 @@ reader can tell a live rule from a recorded one before opening it.
 154. [The run page is an evidence log](#154-the-run-page-is-an-evidence-log)
 155. [Per-repository settings and instructions, the file winning](#155-per-repository-settings-and-instructions-the-file-winning)
 156. [The owner's pages: repositories, one repository, and sign-in on the footer](#156-the-owners-pages-repositories-one-repository-and-sign-in-on-the-footer)
+157. [The instance page, and the App as GitHub sees it](#157-the-instance-page-and-the-app-as-github-sees-it)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -7871,3 +7872,36 @@ layers is checked and not only drawn.
 Rejected: **a server read of the session in the layout**; **a separate
 sign-in page**, when a button and GitHub's own page are the whole flow;
 **editing a file-set value from the board**, still open (#162).
+
+## 157. The instance page, and the App as GitHub sees it
+
+The settings of decision 152 lived in the store with a route to write them
+and no page; a model change was still a curl. And what the App held on
+GitHub — its permissions, where it was installed, whether its webhook was
+reaching this process — was visible only on GitHub, which is where a missing
+permission is discovered after the review it cost.
+
+So `/instance`, for an owner: the review models and their sampling as one
+form, the provider as another with its key masked and kept unless a new one
+is typed, both saving through the owner plane and taking effect on the next
+session; the App as GitHub sees it against what the reviews need, from three
+reads on the App JWT cached for a minute — the App itself, its
+installations, its last twenty webhook deliveries with the status this
+process answered; and whether the process can take a run, the same answer
+`/readyz` gives, asked again every few seconds. The permissions the reviews
+need are the README's list, compared level by level, so a `checks: read`
+where `write` is needed is said before the check run that fails for it.
+
+Accepted: **the App's state is read through the reviewer's own client**,
+which already held the App JWT path; **a delivery's tone is what this
+process answered**, 2xx, 503 while the harness was not ready, or anything
+else; **the health line names what the process is waiting on**, the store
+or the harness, since those are the two things a run needs; **the settings
+form sends the eight keys as one PATCH**, which the plane validates as a
+whole (decision 153), so a bad value leaves nothing half-applied.
+
+Rejected: **an instance page on the anonymous board**, which would publish
+the provider's name and base URL to anyone; **reading GitHub on every
+visit**, when nothing there changes by the second; **editing per-model
+limits per model**, when a deploy registers one provider and, in practice,
+one model (decision 127).

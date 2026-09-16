@@ -330,8 +330,8 @@ Coolify in a single `docker-compose` project so the services share a network.
   public repos only and names no approver. `/docs` under it is the user-facing
   manual: statically rendered, dependent on nothing this deploy runs, and the
   one path `robots.txt` allows (decision 98). Two footer buttons, *Manual* and
-  *Install the App*, and a link on the hero legend lead to it. `/repos` and
-  `/repos/<owner>/<name>` are the owner's pages (decision 156): rendered
+  *Install the App*, and a link on the hero legend lead to it. `/repos`,
+  `/repos/<owner>/<name>` and `/instance` are the owner's pages (decisions 156, 157): rendered
   against the session cookie, never indexed, and an invitation to sign in for
   anyone else; a third footer button signs in or out. The operator plane
   of old was deleted with its hostname (decision 57), and
