@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any
 
 import cujo_sniff
-from cujo_sniff.context import Context, decoy_path, state_paths
+from cujo_sniff.context import Context, decoy_path, runs_path, state_paths
 from cujo_sniff.daemons import pid_alive, port_free, spawn_daemon, stop_daemons, wait_port
 from cujo_sniff.detonate import cmd_detonate
 from cujo_sniff.jsonl import file_size
-from cujo_sniff.policy import DEFAULT_PROXY_PORT, SCHEMA_VERSION
+from cujo_sniff.policy import CHECK_NAMES, DEFAULT_PROXY_PORT, SCHEMA_VERSION
 from cujo_sniff.prepare import cmd_prepare
 from cujo_sniff.report import health, rollup
 from cujo_sniff.run_ledger import read_runs, record_run
@@ -99,6 +99,22 @@ def cmd_setup(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+# What `sniff.py run` prints for a check that is not one of the four: the
+# outcome and the flags, none of the lists behind them.
+OUTCOME_KEYS = (
+    "schema_version",
+    "argv",
+    "exit",
+    "duration_s",
+    "window_exclusive",
+    "stdout_tail",
+    "stderr_tail",
+    "derived",
+    "sensors",
+    "truncated",
+)
+
+
 def cmd_run(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     refuse_nested_window("run")
     if not args.cmd:
@@ -117,10 +133,21 @@ def cmd_run(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     report = run_sensed(ctx, args.cmd, check=args.check, workspace_roots=roots, cwd=cwd)
     # Recorded before it is printed, so `sniff.py report` can assemble the
     # envelope from what actually ran instead of asking a model to retype it
-    # (decision 112). Still printed in full: a sub-agent reads stdout to decide
-    # what to do next, and the report command is for the handing back.
+    # (decision 112). One of the four checks is printed in full: a sub-agent
+    # reads stdout to decide what to do next, and the report command is for
+    # the handing back. Any other name -- the rubric's `setup` around an
+    # install -- is sensed for the lock and the flags and folded by nothing,
+    # so it prints its outcome and names the file holding the rest; the
+    # parent read two such envelopes whole, 7.6 MB of store paths, before
+    # anything bounded them (decision 166).
     record_run(ctx, args.check, report)
-    return {"check": args.check, **report}
+    if args.check in CHECK_NAMES:
+        return {"check": args.check, **report}
+    return {
+        "check": args.check,
+        **{k: report[k] for k in OUTCOME_KEYS if k in report},
+        "recorded": str(runs_path(ctx, args.check)),
+    }
 
 
 def cmd_report(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:

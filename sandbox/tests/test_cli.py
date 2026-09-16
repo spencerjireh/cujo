@@ -14,6 +14,7 @@ import socket
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -211,6 +212,47 @@ def test_the_watcher_is_given_the_decoy_setup_seeded(cli: Cli, ctx: Context) -> 
         cli(["teardown"])
 
 
+def _recorded(printed: dict[str, Any]) -> dict[str, Any]:
+    """The whole entry behind an outcome-only `run` print: the last line of
+    the file it names."""
+    lines = Path(printed["recorded"]).read_text().splitlines()
+    return json.loads(lines[-1])
+
+
+def test_a_setup_run_prints_its_outcome_and_a_check_prints_its_lists(
+    cli: Cli, home_dir: Path
+) -> None:
+    """The parent read the install's whole envelope twice per run, 7.6 MB of
+    store paths on a pnpm install, and reports none of it: a `--check`
+    outside the four names prints the outcome and the flags and names the
+    recorded entry (decision 166). One of the four still prints whole, since
+    a sub-agent reads it to decide its next command."""
+    tree = home_dir / "tree"
+    tree.mkdir()
+    script = "open('made.txt', 'w').write('x')"
+    setup = cli(["setup", "--proxy-port", "0"])
+    try:
+        assert setup["ok"] is True
+        outcome = cli(
+            ["run", "--check", "setup", "--cwd", str(tree), "--", sys.executable, "-c", script]
+        )
+        assert outcome["check"] == "setup"
+        assert outcome["exit"] == 0
+        assert set(outcome) >= {"derived", "sensors", "truncated", "stdout_tail", "recorded"}
+        assert not {"fs_changes", "files_read", "egress", "subprocesses"} & set(outcome)
+        entry = _recorded(outcome)
+        assert any(c["path"].endswith("made.txt") for c in entry["fs_changes"])
+        (tree / "made.txt").unlink()
+
+        whole = cli(
+            ["run", "--check", "tests", "--cwd", str(tree), "--", sys.executable, "-c", script]
+        )
+        assert "recorded" not in whole
+        assert any(c["path"].endswith("made.txt") for c in whole["fs_changes"])
+    finally:
+        cli(["teardown"])
+
+
 def test_run_narrows_cwd_without_narrowing_the_workspace(cli: Cli, home_dir: Path) -> None:
     """Decision 111: `--cwd` says where the command runs, `--workspace-root` what
     the sensors count as inside the workspace.
@@ -237,7 +279,10 @@ def test_run_narrows_cwd_without_narrowing_the_workspace(cli: Cli, home_dir: Pat
             ["run", "--check", "setup", "--cwd", str(service), "--", sys.executable, "-c", script]
         )
         assert narrow["exit"] == 0
-        outside = [c for c in narrow["fs_changes"] if c["path"].endswith("built.txt")]
+        # `setup` is not one of the four checks, so `run` prints its outcome
+        # and the flags; the lists are in the recorded entry (decision 166).
+        assert "fs_changes" not in narrow
+        outside = [c for c in _recorded(narrow)["fs_changes"] if c["path"].endswith("built.txt")]
         assert outside and outside[0]["in_workspace"] is False
 
         (tree / "built.txt").unlink()
@@ -259,7 +304,7 @@ def test_run_narrows_cwd_without_narrowing_the_workspace(cli: Cli, home_dir: Pat
             ]
         )
         assert wide["exit"] == 0
-        inside = [c for c in wide["fs_changes"] if c["path"].endswith("built.txt")]
+        inside = [c for c in _recorded(wide)["fs_changes"] if c["path"].endswith("built.txt")]
         assert inside and inside[0]["in_workspace"] is True
         # And the accusing rule stays quiet either way: the file is not sensitive.
         assert wide["derived"]["wrote_sensitive"] is False
@@ -293,7 +338,7 @@ def test_run_accepts_more_than_one_workspace_root(cli: Cli, home_dir: Path) -> N
             ]
         )
         assert report["exit"] == 0
-        written = [c for c in report["fs_changes"] if c["path"].endswith("x.txt")]
+        written = [c for c in _recorded(report)["fs_changes"] if c["path"].endswith("x.txt")]
         assert written and written[0]["in_workspace"] is True
     finally:
         cli(["teardown"])

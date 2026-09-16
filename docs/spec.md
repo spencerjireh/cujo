@@ -440,7 +440,11 @@ an unwrapped install running beside a spawned `detonation` would have its egress
 and any decoy read counted as that check's — feeding `egress_to_unknown_host`
 and `decoy_read`, both hard rules. Wrapping makes it a lock participant, so the
 windows queue rather than overlap. `setup` is not one of the four check names,
-so no report is folded from it and it is never evidence.
+so no report is folded from it and it is never evidence; for that reason a
+`sniff.py run` under any name outside the four prints its outcome and flags
+(`exit`, `duration_s`, the tails, `derived`, `sensors`, `truncated`) and
+`recorded`, the path of the entry file in the box that holds the whole entry,
+and none of the lists (decision 166). The four names print the entry whole.
 
 - **`tests`** — run the suite on base and on head. Report per-test status for
   both, and the derived set `base_pass_head_fail`. If no suite is found and
@@ -555,7 +559,8 @@ The envelope a check sub-agent returns:
 plus the per-check fields in the rubric: `base` / `head` / `base_pass_head_fail`
 for `tests`, `probes[]`, `endpoints[]` and `log_tail` for `smoke`.
 
-Each entry of `runs[]` is what `sniff.py run` printed: `schema_version`, `argv`,
+Each entry of `runs[]` is what `sniff.py run` recorded and, for the four
+checks, printed: `schema_version`, `argv`,
 `exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail`, and the
 sensor block below. A `detonate` entry carries `dependency`, `source`,
 `install_ok`, `duration_s` and `resolved` in place of `argv` and `exit`, and,

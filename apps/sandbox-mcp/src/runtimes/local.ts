@@ -77,6 +77,15 @@ export interface LocalRuntimeOptions {
   log?: Logger;
   /** Seconds a container may idle before it is reaped. */
   maxLifetimeMs?: number;
+  /**
+   * The sandbox's memory cap, in Docker's spelling (`5g`). Empty means none.
+   *
+   * The pull request's install shares the host with every service (decision
+   * 167); a cap turns a runaway install into that run's failure instead of
+   * the OOM killer's choice. Swap is capped to the same figure so it does
+   * not extend the cap. No CPU cap: an install gets every idle core.
+   */
+  memory?: string;
 }
 
 interface Box {
@@ -154,6 +163,9 @@ export class LocalRuntime implements SandboxRuntime {
     const network = `${PREFIX}-net-${id.slice(0, 8)}`;
     const container = `${PREFIX}-${id.slice(0, 8)}`;
     const gateway = `${PREFIX}-gw-${id.slice(0, 8)}`;
+    const memoryArgs = this.options.memory
+      ? ["--memory", this.options.memory, "--memory-swap", this.options.memory]
+      : [];
     const runtimeArgs = this.options.containerRuntime
       ? ["--runtime", this.options.containerRuntime]
       : [];
@@ -245,6 +257,7 @@ export class LocalRuntime implements SandboxRuntime {
         "run",
         "--detach",
         ...runtimeArgs,
+        ...memoryArgs,
         "--name",
         container,
         "--network",
