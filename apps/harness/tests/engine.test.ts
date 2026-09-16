@@ -181,6 +181,29 @@ describe("sub-agents", () => {
     if (finish?.state.status === "done") expect(finish.state.metrics?.totalInputTokens).toBe(30);
   });
 
+  it("gives a sub-agent its own instructions when the spec names its name (decision 165)", async () => {
+    const { engine, stub } = await up();
+    const sessionId = engine.createSession(
+      spec({ subagents: { tests: "You run the tests and nothing else." } }),
+    );
+    const calls = ["tests", "helper"].map((name) => ({
+      name: "create_sub_agent",
+      args: { name, input: "SAY done" },
+    }));
+    const turnId = await engine.createTurn(sessionId, [
+      { type: "user.message", content: `CALLS ${JSON.stringify(calls)}` },
+    ]);
+    await finished(engine, sessionId, turnId);
+    const systems = stub.requests.map((r) => r.system ?? "");
+    expect(systems.filter((s) => s.includes("You run the tests and nothing else."))).toHaveLength(
+      1,
+    );
+    // The parent and the unnamed child both read the parent's rubric.
+    expect(
+      systems.filter((s) => s.includes("You review pull requests.")).length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
   it("three sub-agents in one message run at once", async () => {
     const { engine } = await up();
     const sessionId = engine.createSession(spec());

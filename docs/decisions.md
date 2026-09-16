@@ -8079,3 +8079,53 @@ Rejected: **moving the interval services, the stream limit, the OAuth
 client, service URLs and secrets**, which a process needs before it has a
 store or which wire it to another process; **a hot-reloaded `Config`**,
 still (152); **a per-repository ceiling**, until a repository needs one.
+
+## 165. What a run may spend, and what it was seen to spend
+
+Four things the ledger and one bad day showed, each with a measure.
+
+**A timed-out run recorded nothing.** The stream delivers `model.message`
+as a stub with no usage and the watchdog's terminal event is its own, so a
+run that hit the ceiling folded zero tokens — and those are the runs that
+cost most. Now the watchdog, once the cancel has settled, reads the turn's
+persisted messages back (their usage fills the ledger) and the harness's
+cancelled state (its metrics fill the run's usage), and logs
+`run.usage.recovered`. The board shows what the day cost.
+
+**The sandbox spec had no budget.** Only the diff review did (132). A
+`sandboxBudgetTokens` setting, seeded from `CUJO_SANDBOX_BUDGET_TOKENS`
+and three million by default — the fixture's p90 plus headroom — is the
+sandbox spec's `tokenBudget`, stamped on the run row; a run past it ends
+as an error carrying what it measured.
+
+**Every sub-agent carried the parent's whole rubric.** A fresh context
+re-reads its system prompt on every message, and cache reads were 60 to 75
+percent of a run's tokens. The spec now names `subagents`, a page per
+check under `agent/checks/`, each on a common page and a tenth of the
+parent's; the harness hands a child the page named for its `name`, and
+the parent's rubric otherwise. The digest a run is stamped with covers
+the pages.
+
+**A setup that cannot finish burned the whole ceiling, twice.** The gather
+brief carries `turn_budget_ms`, and the rubric bounds every install to a
+quarter of it and stops installing at half, skipping what needed the
+install with the reason in coverage and posting what ran. A review that
+says the install did not finish is worth more than a run cancelled with
+nothing posted.
+
+Not done here: waiting for in-flight runs before a deploy. A deploy
+replaces the harness, which stops the spend at once; what it costs is the
+rerun, and that is a deploy-time question for the day the deploys are
+scheduled.
+
+Accepted: **usage read back after the cancel**, not before, since the
+metrics exist once the harness has ended the turn; **the budget on the
+models form**, beside the diff budget it mirrors; **one common page and
+one page per check**, so the protocol every check shares is written once;
+**the bound in the rubric**, since the gather path is the model's and the
+judge path's executor already bounds its own steps.
+
+Rejected: **a budget below the fixture's p90**, which would end real runs
+for saving cents; **per-check pages that repeat the review sections**,
+which a child never needs; **cancelling turns on `SIGTERM`**, since the
+harness dies with the deploy anyway.

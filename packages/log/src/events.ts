@@ -192,6 +192,7 @@ export const EVENT_NAMES = [
   // A repository's own guidance reached a brief, and where it came from (decision 155).
   "run.instructions.read",
   "run.staged",
+  "run.usage.recovered",
   // apps/web asked apps/cujo to start a sign-in and the plane is not served.
   "auth.unavailable",
   // Open Code Review beside a run (decision 149): what `apps/cujo` asked for

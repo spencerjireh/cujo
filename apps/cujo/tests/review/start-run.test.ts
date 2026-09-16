@@ -490,3 +490,22 @@ describe("startRun stages a private repository's trees (decision 158)", () => {
     expect(h.store.ocr.get(h.run.id)).toBeNull();
   });
 });
+
+describe("the sandbox budget and the turn's bound (decision 165)", () => {
+  it("stamps the sandbox budget on the row and tells the parent its ceiling", async () => {
+    const h = harness({});
+    await startRun(
+      { ...h.deps, sandboxBudgetTokens: () => 3_000_000, turnTimeoutMs: () => 900_000 },
+      h.run,
+    );
+    expect(h.store.runs.getRun(h.run.id)?.budgetTokens).toBe(3_000_000);
+    expect(briefOf(h.runner).turn_budget_ms).toBe(900_000);
+  });
+
+  it("stamps nothing and says nothing without them, as before", async () => {
+    const h = harness({});
+    await startRun(h.deps, h.run);
+    expect(h.store.runs.getRun(h.run.id)?.budgetTokens).toBeNull();
+    expect(briefOf(h.runner)).not.toHaveProperty("turn_budget_ms");
+  });
+});

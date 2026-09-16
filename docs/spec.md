@@ -173,6 +173,13 @@ no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
 to a full run, but the turn message carries `docs_only: true` so the agent
 selects advisory mode.
 
+A sandbox turn carries `tokenBudget` from the instance's `sandboxBudgetTokens`
+(decision 165), the way a diff turn carries `diffBudgetTokens`, and the run row
+stamps it; the brief carries `turn_budget_ms`, the turn's ceiling, so the
+parent bounds its setup. Each check's sub-agent reads its own page
+(`agent/checks/<CHECK>.md` on `checks/COMMON.md`) as its system prompt,
+named on the spec as `subagents`, rather than the parent's whole rubric.
+
 A private repository's turn message carries `staged` — a 32-hex ticket — in
 place of `clone_url`, never both (decision 158). The sandbox holds no
 credential, so `apps/cujo` fetches the base and head trees as GitHub's
