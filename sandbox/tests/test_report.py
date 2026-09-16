@@ -239,6 +239,42 @@ def test_benign_fs_changes_are_bounded_and_the_rules_still_see_everything(home_d
     assert small["truncated"]["fs_changes"] is False
 
 
+def test_benign_outside_workspace_rows_are_bounded_too(home_dir: Path) -> None:
+    """A pnpm install writes forty thousand files into a store under the
+    home directory, every one outside the workspace; a report that kept them
+    all was 7.6 MB, one JSON object, and crossed into the parent whole
+    (decision 166). Each side of the line gets its own bound; a sensitive
+    row is never cut."""
+    store = [
+        {
+            "path": f"~/.local/share/pnpm/store/v3/files/{i:05d}",
+            "type": "created",
+            "in_workspace": False,
+            "sensitive": False,
+        }
+        for i in range(1000)
+    ]
+    inside = [
+        {
+            "path": f"node_modules/pkg/{i}.js",
+            "type": "created",
+            "in_workspace": True,
+            "sensitive": False,
+        }
+        for i in range(300)
+    ]
+    secret = {"path": "~/.ssh/id_rsa", "type": "created", "in_workspace": False, "sensitive": True}
+    block = _block(home_dir, fs_changes=[*store[:500], *inside, secret, *store[500:]])
+    kept = block["fs_changes"]
+    assert len(kept) == 200 + 200 + 1
+    assert sum(1 for c in kept if not c["in_workspace"] and not c["sensitive"]) == 200
+    assert sum(1 for c in kept if c["in_workspace"]) == 200
+    assert secret in kept
+    assert block["truncated"]["fs_changes"] is True
+    assert block["derived"]["wrote_outside_workspace"] is True
+    assert block["derived"]["wrote_sensitive"] is True
+
+
 def test_a_merge_bounds_the_union_and_keeps_the_flag(home_dir: Path) -> None:
     """Two commands each under the bound are not under it together: the
     venv and the pip install of one detonation."""

@@ -796,9 +796,9 @@ every rule here fires on a sensor reporting *false*.
 
 Seven caps bound what a report can cost: `TAIL_CHARS` on each output tail,
 `MAX_FILES_READ` on `files_read` (a sensitive read is never dropped),
-`MAX_FS_CHANGES` on the benign rows of `fs_changes` (a sensitive or
-outside-workspace row is never dropped, and the `derived` flags read the full
-list before the cut, decision 146), `MAX_SNAPSHOT_FILES` on each filesystem walk, `HASH_MAX_BYTES` on the file a
+`MAX_FS_CHANGES` on the benign rows of `fs_changes`, on each side of the
+workspace line (a sensitive row is never dropped, and the `derived` flags read
+the full list before the cut, decisions 146 and 166), `MAX_SNAPSHOT_FILES` on each filesystem walk, `HASH_MAX_BYTES` on the file a
 digest will be taken over, and the JSONL parser itself. `truncated` carries one
 boolean per cap, because a list that was cut is not a list that was empty — and
 because a comparison that was never made must not read like one that came back
@@ -1252,8 +1252,9 @@ code 0 whose stdout is one JSON object with `check` naming the thread's title
 and a `runs` array. The last such result on the thread is the report; the
 final message's fenced JSON is read only when no such result exists, which is
 what a session on an older rubric produces. `sandbox-mcp` hands back a stream
-that is one JSON object whole, whatever its size, so the envelope crosses
-uncut (decision 142's bound applies to everything else).
+that is one JSON object under 512 KB whole, so the envelope crosses uncut
+(decision 142's bound applies to everything else, and to a JSON object over
+that ceiling, which no report is: decision 166).
 
 The four checks are matched to subagent threads by title. The parent titles
 each spawned thread exactly `tests`, `probes`, `smoke`, or `detonation`; a

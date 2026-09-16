@@ -244,6 +244,27 @@ describe("the tools", () => {
       await client.close();
     });
 
+    it("clips a JSON object over the report ceiling like prose (decision 166)", async () => {
+      const client = await connect();
+      const huge = JSON.stringify({
+        check: "setup",
+        runs: [
+          {
+            fs_changes: Array.from({ length: 4000 }, (_, i) => ({
+              path: `~/.local/share/pnpm/store/v3/files/${i}`.padEnd(160, "x"),
+            })),
+          },
+        ],
+      });
+      expect(Buffer.byteLength(huge)).toBeGreaterThan(512 * 1024);
+      runtime.nextOutput = { stdout: huge, stderr: "" };
+      const result = await exec(client);
+      expect(result.stdout).toContain("[cujo: truncated,");
+      expect(result.stdout.length).toBeLessThan(33 * 1024);
+      expect(runtime.writes).toHaveLength(1);
+      await client.close();
+    });
+
     it("still cuts, and says the rest was not kept, when the write fails", async () => {
       const client = await connect();
       runtime.nextOutput = { stdout: long, stderr: "" };
