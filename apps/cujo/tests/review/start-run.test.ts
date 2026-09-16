@@ -468,10 +468,14 @@ describe("startRun stages a private repository's trees (decision 158)", () => {
     expect(h.lines.find((l) => l.event === "run.prepare.failed")).toBeDefined();
   });
 
-  it("briefs a clone URL for a private repository when no staging door is composed", async () => {
+  it("fails a private repository's run when no staging door is composed", async () => {
     const h = harness({ isPublic: false });
     await startRun(h.deps, h.run);
-    expect(briefOf(h.runner)).toHaveProperty("clone_url");
+    expect(h.runner.start).not.toHaveBeenCalled();
+    expect(h.runner.fail).toHaveBeenCalledWith(
+      h.run.id,
+      expect.stringContaining("no staging door is configured"),
+    );
   });
 
   it("skips the shadow review for a private repository with a line", async () => {

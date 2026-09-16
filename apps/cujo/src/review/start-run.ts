@@ -258,10 +258,16 @@ export async function startRun(
     // A private repository's trees, staged before the turn exists (decision
     // 158): the box cannot clone them, so the brief carries a ticket and no
     // clone URL. A failure here is the run's failure, below, before any
-    // session was spent on it.
+    // session was spent on it -- and so is a composition with no staging
+    // door, since a clone URL the box cannot use would spend the session on
+    // a clone that cannot succeed.
+    const stage = deps.stage;
+    if (!run.isPublic && !stage) {
+      throw new Error("private repository, and no staging door is configured");
+    }
     const staged =
-      !run.isPublic && deps.stage
-        ? await stageTrees({ github: deps.github, stager: deps.stage.stager, log }, pr)
+      !run.isPublic && stage
+        ? await stageTrees({ github: deps.github, stager: stage.stager, log }, pr)
         : "";
     await deps.runner.start(
       current,
