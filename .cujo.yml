@@ -1,1 +1,7 @@
+# What Cujo runs when it reviews this repository (decision 161). `mode: diff`
+# keeps an ordinary pull request on the cheap reader; the manifest floor sends
+# the ones that change a dependency to the sandbox, and those take the judge
+# path on the commands below, run with no model in the loop.
 mode: diff
+install: pnpm install --frozen-lockfile && uv sync
+test: pnpm test && uv run pytest -q
