@@ -22,17 +22,17 @@ export interface UiLinks {
 }
 
 /**
- * A card links to the board when the run is public, and to nothing when it is
- * not (decision 57).
+ * A card, a check run and a pull request comment link to the run's page.
  *
- * A private run has no page: the board serves public repos only, and there is
- * no second, gated hostname to fall back to any more. A card whose title is not
- * a hyperlink is the honest rendering of that — better than a link into a 404,
- * and better than naming a private repo's run somewhere it cannot be read.
- * The pull request is where that run is actually discussed.
+ * For a public run that is the board. A private run's page is the same URL
+ * and answers only to a signed-in owner (decision 159); before that it had no
+ * page at all and this returned nothing (decision 57). The link is on things
+ * only the repository's own people see — its pull request, its check, its
+ * Discord channel — and an owner is who follows it; anyone else gets the
+ * board's 404, which says nothing. Empty with no board configured.
  */
-export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): string | null {
-  if (!run.isPublic || !links.publicBaseUrl) return null;
+export function runUrl(links: UiLinks, run: { id: string }): string | null {
+  if (!links.publicBaseUrl) return null;
   return `${links.publicBaseUrl}/runs/${run.id}`;
 }
 

@@ -820,14 +820,14 @@ describe("where a card links", () => {
     expect(payload.embeds?.[0]?.url).toBe(`${PUBLIC_UI}/runs/${run().id}`);
   });
 
-  it("gives a private run no link, and still a title", () => {
+  it("links a private run to its page, which answers to an owner (decision 159)", () => {
     const payload = buildRunCard({
       run: run({ isPublic: false, prTitle: null }),
       projection: projection(),
       links: LINKS,
     });
     const [embed] = payload.embeds ?? [];
-    expect(embed && "url" in embed).toBe(false);
+    expect(embed?.url).toContain(`${PUBLIC_UI}/runs/`);
     expect(embed?.title).toBeTruthy();
   });
 
@@ -856,10 +856,11 @@ describe("where a card links", () => {
       links: LINKS,
       roleId: null,
     });
-    expect(private_.content).not.toContain("://");
+    // A private run's page answers to an owner (decision 159), so the ping
+    // links it the same way.
+    expect(private_.content).toContain(PUBLIC_UI);
     expect(private_.content).toBe(private_.content?.trimEnd());
-    // The embed renders for a private run too; its title simply does not link.
-    expect(private_.embeds?.[0] && "url" in private_.embeds[0]).toBe(false);
+    expect(private_.embeds?.[0]?.url).toContain(`${PUBLIC_UI}/runs/`);
     expect(private_.embeds?.[0]?.title).toBeTruthy();
   });
 
@@ -878,7 +879,7 @@ describe("where a card links", () => {
     expect(content).toContain(`${PUBLIC_UI}/runs/`);
   });
 
-  it("names the pull request in a private run's resolved ping, and links nothing", () => {
+  it("names the pull request in a private run's resolved ping, and links its page", () => {
     const resolved = buildPing({
       run: run({ status: "dismissed", isPublic: false }),
       projection: projection({ status: "dismissed" }),
@@ -886,8 +887,8 @@ describe("where a card links", () => {
       roleId: null,
     });
     expect(resolved.content).toContain("o/r #7");
-    expect(resolved.content).not.toContain("://");
+    expect(resolved.content).toContain(PUBLIC_UI);
     expect(resolved.content).toBe(resolved.content?.trimEnd());
-    expect(resolved.embeds?.[0] && "url" in resolved.embeds[0]).toBe(false);
+    expect(resolved.embeds?.[0]?.url).toContain(`${PUBLIC_UI}/runs/`);
   });
 });
