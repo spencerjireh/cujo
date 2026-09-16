@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { MAIN_THREAD } from "@cujo/harness-contract";
+import { MAIN_THREAD, type Turn } from "@cujo/harness-contract";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { Harness, SessionEvent, StreamEvent } from "../clients/harness";
@@ -73,6 +73,8 @@ export interface RunnerOptions {
    */
   diffTurnTimeoutMs?: number;
   pollIntervalMs?: number;
+  /** How often the watchdog asks whether a cancelled turn has settled (decision 165). */
+  usageRecoveryPollMs?: number;
   /** Backoff before each resubscribe after a dropped stream. */
   retryDelaysMs?: number[];
   /**
@@ -126,6 +128,10 @@ const TERMINAL_EVENT = "turn.done";
 export const ANY_RUN = "run:changed";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** How long the watchdog waits for a cancelled turn to settle before giving up on its metrics. */
+const USAGE_RECOVERY_WAIT_MS = 20 * 60 * 1000;
+const USAGE_RECOVERY_POLL_MS = 15_000;
 
 function errorTurnDone(id: string, message: string): StreamEvent {
   const now = new Date().toISOString();
@@ -463,7 +469,20 @@ export class Runner {
         try {
           const turns = await this.harness.listTurns(run.sessionId);
           const mine = turns.find((t) => t.id === timedOutTurn);
-          if (mine?.state.status === "running") await this.harness.cancelTurn(run.sessionId);
+          // The cancel answers once the turn has settled, which can be as
+          // long as the tool call in flight -- a sensed test run has a
+          // fifteen-minute bound -- and longer than a fetch waits for
+          // headers. So the answer is not waited for; the settled state is
+          // polled instead, below.
+          if (mine?.state.status === "running") {
+            this.harness.cancelTurn(run.sessionId).catch((error) => {
+              this.state(runId).log.warn("run.cancel.failed", {
+                session_id: run.sessionId,
+                reason: "turn_timeout",
+                ...errorFields(error),
+              });
+            });
+          }
           await this.recoverUsage(runId, run.sessionId, timedOutTurn);
         } catch (error) {
           this.state(runId).log.warn("run.cancel.failed", {
@@ -500,9 +519,16 @@ export class Runner {
    * the turn's metrics; both are read back once the cancel has settled.
    */
   private async recoverUsage(runId: string, sessionId: string, turnId: string): Promise<void> {
+    // Until the turn has settled, or the tool call it is waiting on has had
+    // its own bound: the metrics exist only once the harness has ended it.
+    const deadline = Date.now() + USAGE_RECOVERY_WAIT_MS;
+    let state: Turn["state"] | undefined;
+    for (;;) {
+      state = (await this.harness.listTurns(sessionId)).find((t) => t.id === turnId)?.state;
+      if (!state || state.status !== "running" || Date.now() >= deadline) break;
+      await sleep(this.options.usageRecoveryPollMs ?? USAGE_RECOVERY_POLL_MS);
+    }
     await this.hydrate(runId);
-    const turn = (await this.harness.listTurns(sessionId)).find((t) => t.id === turnId);
-    const state = turn?.state;
     if (state && state.status !== "running" && state.metrics) {
       this.push(runId, {
         type: "turn.done",
