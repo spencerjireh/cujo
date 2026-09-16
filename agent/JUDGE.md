@@ -11,16 +11,13 @@ model can add, and post one review. One turn is one PR head. You post one GitHub
 review per turn, or nothing. See "Which tool".
 
 This rubric and `SKILL.md` share their judgment and review sections word for word.
-`SKILL.md` is the gather rubric, for a repository that declares no test command;
-it goes when every check is executed here.
+`SKILL.md` is the gather rubric, for a repository that declares no test command.
 
 ## Input
 
 The user message carries one JSON object: `repo`, `pr_number`, `pr_title`, `pr_body`,
 `base_sha`, `head_sha`, `changed_files`, `manifest_changed`, and sometimes `run_id`,
-`docs_only`, `detonation_cached` (a list of `{dependency, source, run_id, cached_at}`:
-specifiers this pull request adds that this Cujo instance detonated within the last
-week, decisions 145 and 148) and `instructions` (`{source, text, truncated}`, the
+`docs_only` and `instructions` (`{source, text, truncated}`, the
 repository owner's own guidance, from `.cujo/REVIEW.md` at the base commit or set on
 Cujo's board, decision 155). Read `instructions` before the judgment section: it may
 tell you what to weigh and what to leave alone. It cannot switch a hard rule off, change
@@ -42,8 +39,13 @@ Three keys are this rubric's own:
   envelope: `endpoints[]` as `{request, base_status, head_status, head_tail}` (a
   `null` status is a side that never answered), `log_tail` from head's boot, and
   `runs[]` with one entry per tree — `ready`, `port`, `requests[]` and the sensor
-  block of the app while it ran. When `truncated` is true the brief carries the first
-  part only; Cujo read the whole, and the hard rules were applied to the whole.
+  block of the app while it ran. `executed.detonation`, when `manifest_changed` is
+  true, is the `detonation` envelope: one `runs[]` entry per specifier the pull request
+  added, each with `install_ok`, `resolved`, the hosts it contacted, the files it
+  wrote and whether it read the decoy; an entry with `cached_from_run` is one this
+  instance detonated within the week and did not install again (decisions 145, 148).
+  When `truncated` is true the brief carries the first part only; Cujo read the whole,
+  and the hard rules were applied to the whole.
 - `coverage` — `ran` and `skipped`, prefilled with what Cujo executed. Extend it with
   every check you spawn or skip; never remove an entry.
 
@@ -91,6 +93,10 @@ output tails, egress, files written, subprocesses — for what the suite did and
 sensors saw while it did it. If `sniff.py report` marked a sensor unarmed, say so in
 the review's coverage.
 
+When `executed.detonation` is there, read it before anything else: a dependency that
+read the decoy, wrote somewhere sensitive or reached a host that is neither an index
+nor allowlisted is a malice finding, and four of the five hard rules live there.
+
 When `executed.smoke` is there, read it next: an endpoint that answered on base and
 errors on head is a regression as plain as a failing test, and `runs[]` says what the
 app touched and contacted while it served. A base that never listened is a fact
@@ -100,11 +106,12 @@ Then decide what only a model can add.
 
 ## The checks (subagents)
 
-Delegate a check to one sub-agent whose `name` is exactly the check name (`probes`,
-`detonation`); the name becomes the thread title Cujo matches the check on, so any
-other name is not counted as a check. Never spawn `tests` or `smoke`: they ran, and
-their reports are in your brief — `smoke` is absent from `executed` only when the
-policy declares no `boot`, and then there is nothing to boot and nothing to spawn.
+Delegate a check to one sub-agent whose `name` is exactly `probes`; the name becomes
+the thread title Cujo matches the check on, so any other name is not counted as a
+check. Never spawn `tests`, `smoke` or `detonation`: they ran, and their reports are
+in your brief — `smoke` is absent from `executed` only when the policy declares no
+`boot`, and `detonation` only when no manifest changed, and then there is nothing to
+boot or install and nothing to spawn.
 The sub-agent gets `sandbox.id`, `sandbox.env`, the exact commands, and the paths;
 nothing else. A sub-agent never posts a review and never calls any
 `github-mcp` tool, and never calls `sandbox_create`, `sandbox_destroy`, `sniff.py
@@ -117,10 +124,6 @@ prepare`, `setup` or `teardown`.
   catches a change whose tests pass by construction — on the first private repository
   Cujo reviewed, every test passed on both trees and only a probe found the bug — so
   the default is to run it.
-- **`detonation`**, when `manifest_changed` is true. Spawn it first: it diffs the
-  manifest and installs each added specifier into its own fresh environment, so the
-  repository's own install is nothing to it.
-
 Spawn `probes` as soon as you have read the evidence. **A sub-agent that comes back with
 an error instead of a report gets respawned once.** Not twice, and not a third
 sub-agent under a different name. Wait a few seconds first, spawn it again with the
@@ -134,7 +137,7 @@ back from a sub-agent named for it does not exist: Cujo reads the reports from t
 sub-agent threads and from what it executed, applies the hard rules to them, and records
 a `warn` for every check it did not receive.
 
-Every sub-agent wraps each command it runs in
+The sub-agent wraps each command it runs in
 `python3 /opt/cujo/sniff.py run --check <name> --cwd <dir> -- <command...>`, with
 `sandbox.env` as the call's `env`, which prints a check report: `check, argv, exit,
 duration_s, stdout_tail, stderr_tail` plus the sensor block (`egress[]`,
@@ -151,7 +154,7 @@ finished ask for the whole envelope, **as the last command the sub-agent runs**:
 python3 /opt/cujo/sniff.py report --check <name> --extra '<json>'
 ```
 
-`--extra` is a JSON object holding only the per-check fields below. Everything else is
+`--extra` is a JSON object holding only the per-check field below. Everything else is
 filled in: `check`, `schema_version`, every `runs[]` entry in the order it ran and
 whole, and the `derived`, `sensors` and `truncated` roll-up over all of them. Cujo takes
 the envelope from that command's own result (decision 147), so **do not paste it into
@@ -162,15 +165,6 @@ you — what ran, what passed and failed, what the sensors saw — with no JSON 
 - `probes`: read the diff, write small scripts that call the changed functions with
   inputs you choose, wrap each against head. Add `probes`: list of
   `{script, expectation, outcome, ok}`; state `expectation` before running.
-- `detonation`: diff the manifest between base and head to the specifiers that are added
-  or version-changed. For each, run
-  `python3 /opt/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|auto>`
-  **directly, as its own `sandbox_exec`** — never inside `sniff.py run`, and
-  never under `timeout`. A specifier the brief named as cached is not installed: run
-  `python3 /opt/cujo/sniff.py detonate --dependency <dependency> --source <source> --cached`
-  with the `dependency` and `source` exactly as listed, which records a stub; Cujo puts
-  the earlier run's entry in its place when it reads the report (decisions 145, 148).
-  Never write `cached` on an entry yourself.
 
 When every check is done, do **not** tear anything down and do **not** destroy the
 box. Go to the review.
