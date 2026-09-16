@@ -1,4 +1,3 @@
-import { runKeys } from "@/lib/api/keys";
 import type { RepositorySettingsView } from "@/lib/api/owner-client";
 import { ownerKeys } from "@/lib/api/owner-keys";
 import { runs } from "@/lib/fixtures";
@@ -23,7 +22,7 @@ function withSettings(seed: RepositorySettingsView) {
     defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
   });
   client.setQueryData(ownerKeys.settings(REPO), seed);
-  client.setQueryData(runKeys.list(), { runs: runs.map((run) => ({ ...run, repo: REPO })) });
+  client.setQueryData(ownerKeys.runs(), { runs: runs.map((run) => ({ ...run, repo: REPO })) });
   return function Decorated(Story: () => React.ReactElement) {
     return (
       <QueryClientProvider client={client}>

@@ -18,12 +18,17 @@ import type { GitHubReader } from "../../clients/github";
 import type { GitHubOAuth } from "../../clients/github-oauth";
 import { INSTRUCTIONS_BYTES, INSTRUCTIONS_PATH } from "../../review/instructions";
 import { cut } from "../../review/prepare";
+import type { Runner } from "../../review/runner.service";
 import { REVIEW_MODES, type ReviewMode } from "../../review/types";
 import { type ModelSettings, type SettingKey, type Settings, parseSetting } from "../../settings";
+import type { RunStore } from "../../store";
 import type { RepositoryStore } from "../../store/repositories";
 import type { RepositorySettingsStore } from "../../store/repository-settings";
 import type { WebSession, WebSessionStore } from "../../store/web-sessions";
+import { serializePublicRun, serializePublicSummary } from "../public/serialize";
+import { createStreamLimit } from "../public/stream-limit";
 import type { RequestEnv } from "../request-log";
+import { streamRun } from "../run-stream";
 
 export interface OwnerDeps {
   oauth: Pick<GitHubOAuth, "authorizeUrl" | "exchangeCode" | "user" | "installations" | "orgRole">;
@@ -40,9 +45,17 @@ export interface OwnerDeps {
   github: Pick<GitHubReader, "declaredMode" | "readFile" | "appState">;
   /** Whether the process can take a run right now: the same answer `/readyz` gives. */
   health: () => { harness: "ready" | "bootstrapping"; store: "ok" | "error"; uptimeMs: number };
+  /** Every run, private ones included (decision 159). */
+  runs: Pick<RunStore, "listRunsWithDigests">;
+  runner: Pick<Runner, "view" | "changes">;
+  /** Concurrent owner streams held at once; an owner is one person with a few tabs. */
+  streamLimit?: number;
   log: Logger;
   now?: () => Date;
 }
+
+/** Streams one owner may hold at once: a few tabs, not the internet's 200. */
+const OWNER_STREAM_LIMIT = 20;
 
 type OwnerEnv = RequestEnv & { Variables: RequestEnv["Variables"] & { session: WebSession } };
 
@@ -379,6 +392,35 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
     return c.json({
       ok: true,
       board: { mode: saved.mode, instructions: saved.instructions, updated_at: saved.updatedAt },
+    });
+  });
+
+  // The runs, private ones included (decision 159): the public plane's own
+  // shapes and serializers with the visibility filter left out, since who
+  // is asking has already been settled above. The same stream code, with a
+  // limit sized for one person's tabs and not the internet.
+  const streams = createStreamLimit(deps.streamLimit ?? OWNER_STREAM_LIMIT);
+  owner.get("/runs", (c) => {
+    return c.json({ runs: deps.runs.listRunsWithDigests().map(serializePublicSummary) });
+  });
+
+  owner.get("/runs/:id", (c) => {
+    const view = deps.runner.view(c.req.param("id"));
+    if (!view) return c.json({ ok: false, error: "not found" }, 404);
+    return c.json(serializePublicRun(view));
+  });
+
+  owner.get("/runs/:id/events", (c) => {
+    const id = c.req.param("id");
+    const view = deps.runner.view(id);
+    if (!view) return c.json({ ok: false, error: "not found" }, 404);
+    return streamRun(c, id, view, {
+      runner: deps.runner,
+      visible: (runId) => deps.runner.view(runId),
+      admits: () => true,
+      limit: streams,
+      limitSize: deps.streamLimit ?? OWNER_STREAM_LIMIT,
+      plane: "owner",
     });
   });
 

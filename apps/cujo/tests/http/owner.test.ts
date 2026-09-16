@@ -13,6 +13,7 @@ import type { Runner } from "../../src/review/runner.service";
 import { Settings, seedFromConfig } from "../../src/settings";
 import { Store } from "../../src/store";
 import { INTERNAL, req } from "./helpers";
+import { viewOf } from "./public/helpers";
 
 const env = {
   GITHUB_WEBHOOK_SECRET: "s",
@@ -40,7 +41,22 @@ function build(
   const lines: Record<string, unknown>[] = [];
   const log = createLogger({ service: "cujo", sink: (line) => lines.push(JSON.parse(line)) });
   const settings = Settings.open(store.settings, seedFromConfig(loadConfig(env)), log);
-  const runner = { view: () => null, start: vi.fn() } as unknown as Runner;
+  // `view` answers for any run in the store, public or not, which is what
+  // the owner plane serves (decision 159); the public plane filters on top.
+  const listeners = new Map<string, Set<(view: unknown) => void>>();
+  const runner = {
+    view: (id: string) => {
+      const run = store.runs.getRun(id);
+      return run ? viewOf(run) : null;
+    },
+    changes: {
+      on: (id: string, fn: (view: unknown) => void) => {
+        listeners.set(id, (listeners.get(id) ?? new Set()).add(fn));
+      },
+      off: (id: string, fn: (view: unknown) => void) => listeners.get(id)?.delete(fn),
+    },
+    start: vi.fn(),
+  } as unknown as Runner;
   const files = new Map<string, string>(Object.entries(options.files ?? {}));
   const github = {
     declaredMode: vi.fn(async () => {
@@ -135,6 +151,9 @@ function build(
             repositorySettings: store.repositorySettings,
             github,
             health: () => ({ harness: "ready" as const, store: "ok" as const, uptimeMs: 1234 }),
+            runs: store.runs,
+            runner,
+            streamLimit: 1,
             log,
           },
         },
@@ -493,5 +512,75 @@ describe("the owner plane", () => {
     expect(h.logged("owner.repository.changed")).toMatchObject([
       { actor: "octocat", repo: "O/R", enabled: false },
     ]);
+  });
+});
+
+describe("the owner plane serves every run (decision 159)", () => {
+  function seed(store: Store) {
+    const priv = store.runs.createRun({
+      repo: "o/private",
+      prNumber: 1,
+      headSha: "p1",
+      sessionId: "s-p",
+      isPublic: false,
+      model: "p/m",
+      rubricSha256: "r",
+    }).run;
+    const pub = store.runs.createRun({
+      repo: "o/public",
+      prNumber: 2,
+      headSha: "q1",
+      sessionId: "s-q",
+      isPublic: true,
+      model: "p/m",
+      rubricSha256: "r",
+    }).run;
+    return { priv, pub };
+  }
+
+  it("lists private runs beside public ones, and only for a session", async () => {
+    const h = build();
+    const { priv, pub } = seed(h.store);
+    expect((await h.call("/owner/runs")).status).toBe(401);
+    const { session } = await h.signIn();
+    const res = await h.call("/owner/runs", {}, session);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { runs: { id: string; repo: string }[] };
+    expect(body.runs.map((r) => r.id).sort()).toEqual([priv.id, pub.id].sort());
+    // The public plane still hides the private one.
+    const anon = (await (await h.call("/public/runs")).json()) as { runs: { id: string }[] };
+    expect(anon.runs.map((r) => r.id)).toEqual([pub.id]);
+  });
+
+  it("serves a private run's page and stream, where the public plane says 404", async () => {
+    const h = build();
+    const { priv } = seed(h.store);
+    const { session } = await h.signIn();
+    expect((await h.call(`/public/runs/${priv.id}`)).status).toBe(404);
+    expect((await h.call(`/owner/runs/${priv.id}`)).status).toBe(401);
+    const res = await h.call(`/owner/runs/${priv.id}`, {}, session);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { repo: string }).repo).toBe("o/private");
+    const stream = await h.call(`/owner/runs/${priv.id}/events`, {}, session);
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get("content-type")).toContain("text/event-stream");
+    const reader = stream.body?.getReader();
+    const first = new TextDecoder().decode((await reader?.read())?.value);
+    expect(first).toContain("event: run");
+    expect(first).toContain('"repo":"o/private"');
+    await reader?.cancel();
+  });
+
+  it("is 404 for a run that does not exist, and 503 past its own stream limit", async () => {
+    const h = build();
+    const { priv } = seed(h.store);
+    const { session } = await h.signIn();
+    expect((await h.call("/owner/runs/nope", {}, session)).status).toBe(404);
+    const first = await h.call(`/owner/runs/${priv.id}/events`, {}, session);
+    expect(first.status).toBe(200);
+    const second = await h.call(`/owner/runs/${priv.id}/events`, {}, session);
+    expect(second.status).toBe(503);
+    expect(h.logged("owner.stream.rejected").length).toBe(1);
+    await first.body?.cancel();
   });
 });

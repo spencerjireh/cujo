@@ -1,5 +1,6 @@
 import { environmentManager } from "@tanstack/react-query";
 import { ApiError, CUJO_API_URL } from "./client";
+import type { Run, RunList } from "./types";
 
 /**
  * The owner plane's client (decision 156). Two call paths like the board's:
@@ -75,6 +76,18 @@ async function call<T>(
 /** Who is signed in. 401 means nobody; the caller decides what that looks like. */
 export function fetchMe(session?: string, signal?: AbortSignal): Promise<Me> {
   return call<Me>("/me", { session, signal });
+}
+
+/**
+ * The runs as an owner sees them, private ones included (decision 159): the
+ * public plane's shapes, so every component that draws a run draws these.
+ */
+export function fetchOwnerRuns(session?: string, signal?: AbortSignal): Promise<RunList> {
+  return call<RunList>("/runs", { session, signal });
+}
+
+export function fetchOwnerRun(id: string, session?: string, signal?: AbortSignal): Promise<Run> {
+  return call<Run>(`/runs/${encodeURIComponent(id)}`, { session, signal });
 }
 
 export async function fetchRepositories(
