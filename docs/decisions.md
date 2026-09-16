@@ -8305,3 +8305,45 @@ reservation for the services**, slower installs on a two-core box for a
 contention nobody has measured; **the cap as a board setting**, which
 would have to cross into `sandbox-mcp` on `sandbox_create` and make a
 tool input of a limit the service owns.
+
+## 168. A bundled service is not a service until it boots, and CI says so
+
+The deploy that carried 161 failed twice and took the site down for an
+hour. cujo's container exited on its first line: `Dynamic require of
+"process" is not supported`. `yaml`, added in that change to read
+`.cujo.yml`, is CommonJS; `apps/cujo/tsup.config.ts` sets `noExternal:
+[/(.*)/]` so every dependency is bundled into one ESM file, and esbuild's
+shim throws for a dynamic `require` instead of resolving it. Nothing in
+the pipeline had ever run the artifact: the tests import source, `pnpm
+build` only has to produce a file, and the docker job built an image it
+never started.
+
+Two parts. **The bundle carries a real `require`**: a `banner` defining
+one from `createRequire(import.meta.url)`, which esbuild's shim uses when
+it finds it. That keeps `noExternal` — a runtime image with no
+`node_modules` is the point of it — and makes a CommonJS dependency
+behave as it does under Node. **CI runs every image it builds.** The
+docker job starts the container detached with no configuration, reads its
+log after fifteen seconds, and fails on `Dynamic require of`, `Cannot find
+module`, `Cannot find package` or `ERR_MODULE_NOT_FOUND`. A service that
+refuses its configuration passes, and so does one that starts and idles:
+the gate is that the bundle loads, not that the service runs.
+
+Detached and not foreground, because `timeout` signals the `docker run`
+client and the client hands the signal to a container under no obligation
+to take it; the first spelling of this check hung a job for twenty
+minutes.
+
+Accepted: **fifteen seconds of every docker job**, six jobs in parallel,
+against an outage that cost an hour; **a check that reads stderr for four
+strings**, which is coarse and catches the class that reached production;
+**the banner on `apps/cujo` alone**, since it is the only bundle with a
+CommonJS dependency today and the CI gate is what finds the next one.
+Rejected: **making `yaml` external**, which puts a `node_modules` back in
+the runtime image; **a compose healthcheck as the only guard**, which
+finds it on the host after the merge rather than in CI before it;
+**running the full stack in CI**, which `make test-int` already does for
+what it covers and which is minutes, not seconds.
+
+The gap this closes is not the bundler's. It is that "green" meant built,
+not run.
