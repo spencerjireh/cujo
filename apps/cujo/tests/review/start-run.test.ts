@@ -647,6 +647,45 @@ describe("startRun takes the judge path for a declared policy (decision 161)", (
     expect(h.destroyed).toEqual(["sbx-1"]);
   });
 
+  it("detonates what a changed manifest adds, in the executor, with the cache's stubs", async () => {
+    const h = harness({
+      judge: { policy },
+      pr: pr({
+        changedFiles: ["requirements.txt"],
+        files: [
+          {
+            path: "requirements.txt",
+            status: "modified",
+            additions: 2,
+            deletions: 0,
+            patch: "@@ -1 +1,3 @@\n+requests==2.32.0\n+left-pad==1.0.0",
+          },
+        ],
+      }),
+      cache: {
+        "pypi left-pad==1.0.0": {
+          schema_version: 1,
+          dependency: "left-pad==1.0.0",
+          source: "pypi",
+          install_ok: true,
+          derived: {},
+        },
+      },
+    });
+    await startRun(h.deps, h.run);
+    const detonates = h.execCalls.filter((argv) => argv[2] === "detonate");
+    expect(detonates.map((argv) => argv.slice(3))).toEqual([
+      ["--dependency", "requests==2.32.0", "--source", "pypi"],
+      ["--dependency", "left-pad==1.0.0", "--source", "pypi", "--cached"],
+    ]);
+    expect(h.store.executions.checksForRun(h.run.id).map((c) => c.check)).toEqual([
+      "detonation",
+      "tests",
+    ]);
+    expect(briefOf(h.runner)).not.toHaveProperty("detonation_cached");
+    expect(briefOf(h.runner).executed).toMatchObject({ detonation: {}, tests: {} });
+  });
+
   it("stages a private repository's trees first, and prepares from them", async () => {
     const h = harness({ judge: { policy }, isPublic: false, stage: {} });
     await startRun(h.deps, h.run);

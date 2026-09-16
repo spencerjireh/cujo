@@ -332,6 +332,17 @@ export async function startRun(
           headSha: run.headSha,
           cloneUrl: pr.cloneUrl,
           staged,
+          ...(manifestChanged(pr.changedFiles)
+            ? {
+                detonate: {
+                  added: addedSpecifiers(pr.files).map((a) => ({
+                    source: a.source,
+                    specifier: a.specifier,
+                  })),
+                  cached: cached.brief,
+                },
+              }
+            : {}),
         },
         policy,
       );
@@ -362,7 +373,6 @@ export async function startRun(
         buildJudgeTurnMessage(
           pr,
           deps.reviewRunId(judged),
-          cached.brief,
           instructions,
           {
             sandbox: { id: execution.sandboxId, env: execution.env },

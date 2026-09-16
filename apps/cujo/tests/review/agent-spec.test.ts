@@ -675,7 +675,7 @@ describe("the judge spec and brief (decision 161)", () => {
   };
 
   it("carries the box, the policy, the reports and the coverage, and no clone URL", () => {
-    const message = buildJudgeTurnMessage(pr, "run-1", [], null, judge, 24_000);
+    const message = buildJudgeTurnMessage(pr, "run-1", null, judge, 24_000);
     const json = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
     expect(json.sandbox).toEqual(judge.sandbox);
     expect(json.policy).toEqual(judge.policy);
@@ -691,7 +691,6 @@ describe("the judge spec and brief (decision 161)", () => {
     const message = buildJudgeTurnMessage(
       pr,
       "",
-      [],
       null,
       { ...judge, executed: [{ check: "tests", report: big }] },
       200,
