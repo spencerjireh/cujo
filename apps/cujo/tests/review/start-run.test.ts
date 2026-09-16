@@ -42,6 +42,8 @@ function harness(over: {
   isPublic?: boolean;
   /** Wire the staging door, answering with this, or throwing it. */
   stage?: { fail?: Error };
+  /** Wire the judge path (decision 161): `.cujo.yml` at base, and whether execution fails. */
+  judge?: { policy?: string | null; enabled?: boolean; fail?: Error };
   /** Wire the shadow review with this answer (decision 149). */
   ocr?: () => Promise<
     | { ok: true; result: unknown; exitCode: number | null; durationMs: number }
@@ -78,7 +80,9 @@ function harness(over: {
         ? "## Standards\n"
         : path === ".cujo/REVIEW.md"
           ? (over.reviewFile ?? null)
-          : null,
+          : path === ".cujo.yml"
+            ? (over.judge?.policy ?? null)
+            : null,
     ),
   } as unknown as GitHubReader;
   const createSession = vi.fn(async () => "s-diff");
@@ -134,6 +138,52 @@ function harness(over: {
         },
       }
     : undefined;
+  const execCalls: string[][] = [];
+  const destroyed: string[] = [];
+  const judgeSessions = vi.fn(async () => "s-judge");
+  const judge = over.judge
+    ? {
+        enabled: over.judge.enabled ?? true,
+        sandbox: {
+          create: async () => ({ sandboxId: "sbx-1", provisionedMs: 700 }),
+          exec: async (_id: string, request: { argv: readonly string[] }) => {
+            if (over.judge?.fail) throw over.judge.fail;
+            execCalls.push([...request.argv]);
+            const sub = request.argv[2];
+            const body =
+              sub === "prepare"
+                ? { ok: true }
+                : sub === "setup"
+                  ? { ok: true, env: { CUJO_SANDBOX: "1" } }
+                  : sub === "report"
+                    ? {
+                        check: "tests",
+                        runs: [],
+                        derived: {},
+                        base: {},
+                        head: {},
+                        base_pass_head_fail: [],
+                      }
+                    : { check: "tests", exit: 0, stdout_tail: "ok", stderr_tail: "" };
+            return {
+              exitCode: 0,
+              stdout: JSON.stringify(body),
+              stderr: "",
+              durationMs: 1,
+              timedOut: false,
+            };
+          },
+          destroy: async (id: string) => {
+            destroyed.push(id);
+          },
+        },
+        executions: store.executions,
+        createSession: judgeSessions,
+        provenance: { model: "p/judge", rubricSha256: "judge-rubric" },
+        stepTimeoutMs: 1000,
+        reportBytes: 24_000,
+      }
+    : undefined;
   const deps: StartRunDeps = {
     github,
     store: store.runs,
@@ -142,6 +192,7 @@ function harness(over: {
     reviewRunId: (r: RunRecord) => r.id,
     ...(over.diff === null ? {} : { diff }),
     ...(stage ? { stage } : {}),
+    ...(judge ? { judge } : {}),
     ...(over.cache ? { detonations } : {}),
     ...(ocr ? { ocr } : {}),
     ...(over.board
@@ -156,7 +207,22 @@ function harness(over: {
         }
       : {}),
   };
-  return { store, run, runner, github, createSession, deps, lines, asked, kept, ocrCalls, staged };
+  return {
+    store,
+    run,
+    runner,
+    github,
+    createSession,
+    deps,
+    lines,
+    asked,
+    kept,
+    ocrCalls,
+    staged,
+    execCalls,
+    destroyed,
+    judgeSessions,
+  };
 }
 
 /** The brief `Runner.start` was handed, parsed. */
@@ -507,5 +573,84 @@ describe("the sandbox budget and the turn's bound (decision 165)", () => {
     await startRun(h.deps, h.run);
     expect(h.store.runs.getRun(h.run.id)?.budgetTokens).toBeNull();
     expect(briefOf(h.runner)).not.toHaveProperty("turn_budget_ms");
+  });
+});
+
+describe("startRun takes the judge path for a declared policy (decision 161)", () => {
+  const policy = "install: pip install pytest\ntest: python -m pytest -q\n";
+
+  it("executes the tests, records them, and briefs the judge on its own session", async () => {
+    const h = harness({ judge: { policy } });
+    await startRun(h.deps, h.run);
+    expect(h.lines.find((l) => l.event === "run.path.resolved")).toMatchObject({
+      path_kind: "judge",
+      reason: "declared",
+    });
+    expect(h.execCalls.map((argv) => argv[2])).toEqual([
+      "prepare",
+      "setup",
+      "run",
+      "run",
+      "run",
+      "run",
+      "report",
+    ]);
+    expect(h.judgeSessions).toHaveBeenCalledTimes(1);
+    expect(h.store.runs.getRun(h.run.id)).toMatchObject({
+      sessionId: "s-judge",
+      mode: "sandbox",
+      model: "p/judge",
+      rubricSha256: "judge-rubric",
+    });
+    expect(h.store.executions.sandboxForRun(h.run.id)).toMatchObject({ sandboxId: "sbx-1" });
+    expect(h.store.executions.checksForRun(h.run.id).map((c) => c.check)).toEqual(["tests"]);
+    const brief = briefOf(h.runner);
+    expect(brief.sandbox).toEqual({ id: "sbx-1", env: { CUJO_SANDBOX: "1" } });
+    expect(brief.policy).toEqual({ install: "pip install pytest", test: "python -m pytest -q" });
+    expect(brief.executed).toMatchObject({ tests: { truncated: false } });
+    expect(brief.coverage).toMatchObject({ ran: [{ check: "tests" }], skipped: [] });
+    expect(brief).not.toHaveProperty("clone_url");
+    expect(h.destroyed).toEqual([]);
+  });
+
+  it("takes the gather path, as before, when no test is declared or the file is invalid", async () => {
+    const undeclared = harness({ judge: { policy: "allow_hosts:\n  - pypi.org\n" } });
+    await startRun(undeclared.deps, undeclared.run);
+    expect(briefOf(undeclared.runner)).toHaveProperty("clone_url");
+    expect(undeclared.lines.find((l) => l.event === "run.path.resolved")).toMatchObject({
+      path_kind: "gather",
+      reason: "undeclared",
+    });
+    const invalid = harness({ judge: { policy: "test: [\n" } });
+    await startRun(invalid.deps, invalid.run);
+    expect(briefOf(invalid.runner)).toHaveProperty("clone_url");
+    expect(invalid.lines.find((l) => l.event === "policy.invalid")).toBeDefined();
+    expect(invalid.execCalls).toEqual([]);
+  });
+
+  it("takes the gather path when execution is switched off, reading no policy", async () => {
+    const h = harness({ judge: { policy, enabled: false } });
+    await startRun(h.deps, h.run);
+    expect(briefOf(h.runner)).toHaveProperty("clone_url");
+    expect(h.lines.find((l) => l.event === "run.path.resolved")).toMatchObject({
+      reason: "disabled",
+    });
+    expect(h.github.readFile).not.toHaveBeenCalledWith("o/r", ".cujo.yml", expect.anything());
+  });
+
+  it("fails the run before any session when execution fails, with the box destroyed", async () => {
+    const h = harness({ judge: { policy, fail: new Error("sandbox_exec: could not run") } });
+    await startRun(h.deps, h.run);
+    expect(h.runner.start).not.toHaveBeenCalled();
+    expect(h.judgeSessions).not.toHaveBeenCalled();
+    expect(h.runner.fail).toHaveBeenCalledWith(h.run.id, expect.stringContaining("could not run"));
+    expect(h.destroyed).toEqual(["sbx-1"]);
+  });
+
+  it("stages a private repository's trees first, and prepares from them", async () => {
+    const h = harness({ judge: { policy }, isPublic: false, stage: {} });
+    await startRun(h.deps, h.run);
+    expect(h.staged.map((s) => s.tree)).toEqual(["base", "head"]);
+    expect(h.execCalls[0]?.slice(2, 5)).toEqual(["prepare", "--staged", "/work/stage"]);
   });
 });

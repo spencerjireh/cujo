@@ -333,6 +333,30 @@ export const SCHEMA = `
     finished_at TEXT,
     duration_ms INTEGER
   );
+
+  -- What the executor ran for a run with no model (decision 161): one row
+  -- per check, the Contract 2 envelope verbatim. Read into the fold beside
+  -- the events, so a check with no thread still has its report. The column
+  -- is check_name and not check, which SQLite reads as the CHECK keyword.
+  CREATE TABLE IF NOT EXISTS run_executions (
+    run_id TEXT NOT NULL REFERENCES runs (id),
+    check_name TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, check_name)
+  );
+
+  -- The box the executor prepared for a run and handed to the parent, so the
+  -- runner can destroy it when the turn ends and a restart can destroy the
+  -- ones it still owes (decision 161).
+  CREATE TABLE IF NOT EXISTS run_sandboxes (
+    run_id TEXT PRIMARY KEY REFERENCES runs (id),
+    sandbox_id TEXT NOT NULL,
+    provisioned_ms INTEGER NOT NULL,
+    env_json TEXT NOT NULL,
+    destroyed_at TEXT
+  );
 `;
 
 /**

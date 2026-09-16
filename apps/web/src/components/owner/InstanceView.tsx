@@ -347,6 +347,9 @@ function Limits({
     converseWindowMs: seconds(s.converseWindowMs),
     converseTimeoutMs: seconds(s.converseTimeoutMs),
     ocrEnabled: s.ocrEnabled,
+    executeDeclared: s.executeDeclared,
+    executeStepTimeoutMs: seconds(s.executeStepTimeoutMs),
+    executedReportBytes: String(s.executedReportBytes),
   });
   const [draft, setDraft] = useState(fromView);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the draft follows the served settings, and `fromView` closes over them.
@@ -367,6 +370,9 @@ function Limits({
       converseWindowMs: millis(draft.converseWindowMs),
       converseTimeoutMs: millis(draft.converseTimeoutMs),
       ocrEnabled: draft.ocrEnabled,
+      executeDeclared: draft.executeDeclared,
+      executeStepTimeoutMs: millis(draft.executeStepTimeoutMs),
+      executedReportBytes: Number(draft.executedReportBytes),
     });
   };
   return (
@@ -438,6 +444,30 @@ function Limits({
         <label className="flex items-center gap-2 self-end font-mono text-xs text-fg">
           <input type="checkbox" checked={draft.ocrEnabled} onChange={set("ocrEnabled")} />
           ask the OCR sidecar beside every sandbox run, a second full review at the same price
+        </label>
+        <Field label="executed step ceiling" hint="seconds for one install or test run">
+          <input
+            className={FIELD}
+            value={draft.executeStepTimeoutMs}
+            onChange={set("executeStepTimeoutMs")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="executed report bytes" hint="what of each report the judge is handed">
+          <input
+            className={FIELD}
+            value={draft.executedReportBytes}
+            onChange={set("executedReportBytes")}
+            inputMode="numeric"
+          />
+        </Field>
+        <label className="flex items-center gap-2 self-end font-mono text-xs text-fg">
+          <input
+            type="checkbox"
+            checked={draft.executeDeclared}
+            onChange={set("executeDeclared")}
+          />
+          run a repository&rsquo;s declared install and tests here, with no model
         </label>
       </div>
       <div>
