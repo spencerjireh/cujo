@@ -275,6 +275,39 @@ def test_benign_outside_workspace_rows_are_bounded_too(home_dir: Path) -> None:
     assert block["derived"]["wrote_sensitive"] is True
 
 
+def test_the_outside_sample_takes_rows_under_no_package_cache_first(home_dir: Path) -> None:
+    """Forty thousand store paths say one thing; a benign write to
+    `/etc/cron.d` beside them must not be the row that is dropped
+    (decision 166)."""
+    store = [
+        {
+            "path": f"~/.local/share/pnpm/store/v3/files/{i:05d}",
+            "type": "created",
+            "in_workspace": False,
+            "sensitive": False,
+        }
+        for i in range(1000)
+    ]
+    cron = {
+        "path": "/etc/cron.d/nightly",
+        "type": "created",
+        "in_workspace": False,
+        "sensitive": False,
+    }
+    block = _block(home_dir, fs_changes=[*store, cron])
+    kept = block["fs_changes"]
+    assert len(kept) == 200
+    assert cron in kept
+    assert kept[0] == cron
+    # In-workspace rows keep their own order and their own pool.
+    inside = [
+        {"path": f"node_modules/{i}", "type": "created", "in_workspace": True, "sensitive": False}
+        for i in range(3)
+    ]
+    both = _block(home_dir, fs_changes=[*store, *inside])
+    assert [c for c in both["fs_changes"] if c["in_workspace"]] == inside
+
+
 def test_a_merge_bounds_the_union_and_keeps_the_flag(home_dir: Path) -> None:
     """Two commands each under the bound are not under it together: the
     venv and the pip install of one detonation."""

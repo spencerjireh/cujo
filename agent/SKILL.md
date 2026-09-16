@@ -237,7 +237,10 @@ nobody destroys is reaped on a timer, which is a backstop and not a plan.
    and an unwrapped install would put its own egress inside whatever sensed
    window is open and have that check's report claim it. `--check setup` is not
    one of the four names, so nothing folds this report into a check — you do not
-   report it, and it is not evidence.
+   report it, and it is not evidence. For that reason it prints its outcome
+   (`exit`, `duration_s`, the tails, `derived`) and `recorded`, the file in the
+   box holding the whole entry, and not its lists; read that file only if the
+   flags say something happened.
 
    These serialise. `sniff.py run` takes an exclusive lock, so six services on
    two trees is twelve installs one after another, and `tests`, `probes` and

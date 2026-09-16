@@ -242,6 +242,10 @@ services:
       CUJO_SANDBOX_CONTAINER_RUNTIME: ${CUJO_SANDBOX_CONTAINER_RUNTIME:-}
       CUJO_SANDBOX_EGRESS_NETWORK: ${CUJO_SANDBOX_EGRESS_NETWORK:-bridge}
       CUJO_SANDBOX_MAX_LIFETIME_MS: ${CUJO_SANDBOX_MAX_LIFETIME_MS:-}
+      # The sandbox's memory cap, swap included (decision 167). A cap above
+      # the host's RAM never binds, so the default is safe on a smaller box;
+      # empty means no cap.
+      CUJO_SANDBOX_MEMORY: ${CUJO_SANDBOX_MEMORY:-5g}
       # Only read when CUJO_SANDBOX_RUNTIME is `daytona`.
       DAYTONA_API_URL: ${DAYTONA_API_URL:-}
       DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
