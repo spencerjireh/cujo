@@ -35,10 +35,14 @@ the pull request. Only a measurement blocks (decisions 133, 138).
    (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`,
    `.github/copilot-instructions.md`) at the base commit and posts findings
    of at most `warn`, because a block needs evidence only execution gives.
-3. A sandbox run spawns one subagent per check: `tests`, `probes`, `smoke`,
-   and `detonation` when a manifest changed, which installs each added
-   dependency through `sniff.py` and records the hosts, files and processes
-   it touches. Each returns a JSON report.
+3. A sandbox run: when `.cujo.yml` at the base commit declares `test`,
+   `apps/cujo` prepares the sandbox and runs the declared install and tests
+   on both trees itself, with no model, and hands the report to the agent,
+   which spawns a subagent for `probes` (and for `smoke` and, when a manifest
+   changed, `detonation`, which installs each added dependency through
+   `sniff.py` and records the hosts, files and processes it touches). When
+   nothing is declared, the agent infers the commands and spawns one subagent
+   per check. Each check ends in a JSON report.
 4. The agent folds the reports into `info`, `warn` and `critical` findings.
    Hard rules force `critical` on a regression, a decoy-secret read, a
    sensitive write, or unknown egress during an install, and `apps/cujo`

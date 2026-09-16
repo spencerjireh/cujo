@@ -8043,6 +8043,73 @@ since an owner is also the person who shares the landing's link; **a
 recent-runs strip**, which would make the landing a second board; **a
 sitemap**, until there are more than two indexed roots.
 
+## 161. Declared commands run with no model; the parent judges
+
+A sandbox review was a model doing a shell script's work. The parent read
+`.cujo.yml` out of `sniff.py prepare`'s output inside the box, ran the
+install, then spawned four sub-agents, three of which existed to wrap one
+`sniff.py run` and hand back a report. Measured over the fixture (the
+measurement week, track 6): the parent was half a run's tokens, `smoke` a
+fifth, `probes` a sixth, `tests` a tenth; a sub-agent is a fresh context
+carrying the whole rubric and every tool schema; and the 2026-09-10 incident
+was three sub-agents rate-limited in under two seconds producing a review
+with no evidence. Cost was not the reason to change it — a run is cents —
+latency, predictability and honesty of coverage were.
+
+So a repository that declares how to test itself gets a **judge run**. With
+`.cujo.yml` at base parsed on the trusted side and carrying `test`,
+`apps/cujo` calls `sandbox-mcp`'s tools itself: the box, `sniff.py prepare`
+(clone or the staged trees of 158), `sniff.py setup` with the declared
+`allow_hosts`, the declared `install` on each tree under `--check setup`,
+the declared `test` on base then head under `--check tests`, each line as
+`sh -c <line>` inside the box, and `sniff.py report` for the Contract 2
+envelope. The `base`, `head` and `base_pass_head_fail` extras are read off
+the two runs' output here, the way the sub-agent read them. The envelope is
+kept in the store and seated in the projection as a check with no thread
+before any event folds, so the hard rules read it exactly as they read a
+sub-agent's; the box is handed to the parent, prepared, with its id and
+the sensors' environment in the brief, and the parent — on its own spec,
+`agent/JUDGE.md`, with its own digest — starts at judgment: it reads the
+evidence, spawns `probes` by default and skips it only for a reason it
+writes into coverage, spawns `smoke` and `detonation` as before until their
+executors land, and posts. `apps/cujo` destroys the box when the turn ends,
+when a run fails before its turn, and on supersede; a restart destroys the
+boxes it still owes. A repository that declares no `test`, or whose file
+does not parse, takes the **gather run**, `agent/SKILL.md`, unchanged.
+
+Accepted: **`sh -c` for a declared line**, since the line is the
+repository's own and the model passed the same string before; **the
+suite's outcome read on the trusted side**, so the sensors' report shapes do
+not change and `sniff.py report` still writes the envelope; **the fold's
+door as `FoldOptions.executed`** beside the cached detonations, so rehydrate
+is still a pure replay of the store; **probes on by default**, because the
+first private run's bug was found only by a probe while every test passed
+on both trees, with the coverage map deferred until the ledger shows the
+parent over-spending; **coverage prefilled by the executor**, which knows
+first-hand what ran; **two rubrics for now**, the judge's and the gatherer's,
+sharing their judgment and review sections word for word, until `smoke` and
+`detonation` are executed too and `SKILL.md` goes; **a switch**
+(`CUJO_EXECUTE_DECLARED`) that sends every run down the gather path, so a
+rollback needs no rubric change; **the allowlist rules copied** into
+`apps/cujo` with a test holding both copies to one answer, rather than a
+shared package for forty lines.
+
+Rejected: **a harness route that runs a tool with no model**, which 125
+already refused, and which the sandbox service's own door makes unnecessary;
+**executing for an undeclared repository by inference**, since inference is
+the one setup step that earns its tokens and the gather rubric already does
+it; **one rubric that also gathers**, which would keep the parent a
+gatherer in half its branches; **a coverage map now**, per ecosystem, before
+the first judge run has been measured; **destroying the box in the executor**,
+which would cost the probes their prepared tree and re-run the install for
+nothing.
+
+What stays: 71 (prepare is one command), 112 and 147 (the envelope comes
+from `sniff.py report` and is read off its own result), 143 (one respawn,
+for the sub-agents that remain), 145 and 148 (cached detonations, unchanged
+in the judge rubric), 158 (a private repository's trees are staged; the
+executor prepares from them).
+
 ## 164. The limits and switches live on the board
 
 Every knob that moves a run's cost or length lived in the deploy's

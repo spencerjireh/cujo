@@ -3,8 +3,10 @@ import { MAIN_THREAD, type Turn } from "@cujo/harness-contract";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { Harness, SessionEvent, StreamEvent } from "../clients/harness";
+import type { SandboxMcp } from "../clients/sandbox-mcp";
 import type { RunStore } from "../store";
 import type { DetonationCacheStore } from "../store/detonations";
+import type { ExecutionStore } from "../store/executions";
 import { announceEvidenceGaps, announceTimeout } from "./announce";
 import { cacheableDetonations } from "./detonation-cache";
 import { type DismissStaleReviewsDeps, dismissStaleReviews } from "./dismiss-stale";
@@ -173,6 +175,17 @@ export class Runner {
       | null = null,
     /** Where a finished detonation's reusable entries go (decision 145). */
     private readonly detonations: Pick<DetonationCacheStore, "put" | "forRun"> | null = null,
+    /**
+     * The executor's records and the door to destroy its boxes (decision
+     * 161). Null in a composition with no executor, where no run has one.
+     */
+    private readonly sandboxes: {
+      client: Pick<SandboxMcp, "destroy">;
+      store: Pick<
+        ExecutionStore,
+        "checksForRun" | "sandboxForRun" | "markDestroyed" | "listUndestroyed"
+      >;
+    } | null = null,
   ) {
     this.retryDelaysMs = options.retryDelaysMs ?? [2_000, 5_000, 15_000];
   }
@@ -222,13 +235,58 @@ export class Runner {
       : this.options.turnTimeoutMs;
   }
 
-  /** The mode and, for a run briefed with cached detonations, the entries the fold substitutes. */
+  /**
+   * The mode; for a run briefed with cached detonations, the entries the
+   * fold substitutes; for a judge run, the checks the executor ran and the
+   * box it provisioned (decision 161).
+   */
   private foldOptions(runId: string, run: RunRecord | null): FoldOptions {
     const cached = this.detonations?.forRun(runId) ?? [];
+    const executed = this.sandboxes?.store.checksForRun(runId) ?? [];
+    const box = this.sandboxes?.store.sandboxForRun(runId) ?? null;
     return {
       ...(run ? { mode: run.mode } : {}),
       ...(cached.length > 0 ? { cachedDetonations: cached } : {}),
+      ...(executed.length > 0 ? { executed } : {}),
+      ...(box ? { sandbox: { provisionedMs: box.provisionedMs } } : {}),
     };
+  }
+
+  /**
+   * Destroy the box the executor handed this run, once (decision 161). The
+   * turn is over or never was, so nothing in it can still be running a
+   * check; a box that outlives its run is the sandbox service's reaper's
+   * to find, and this is what keeps that from being the usual path.
+   */
+  async destroySandbox(runId: string): Promise<void> {
+    if (!this.sandboxes) return;
+    const box = this.sandboxes.store.sandboxForRun(runId);
+    if (!box || box.destroyedAt) return;
+    const log = this.state(runId).log;
+    try {
+      await this.sandboxes.client.destroy(box.sandboxId);
+      this.sandboxes.store.markDestroyed(runId, new Date().toISOString());
+      log.info("sandbox.destroyed", { sandbox_id: box.sandboxId });
+    } catch (error) {
+      log.warn("sandbox.destroy.failed", { sandbox_id: box.sandboxId, ...errorFields(error) });
+    }
+  }
+
+  /**
+   * On boot: destroy every box still owed whose run is over. A run still
+   * running keeps its box, since its turn may be probing in it; `rehydrate`
+   * follows that turn to its end and destroys the box then.
+   */
+  async sweepSandboxes(): Promise<number> {
+    if (!this.sandboxes) return 0;
+    let destroyed = 0;
+    for (const box of this.sandboxes.store.listUndestroyed()) {
+      const run = this.store.getRun(box.runId);
+      if (run && !this.isTerminal(run.status)) continue;
+      await this.destroySandbox(box.runId);
+      destroyed += 1;
+    }
+    return destroyed;
   }
 
   private refold(runId: string): Projection {
@@ -737,6 +795,7 @@ export class Runner {
       projection = this.refold(runId);
     }
     if (this.isTerminal(projection.status)) {
+      void this.destroySandbox(runId);
       if (projection.status === "clean" && this.github) {
         const run = this.store.getRun(runId);
         if (run) {
@@ -942,6 +1001,7 @@ export class Runner {
   fail(runId: string, message: string): void {
     this.push(runId, errorTurnDone(`cujo-start-error-${Date.now()}`, message));
     this.refold(runId);
+    void this.destroySandbox(runId);
   }
 
   /**
@@ -980,6 +1040,7 @@ export class Runner {
     try {
       await this.harness.cancelTurn(run.sessionId);
       this.refold(runId);
+      void this.destroySandbox(runId);
       return true;
     } catch (error) {
       // Cancel failed: revert the in-memory flag so the partial index still

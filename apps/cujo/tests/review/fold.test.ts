@@ -10,7 +10,7 @@ import type {
 import { renderReviewBody, reviewComments } from "@cujo/review-render";
 import { describe, expect, it } from "vitest";
 import { isMaliceClaim } from "../../src/review/findings";
-import { fold, parseReport, parseReview } from "../../src/review/fold";
+import { executedThreadId, fold, parseReport, parseReview } from "../../src/review/fold";
 
 type Ev = SessionEvent;
 const at = "2026-08-27T00:00:00Z";
@@ -1434,5 +1434,64 @@ describe("parseReview agrees with what github-mcp posts", () => {
     expect(parseReview(reviewToolCall("post_advisory_review"))?.comments).toEqual(
       reviewComments(sharedArgs as Parameters<typeof reviewComments>[0]),
     );
+  });
+});
+
+describe("executed checks (decision 161)", () => {
+  const envelope = (over: Record<string, unknown> = {}) => ({
+    schema_version: 1,
+    check: "tests",
+    base: { "t.py::a": "pass" },
+    head: { "t.py::a": "fail" },
+    base_pass_head_fail: ["t.py::a"],
+    runs: [],
+    derived: {},
+    sensors: { proxy: { armed: true }, decoy: { armed: true } },
+    truncated: {},
+    ...over,
+  });
+  const executed = (over: Record<string, unknown> = {}) => [
+    {
+      check: "tests",
+      report: envelope(over),
+      startedAt: "2026-08-27T00:00:00Z",
+      endedAt: "2026-08-27T00:01:30Z",
+    },
+  ];
+
+  it("seats an executed check before any event, with its timings and no thread", () => {
+    const p = fold([], { executed: executed(), sandbox: { provisionedMs: 1234 } });
+    expect(p.checks).toHaveLength(1);
+    expect(p.checks[0]).toMatchObject({
+      threadId: executedThreadId("tests"),
+      title: "tests",
+      isCheck: true,
+      status: "done",
+      attempts: 1,
+      timings: { wallMs: 90_000 },
+    });
+    expect(p.setup.sandboxProvisionedMs).toBe(1234);
+    expect(p.ledger.threads).toEqual([]);
+  });
+
+  it("trips the hard rule on an executed report with no sub-agent behind it", () => {
+    const p = fold([turnCreated("t1")], { executed: executed() });
+    expect(p.hardRuleHits.map((f) => f.rule)).toEqual(["tests_failed"]);
+    expect(p.findings[0]).toMatchObject({ severity: "critical", check: "tests" });
+  });
+
+  it("owes no tests report at the end of the turn, and still owes the others", () => {
+    const p = fold([turnCreated("t1"), turnDone()], {
+      executed: executed({ base_pass_head_fail: [] }),
+    });
+    const missing = p.findings.filter((f) => f.rule === "check_missing").map((f) => f.check);
+    expect(missing).toEqual(["probes", "smoke"]);
+  });
+
+  it("closes the setup window at the turn's creation, from the executor's start", () => {
+    const p = fold([turnCreated("t1", [], "2026-08-27T00:02:00Z")], { executed: executed() });
+    expect(p.setup.agentStartedAt).toBe("2026-08-27T00:00:00Z");
+    expect(p.setup.firstCheckAt).toBe("2026-08-27T00:02:00Z");
+    expect(p.setup.ms).toBe(120_000);
   });
 });
