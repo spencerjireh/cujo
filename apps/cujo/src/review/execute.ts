@@ -34,7 +34,7 @@ import { type Logger, errorFields } from "@cujo/log";
 import type { ExecResult, SandboxMcp } from "../clients/sandbox-mcp";
 import type { ExecutedCheck } from "./fold";
 import type { Policy } from "./policy";
-import { suiteOutcome } from "./suite-outcome";
+import { headIsClean, headOnlyOutcome, suiteOutcome } from "./suite-outcome";
 
 export interface ExecuteDeps {
   sandbox: Pick<SandboxMcp, "create" | "exec" | "destroy">;
@@ -97,7 +97,9 @@ export async function executeDeclared(
   if (!policy.test) throw new ExecuteError("policy", "no test command is declared");
   const now = deps.now ?? (() => new Date());
   const started = Date.now();
-  deps.log.info("execute.started", { count: 1 + (policy.install ? 2 : 0) + 2 });
+  // What runs at least: setup, head's install when one is declared, head's
+  // suite, and its report. Base doubles it only when head is not clean.
+  deps.log.info("execute.started", { count: 1 + (policy.install ? 1 : 0) + 2 });
   const box = await deps.sandbox.create({
     allowHosts: policy.allowHosts,
     ...(input.staged ? { staged: input.staged } : {}),
@@ -168,45 +170,55 @@ export async function executeDeclared(
       });
     }
 
-    // The install, once per tree at the tree root, sensed under `--check
-    // setup` so no check's report carries it (the rubric's own rule). A
-    // non-zero exit is not the run's failure: it is what the tests will show.
-    if (policy.install) {
-      for (const tree of [BASE, HEAD]) {
-        await sniff(deps, box.sandboxId, `install ${tree}`, {
-          argv: [
-            ...SNIFF,
-            "run",
-            "--check",
-            "setup",
-            "--cwd",
-            tree,
-            "--workspace-root",
-            tree,
-            "--",
-            "sh",
-            "-c",
-            policy.install,
-          ],
-          cwd: tree,
-          env,
-          timeoutMs: deps.stepTimeoutMs,
-        });
-      }
-    }
-
-    const testsStartedAt = now().toISOString();
-    const runs: Record<"base" | "head", ExecResult> = {
-      base: await runSensed(deps, box.sandboxId, "tests", BASE, policy.test, env),
-      head: await runSensed(deps, box.sandboxId, "tests", HEAD, policy.test, env),
+    // The install, at the tree root, sensed under `--check setup` so no
+    // check's report carries it (the rubric's own rule). A non-zero exit is
+    // not the run's failure: it is what the tests will show.
+    const install = async (tree: string) => {
+      if (!policy.install) return;
+      await sniff(deps, box.sandboxId, `install ${tree}`, {
+        argv: [
+          ...SNIFF,
+          "run",
+          "--check",
+          "setup",
+          "--cwd",
+          tree,
+          "--workspace-root",
+          tree,
+          "--",
+          "sh",
+          "-c",
+          policy.install,
+        ],
+        cwd: tree,
+        env,
+        timeoutMs: deps.stepTimeoutMs,
+      });
     };
-    // The extras the sub-agent used to write by reading the output, computed
-    // here from the same output; `sniff.py report` spreads them under the
-    // envelope's own keys, which nothing here can overwrite.
-    const extra = suiteOutcome(
-      { exit: runs.base.exitCode, stdout: runs.base.stdout, stderr: runs.base.stderr },
-      { exit: runs.head.exitCode, stdout: runs.head.stdout, stderr: runs.head.stderr },
-    );
+
+    // Head first, and base only when head is not clean (decision 169). A
+    // test head passed cannot be one head failed, so a clean head leaves
+    // `base_pass_head_fail` empty whatever base would have said, and the
+    // second install and second suite buy nothing.
+    const testsStartedAt = now().toISOString();
+    await install(HEAD);
+    const head = await runSensed(deps, box.sandboxId, "tests", HEAD, policy.test, env);
+    const headRun = { exit: head.exitCode, stdout: head.stdout, stderr: head.stderr };
+    let extra: ReturnType<typeof suiteOutcome>;
+    if (headIsClean(headRun)) {
+      deps.log.info("execute.base.skipped", { check: "tests", reason: "head_clean" });
+      extra = headOnlyOutcome(headRun);
+    } else {
+      await install(BASE);
+      const base = await runSensed(deps, box.sandboxId, "tests", BASE, policy.test, env);
+      // The extras the sub-agent used to write by reading the output,
+      // computed here from the same output; `sniff.py report` spreads them
+      // under the envelope's own keys, which nothing here can overwrite.
+      extra = suiteOutcome(
+        { exit: base.exitCode, stdout: base.stdout, stderr: base.stderr },
+        headRun,
+      );
+    }
     const reported = await sniff(deps, box.sandboxId, "report tests", {
       argv: [...SNIFF, "report", "--check", "tests", "--extra", JSON.stringify(extra)],
       env,
@@ -229,19 +241,19 @@ export async function executeDeclared(
         head: null,
         base: null,
       };
-      // Head first, then base, as the rubric had it: the tree under review
-      // first, so a base that will not boot is a fact beside head's, not a
-      // wall in front of it.
-      for (const [tree, path] of [
-        ["head", HEAD],
-        ["base", BASE],
-      ] as const) {
+      // Head first, as the rubric had it: the tree under review first, so a
+      // base that will not boot is a fact beside head's, not a wall in front
+      // of it. And base only when head gives it something to say (decision
+      // 169): base answers the question "was this already so before the
+      // change", which a head that boots and answers everything does not
+      // raise.
+      const boot = async (tree: "head" | "base", path: string) => {
         const result = await sniff(deps, box.sandboxId, `smoke ${path}`, {
           argv: [
             ...SNIFF,
             "smoke",
             "--boot",
-            policy.boot,
+            policy.boot as string,
             ...requests.flatMap((request) => ["--request", request]),
             "--cwd",
             path,
@@ -259,6 +271,13 @@ export async function executeDeclared(
         // is the command itself failing, and that is the run's failure.
         if (!result.json) throw new ExecuteError(`smoke ${tree}`, detailOf(result));
         entries[tree] = result.json;
+      };
+      await boot("head", HEAD);
+      const headClean = smokeIsClean(entries.head, requests);
+      if (headClean) {
+        deps.log.info("execute.base.skipped", { check: "smoke", reason: "head_clean" });
+      } else {
+        await boot("base", BASE);
       }
       const smokeReport = await sniff(deps, box.sandboxId, "report smoke", {
         argv: [
@@ -267,7 +286,10 @@ export async function executeDeclared(
           "--check",
           "smoke",
           "--extra",
-          JSON.stringify(smokeExtras(entries)),
+          JSON.stringify({
+            ...smokeExtras(entries),
+            ...(headClean ? { base_not_run: true } : {}),
+          }),
         ],
         env,
         timeoutMs: SETUP_TIMEOUT_MS,
@@ -312,6 +334,24 @@ export async function executeDeclared(
  * for a side that never answered so "not observed" stays distinguishable;
  * `log_tail` is head's boot output, the tree under review.
  */
+/**
+ * Whether head's boot leaves base nothing to answer (decision 169).
+ *
+ * Base is there to say whether a failure is the change's or the fixture's,
+ * so it is worth booting only when head failed something: it did not come
+ * up, or a declared request went unanswered or came back an error. A head
+ * that served every request is not a comparison anyone reads.
+ */
+function smokeIsClean(head: Record<string, unknown> | null, requests: readonly string[]): boolean {
+  if (head?.ready !== true) return false;
+  const rows = Array.isArray(head.requests) ? (head.requests as Record<string, unknown>[]) : [];
+  const answered = new Map(rows.map((row) => [String(row.request ?? ""), row]));
+  return requests.every((request) => {
+    const status = answered.get(request)?.status;
+    return typeof status === "number" && status < 400;
+  });
+}
+
 function smokeExtras(entries: {
   head: Record<string, unknown> | null;
   base: Record<string, unknown> | null;

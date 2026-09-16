@@ -22,6 +22,8 @@ export interface SuiteOutcome {
   base: Record<string, "pass" | "fail">;
   head: Record<string, "pass" | "fail">;
   base_pass_head_fail: string[];
+  /** Base was never run, because head was clean and could not need it (decision 169). */
+  base_not_run?: true;
 }
 
 /** The whole suite, when no runner named a test. */
@@ -86,5 +88,35 @@ export function suiteOutcome(base: SuiteRun, head: SuiteRun): SuiteOutcome {
     base: baseMap,
     head: headMap,
     base_pass_head_fail: headFailed.filter((id) => !baseFailed.includes(id)),
+  };
+}
+
+/**
+ * Whether head answers the only question base could have answered.
+ *
+ * `base_pass_head_fail` is the tests a run turns on, and it is empty
+ * whenever head fails nothing: a test head passed cannot be one head
+ * failed, whatever base did. So a clean head makes base's suite evidence
+ * about nothing, and the executor does not run it (decision 169).
+ */
+export function headIsClean(head: SuiteRun): boolean {
+  return head.exit === 0 && failedIds(`${head.stdout}\n${head.stderr}`).length === 0;
+}
+
+/**
+ * The extras of a run whose base was never needed: head's own result, an
+ * empty comparison, and the fact that it is empty because nothing was run
+ * there. Said rather than left out, because a comparison never made must
+ * not read like one that came back clean.
+ */
+export function headOnlyOutcome(head: SuiteRun): SuiteOutcome {
+  const named = failedIds(`${head.stdout}\n${head.stderr}`);
+  const headMap: Record<string, "pass" | "fail"> = {};
+  for (const id of named) headMap[id] = "fail";
+  return {
+    base: {},
+    head: named.length > 0 ? headMap : { [SUITE]: head.exit === 0 ? "pass" : "fail" },
+    base_pass_head_fail: [],
+    base_not_run: true,
   };
 }

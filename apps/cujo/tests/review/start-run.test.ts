@@ -157,12 +157,14 @@ function harness(over: {
                   ? { ok: true, env: { CUJO_SANDBOX: "1" } }
                   : sub === "report"
                     ? {
+                        // `sniff.py report` spreads the executor's `--extra`
+                        // under the envelope, so the fake does too.
+                        ...(JSON.parse(
+                          request.argv[request.argv.indexOf("--extra") + 1] ?? "{}",
+                        ) as object),
                         check: "tests",
                         runs: [],
                         derived: {},
-                        base: {},
-                        head: {},
-                        base_pass_head_fail: [],
                       }
                     : { check: "tests", exit: 0, stdout_tail: "ok", stderr_tail: "" };
             return {
@@ -586,15 +588,16 @@ describe("startRun takes the judge path for a declared policy (decision 161)", (
       path_kind: "judge",
       reason: "declared",
     });
+    // Head's install and head's suite; base is not run for a clean head
+    // (decision 169).
     expect(h.execCalls.map((argv) => argv[2])).toEqual([
       "prepare",
       "setup",
       "run",
       "run",
-      "run",
-      "run",
       "report",
     ]);
+    expect(h.execCalls.some((argv) => argv.includes("/work/base"))).toBe(false);
     expect(h.judgeSessions).toHaveBeenCalledTimes(1);
     expect(h.store.runs.getRun(h.run.id)).toMatchObject({
       sessionId: "s-judge",
@@ -608,7 +611,14 @@ describe("startRun takes the judge path for a declared policy (decision 161)", (
     expect(brief.sandbox).toEqual({ id: "sbx-1", env: { CUJO_SANDBOX: "1" } });
     expect(brief.policy).toEqual({ install: "pip install pytest", test: "python -m pytest -q" });
     expect(brief.executed).toMatchObject({ tests: { truncated: false } });
-    expect(brief.coverage).toMatchObject({ ran: [{ check: "tests" }], skipped: [] });
+    // The coverage line says base was not run, so a comparison nobody made
+    // does not read as one that came back clean.
+    expect(brief.coverage).toMatchObject({
+      ran: [
+        { check: "tests", note: "base not run, head was clean: 1 on head, nothing to compare" },
+      ],
+      skipped: [],
+    });
     expect(brief).not.toHaveProperty("clone_url");
     expect(h.destroyed).toEqual([]);
   });

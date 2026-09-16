@@ -8420,3 +8420,39 @@ what it covers and which is minutes, not seconds.
 
 The gap this closes is not the bundler's. It is that "green" meant built,
 not run.
+
+## 169. Base is run when head fails, and not before
+
+The executor installed and tested both trees on every judge run. On this
+monorepo that is two installs of about seven minutes and two suites, and
+half of it was never read: `base_pass_head_fail` is the tests that passed
+on base and failed on head, so a head that fails nothing leaves it empty
+whatever base did. The same holds for smoke, where base exists to say
+whether a broken endpoint was already broken.
+
+Head first, then. The declared install and test run on head; base's
+install and test run only when head is not clean — exit 0 with no failing
+test named is clean, and a runner that names a failure while exiting 0 is
+not, since the name is the fact. Smoke boots head, and boots base only
+when head did not come up or did not serve a declared request under 400.
+A passing pull request costs one install and one suite instead of two.
+
+The report says which it was. `base_not_run: true` rides in the extras
+beside an empty `base` and an empty `base_pass_head_fail`, the coverage
+line reads "base not run, head was clean", and `JUDGE.md` says what to
+make of it. Without the marker a base that was never run would read as a
+base that answered nothing — exactly the confusion `smokeExtras` already
+refuses with its null statuses, and the rule decisions 20 and 54 set: a
+comparison that was not made must not read like one that came back clean.
+
+Accepted: **a passing run no longer says whether base was already
+broken**, which no rule and no rubric line reads; **a failing run costs
+what it always did**, since that is the run where base is evidence;
+**two code paths for the extras** (`suiteOutcome` and `headOnlyOutcome`),
+which is one function more for half the work.
+
+Rejected: **running base in parallel with head**, since `sniff.py run`
+takes an exclusive lock and the sensors are the reason; **reading base
+from a cache of an earlier run of the same base commit**, which is a real
+saving and a stale-evidence question that needs its own decision;
+**skipping base for smoke only**, which leaves the larger half.
