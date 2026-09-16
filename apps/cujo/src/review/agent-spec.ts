@@ -103,10 +103,31 @@ export function loadRubric(name = "SKILL.md"): string {
  * See `RunRecord.rubricSha256` for the caveat about which session that is
  * actually true of.
  */
+/**
+ * The rubric each check's sub-agent reads (decision 165): the common page
+ * and its own, together a tenth of the parent's, since a fresh context
+ * re-reads its system prompt on every message. Keyed by the name the parent
+ * spawns the check under, which is the name Cujo matches the thread on.
+ */
+const CHECK_RUBRICS = ["tests", "probes", "smoke", "detonation"] as const;
+
+export function loadCheckRubrics(names: readonly string[] = CHECK_RUBRICS): Record<string, string> {
+  const common = loadRubric("checks/COMMON.md");
+  const out: Record<string, string> = {};
+  for (const name of names) {
+    out[name] = `${common}\n\n${loadRubric(`checks/${name.toUpperCase()}.md`)}`;
+  }
+  return out;
+}
+
 export function specFingerprint(spec: AgentSpec): string {
-  return createHash("sha256")
-    .update(spec.instructions ?? "")
-    .digest("hex");
+  const hash = createHash("sha256").update(spec.instructions ?? "");
+  // The children's pages are part of what a session is handed, so a change
+  // to one is a change to the digest the run is stamped with.
+  for (const name of Object.keys(spec.subagents ?? {}).sort()) {
+    hash.update(`\n--- ${name}\n`).update(spec.subagents?.[name] ?? "");
+  }
+  return hash.digest("hex");
 }
 
 /**
@@ -147,12 +168,17 @@ function modelRef(
 }
 
 export function buildAgentSpec(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
+  config: Pick<
+    Config,
+    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sandboxBudgetTokens"
+  >,
   rubric = loadRubric(),
+  subagents: Record<string, string> = loadCheckRubrics(),
 ): AgentSpec {
   return {
     model: modelRef(config),
     instructions: rubric,
+    subagents,
     // Nothing is gated (decision 138). A block posts at once and the human
     // decision is the unlock on the pull request, so no tool waits for a
     // person; the harness keeps its gate as a capability nobody names here.
@@ -170,6 +196,10 @@ export function buildAgentSpec(
       // re-derives those from the reports on its own side.
       compaction: { enabled: true },
       iterationLimit: 150,
+      // The clock was the only ceiling on a sandbox run's spend (decision
+      // 165); this is the other, at the fixture's p90 plus headroom. A turn
+      // past it ends as an error carrying what it measured.
+      tokenBudget: config.sandboxBudgetTokens,
     },
   };
 }
@@ -285,6 +315,8 @@ export function buildTurnMessage(
    * repository's box clones for itself, a private one's trees were copied in.
    */
   staged = "",
+  /** The turn's ceiling, so the parent can bound its setup (decision 165); 0 omits it. */
+  turnBudgetMs = 0,
 ): string {
   const docsOnly = isDocsOnly(pr.changedFiles);
   const payload = {
@@ -295,6 +327,7 @@ export function buildTurnMessage(
     base_sha: pr.baseSha,
     head_sha: pr.headSha,
     ...(staged ? { staged } : { clone_url: pr.cloneUrl }),
+    ...(turnBudgetMs > 0 ? { turn_budget_ms: turnBudgetMs } : {}),
     changed_files: pr.changedFiles,
     manifest_changed: manifestChanged(pr.changedFiles),
     ...(docsOnly ? { docs_only: true } : {}),

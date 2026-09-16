@@ -60,6 +60,7 @@ describe("the instance page's sentences (decision 157)", () => {
         modelMaxTokens: "seed",
         diffModel: "owner",
         diffBudgetTokens: "seed",
+        sandboxBudgetTokens: "seed",
         reviewMode: "seed",
         modelProvider: "seed",
         turnTimeoutMs: "owner",

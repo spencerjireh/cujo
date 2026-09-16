@@ -151,6 +151,7 @@ export interface InstanceSettings {
   modelMaxTokens: number | null;
   diffModel: string;
   diffBudgetTokens: number;
+  sandboxBudgetTokens: number;
   reviewMode: ReviewMode;
   modelProvider: {
     name: string;
