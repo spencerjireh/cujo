@@ -407,10 +407,26 @@ export async function startRun(
   }
 }
 
-/** One line for `coverage.ran`: what the executed suite said, in numbers. */
+/** One line for `coverage.ran`: what the executed check said, in numbers. */
 function coverageNote(report: unknown): string {
   if (!report || typeof report !== "object") return "executed";
-  const r = report as { base?: unknown; head?: unknown; base_pass_head_fail?: unknown };
+  const r = report as {
+    base?: unknown;
+    head?: unknown;
+    base_pass_head_fail?: unknown;
+    endpoints?: unknown;
+  };
+  if (Array.isArray(r.endpoints)) {
+    const rows = r.endpoints as { base_status?: unknown; head_status?: unknown }[];
+    const answered = rows.filter((row) => typeof row.head_status === "number").length;
+    const worse = rows.filter(
+      (row) =>
+        typeof row.base_status === "number" &&
+        row.base_status < 400 &&
+        (typeof row.head_status !== "number" || row.head_status >= 400),
+    ).length;
+    return `${rows.length} requests on head and base; ${answered} answered on head, ${worse} worse than base`;
+  }
   const count = (map: unknown) =>
     map && typeof map === "object" ? Object.keys(map as object).length : 0;
   const failed = Array.isArray(r.base_pass_head_fail) ? r.base_pass_head_fail.length : 0;

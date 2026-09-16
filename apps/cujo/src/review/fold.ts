@@ -606,7 +606,12 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // The turn is over, so a check that never arrived is missing for good.
         // A diff run had no checks to wait for: nothing is missing from it.
         p.findings = mergeFindings(
-          [...p.hardRuleHits, ...(diff ? [] : missingCheckFindings(p.checks))],
+          [
+            ...p.hardRuleHits,
+            ...(diff
+              ? []
+              : missingCheckFindings(p.checks, { judge: Boolean(options.executed?.length) })),
+          ],
           agentFindings(p.review),
         );
         if (p.status === "error") break;

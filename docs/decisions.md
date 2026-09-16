@@ -8196,3 +8196,42 @@ Rejected: **a budget below the fixture's p90**, which would end real runs
 for saving cents; **per-check pages that repeat the review sections**,
 which a child never needs; **cancelling turns on `SIGTERM`**, since the
 harness dies with the deploy anyway.
+
+## 162. Smoke is one sensed command, run by the executor
+
+The smoke check was the most expensive and most variable check on the
+fixture — a fifth of a run's tokens, a p90 three times its median — and it
+had never changed a verdict. Its sub-agent existed to do one thing a script
+can do: start the app, wait, make the declared requests, stop it. Nothing in
+the rubric said how; the sub-agent derived, every run, that `sniff.py run`
+waits for its command to exit and `sandbox_exec` has no shell, wrote a
+script, and ran it.
+
+So the script is a command. `sniff.py smoke --boot <line> --request 'METHOD
+/path'… --tree <name>` runs the boot line as one sensed command in its own
+process group, waits for the port (named on the boot line or given as
+`--port`) while the boot is alive, makes each request from the sensor
+process on loopback, stops the group inside the same window, and records
+one entry: the boot's own report — output tails, exit, the sensor block of
+the app while it served — plus `tree`, `port`, `port_source`, `ready`, and
+`requests[]` with status and a scrubbed body tail. `run_sensed` gained a
+`during` hook for it and starts the child in a new session when one is
+given. The executor runs it on head then base when the policy declares
+`boot`, joins `endpoints[]` and `log_tail` from the two entries, and asks
+`sniff.py report --check smoke` for the envelope; the judge rubric reads
+`executed.smoke` and spawns no smoke sub-agent. A policy with no `boot` has
+nothing to boot, and a judge run owes no smoke report then.
+
+Accepted: **the boot's stdout and stderr through pipes the sensor process
+drains**, since the group is killed before the window closes and a
+grandchild cannot hold them open past that; **loopback requests without
+the proxy**, so the sensor proxy records the app's egress and not the
+check's own probes; **`null` for a side that never answered**, so "not
+observed" stays distinguishable from a status; **the port off the boot
+line** when none is given, with `port_source` in the entry so a wrong
+guess is visible rather than silent; **head first, then base**.
+
+Rejected: **a `port` key in `.cujo.yml`**, until a boot line that names no
+port turns up; **inferring the boot command** for a policy without one,
+which is the gather rubric's job; **the app's output to a file**, when the
+pipes are drained by the process that kills the group.

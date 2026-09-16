@@ -27,6 +27,7 @@ from cujo_sniff.runner import refuse_nested_window, run_sensed, sensor_env
 from cujo_sniff.sensors.decoy import restore_decoy, seed_decoy, watch_decoy, watched_backend
 from cujo_sniff.sensors.proxy import serve_proxy
 from cujo_sniff.sensors.pyhook import write_pyhook
+from cujo_sniff.smoke import cmd_smoke
 
 
 def cmd_setup(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
@@ -222,6 +223,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="record a stub for a specifier the brief named as cached; nothing is installed",
     )
     det.set_defaults(func=cmd_detonate)
+
+    smoke = sub.add_parser("smoke", help="boot the app under the sensors and hit its endpoints")
+    smoke.add_argument("--boot", required=True, help="the boot line, as .cujo.yml declares it")
+    smoke.add_argument("--request", action="append", default=[], metavar="'METHOD /path'")
+    smoke.add_argument(
+        "--port", type=int, help="where the app listens; read off the boot line when absent"
+    )
+    smoke.add_argument("--cwd")
+    smoke.add_argument("--workspace-root", action="append", default=[], metavar="DIR")
+    smoke.add_argument("--tree", help="what the entry calls this tree, `base` or `head`")
+    smoke.set_defaults(func=cmd_smoke)
 
     rep = sub.add_parser("report", help="print this check's assembled envelope")
     rep.add_argument("--check", required=True)

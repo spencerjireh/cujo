@@ -304,7 +304,10 @@ function suiteChecksInapplicable(checks: readonly CheckState[]): boolean {
   return hasDetonation && !hasSuiteCheck;
 }
 
-export function missingCheckFindings(checks: readonly CheckState[]): Finding[] {
+export function missingCheckFindings(
+  checks: readonly CheckState[],
+  options: { judge?: boolean } = {},
+): Finding[] {
   const seen = new Set(checks.filter((c) => c.isCheck && c.report !== null).map((c) => c.title));
   const byTitle = new Map(checks.filter((c) => c.isCheck).map((c) => [c.title, c]));
   // The three suite checks are owed whenever a suite ran; any other check
@@ -312,7 +315,11 @@ export function missingCheckFindings(checks: readonly CheckState[]): Finding[] {
   // ended with nothing the fold could parse is a gap in the evidence
   // whatever its name (decision 146). `detonation` had no rule here, and a
   // report too large for the model to hand back was silently no report.
-  const owed = new Set<string>(suiteChecksInapplicable(checks) ? [] : REQUIRED_CHECKS);
+  // On a judge run (decision 161) `smoke` is the executor's, run only when
+  // the policy declares a boot: absent, there was nothing to boot, and the
+  // gap is in the policy and not in the evidence.
+  const required = options.judge ? REQUIRED_CHECKS.filter((c) => c !== "smoke") : REQUIRED_CHECKS;
+  const owed = new Set<string>(suiteChecksInapplicable(checks) ? [] : required);
   for (const title of byTitle.keys()) owed.add(title);
   return [...owed]
     .filter((name) => !seen.has(name))

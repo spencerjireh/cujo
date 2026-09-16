@@ -38,8 +38,12 @@ Three keys are this rubric's own:
   `executed.tests` is the `tests` check's Contract 2 envelope: `base` and `head` map
   test id to `pass|fail`, `base_pass_head_fail` lists the tests that passed on base and
   failed on head, and `runs[]` holds the two sensed runs with their output tails and
-  sensor blocks. When `truncated` is true the brief carries the first part only; Cujo
-  read the whole, and the hard rules were applied to the whole.
+  sensor blocks. `executed.smoke`, when the policy declares `boot`, is the `smoke`
+  envelope: `endpoints[]` as `{request, base_status, head_status, head_tail}` (a
+  `null` status is a side that never answered), `log_tail` from head's boot, and
+  `runs[]` with one entry per tree — `ready`, `port`, `requests[]` and the sensor
+  block of the app while it ran. When `truncated` is true the brief carries the first
+  part only; Cujo read the whole, and the hard rules were applied to the whole.
 - `coverage` — `ran` and `skipped`, prefilled with what Cujo executed. Extend it with
   every check you spawn or skip; never remove an entry.
 
@@ -87,15 +91,22 @@ output tails, egress, files written, subprocesses — for what the suite did and
 sensors saw while it did it. If `sniff.py report` marked a sensor unarmed, say so in
 the review's coverage.
 
+When `executed.smoke` is there, read it next: an endpoint that answered on base and
+errors on head is a regression as plain as a failing test, and `runs[]` says what the
+app touched and contacted while it served. A base that never listened is a fact
+about the fixture, not about the change.
+
 Then decide what only a model can add.
 
 ## The checks (subagents)
 
 Delegate a check to one sub-agent whose `name` is exactly the check name (`probes`,
-`smoke`, `detonation`); the name becomes the thread title Cujo matches the check on, so
-any other name is not counted as a check. Never spawn `tests`: it ran, and its report is
-in your brief. The sub-agent gets `sandbox.id`, `sandbox.env`, the exact commands, and
-the paths; nothing else. A sub-agent never posts a review and never calls any
+`detonation`); the name becomes the thread title Cujo matches the check on, so any
+other name is not counted as a check. Never spawn `tests` or `smoke`: they ran, and
+their reports are in your brief — `smoke` is absent from `executed` only when the
+policy declares no `boot`, and then there is nothing to boot and nothing to spawn.
+The sub-agent gets `sandbox.id`, `sandbox.env`, the exact commands, and the paths;
+nothing else. A sub-agent never posts a review and never calls any
 `github-mcp` tool, and never calls `sandbox_create`, `sandbox_destroy`, `sniff.py
 prepare`, `setup` or `teardown`.
 
@@ -109,11 +120,8 @@ prepare`, `setup` or `teardown`.
 - **`detonation`**, when `manifest_changed` is true. Spawn it first: it diffs the
   manifest and installs each added specifier into its own fresh environment, so the
   repository's own install is nothing to it.
-- **`smoke`**, when `policy.boot` is declared (use `policy.smoke` as the requests, or
-  infer them from the code when the list is absent). Skip it, with the reason, when
-  there is nothing to boot.
 
-Spawn `probes` and `smoke` together, in one message. **A sub-agent that comes back with
+Spawn `probes` as soon as you have read the evidence. **A sub-agent that comes back with
 an error instead of a report gets respawned once.** Not twice, and not a third
 sub-agent under a different name. Wait a few seconds first, spawn it again with the
 same name and the same instructions, and take whatever the second one returns as the
@@ -154,9 +162,6 @@ you — what ran, what passed and failed, what the sensors saw — with no JSON 
 - `probes`: read the diff, write small scripts that call the changed functions with
   inputs you choose, wrap each against head. Add `probes`: list of
   `{script, expectation, outcome, ok}`; state `expectation` before running.
-- `smoke`: wrap the `boot` command plus the `smoke` requests (or inferred ones) on head,
-  then on base; stop the app each time. Add `endpoints`: list of
-  `{request, base_status, head_status, head_tail}` and `log_tail`.
 - `detonation`: diff the manifest between base and head to the specifiers that are added
   or version-changed. For each, run
   `python3 /opt/cujo/sniff.py detonate --dependency <spec> --source <pypi|npm|auto>`
