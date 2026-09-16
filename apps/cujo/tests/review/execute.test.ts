@@ -51,13 +51,32 @@ function fakeSandbox(over: { prepareOk?: boolean; headExit?: number; reportExit?
         exit === 0 ? "3 passed" : "FAILED tests/test_total.py::test_bulk - assert\n1 failed";
       return done(JSON.stringify({ check, exit, stdout_tail: tail, stderr_tail: "" }));
     }
+    if (sub === "smoke") {
+      const tree = argv[argv.indexOf("--tree") + 1];
+      const requests = argv.flatMap((a, i) => (a === "--request" ? [argv[i + 1]] : []));
+      return done(
+        JSON.stringify({
+          tree,
+          ready: true,
+          port: 8000,
+          stdout_tail: `${tree} booted`,
+          stderr_tail: "",
+          requests: requests.map((request) => ({
+            request,
+            status: tree === "head" && request === "GET /orders/1" ? 500 : 200,
+            tail: tree === "head" ? "head body" : "base body",
+          })),
+        }),
+      );
+    }
     if (sub === "report") {
+      const check = argv[argv.indexOf("--check") + 1];
       const extra = JSON.parse(argv[argv.indexOf("--extra") + 1] ?? "{}") as object;
       return done(
         JSON.stringify({
           ...extra,
           schema_version: 1,
-          check: "tests",
+          check,
           runs: [{ exit: 0 }, { exit: 1 }],
           derived: {},
         }),
@@ -218,6 +237,47 @@ describe("executeDeclared", () => {
       executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, policy),
     ).rejects.toThrow("report tests");
     expect(box.destroyed).toEqual(["sbx-1"]);
+  });
+
+  it("boots the app on head then base when the policy declares it, and joins the endpoints", async () => {
+    const box = fakeSandbox();
+    const execution = await executeDeclared(
+      { sandbox: box.sandbox, log, stepTimeoutMs: 1000, now },
+      input,
+      { ...policy, boot: "uvicorn app:app --port 8000", smoke: ["GET /health", "GET /orders/1"] },
+    );
+    const subs = box.calls.map((c) => c.request.argv[2]);
+    expect(subs.slice(-3)).toEqual(["smoke", "smoke", "report"]);
+    const smokes = box.calls
+      .filter((c) => c.request.argv[2] === "smoke")
+      .map((c) => c.request.argv);
+    expect(smokes[0]).toEqual([
+      "python3",
+      "/opt/cujo/sniff.py",
+      "smoke",
+      "--boot",
+      "uvicorn app:app --port 8000",
+      "--request",
+      "GET /health",
+      "--request",
+      "GET /orders/1",
+      "--cwd",
+      "/work/head",
+      "--workspace-root",
+      "/work/head",
+      "--tree",
+      "head",
+    ]);
+    expect(smokes[1]?.at(-1)).toBe("base");
+    expect(execution.executed.map((e) => e.check)).toEqual(["tests", "smoke"]);
+    expect(execution.executed[1]?.report).toMatchObject({
+      check: "smoke",
+      endpoints: [
+        { request: "GET /health", base_status: 200, head_status: 200, head_tail: "head body" },
+        { request: "GET /orders/1", base_status: 200, head_status: 500, head_tail: "head body" },
+      ],
+      log_tail: "head booted",
+    });
   });
 
   it("refuses a policy with no test command", async () => {
