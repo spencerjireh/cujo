@@ -198,6 +198,9 @@ export const EVENT_NAMES = [
   "policy.invalid",
   "execute.started",
   "execute.step",
+  // The base tree was not run, because head answered what base was for
+  // (decision 169).
+  "execute.base.skipped",
   "execute.finished",
   "execute.failed",
   "sandbox.destroyed",

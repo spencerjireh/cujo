@@ -183,12 +183,13 @@ named on the spec as `subagents`, rather than the parent's whole rubric.
 **Which path a sandbox run takes (decision 161).** With `CUJO_EXECUTE_DECLARED`
 on and a `.cujo.yml` at the base commit that parses and declares `test`, the
 run is a **judge run**: `apps/cujo` provisions the box through `sandbox-mcp`
-itself, runs `sniff.py prepare` and `setup`, the declared `install` on each
-tree and the declared `test` on base then head, asks `sniff.py report` for the
+itself, runs `sniff.py prepare` and `setup`, the declared `install` and `test`
+on head and, only when head is not clean, on base as well (decision 169), asks
+`sniff.py report` for the
 `tests` envelope, when a manifest changed, `sniff.py detonate`s each added specifier — a cached
 one as a `--cached` stub the fold replaces (decision 163) — and, when the
-policy declares `boot`, runs `sniff.py smoke` on head then base for the
-`smoke` envelope (decision 162); then starts a turn on the judge spec
+policy declares `boot`, runs `sniff.py smoke` on head and, when head did not
+serve every request, on base too for the `smoke` envelope (decision 162); then starts a turn on the judge spec
 (`agent/JUDGE.md`) whose brief carries `sandbox: {id, env}`, `policy`,
 `executed: {tests: {report, truncated}, smoke?: {…}, detonation?: {…}}` and
 a `coverage` prefilled with what ran — and neither
@@ -381,11 +382,17 @@ things the next decision needs (decision 71).
    the `tests` check's two runs and its `report`, are issued by `apps/cujo`
    through `sandbox-mcp`'s tools with no model, from the `.cujo.yml` it read
    at base: a declared line runs as `sh -c <line>` inside the box, the
-   install under `--check setup` on each tree, the tests under `--check
-   tests` on base then head. The `base`, `head` and `base_pass_head_fail`
-   extras are read off the two runs' output on the trusted side (pytest,
-   vitest, jest and go's failure lines; the suite's exit when none is
-   named). The envelope is the one `sniff.py report` prints, whole, kept in
+   install under `--check setup` and the tests under `--check tests`, on head
+   first and on base only when head is not clean — a clean head being exit 0
+   with no failing test named, which leaves `base_pass_head_fail` empty
+   whatever base would have said (decision 169). The `base`, `head` and
+   `base_pass_head_fail` extras are read off the runs' output on the trusted
+   side (pytest, vitest, jest and go's failure lines; the suite's exit when
+   none is named); when base was not run the extras carry `base_not_run:
+   true`, an empty `base`, and a coverage note that says so, because a
+   comparison nobody made must not read like one that came back clean. The
+   `smoke` extras carry the same marker when head served every declared
+   request and base was never booted. The envelope is the one `sniff.py report` prints, whole, kept in
    `run_executions` and folded into the projection as a check with no thread
    (`threadId: executed:tests`); the hard rules read it as they read any
    report.
@@ -478,8 +485,9 @@ so no report is folded from it and it is never evidence; for that reason a
 `recorded`, the path of the entry file in the box that holds the whole entry,
 and none of the lists (decision 166). The four names print the entry whole.
 
-- **`tests`** — run the suite on base and on head. Report per-test status for
-  both, and the derived set `base_pass_head_fail`. If no suite is found and
+- **`tests`** — run the suite on base and on head (on a judge run, on head
+  alone when head is clean: decision 169). Report per-test status for
+  each tree that ran, and the derived set `base_pass_head_fail`. If no suite is found and
   `.cujo.yml` names none, the parent emits a single `warn` finding ("no test
   suite found") and stops: no checks are spawned at all, and no review beyond
   that finding. That is settled at setup, from the inference, and not from a

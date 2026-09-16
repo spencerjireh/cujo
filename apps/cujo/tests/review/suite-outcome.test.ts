@@ -3,7 +3,13 @@
  * (decision 161): failed ids per runner, and the regression roll-up.
  */
 import { describe, expect, it } from "vitest";
-import { SUITE, failedIds, suiteOutcome } from "../../src/review/suite-outcome";
+import {
+  SUITE,
+  failedIds,
+  headIsClean,
+  headOnlyOutcome,
+  suiteOutcome,
+} from "../../src/review/suite-outcome";
 
 describe("failedIds", () => {
   it("reads pytest, in quiet and verbose forms", () => {
@@ -74,5 +80,32 @@ describe("suiteOutcome", () => {
     expect(suiteOutcome({ exit: null, stdout: "", stderr: "" }, ok()).base).toEqual({
       [SUITE]: "fail",
     });
+  });
+});
+
+describe("a head that answers what base was for (decision 169)", () => {
+  const ok = (stdout = "") => ({ exit: 0, stdout, stderr: "" });
+  const bad = (stdout = "") => ({ exit: 1, stdout, stderr: "" });
+
+  it("is clean only when the suite exited zero and named nothing", () => {
+    expect(headIsClean(ok("12 passed"))).toBe(true);
+    expect(headIsClean(bad())).toBe(false);
+    // A runner that named a failure and still exited zero is not clean: the
+    // name is the fact, not the exit code.
+    expect(headIsClean(ok("FAILED t.py::a\n"))).toBe(false);
+    // Nor is a run the service could not finish.
+    expect(headIsClean({ exit: null, stdout: "", stderr: "" })).toBe(false);
+  });
+
+  it("reports head alone with an empty comparison that says why it is empty", () => {
+    expect(headOnlyOutcome(ok("12 passed"))).toEqual({
+      base: {},
+      head: { [SUITE]: "pass" },
+      base_pass_head_fail: [],
+      base_not_run: true,
+    });
+    // The shape holds for a named failure too, which is what a head that is
+    // not clean would carry if it were ever reported this way.
+    expect(headOnlyOutcome(bad("FAILED t.py::a\n")).head).toEqual({ "t.py::a": "fail" });
   });
 });

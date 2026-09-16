@@ -134,7 +134,7 @@ let tick = 0;
 const now = () => new Date(Date.UTC(2026, 8, 16, 10, 0, tick++));
 
 describe("executeDeclared", () => {
-  it("runs prepare, setup, the install on each tree, the tests on base then head, and the report", async () => {
+  it("runs prepare, setup, head's install, head's tests and the report, and leaves base alone when head is clean", async () => {
     const box = fakeSandbox();
     const execution = await executeDeclared(
       { sandbox: box.sandbox, log, stepTimeoutMs: 1000, now },
@@ -161,30 +161,31 @@ describe("executeDeclared", () => {
       "--check",
       "setup",
       "--cwd",
-      "/work/base",
+      "/work/head",
       "--workspace-root",
-      "/work/base",
+      "/work/head",
       "--",
       "sh",
       "-c",
       "pip install pytest",
     ]);
-    expect(argvs[3]?.[4]).toBe("/work/head");
-    expect(argvs[4]).toEqual([
+    expect(argvs[3]).toEqual([
       "run",
       "--check",
       "tests",
       "--cwd",
-      "/work/base",
+      "/work/head",
       "--workspace-root",
-      "/work/base",
+      "/work/head",
       "--",
       "sh",
       "-c",
       "python -m pytest -q",
     ]);
-    expect(argvs[5]?.[4]).toBe("/work/head");
-    expect(argvs[6]?.slice(0, 4)).toEqual(["report", "--check", "tests", "--extra"]);
+    expect(argvs[4]?.slice(0, 4)).toEqual(["report", "--check", "tests", "--extra"]);
+    // Base is never touched: a test head passed cannot be one head failed
+    // (decision 169).
+    expect(argvs.some((argv) => argv.includes("/work/base"))).toBe(false);
     // Every sensed command carries the env setup printed, and the box's id.
     for (const call of box.calls.slice(2)) {
       expect(call.sandboxId).toBe("sbx-1");
@@ -198,24 +199,46 @@ describe("executeDeclared", () => {
     expect(execution.executed).toHaveLength(1);
     expect(execution.executed[0]).toMatchObject({
       check: "tests",
-      report: { check: "tests", base_pass_head_fail: [] },
+      report: {
+        check: "tests",
+        base: {},
+        head: { suite: "pass" },
+        base_pass_head_fail: [],
+        base_not_run: true,
+      },
     });
     expect(box.destroyed).toEqual([]);
-    expect(lines.filter((l) => l.event === "execute.step")).toHaveLength(7);
+    expect(lines.filter((l) => l.event === "execute.step")).toHaveLength(5);
+    expect(lines.filter((l) => l.event === "execute.base.skipped")).toMatchObject([
+      { check: "tests", reason: "head_clean" },
+    ]);
   });
 
-  it("names the regression the head introduced in the report's extras", async () => {
+  it("installs and runs base once head fails, and names the regression head introduced", async () => {
     const box = fakeSandbox({ headExit: 1 });
     const execution = await executeDeclared(
       { sandbox: box.sandbox, log, stepTimeoutMs: 1000, now },
       input,
       policy,
     );
+    // Head's install and suite, then base's, once head gave base something
+    // to answer.
+    const trees = box.calls
+      .map((c) => c.request.argv)
+      .filter((argv) => argv[2] === "run")
+      .map((argv) => [argv[argv.indexOf("--check") + 1], argv[argv.indexOf("--cwd") + 1]]);
+    expect(trees).toEqual([
+      ["setup", "/work/head"],
+      ["tests", "/work/head"],
+      ["setup", "/work/base"],
+      ["tests", "/work/base"],
+    ]);
     expect(execution.executed[0]?.report).toMatchObject({
       base: { "tests/test_total.py::test_bulk": "pass" },
       head: { "tests/test_total.py::test_bulk": "fail" },
       base_pass_head_fail: ["tests/test_total.py::test_bulk"],
     });
+    expect(execution.executed[0]?.report).not.toHaveProperty("base_not_run");
   });
 
   it("stages instead of cloning for a private run, and skips the install when none is declared", async () => {
@@ -226,13 +249,7 @@ describe("executeDeclared", () => {
       { test: "pytest", allowHosts: [] },
     );
     expect(box.calls[0]?.request.argv.slice(2, 5)).toEqual(["prepare", "--staged", "/work/stage"]);
-    expect(box.calls.map((c) => c.request.argv[2])).toEqual([
-      "prepare",
-      "setup",
-      "run",
-      "run",
-      "report",
-    ]);
+    expect(box.calls.map((c) => c.request.argv[2])).toEqual(["prepare", "setup", "run", "report"]);
   });
 
   it("destroys the box and throws when prepare fails, before any test runs", async () => {
@@ -294,6 +311,29 @@ describe("executeDeclared", () => {
     });
   });
 
+  it("leaves base unbooted when head served every request (decision 169)", async () => {
+    const box = fakeSandbox();
+    const execution = await executeDeclared(
+      { sandbox: box.sandbox, log, stepTimeoutMs: 1000, now },
+      input,
+      { ...policy, boot: "uvicorn app:app --port 8000", smoke: ["GET /health"] },
+    );
+    const smokes = box.calls
+      .filter((c) => c.request.argv[2] === "smoke")
+      .map((c) => c.request.argv.at(-1));
+    expect(smokes).toEqual(["head"]);
+    expect(execution.executed[1]?.report).toMatchObject({
+      check: "smoke",
+      base_not_run: true,
+      // A base that was never booted answers nothing, and the null says so.
+      endpoints: [{ request: "GET /health", base_status: null, head_status: 200 }],
+    });
+    expect(lines.filter((l) => l.event === "execute.base.skipped").at(-1)).toMatchObject({
+      check: "smoke",
+      reason: "head_clean",
+    });
+  });
+
   it("fails the run when the smoke command itself did not answer", async () => {
     const box = fakeSandbox({ smokeBroken: true });
     await expect(
@@ -329,8 +369,7 @@ describe("executeDeclared", () => {
       "detonate",
       "detonate",
       "report",
-      "run",
-      "run",
+      // Head's install and head's suite; base is not run for a clean head.
       "run",
       "run",
       "report",
