@@ -88,9 +88,12 @@ line did change may be raised again only if the change did not address it.
 
 - `warn`: a rule from the standards is broken with the line to show it; a correctness
   problem a reader can see; a claim in the title or body the diff contradicts.
-- `info`: a question the reading raised and could not settle, a change worth a second
-  pair of eyes, what the diff does when nothing is wrong. Most of a clean review is
-  `info`, and a clean review may have none at all.
+- `info`: a question the reading raised and could not settle, or a change worth a
+  second pair of eyes. A clean review has none at all: an `info` that says the code
+  does what the description says, that the tests cover it, that the docs are updated,
+  or that a contract change is additive is a confirmation, not a finding, and a reader
+  opens a finding expecting something to look at. When nothing is wrong, `body` says
+  so in its one sentence and `findings` is empty.
 
 `critical` is not available to this review. A `critical` blocks a merge, and a block
 needs evidence a reader cannot produce: a test that passed on base and fails on head,
