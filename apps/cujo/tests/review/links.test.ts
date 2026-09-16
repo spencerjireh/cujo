@@ -11,11 +11,11 @@ describe("runUrl", () => {
     expect(runUrl(LINKS, PUBLIC_RUN)).toBe("https://cujo.example.com/runs/r1");
   });
 
-  it("sends a private run nowhere", () => {
-    // There is no second, gated hostname to fall back to since decision 57,
-    // and the board serves public repos only — so a link would be a link into
-    // a 404. The pull request is where that run is discussed.
-    expect(runUrl(LINKS, PRIVATE_RUN)).toBeNull();
+  it("sends a private run to the same page, which answers to an owner (decision 159)", () => {
+    // The link sits on the repository's own things — its pull request, its
+    // check, its channel — and an owner follows it; anyone else meets the
+    // board's 404, which says nothing.
+    expect(runUrl(LINKS, PRIVATE_RUN)).toBe("https://cujo.example.com/runs/r2");
   });
 
   it("links nowhere at all when no board is configured", () => {
