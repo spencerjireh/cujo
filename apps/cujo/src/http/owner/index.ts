@@ -20,7 +20,14 @@ import { INSTRUCTIONS_BYTES, INSTRUCTIONS_PATH } from "../../review/instructions
 import { cut } from "../../review/prepare";
 import type { Runner } from "../../review/runner.service";
 import { REVIEW_MODES, type ReviewMode } from "../../review/types";
-import { type ModelSettings, type SettingKey, type Settings, parseSetting } from "../../settings";
+import {
+  type ModelSettings,
+  SETTING_GROUPS,
+  SETTING_KEYS,
+  type SettingKey,
+  type Settings,
+  parseSetting,
+} from "../../settings";
 import type { RunStore } from "../../store";
 import type { RepositoryStore } from "../../store/repositories";
 import type { RepositorySettingsStore } from "../../store/repository-settings";
@@ -76,16 +83,8 @@ const NEEDED_PERMISSIONS: readonly [string, "read" | "write"][] = [
 ];
 const LEVEL: Record<string, number> = { read: 1, write: 2, admin: 3 };
 
-const SETTABLE: readonly SettingKey[] = [
-  "model",
-  "modelReasoningEffort",
-  "modelTemperature",
-  "modelMaxTokens",
-  "diffModel",
-  "diffBudgetTokens",
-  "reviewMode",
-  "modelProvider",
-];
+/** The keys the board may set: every key `settings.ts` lists (decision 164). */
+const SETTABLE: readonly SettingKey[] = SETTING_KEYS;
 
 /** The provider with its key masked: the board shows that one exists, never what it is. */
 function redacted(settings: ModelSettings) {
@@ -187,6 +186,7 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
       ok: true,
       settings: redacted(deps.settings.current()),
       sources: deps.settings.sources(),
+      groups: SETTING_GROUPS,
     });
   });
 
@@ -231,6 +231,7 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
       ok: true,
       settings: redacted(deps.settings.current()),
       sources: deps.settings.sources(),
+      groups: SETTING_GROUPS,
     });
   });
 

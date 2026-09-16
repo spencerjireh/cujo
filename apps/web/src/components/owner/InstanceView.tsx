@@ -308,6 +308,136 @@ function Provider({
   );
 }
 
+/** Seconds in the form, milliseconds on the wire: nobody types a ceiling in milliseconds. */
+const seconds = (ms: number) => String(Math.round(ms / 1000));
+const millis = (s: string) => Math.round(Number(s) * 1000);
+
+/**
+ * The limits and switches (decision 164): what bounds a run's cost and
+ * length. One PATCH, like the two forms above; a change applies to the next
+ * run, and a running one keeps the window it started under.
+ */
+function Limits({
+  view,
+  onSave,
+  busy,
+}: {
+  view: InstanceSettingsView;
+  onSave: (patch: Partial<InstanceSettings>) => void;
+  busy: boolean;
+}) {
+  const s = view.settings;
+  const fromView = () => ({
+    turnTimeoutMs: seconds(s.turnTimeoutMs),
+    diffTimeoutMs: seconds(s.diffTimeoutMs),
+    diffBytes: String(s.diffBytes),
+    pushDebounceMs: seconds(s.pushDebounceMs),
+    converseLimit: String(s.converseLimit),
+    converseWindowMs: seconds(s.converseWindowMs),
+    converseTimeoutMs: seconds(s.converseTimeoutMs),
+    ocrEnabled: s.ocrEnabled,
+  });
+  const [draft, setDraft] = useState(fromView);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the draft follows the served settings, and `fromView` closes over them.
+  useEffect(() => setDraft(fromView()), [s]);
+  const set = (key: keyof typeof draft) => (event: React.ChangeEvent<HTMLInputElement>) =>
+    setDraft((d) => ({
+      ...d,
+      [key]: event.target.type === "checkbox" ? event.target.checked : event.target.value,
+    }));
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    onSave({
+      turnTimeoutMs: millis(draft.turnTimeoutMs),
+      diffTimeoutMs: millis(draft.diffTimeoutMs),
+      diffBytes: Number(draft.diffBytes),
+      pushDebounceMs: millis(draft.pushDebounceMs),
+      converseLimit: Number(draft.converseLimit),
+      converseWindowMs: millis(draft.converseWindowMs),
+      converseTimeoutMs: millis(draft.converseTimeoutMs),
+      ocrEnabled: draft.ocrEnabled,
+    });
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-lg">Limits and switches</h2>
+        <p className="mt-1 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+          What bounds a run&rsquo;s length and cost. A change applies to the next run; a run already
+          under way keeps the window it started with. Times are in seconds.
+        </p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="sandbox run ceiling" hint="seconds; the turn is cancelled past it">
+          <input
+            className={FIELD}
+            value={draft.turnTimeoutMs}
+            onChange={set("turnTimeoutMs")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="diff run ceiling" hint="seconds">
+          <input
+            className={FIELD}
+            value={draft.diffTimeoutMs}
+            onChange={set("diffTimeoutMs")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="diff bytes" hint="how much of a diff the reader is handed">
+          <input
+            className={FIELD}
+            value={draft.diffBytes}
+            onChange={set("diffBytes")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="push window" hint="seconds a burst of pushes is folded into; 0 runs each">
+          <input
+            className={FIELD}
+            value={draft.pushDebounceMs}
+            onChange={set("pushDebounceMs")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="questions per pull request" hint="per window; 0 turns conversation off">
+          <input
+            className={FIELD}
+            value={draft.converseLimit}
+            onChange={set("converseLimit")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="question window" hint="seconds">
+          <input
+            className={FIELD}
+            value={draft.converseWindowMs}
+            onChange={set("converseWindowMs")}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="answer ceiling" hint="seconds">
+          <input
+            className={FIELD}
+            value={draft.converseTimeoutMs}
+            onChange={set("converseTimeoutMs")}
+            inputMode="numeric"
+          />
+        </Field>
+        <label className="flex items-center gap-2 self-end font-mono text-xs text-fg">
+          <input type="checkbox" checked={draft.ocrEnabled} onChange={set("ocrEnabled")} />
+          ask the OCR sidecar beside every sandbox run, a second full review at the same price
+        </label>
+      </div>
+      <div>
+        <button type="submit" disabled={busy} className={BUTTON}>
+          Save limits
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function Bot({ bot }: { bot: BotState }) {
   return (
     <div className="flex flex-col gap-4">
@@ -450,6 +580,11 @@ export function InstanceView() {
             onSave={(patch) => save.mutate(patch)}
           />
           <Provider
+            view={settings.data}
+            busy={save.isPending}
+            onSave={(patch) => save.mutate(patch)}
+          />
+          <Limits
             view={settings.data}
             busy={save.isPending}
             onSave={(patch) => save.mutate(patch)}

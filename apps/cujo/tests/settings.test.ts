@@ -45,14 +45,22 @@ describe("Settings.open", () => {
     expect(settings.current()).toEqual(h.seed);
     expect(h.store.settings.all().map((r) => [r.key, r.source])).toEqual(
       [
+        "converseLimit",
+        "converseTimeoutMs",
+        "converseWindowMs",
         "diffBudgetTokens",
+        "diffBytes",
         "diffModel",
+        "diffTimeoutMs",
         "model",
         "modelMaxTokens",
         "modelProvider",
         "modelReasoningEffort",
         "modelTemperature",
+        "ocrEnabled",
+        "pushDebounceMs",
         "reviewMode",
+        "turnTimeoutMs",
       ].map((k) => [k, "seed"]),
     );
     expect(settings.sources().model).toBe("seed");
@@ -163,5 +171,31 @@ describe("parseSetting", () => {
     expect(parseSetting("modelReasoningEffort", "")).toBe("");
     expect(parseSetting("modelTemperature", "")).toBeNull();
     expect(parseSetting("modelMaxTokens", 4096)).toBe(4096);
+  });
+});
+
+describe("the limits and switches (decision 164)", () => {
+  it("reads whole numbers, as text or as numbers, and refuses what is not one", () => {
+    expect(parseSetting("turnTimeoutMs", 900000)).toBe(900000);
+    expect(parseSetting("diffBytes", "120000")).toBe(120000);
+    expect(() => parseSetting("turnTimeoutMs", 0)).toThrow("above zero");
+    expect(() => parseSetting("diffTimeoutMs", -1)).toThrow("whole number");
+    expect(() => parseSetting("converseWindowMs", "soon")).toThrow("whole number");
+    expect(() => parseSetting("diffBytes", 1.5)).toThrow("whole number");
+  });
+
+  it("lets the two switches that mean off be zero", () => {
+    expect(parseSetting("pushDebounceMs", 0)).toBe(0);
+    expect(parseSetting("converseLimit", "0")).toBe(0);
+  });
+
+  it("takes the sidecar switch as a boolean only", () => {
+    expect(parseSetting("ocrEnabled", false)).toBe(false);
+    expect(() => parseSetting("ocrEnabled", "yes")).toThrow("true or false");
+  });
+
+  it("seeds the sidecar switch from whether a sidecar is configured", () => {
+    const h = harness();
+    expect(h.seed.ocrEnabled).toBe(false);
   });
 });
