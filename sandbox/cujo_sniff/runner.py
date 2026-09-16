@@ -17,8 +17,9 @@ import fcntl
 import os
 import subprocess
 import sys
+import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -267,9 +268,22 @@ def refuse_nested_window(command: str) -> None:
 
 
 def run_sensed(
-    ctx: Context, argv: list[str], *, check: str, workspace_roots: list[Path], cwd: Path
+    ctx: Context,
+    argv: list[str],
+    *,
+    check: str,
+    workspace_roots: list[Path],
+    cwd: Path,
+    during: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> dict[str, Any]:
-    """Run `argv` with the sensor env and return the report minus the header."""
+    """Run `argv` with the sensor env and return the report minus the header.
+
+    `during`, when given, is called with the running process while the window
+    is open -- the smoke check's way to talk to a server that would otherwise
+    never exit -- and the process is started in its own session so the caller
+    can stop the whole group. It is the caller's job to end the process; the
+    window closes when it has.
+    """
     paths = state_paths(ctx)
     config = load_config(ctx)
     # This command's own audit log. Attribution is which file a row landed in,
@@ -288,10 +302,40 @@ def run_sensed(
         env = {**os.environ, **sensor_env(ctx, config, audit_log), NESTED_WINDOW_ENV: "1"}
         started = time.monotonic()
         try:
-            proc = subprocess.run(
-                argv, cwd=str(cwd), env=env, capture_output=True, text=True, errors="replace"
-            )
-            exit_code, out, err = proc.returncode, proc.stdout, proc.stderr
+            if during is None:
+                proc = subprocess.run(
+                    argv, cwd=str(cwd), env=env, capture_output=True, text=True, errors="replace"
+                )
+                exit_code, out, err = proc.returncode, proc.stdout, proc.stderr
+            else:
+                # Files and not pipes: nothing drains a pipe while `during`
+                # talks to the app, and a server that logs every request
+                # would fill it and block on the write. The tails are read
+                # once the group is gone.
+                with (
+                    tempfile.TemporaryFile("w+", errors="replace") as out_file,
+                    tempfile.TemporaryFile("w+", errors="replace") as err_file,
+                ):
+                    child = subprocess.Popen(
+                        argv,
+                        cwd=str(cwd),
+                        env=env,
+                        stdout=out_file,
+                        stderr=err_file,
+                        text=True,
+                        errors="replace",
+                        start_new_session=True,
+                    )
+                    try:
+                        during(child)
+                    finally:
+                        if child.poll() is None:
+                            child.kill()
+                        child.wait()
+                    out_file.seek(0)
+                    err_file.seek(0)
+                    out, err = out_file.read(), err_file.read()
+                exit_code = child.returncode
         except FileNotFoundError as exc:
             exit_code, out, err = 127, "", str(exc)
         duration = round(time.monotonic() - started, 2)

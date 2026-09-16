@@ -12,6 +12,11 @@
  * already the pull request's to choose. The report is what `sniff.py`
  * printed, whole, read off the command's own stdout (decision 147).
  *
+ * Smoke, when the policy declares `boot` (decision 162): `sniff.py smoke` boots
+ * the app under the sensors on head then base, hits the declared requests,
+ * stops it, and records one entry per tree; the `endpoints[]` and `log_tail`
+ * extras are joined here from the two entries.
+ *
  * The box is not torn down here. It is handed to the parent, prepared, for
  * probes and for the checks the executor does not run yet; the runner
  * destroys it when the turn ends. A failure before a report exists destroys
@@ -156,20 +161,86 @@ export async function executeDeclared(
     if (reported.exitCode !== 0 || !reported.json) {
       throw new ExecuteError("report tests", detailOf(reported));
     }
+    const executed: ExecutedCheck[] = [
+      {
+        check: "tests",
+        report: reported.json,
+        startedAt: testsStartedAt,
+        endedAt: now().toISOString(),
+      },
+    ];
+
+    if (policy.boot) {
+      const smokeStartedAt = now().toISOString();
+      const requests = policy.smoke ?? [];
+      const entries: Record<"base" | "head", Record<string, unknown> | null> = {
+        head: null,
+        base: null,
+      };
+      // Head first, then base, as the rubric had it: the tree under review
+      // first, so a base that will not boot is a fact beside head's, not a
+      // wall in front of it.
+      for (const [tree, path] of [
+        ["head", HEAD],
+        ["base", BASE],
+      ] as const) {
+        const result = await sniff(deps, box.sandboxId, `smoke ${path}`, {
+          argv: [
+            ...SNIFF,
+            "smoke",
+            "--boot",
+            policy.boot,
+            ...requests.flatMap((request) => ["--request", request]),
+            "--cwd",
+            path,
+            "--workspace-root",
+            path,
+            "--tree",
+            tree,
+          ],
+          cwd: path,
+          env,
+          timeoutMs: deps.stepTimeoutMs,
+        });
+        // The command answers with its entry whatever the app did — a boot
+        // that never listened is `ready: false` with the log — so no entry
+        // is the command itself failing, and that is the run's failure.
+        if (!result.json) throw new ExecuteError(`smoke ${tree}`, detailOf(result));
+        entries[tree] = result.json;
+      }
+      const smokeReport = await sniff(deps, box.sandboxId, "report smoke", {
+        argv: [
+          ...SNIFF,
+          "report",
+          "--check",
+          "smoke",
+          "--extra",
+          JSON.stringify(smokeExtras(entries)),
+        ],
+        env,
+        timeoutMs: SETUP_TIMEOUT_MS,
+      });
+      if (smokeReport.exitCode !== 0 || !smokeReport.json) {
+        throw new ExecuteError("report smoke", detailOf(smokeReport));
+      }
+      executed.push({
+        check: "smoke",
+        report: smokeReport.json,
+        startedAt: smokeStartedAt,
+        endedAt: now().toISOString(),
+      });
+    }
+
     const execution: Execution = {
       sandboxId: box.sandboxId,
       provisionedMs: box.provisionedMs,
       env,
-      executed: [
-        {
-          check: "tests",
-          report: reported.json,
-          startedAt: testsStartedAt,
-          endedAt: now().toISOString(),
-        },
-      ],
+      executed,
     };
-    deps.log.info("execute.finished", { duration_ms: Date.now() - started, count: 1 });
+    deps.log.info("execute.finished", {
+      duration_ms: Date.now() - started,
+      count: executed.length,
+    });
     return execution;
   } catch (error) {
     deps.log.error("execute.failed", { duration_ms: Date.now() - started, ...errorFields(error) });
@@ -181,6 +252,38 @@ export async function executeDeclared(
     });
     throw error;
   }
+}
+
+/**
+ * The smoke extras the rubric documents, from the two trees' entries: one
+ * `endpoints[]` row per request, joined by the request string, with `null`
+ * for a side that never answered so "not observed" stays distinguishable;
+ * `log_tail` is head's boot output, the tree under review.
+ */
+function smokeExtras(entries: {
+  head: Record<string, unknown> | null;
+  base: Record<string, unknown> | null;
+}): { endpoints: Record<string, unknown>[]; log_tail: string } {
+  const rows = (entry: Record<string, unknown> | null) =>
+    Array.isArray(entry?.requests) ? (entry.requests as Record<string, unknown>[]) : [];
+  const byRequest = (entry: Record<string, unknown> | null) =>
+    new Map(rows(entry).map((row) => [String(row.request ?? ""), row]));
+  const head = byRequest(entries.head);
+  const base = byRequest(entries.base);
+  const requests = [...new Set([...head.keys(), ...base.keys()])];
+  const status = (row: Record<string, unknown> | undefined) =>
+    typeof row?.status === "number" ? row.status : null;
+  return {
+    endpoints: requests.map((request) => ({
+      request,
+      base_status: status(base.get(request)),
+      head_status: status(head.get(request)),
+      head_tail: typeof head.get(request)?.tail === "string" ? head.get(request)?.tail : "",
+    })),
+    log_tail: [entries.head?.stdout_tail, entries.head?.stderr_tail]
+      .filter((part): part is string => typeof part === "string" && part.length > 0)
+      .join("\n"),
+  };
 }
 
 /** The output of the wrapped command inside `sniff.py run`, as its report says. */
