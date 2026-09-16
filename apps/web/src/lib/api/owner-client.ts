@@ -124,3 +124,86 @@ function repoPath(repo: string): string {
     .map((part) => encodeURIComponent(part))
     .join("/");
 }
+
+/** The eight instance settings (decision 152), the provider's key masked. */
+export interface InstanceSettings {
+  model: string;
+  modelReasoningEffort: string;
+  modelTemperature: number | null;
+  modelMaxTokens: number | null;
+  diffModel: string;
+  diffBudgetTokens: number;
+  reviewMode: ReviewMode;
+  modelProvider: {
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    models: { name: string; modelId: string }[];
+    contextWindow: number;
+    maxTokens: number;
+    reasoning: boolean;
+  } | null;
+}
+
+type SettingSource = "seed" | "owner";
+
+export interface InstanceSettingsView {
+  settings: InstanceSettings;
+  sources: Record<keyof InstanceSettings, SettingSource>;
+}
+
+export interface BotState {
+  app: {
+    slug: string;
+    name: string;
+    htmlUrl: string;
+    permissions: Record<string, string>;
+    events: string[];
+  };
+  permissions: { name: string; needed: "read" | "write"; held: string | null; ok: boolean }[];
+  installations: {
+    id: number;
+    account: { login: string; type: string };
+    suspended: boolean;
+    repositorySelection: string;
+    repositories: number;
+  }[];
+  deliveries: {
+    id: number;
+    event: string;
+    action: string | null;
+    deliveredAt: string;
+    status: string;
+    statusCode: number | null;
+    durationS: number | null;
+    redelivery: boolean;
+  }[];
+}
+
+export interface Health {
+  harness: "ready" | "bootstrapping";
+  store: "ok" | "error";
+  uptimeMs: number;
+  ready: boolean;
+}
+
+export function fetchInstanceSettings(
+  session?: string,
+  signal?: AbortSignal,
+): Promise<InstanceSettingsView> {
+  return call<InstanceSettingsView>("/settings", { session, signal });
+}
+
+export function saveInstanceSettings(
+  patch: Partial<InstanceSettings>,
+): Promise<InstanceSettingsView> {
+  return call<InstanceSettingsView>("/settings", { method: "PATCH", body: patch });
+}
+
+export function fetchBot(session?: string, signal?: AbortSignal): Promise<BotState> {
+  return call<BotState>("/bot", { session, signal });
+}
+
+export function fetchHealth(session?: string, signal?: AbortSignal): Promise<Health> {
+  return call<Health>("/health", { session, signal });
+}

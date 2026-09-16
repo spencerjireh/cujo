@@ -41,9 +41,14 @@ export function SessionButtons({ className }: { className: string }) {
   return (
     <>
       {me.data.is_owner ? (
-        <Link href="/repos" className={className}>
-          Repositories
-        </Link>
+        <>
+          <Link href="/repos" className={className}>
+            Repositories
+          </Link>
+          <Link href="/instance" className={className}>
+            Instance
+          </Link>
+        </>
       ) : null}
       <form action="/api/auth/logout" method="post" className="contents">
         <button type="submit" className={className} title={`Signed in as ${me.data.login}`}>
