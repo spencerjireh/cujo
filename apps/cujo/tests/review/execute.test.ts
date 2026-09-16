@@ -53,6 +53,17 @@ function fakeSandbox(
         exit === 0 ? "3 passed" : "FAILED tests/test_total.py::test_bulk - assert\n1 failed";
       return done(JSON.stringify({ check, exit, stdout_tail: tail, stderr_tail: "" }));
     }
+    if (sub === "detonate") {
+      const dep = argv[argv.indexOf("--dependency") + 1];
+      const cached = argv.includes("--cached");
+      return done(
+        JSON.stringify(
+          cached
+            ? { schema_version: 1, dependency: dep, source: "pypi", cached: true }
+            : { schema_version: 1, dependency: dep, source: "pypi", install_ok: true },
+        ),
+      );
+    }
     if (sub === "smoke") {
       if (over.smokeBroken) return done("smoke: a request is `METHOD /path`", 2);
       const tree = argv[argv.indexOf("--tree") + 1];
@@ -293,6 +304,49 @@ describe("executeDeclared", () => {
       }),
     ).rejects.toThrow("smoke head");
     expect(box.destroyed).toEqual(["sbx-1"]);
+  });
+
+  it("detonates each added specifier before the install, stubbing the cached ones", async () => {
+    const box = fakeSandbox();
+    const execution = await executeDeclared(
+      { sandbox: box.sandbox, log, stepTimeoutMs: 1000, now },
+      {
+        ...input,
+        detonate: {
+          added: [
+            { source: "pypi", specifier: "requests==2.32.0" },
+            { source: "pypi", specifier: "left-pad==1.0.0" },
+          ],
+          cached: [{ source: "pypi", dependency: "left-pad==1.0.0" }],
+        },
+      },
+      policy,
+    );
+    const subs = box.calls.map((c) => c.request.argv[2]);
+    expect(subs).toEqual([
+      "prepare",
+      "setup",
+      "detonate",
+      "detonate",
+      "report",
+      "run",
+      "run",
+      "run",
+      "run",
+      "report",
+    ]);
+    const detonates = box.calls
+      .filter((c) => c.request.argv[2] === "detonate")
+      .map((c) => c.request.argv.slice(3));
+    expect(detonates[0]).toEqual(["--dependency", "requests==2.32.0", "--source", "pypi"]);
+    expect(detonates[1]).toEqual([
+      "--dependency",
+      "left-pad==1.0.0",
+      "--source",
+      "pypi",
+      "--cached",
+    ]);
+    expect(execution.executed.map((e) => e.check)).toEqual(["detonation", "tests"]);
   });
 
   it("refuses a policy with no test command", async () => {

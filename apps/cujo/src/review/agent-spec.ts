@@ -396,7 +396,6 @@ export interface JudgeBrief {
 export function buildJudgeTurnMessage(
   pr: PullRequestInfo,
   runId: string,
-  cached: readonly CachedDetonation[],
   instructions: Instructions | null,
   judge: JudgeBrief,
   reportBytes: number,
@@ -421,7 +420,6 @@ export function buildJudgeTurnMessage(
     manifest_changed: manifestChanged(pr.changedFiles),
     ...(docsOnly ? { docs_only: true } : {}),
     ...(runId ? { run_id: runId } : {}),
-    ...(cached.length > 0 ? { detonation_cached: cached } : {}),
     ...(instructions ? { instructions } : {}),
     sandbox: judge.sandbox,
     policy: judge.policy,

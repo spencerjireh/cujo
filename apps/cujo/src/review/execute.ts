@@ -17,6 +17,13 @@
  * stops it, and records one entry per tree; the `endpoints[]` and `log_tail`
  * extras are joined here from the two entries.
  *
+ * Detonation, when the pull request changed a manifest (decision 163): each
+ * added specifier is `sniff.py detonate`d in its own fresh environment, a
+ * specifier this instance detonated within the week as a `--cached` stub
+ * the fold replaces with the stored entry (decisions 145, 148), and the
+ * `detonation` envelope is asked for like the others. Before the install,
+ * since it needs the trees and the sensors and nothing else.
+ *
  * The box is not torn down here. It is handed to the parent, prepared, for
  * probes and for the checks the executor does not run yet; the runner
  * destroys it when the turn ends. A failure before a report exists destroys
@@ -46,6 +53,14 @@ export interface ExecuteInput {
   cloneUrl: string;
   /** The staging ticket of a private repository (decision 158), or "". */
   staged: string;
+  /**
+   * What to detonate, when a manifest changed: the added specifiers, and the
+   * ones the cache already holds, keyed the way the brief names them.
+   */
+  detonate?: {
+    added: readonly { source: string; specifier: string }[];
+    cached: readonly { source: string; dependency: string }[];
+  };
 }
 
 export interface Execution {
@@ -114,6 +129,45 @@ export async function executeDeclared(
     const env = envOf(setup.json);
     if (setup.json?.ok !== true || !env) throw new ExecuteError("setup", detailOf(setup));
 
+    const executed: ExecutedCheck[] = [];
+
+    if (input.detonate && input.detonate.added.length > 0) {
+      const detonationStartedAt = now().toISOString();
+      const cachedKeys = new Set(
+        input.detonate.cached.map((entry) => `${entry.source} ${entry.dependency}`),
+      );
+      for (const added of input.detonate.added) {
+        const cached = cachedKeys.has(`${added.source} ${added.specifier}`);
+        await sniff(deps, box.sandboxId, `detonate ${added.specifier}`, {
+          argv: [
+            ...SNIFF,
+            "detonate",
+            "--dependency",
+            added.specifier,
+            "--source",
+            added.source,
+            ...(cached ? ["--cached"] : []),
+          ],
+          env,
+          timeoutMs: deps.stepTimeoutMs,
+        });
+      }
+      const detonationReport = await sniff(deps, box.sandboxId, "report detonation", {
+        argv: [...SNIFF, "report", "--check", "detonation", "--extra", "{}"],
+        env,
+        timeoutMs: SETUP_TIMEOUT_MS,
+      });
+      if (detonationReport.exitCode !== 0 || !detonationReport.json) {
+        throw new ExecuteError("report detonation", detailOf(detonationReport));
+      }
+      executed.push({
+        check: "detonation",
+        report: detonationReport.json,
+        startedAt: detonationStartedAt,
+        endedAt: now().toISOString(),
+      });
+    }
+
     // The install, once per tree at the tree root, sensed under `--check
     // setup` so no check's report carries it (the rubric's own rule). A
     // non-zero exit is not the run's failure: it is what the tests will show.
@@ -161,14 +215,12 @@ export async function executeDeclared(
     if (reported.exitCode !== 0 || !reported.json) {
       throw new ExecuteError("report tests", detailOf(reported));
     }
-    const executed: ExecutedCheck[] = [
-      {
-        check: "tests",
-        report: reported.json,
-        startedAt: testsStartedAt,
-        endedAt: now().toISOString(),
-      },
-    ];
+    executed.push({
+      check: "tests",
+      report: reported.json,
+      startedAt: testsStartedAt,
+      endedAt: now().toISOString(),
+    });
 
     if (policy.boot) {
       const smokeStartedAt = now().toISOString();
