@@ -81,6 +81,14 @@ INTERPRETER_NAMES = frozenset(
 # evasion the digest was added to close. What it cannot cover, it declares:
 # see `truncated.hashes`.
 HASH_MAX_BYTES = 64 * 1024 * 1024
+# The smoke check (decision 162): how long a boot may take to listen, how long
+# one request may take, how much of a body is kept, how many requests a
+# policy may list, and how long the app gets to stop before it is killed.
+SMOKE_READY_TIMEOUT_S = 60.0
+SMOKE_REQUEST_TIMEOUT_S = 10.0
+SMOKE_BODY_TAIL_CHARS = 500
+SMOKE_MAX_REQUESTS = 32
+SMOKE_STOP_GRACE_S = 3.0
 # How long one sensed command waits for another to release the sensors. Longer
 # than any check should take, so the wait ends because the other command
 # finished and not because the clock ran out.
