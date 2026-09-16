@@ -31,7 +31,7 @@ export interface UiLinks {
  * Discord channel — and an owner is who follows it; anyone else gets the
  * board's 404, which says nothing. Empty with no board configured.
  */
-export function runUrl(links: UiLinks, run: { id: string; isPublic: boolean }): string | null {
+export function runUrl(links: UiLinks, run: { id: string }): string | null {
   if (!links.publicBaseUrl) return null;
   return `${links.publicBaseUrl}/runs/${run.id}`;
 }
