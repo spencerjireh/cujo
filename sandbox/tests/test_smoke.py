@@ -36,6 +36,7 @@ def test_port_from_boot() -> None:
     assert port_from_boot("PORT=4000 npm start") == 4000
     assert port_from_boot("gunicorn -b 127.0.0.1:9000 app") == 9000
     assert port_from_boot("npm start") is None
+    assert port_from_boot("serve --port 8") == 8
 
 
 def test_parse_request() -> None:
@@ -132,3 +133,12 @@ def test_refuses_a_request_that_is_not_one(tmp_path: Path, cli: Cli) -> None:
     result = cli.raw(["smoke", "--boot", "true", "--request", "curl /x", "--cwd", str(tmp_path)])
     assert result.returncode != 0
     assert "METHOD /path" in result.stderr + result.stdout
+
+
+def test_refuses_more_requests_than_the_policy_may_declare(tmp_path: Path, cli: Cli) -> None:
+    args = ["smoke", "--boot", "true", "--port", "1", "--cwd", str(tmp_path)]
+    for i in range(33):
+        args += ["--request", f"GET /{i}"]
+    result = cli.raw(args)
+    assert result.returncode != 0
+    assert "more than 32" in result.stderr + result.stdout

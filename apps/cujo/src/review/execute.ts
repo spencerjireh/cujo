@@ -202,6 +202,10 @@ export async function executeDeclared(
           env,
           timeoutMs: deps.stepTimeoutMs,
         });
+        // The command answers with its entry whatever the app did — a boot
+        // that never listened is `ready: false` with the log — so no entry
+        // is the command itself failing, and that is the run's failure.
+        if (!result.json) throw new ExecuteError(`smoke ${tree}`, detailOf(result));
         entries[tree] = result.json;
       }
       const smokeReport = await sniff(deps, box.sandboxId, "report smoke", {

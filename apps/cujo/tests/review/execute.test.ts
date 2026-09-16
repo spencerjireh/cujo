@@ -14,7 +14,9 @@ interface Call {
 }
 
 /** A sandbox that answers each sniff command the way `sniff.py` would. */
-function fakeSandbox(over: { prepareOk?: boolean; headExit?: number; reportExit?: number } = {}) {
+function fakeSandbox(
+  over: { prepareOk?: boolean; headExit?: number; reportExit?: number; smokeBroken?: boolean } = {},
+) {
   const calls: Call[] = [];
   const destroyed: string[] = [];
   const answer = (request: ExecRequest): ExecResult => {
@@ -52,6 +54,7 @@ function fakeSandbox(over: { prepareOk?: boolean; headExit?: number; reportExit?
       return done(JSON.stringify({ check, exit, stdout_tail: tail, stderr_tail: "" }));
     }
     if (sub === "smoke") {
+      if (over.smokeBroken) return done("smoke: a request is `METHOD /path`", 2);
       const tree = argv[argv.indexOf("--tree") + 1];
       const requests = argv.flatMap((a, i) => (a === "--request" ? [argv[i + 1]] : []));
       return done(
@@ -278,6 +281,18 @@ describe("executeDeclared", () => {
       ],
       log_tail: "head booted",
     });
+  });
+
+  it("fails the run when the smoke command itself did not answer", async () => {
+    const box = fakeSandbox({ smokeBroken: true });
+    await expect(
+      executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, {
+        ...policy,
+        boot: "uvicorn app:app --port 8000",
+        smoke: ["curl /x"],
+      }),
+    ).rejects.toThrow("smoke head");
+    expect(box.destroyed).toEqual(["sbx-1"]);
   });
 
   it("refuses a policy with no test command", async () => {
