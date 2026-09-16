@@ -129,7 +129,8 @@ export const DOC_GROUPS: readonly DocGroup[] = [
         slug: "board",
         href: "/docs/board",
         title: "Reading the board",
-        summary: "What this site shows, what it deliberately does not, and who can see it.",
+        summary:
+          "What the board at /galaxy shows, what it deliberately does not, and who can see it.",
       },
     ],
   },

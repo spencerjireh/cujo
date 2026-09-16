@@ -15,11 +15,11 @@ export default function NotFound() {
     <div className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="mb-2 text-2xl">No such page</h1>
       <p className="mb-6 max-w-[60ch] text-sm text-fg-muted">
-        The board has two kinds of page — the list of runs, and one page per run — plus the
-        documentation. Nothing else is served here.
+        This site is a landing, the board of runs with one page per run, the manual, and an
+        owner&rsquo;s pages. Nothing else is served here.
       </p>
       <div className="flex gap-6">
-        <Link href="/" className="text-sm text-accent underline underline-offset-4">
+        <Link href="/galaxy" className="text-sm text-accent underline underline-offset-4">
           All runs
         </Link>
         <Link href="/docs" className="text-sm text-accent underline underline-offset-4">

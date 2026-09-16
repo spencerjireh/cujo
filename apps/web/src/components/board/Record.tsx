@@ -7,6 +7,7 @@ import { clearSelectedRun, setFocusedRun, useFocusedRun, useSelectedRun } from "
 import { hasSiblings, latestByPullRequest } from "@/lib/board/supersede";
 import { STATUS_LABELS, TONE_TEXT, compareFindings, statusTone } from "@/lib/board/tone";
 import { duration, shortSha } from "@/lib/format";
+import { INSTALL_URL } from "@/lib/install-url";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   createColumnHelper,
@@ -88,14 +89,6 @@ const GHOST_ROWS = [
   "ghost-g",
   "ghost-h",
 ] as const;
-
-/**
- * The App's public page, which carries the Install button and renders for a
- * reader who is not signed in. `/installations/new` is the more direct target
- * and bounces an anonymous reader through a login first, which is the wrong
- * first thing to show someone who has not decided yet.
- */
-const INSTALL_URL = "https://github.com/apps/cujo-guard";
 
 /**
  * How wide each column is, and which way its contents sit, keyed by column id.
