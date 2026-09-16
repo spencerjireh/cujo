@@ -193,6 +193,15 @@ export const EVENT_NAMES = [
   "run.instructions.read",
   "run.staged",
   "run.usage.recovered",
+  // The judge path (decision 161): declared commands executed with no model.
+  "run.path.resolved",
+  "policy.invalid",
+  "execute.started",
+  "execute.step",
+  "execute.finished",
+  "execute.failed",
+  "sandbox.destroyed",
+  "sandbox.swept",
   // apps/web asked apps/cujo to start a sign-in and the plane is not served.
   "auth.unavailable",
   // Open Code Review beside a run (decision 149): what `apps/cujo` asked for

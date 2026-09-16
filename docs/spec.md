@@ -180,6 +180,22 @@ parent bounds its setup. Each check's sub-agent reads its own page
 (`agent/checks/<CHECK>.md` on `checks/COMMON.md`) as its system prompt,
 named on the spec as `subagents`, rather than the parent's whole rubric.
 
+**Which path a sandbox run takes (decision 161).** With `CUJO_EXECUTE_DECLARED`
+on and a `.cujo.yml` at the base commit that parses and declares `test`, the
+run is a **judge run**: `apps/cujo` provisions the box through `sandbox-mcp`
+itself, runs `sniff.py prepare` and `setup`, the declared `install` on each
+tree and the declared `test` on base then head, asks `sniff.py report` for the
+`tests` envelope, and starts a turn on the judge spec (`agent/JUDGE.md`) whose
+brief carries `sandbox: {id, env}`, `policy`, `executed: {tests: {report,
+truncated}}` and a `coverage` prefilled with what ran — and neither
+`clone_url` nor `staged`, since the box is prepared. The parent reads the
+evidence, spawns `probes` by default and the checks the executor does not
+run yet, and posts; `apps/cujo` destroys the box when the turn ends. Any
+other run is a **gather run**, the path below, on `agent/SKILL.md`. Logged as
+`run.path.resolved` with `path_kind` and a reason (`declared`, `undeclared`,
+`disabled`); a file that does not parse logs `policy.invalid` and takes the
+gather path. A judge run has a session and a spec of its own, like a diff run.
+
 A private repository's turn message carries `staged` — a 32-hex ticket — in
 place of `clone_url`, never both (decision 158). The sandbox holds no
 credential, so `apps/cujo` fetches the base and head trees as GitHub's
@@ -357,6 +373,19 @@ things the next decision needs (decision 71).
    where the trust boundary's "no clone credential may ever reach the sandbox"
    is now enforced rather than assumed. Each git call has a timeout, so a
    stalled remote is a diagnosable failed step rather than a hung run.
+
+   On a judge run (decision 161) every command in this step and the next, and
+   the `tests` check's two runs and its `report`, are issued by `apps/cujo`
+   through `sandbox-mcp`'s tools with no model, from the `.cujo.yml` it read
+   at base: a declared line runs as `sh -c <line>` inside the box, the
+   install under `--check setup` on each tree, the tests under `--check
+   tests` on base then head. The `base`, `head` and `base_pass_head_fail`
+   extras are read off the two runs' output on the trusted side (pytest,
+   vitest, jest and go's failure lines; the suite's exit when none is
+   named). The envelope is the one `sniff.py report` prints, whole, kept in
+   `run_executions` and folded into the projection as a check with no thread
+   (`threadId: executed:tests`); the hard rules read it as they read any
+   report.
 
    `--staged DIR` is the other source, exclusive with `--clone-url` (decision
    158): a private repository's trees, unpacked by `sandbox_create` under

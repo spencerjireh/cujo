@@ -6,9 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Cujo: an execution-backed pull request reviewer on its own agent harness
 (`apps/harness`, built on the pi coding agent SDK; decision 123). A GitHub
-webhook starts a harness turn; the agent clones the PR into a disposable
-sandbox, runs tests, probes, a smoke boot, and dependency detonation, then
-posts one review as `cujo-guard[bot]`. `docs/` is the design of record and changes in the same PR as
+webhook starts a run; for a repository whose `.cujo.yml` declares its test
+command, `apps/cujo` itself prepares a disposable sandbox and runs the
+declared install and tests with no model (decision 161), then a harness turn
+judges that evidence, probes the change, runs a smoke boot and dependency
+detonation, and posts one review as `cujo-guard[bot]`; a repository that
+declares nothing gets the older path, where the agent gathers all of it. `docs/` is the design of record and changes in the same PR as
 the code (or before it). Read `docs/architecture.md` then `docs/spec.md` before
 changing behavior; add an entry to `docs/decisions.md` for any load-bearing
 choice (reverse, do not delete, when one changes).

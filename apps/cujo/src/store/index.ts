@@ -10,6 +10,7 @@
 
 import { type Db, openDatabase } from "./db";
 import { DetonationCacheStore } from "./detonations";
+import { ExecutionStore } from "./executions";
 import { NotificationStore } from "./notifications";
 import { OcrReviewStore } from "./ocr";
 import { RepositoryStore } from "./repositories";
@@ -21,6 +22,7 @@ import { WebSessionStore } from "./web-sessions";
 export { RunStore } from "./runs";
 export { NotificationStore } from "./notifications";
 export { DetonationCacheStore } from "./detonations";
+export { ExecutionStore } from "./executions";
 export { OcrReviewStore } from "./ocr";
 export { RepositoryStore } from "./repositories";
 export { RepositorySettingsStore } from "./repository-settings";
@@ -32,6 +34,7 @@ export class Store {
   readonly notifications: NotificationStore;
   readonly runs: RunStore;
   readonly detonations: DetonationCacheStore;
+  readonly executions: ExecutionStore;
   readonly ocr: OcrReviewStore;
   readonly repositories: RepositoryStore;
   readonly repositorySettings: RepositorySettingsStore;
@@ -43,6 +46,7 @@ export class Store {
     this.notifications = new NotificationStore(this.db);
     this.runs = new RunStore(this.db, this.notifications);
     this.detonations = new DetonationCacheStore(this.db);
+    this.executions = new ExecutionStore(this.db);
     this.ocr = new OcrReviewStore(this.db);
     this.repositories = new RepositoryStore(this.db);
     this.repositorySettings = new RepositorySettingsStore(this.db);

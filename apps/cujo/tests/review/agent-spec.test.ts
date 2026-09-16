@@ -5,6 +5,8 @@ import {
   buildConverseSpec,
   buildDiffSpec,
   buildDiffTurnMessage,
+  buildJudgeSpec,
+  buildJudgeTurnMessage,
   buildTurnMessage,
   isDocsOnly,
   isDocsPath,
@@ -647,5 +649,66 @@ describe("the checks' own rubrics (decision 165)", () => {
     expect(specFingerprint(spec)).toBe(
       specFingerprint(buildAgentSpec(config, "the rubric", { tests: "run the tests" })),
     );
+  });
+});
+
+describe("the judge spec and brief (decision 161)", () => {
+  const pr = {
+    repo: "o/r",
+    prNumber: 7,
+    title: "t",
+    body: "b",
+    baseSha: "b".repeat(40),
+    headSha: "h".repeat(40),
+    cloneUrl: "https://github.com/o/r.git",
+    changedFiles: ["app.py"],
+    authorLogin: null,
+    authorId: null,
+    files: [],
+    authorIsBot: false,
+  };
+  const judge = {
+    sandbox: { id: "sbx-1", env: { HTTP_PROXY: "http://127.0.0.1:8899" } },
+    policy: { install: "pip install -e .", test: "pytest -q" },
+    executed: [{ check: "tests", report: { check: "tests", base_pass_head_fail: [], runs: [] } }],
+    coverage: { ran: [{ check: "tests", note: "2 on base and 2 on head" }], skipped: [] },
+  };
+
+  it("carries the box, the policy, the reports and the coverage, and no clone URL", () => {
+    const message = buildJudgeTurnMessage(pr, "run-1", [], null, judge, 24_000);
+    const json = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
+    expect(json.sandbox).toEqual(judge.sandbox);
+    expect(json.policy).toEqual(judge.policy);
+    expect(json.executed.tests).toEqual({ report: judge.executed[0]?.report, truncated: false });
+    expect(json.coverage).toEqual(judge.coverage);
+    expect(json.run_id).toBe("run-1");
+    expect(json).not.toHaveProperty("clone_url");
+    expect(json).not.toHaveProperty("staged");
+  });
+
+  it("cuts a report over the byte cap and says so", () => {
+    const big = { check: "tests", runs: [{ stdout_tail: "x".repeat(5000) }] };
+    const message = buildJudgeTurnMessage(
+      pr,
+      "",
+      [],
+      null,
+      { ...judge, executed: [{ check: "tests", report: big }] },
+      200,
+    );
+    const json = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
+    expect(json.executed.tests.truncated).toBe(true);
+    expect(typeof json.executed.tests.report).toBe("string");
+    expect(json.executed.tests.report.length).toBeLessThan(300);
+  });
+
+  it("is its own spec on its own rubric, with both servers", () => {
+    const spec = buildJudgeSpec(
+      { model: "p/m", modelReasoningEffort: "", modelTemperature: null, modelMaxTokens: null },
+      "# judge",
+    );
+    expect(spec.instructions).toBe("# judge");
+    expect(spec.mcpServers.map((s) => s.name)).toEqual(["github-mcp", "sandbox-mcp"]);
+    expect(spec.config?.iterationLimit).toBe(80);
   });
 });

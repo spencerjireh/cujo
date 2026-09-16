@@ -1352,3 +1352,78 @@ describe("usage recovered on a timed-out turn (decision 165)", () => {
     expect(p?.ledger.threads[0]).toMatchObject({ title: "main", inputTokens: 1_200_000 });
   });
 });
+
+describe("the executor's box and reports (decision 161)", () => {
+  function judged() {
+    const store = new Store(":memory:");
+    const { run: r } = store.runs.createRun(claim());
+    store.executions.putSandbox({ runId: r.id, sandboxId: "sbx-1", provisionedMs: 700, env: {} });
+    store.executions.putCheck({
+      runId: r.id,
+      check: "tests",
+      report: { check: "tests", runs: [], derived: {}, base_pass_head_fail: ["t"] },
+      startedAt: "2026-08-27T09:59:00Z",
+      endedAt: "2026-08-27T09:59:30Z",
+    });
+    const destroyed: string[] = [];
+    const client = {
+      destroy: vi.fn(async (id: string) => {
+        destroyed.push(id);
+      }),
+    };
+    return { store, r, destroyed, client };
+  }
+
+  it("folds the executed check in with the events, and destroys the box when the turn ends", async () => {
+    const { store, r, destroyed, client } = judged();
+    async function* stream(): AsyncIterable<StreamEvent> {
+      yield turnCreated("t1", null, "2026-08-27T10:00:01Z");
+      yield reviewCall("c1");
+      yield reviewPosted("c1");
+      yield turnDone("t1");
+    }
+    const runner = new Runner(
+      store.runs,
+      {
+        startTurn: vi.fn(async () => "t1"),
+        subscribe: vi.fn(async () => stream()),
+      } as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      createLogger({ service: "cujo", sink: () => {} }),
+      null,
+      null,
+      { client, store: store.executions },
+    );
+    await runner.start(r, "brief");
+    await vi.waitFor(() => expect(destroyed).toEqual(["sbx-1"]));
+    const projection = store.runs.getProjection(r.id);
+    expect(projection?.checks.map((c) => [c.threadId, c.title])).toEqual([
+      ["executed:tests", "tests"],
+    ]);
+    expect(projection?.hardRuleHits.map((f) => f.rule)).toEqual(["tests_failed"]);
+    expect(projection?.setup.sandboxProvisionedMs).toBe(700);
+    expect(store.executions.sandboxForRun(r.id)?.destroyedAt).not.toBeNull();
+  });
+
+  it("destroys the box when a run fails before its turn, and sweeps what a restart owes", async () => {
+    const { store, r, destroyed, client } = judged();
+    const runner = new Runner(
+      store.runs,
+      {} as unknown as Harness,
+      { turnTimeoutMs: 10_000 },
+      createLogger({ service: "cujo", sink: () => {} }),
+      null,
+      null,
+      { client, store: store.executions },
+    );
+    runner.fail(r.id, "could not prepare run");
+    await vi.waitFor(() => expect(destroyed).toEqual(["sbx-1"]));
+    // A second run whose box was never destroyed: the sweep finds it once its run is over.
+    const { run: other } = store.runs.createRun(claim("h2"));
+    store.executions.putSandbox({ runId: other.id, sandboxId: "sbx-2", provisionedMs: 1, env: {} });
+    expect(await runner.sweepSandboxes()).toBe(0);
+    store.runs.updateRun(other.id, { status: "error" });
+    expect(await runner.sweepSandboxes()).toBe(1);
+    expect(destroyed).toEqual(["sbx-1", "sbx-2"]);
+  });
+});
