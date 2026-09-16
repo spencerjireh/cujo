@@ -456,6 +456,8 @@ async function main(): Promise<void> {
             store: store.runs.ping() ? ("ok" as const) : ("error" as const),
             uptimeMs: Math.round(process.uptime() * 1000),
           }),
+          runs: store.runs,
+          runner,
           log,
         }
       : undefined;

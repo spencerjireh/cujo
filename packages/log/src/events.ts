@@ -185,6 +185,10 @@ export const EVENT_NAMES = [
   "owner.repository.settings.changed",
   "owner.repository.file.failed",
   "owner.bot.read.failed",
+  // The owner plane's run streams (decision 159), the public plane's twins.
+  "owner.stream.rejected",
+  "owner.stream.opened",
+  "owner.stream.closed",
   // A repository's own guidance reached a brief, and where it came from (decision 155).
   "run.instructions.read",
   "run.staged",

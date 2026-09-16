@@ -9,7 +9,7 @@ import {
   saveRepositorySettings,
 } from "@/lib/api/owner-client";
 import { ownerKeys } from "@/lib/api/owner-keys";
-import { runsListOptions } from "@/lib/api/queries";
+import { ownerRunsOptions } from "@/lib/api/queries";
 import { duration, shortSha } from "@/lib/format";
 import { MODE_LABELS, describeInstructions, describeMode } from "@/lib/owner/settings";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -131,7 +131,8 @@ function Instructions({
 }
 
 function Runs({ repo }: { repo: string }) {
-  const list = useQuery(runsListOptions());
+  // The owner's list, so a private repository's runs are here too (decision 159).
+  const list = useQuery(ownerRunsOptions());
   const runs = (list.data?.runs ?? []).filter(
     (run) => run.repo.toLowerCase() === repo.toLowerCase(),
   );

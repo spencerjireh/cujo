@@ -7,4 +7,5 @@ export const ownerKeys = {
   instance: () => [...ownerKeys.all, "instance"] as const,
   bot: () => [...ownerKeys.all, "bot"] as const,
   health: () => [...ownerKeys.all, "health"] as const,
+  runs: () => [...ownerKeys.all, "runs"] as const,
 };

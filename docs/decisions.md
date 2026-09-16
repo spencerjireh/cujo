@@ -7949,3 +7949,46 @@ comment already ruled out for landing bytes on the host.
 
 The public plane still hides a private run; who may see one is the next
 slice.
+||||||| parent of b04980d (feat: an owner sees every run, private ones on the owner plane)
+
+## 159. An owner sees every run, and a private run's page is the owner's
+
+Decision 158 made a private repository's review run; nothing showed it. The
+public plane hides a private run behind a 404 (34), which is right for a
+stranger and wrong for the person whose repository it is, who had a check
+run on the pull request pointing at a page that said not found.
+
+So the owner plane serves runs: `GET /owner/runs`, `/owner/runs/:id` and
+`/owner/runs/:id/events`, for a signed-in owner (153), with the `is_public`
+filter left out and nothing else changed — the public plane's shapes and its
+allowlisted serializer, so an owner reads no field the board could not, only
+runs it could not. The stream is the public stream's code, extracted and
+handed each plane's idea of "visible": for the board a run is visible while
+its repository is public and closes when that flips; for an owner it is
+visible while it exists. The owner plane holds its own stream limit of
+twenty, sized for one person's tabs and not for the internet.
+
+The web asks the public plane first, with no credential, for every run page
+— which is what every reader gets — and on a 404 asks who is reading; an
+owner's session is then sent to the owner plane, and a run it names renders
+on the owner's stream through a proxy route that turns the cookie into the
+bearer. Anyone else, and any run neither plane names, is the same 404 the
+page always was, and the page never says which. A repository's page lists
+the owner's runs, so a private repository's runs are on the board that
+manages it.
+
+Accepted: **one serializer for both planes**, so classifying a field for the
+public plane (34) is still the one gate; **one query key per run whichever
+plane answered**, so the stream writes into the same cache entry and the
+page does not know or care; **the public plane first, always**, so the
+owner plane is asked only when the board would not answer, and a public
+run never depends on a session; **no per-installation scoping**, since an
+owner is an admin of an installation of the App and already sees every
+setting of the instance (153).
+
+Rejected: **an `is_public` field on the run page** for the owner, which
+would be the first field served to one reader and not another; **a link on
+the pull request to the owner page**, since the check run's link is the run's
+page and it is now the right page for whoever may see it; **the owner list
+on the anonymous board**, which is where a private repository's name would
+leak.

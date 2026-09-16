@@ -1,15 +1,60 @@
 import { HomeMark } from "@/components/brand/HomeMark";
 import { RunView } from "@/components/run/RunView";
 import { ApiError } from "@/lib/api/client";
+import { runKeys } from "@/lib/api/keys";
+import type { Plane } from "@/lib/api/owner";
+import { fetchOwnerRun } from "@/lib/api/owner-client";
 import { runOptions } from "@/lib/api/queries";
+import { whoIsReading } from "@/lib/api/session";
 import { statusLine } from "@/lib/api/status-line";
 import type { Run } from "@/lib/api/types";
 import { getQueryClient } from "@/lib/query-client";
-import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
+import { HydrationBoundary, type QueryClient, dehydrate } from "@tanstack/react-query";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The run this page is about, and which plane answered for it.
+ *
+ * Awaited: this page is nothing without the run, and a 404 from the API has
+ * to become a 404 here rather than an empty shell. The public plane first,
+ * with no credential, which is what every reader gets. Its 404 is what a
+ * private run looks like (decision 34), and for a signed-in owner that is
+ * not the whole answer any more (decision 159): the owner plane is asked
+ * with the session, and a run it names is rendered on the owner's stream.
+ * Anyone else, and any run neither plane names, is a 404 -- the page never
+ * says which of the two it was. The client is request-scoped, so the second
+ * call in a request is a cache hit.
+ */
+async function readRun(id: string): Promise<{ queryClient: QueryClient; run: Run; plane: Plane }> {
+  const queryClient = getQueryClient();
+  const cached = queryClient.getQueryData<Run>(runKeys.detail(id));
+  const cachedPlane = queryClient.getQueryData<Plane>(planeKey(id));
+  if (cached && cachedPlane) return { queryClient, run: cached, plane: cachedPlane };
+  try {
+    const run = await queryClient.fetchQuery(runOptions(id));
+    queryClient.setQueryData(planeKey(id), "public");
+    return { queryClient, run, plane: "public" };
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error;
+  }
+  const reader = await whoIsReading();
+  if (!("me" in reader)) notFound();
+  try {
+    const run = await fetchOwnerRun(id, reader.session);
+    queryClient.setQueryData(runKeys.detail(id), run);
+    queryClient.setQueryData(planeKey(id), "owner");
+    return { queryClient, run, plane: "owner" };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
+}
+
+/** Which plane named the run, kept beside it for the second read in a request. */
+const planeKey = (id: string) => [...runKeys.detail(id), "plane"] as const;
 
 /**
  * What a run link says about itself, wherever it is pasted (decision 86).
@@ -30,14 +75,7 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const queryClient = getQueryClient();
-  let run: Run;
-  try {
-    run = await queryClient.fetchQuery(runOptions(id));
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) notFound();
-    throw error;
-  }
+  const { run } = await readRun(id);
 
   const heading = `${run.repo} #${run.pr_number}`;
   const title = run.pr_title ? `${heading} — ${run.pr_title}` : heading;
@@ -58,21 +96,7 @@ export async function generateMetadata({
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const queryClient = getQueryClient();
-
-  // Awaited, unlike the list: this page is nothing without the run, and a 404
-  // from the API has to become a 404 here rather than an empty shell. That same
-  // 404 is what a private run looks like, so it needs no handling of its own
-  // (decision 34) — and since decision 57 there is no other page for a private
-  // run to be on, so 404 is the whole answer. The read is the one
-  // `generateMetadata` already made: the client is request-scoped, so this is
-  // a cache hit that exists to keep the 404 and the throw on this page.
-  try {
-    await queryClient.fetchQuery(runOptions(id));
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) notFound();
-    throw error;
-  }
+  const { queryClient, plane } = await readRun(id);
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
@@ -91,7 +115,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         <HomeMark />
         <div className="mx-auto max-w-5xl px-4 py-8">
           <div className="pt-10">
-            <RunView id={id} />
+            <RunView id={id} plane={plane} />
           </div>
         </div>
       </div>

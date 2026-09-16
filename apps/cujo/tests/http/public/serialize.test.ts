@@ -490,6 +490,8 @@ describe("the public module's imports", () => {
     "../../review/runner.service",
     "../../review/types",
     "../../store",
+    // The stream, shared with the owner plane (decision 159).
+    "../run-stream",
   ]);
 
   it("reaches only the modules named here", () => {

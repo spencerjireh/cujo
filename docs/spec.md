@@ -1284,6 +1284,9 @@ on the owner plane:
 | `GET /owner/bot` | The App as GitHub sees it (decision 157): the App, its permissions against the five the reviews need with a verdict each, its installations with the registry's count of repositories under each, and its last twenty webhook deliveries with the status this process answered. 502 when GitHub does not answer. |
 | `GET /owner/health` | The same answer `/readyz` gives — harness, store, uptime — for a signed-in owner. |
 | `GET /owner/repositories` | The registry (decision 151), removed rows included. |
+| `GET /owner/runs` | Every run, private ones included (decision 159), in the public list's shape and through the public serializer: nothing an owner reads here is a field the anonymous board could not, only runs it could not. |
+| `GET /owner/runs/:id` | One run, public or private, in the public detail's shape. 404 only for a run that does not exist. |
+| `GET /owner/runs/:id/events` | The run's live stream, the public stream's twin on the same code; its own limit of twenty concurrent streams, sized for one person's tabs. 503 past it. |
 | `PATCH /owner/repositories/:owner/:name` | `{ enabled }`. 404 for a repository the registry has not heard of. |
 
 Every `/owner` route wants `Authorization: Bearer <session>` and answers 401

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRunStream } from "@/hooks/useRunStream";
+import type { Plane } from "@/lib/api/owner";
 import { runOptions } from "@/lib/api/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -14,9 +15,9 @@ import { RunProvenance } from "./RunProvenance";
  * (decision 154), which is the lanes expanded in order — what each check ran,
  * saw and concluded, then the review — and last the operator's context.
  */
-export function RunView({ id }: { id: string }) {
-  const { data: run, error } = useQuery(runOptions(id));
-  const { streamFailed } = useRunStream(id, run?.status);
+export function RunView({ id, plane = "public" }: { id: string; plane?: Plane }) {
+  const { data: run, error } = useQuery(runOptions(id, plane));
+  const { streamFailed } = useRunStream(id, run?.status, plane);
   /**
    * The lane a reader picked on the timeline, by check name.
    *
