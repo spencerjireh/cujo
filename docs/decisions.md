@@ -8129,3 +8129,46 @@ Rejected: **a budget below the fixture's p90**, which would end real runs
 for saving cents; **per-check pages that repeat the review sections**,
 which a child never needs; **cancelling turns on `SIGTERM`**, since the
 harness dies with the deploy anyway.
+
+## 166. A report bounds its benign rows on both sides of the workspace line
+
+The sixth gather run on #176, the first with a token budget (165) and the
+first with the sandbox on deepseek-flash, ended at 3.18M of 3M tokens with
+one check done. The parent's ledger said where they went: two
+`sandbox_exec` results of 7.6 MB and 2.0 MB, both one JSON object, both
+whole. They were the `sniff.py run --check setup` reports around the head
+and base installs. A pnpm install writes its content-addressed store under
+the home directory, forty thousand files for this monorepo, every one an
+outside-workspace row; decision 146 kept every such row whatever the count
+because "the rules read them", and decision 147 let a stream that is one
+JSON object through the 32 KB clip whatever its size because a report's
+size was "the sensors' business". Together they handed the parent 1.9M
+input tokens of store paths, which no rule reads: the hard rules and the
+detonation cache read `derived.wrote_sensitive`,
+`derived.egress_to_unknown_host`, `secret_probe.decoy_read` and the egress
+rows, and `wrote_outside_workspace` is a warn-tier line the model writes
+from the flag, not from the rows.
+
+Two bounds. **`fs_changes` keeps its sensitive rows whatever the count and
+bounds the benign rows at `MAX_FS_CHANGES` on each side of the workspace
+line**, so an install's store shows as two hundred paths and a truncation
+flag, the way its `node_modules` already did; the `derived` flags read the
+full list before the cut, as 146 said, so no signal moves.
+**`sandbox-mcp`'s one-JSON-object exemption from the clip has a ceiling of
+512 KB.** A `sniff.py` report is 30 to 60 KB after its caps (147) and a
+whole check's envelope stays well under the ceiling; above it the stream
+is clipped like prose, which is also what a `cat` of a lockfile deserves.
+
+Accepted: **a reader of an install sees a sample of where it wrote outside
+the tree**, not every file, with the flag saying a cut happened; **two
+pools rather than one**, since a store's rows would otherwise crowd out
+the tree's; **a ceiling in `sandbox-mcp`** as a second layer, because the
+first lives in the box and a sensor that fails its own caps must not reach
+the model whole. Rejected: **rolling the outside rows up per directory
+with a count**, a schema change for a signal the sample already carries;
+**raising the token budget**, which pays for paths nobody reads;
+**bounding `subprocesses`**, which only the Python audit hook fills and
+which no install on this run grew.
+
+Reverses part of 146: an outside-workspace row is no longer kept whatever
+the count; a sensitive one still is.

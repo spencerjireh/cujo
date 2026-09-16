@@ -119,13 +119,22 @@ const destroyShape = { sandbox_id: sandboxId };
 const EXEC_STREAM_CAP = 32 * 1024;
 const EXEC_HEAD = 8 * 1024;
 const EXEC_TAIL = 24 * 1024;
+/**
+ * How large one JSON object may be and still come back whole (decision 166).
+ *
+ * A `sniff.py` report is 30 to 60 KB after its own caps, so the exemption
+ * below only ever needed to carry that; a report that listed a package
+ * store was 7.6 MB, and a `cat` of a lockfile is one JSON object too. Above
+ * this the stream is prose to the clip, whatever its shape.
+ */
+const EXEC_JSON_CAP = 512 * 1024;
 const EXEC_LOG_DIR = "/tmp/cujo-state/exec";
 const EXEC_DESCRIPTION = [
   "Run one command as a list of arguments. No shell, so no pipelines, no",
   "redirection and no `&&`. Returns exit code, stdout, stderr and duration.",
   `A stream over ${EXEC_STREAM_CAP} bytes comes back as its head and tail with a`,
   "marker naming the file in the sandbox that holds all of it, unless it is one",
-  "JSON object, which comes back whole.",
+  `JSON object under ${EXEC_JSON_CAP} bytes, which comes back whole.`,
 ].join(" ");
 
 /**
@@ -135,7 +144,8 @@ const EXEC_DESCRIPTION = [
  * list in it itself (decision 146), so its size is already the sensors'
  * business; and the fold reads a check's envelope off this very result
  * (decision 147), where a head-and-tail cut would be a cut in the evidence.
- * Anything else — a test runner, an install log — is prose and is clipped.
+ * Anything else — a test runner, an install log — is prose and is clipped;
+ * so is a JSON object over `EXEC_JSON_CAP`, which no report is.
  */
 function isOneJsonObject(text: string): boolean {
   const trimmed = text.trim();
@@ -256,7 +266,9 @@ export function registerSandboxTools(
         const bound = async (stream: "stdout" | "stderr"): Promise<string> => {
           const text = result[stream];
           const total = Buffer.byteLength(text, "utf8");
-          if (total <= EXEC_STREAM_CAP || isOneJsonObject(text)) return text;
+          if (total <= EXEC_STREAM_CAP || (total <= EXEC_JSON_CAP && isOneJsonObject(text))) {
+            return text;
+          }
           const path = `${EXEC_LOG_DIR}/${serial}-${stream}.log`;
           try {
             await runtime.writeFile(args.sandbox_id, path, text);

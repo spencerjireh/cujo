@@ -45,22 +45,24 @@ TRUNCATION_KEYS = (
 
 
 def bound_fs_changes(fs_changes: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
-    """The rows the rules read, and a bounded sample of the rest (decision 146).
+    """The rows the rules read, and a bounded sample of the rest (decisions 146, 166).
 
-    Every sensitive or outside-workspace row stays whatever the count; the
-    benign in-workspace rows stop at `MAX_FS_CHANGES`. Applied per command and
-    again after a merge, because two commands each under the bound are not
-    under it together.
+    Every sensitive row stays whatever the count; the benign rows stop at
+    `MAX_FS_CHANGES` on each side of the workspace line, so a reader still
+    sees where an install wrote outside the tree without every file of a
+    package store. Applied per command and again after a merge, because two
+    commands each under the bound are not under it together.
     """
     kept: list[dict[str, Any]] = []
-    benign = 0
+    benign = {True: 0, False: 0}
     dropped = 0
     for change in fs_changes:
-        if change["sensitive"] or not change["in_workspace"]:
+        side = bool(change["in_workspace"])
+        if change["sensitive"]:
             kept.append(change)
-        elif benign < MAX_FS_CHANGES:
+        elif benign[side] < MAX_FS_CHANGES:
             kept.append(change)
-            benign += 1
+            benign[side] += 1
         else:
             dropped += 1
     return kept, dropped > 0
@@ -153,9 +155,10 @@ def build_sensor_block(
         e["host"] = scrub(e["host"])
     unknown = any(not e["known"] for e in egress)
     is_install = check == "detonation"
-    # The rows the rules read stay whatever their number; the benign ones are
-    # bounded. The derived flags below read the full list, so a cut here can
-    # hide a path and never a signal (decision 146).
+    # The sensitive rows stay whatever their number; the benign ones are
+    # bounded on each side of the workspace line. The derived flags below
+    # read the full list, so a cut here can hide a path and never a signal
+    # (decisions 146 and 166).
     kept_changes, changes_cut = bound_fs_changes(fs_changes)
     # Said as what it is. The audited command holds `CUJO_AUDIT_LOG` and can
     # append this row itself, so an armed hook and a command claiming one look
