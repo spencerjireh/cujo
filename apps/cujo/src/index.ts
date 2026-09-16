@@ -21,8 +21,8 @@ import {
   buildAgentSpec,
   buildConverseSpec,
   buildDiffSpec,
-  loadCheckRubrics,
   buildJudgeSpec,
+  loadCheckRubrics,
   loadRubric,
   specFingerprint,
 } from "./review/agent-spec";
@@ -223,15 +223,21 @@ async function main(): Promise<void> {
   // the parent on its own spec with its own digest, like the diff review.
   const judgeRubricSha256 = specFingerprint(judgeSpec());
   const judge = {
-    enabled: config.executeDeclared,
+    get enabled() {
+      return settings.current().executeDeclared;
+    },
     sandbox: sandboxMcp,
     executions: store.executions,
     createSession: () => harness.createSession(judgeSpec()),
     get provenance() {
       return { model: settings.current().model, rubricSha256: judgeRubricSha256 };
     },
-    stepTimeoutMs: config.executeStepTimeoutMs,
-    reportBytes: config.executedReportBytes,
+    get stepTimeoutMs() {
+      return settings.current().executeStepTimeoutMs;
+    },
+    get reportBytes() {
+      return settings.current().executedReportBytes;
+    },
   };
 
   // The diff review's half of the same (Contract 11): its own spec, so its own

@@ -51,6 +51,12 @@ export interface ModelSettings {
   converseTimeoutMs: number;
   /** Whether the OCR sidecar is asked beside every sandbox run; its URL stays in the environment. */
   ocrEnabled: boolean;
+  /** Whether declared commands run on the trusted side (decision 161); off is the gather path for every run. */
+  executeDeclared: boolean;
+  /** The bound on one executed install or test run. */
+  executeStepTimeoutMs: number;
+  /** Bytes of each executed report the judge's brief carries. */
+  executedReportBytes: number;
 }
 
 export type SettingKey = keyof ModelSettings;
@@ -81,6 +87,9 @@ export const SETTING_GROUPS: Readonly<Record<SettingKey, SettingGroup>> = {
   converseWindowMs: "limits",
   converseTimeoutMs: "limits",
   ocrEnabled: "limits",
+  executeDeclared: "limits",
+  executeStepTimeoutMs: "limits",
+  executedReportBytes: "limits",
 };
 
 export const SETTING_KEYS: readonly SettingKey[] = Object.keys(SETTING_GROUPS) as SettingKey[];
@@ -143,12 +152,15 @@ export function parseSetting<K extends SettingKey>(key: K, raw: unknown): ModelS
     case "diffBytes":
     case "converseWindowMs":
     case "converseTimeoutMs":
+    case "executeStepTimeoutMs":
+    case "executedReportBytes":
       return wholeNumber(key, raw) as ModelSettings[K];
     case "pushDebounceMs":
     case "converseLimit":
       return wholeNumber(key, raw, { zeroOk: true }) as ModelSettings[K];
-    case "ocrEnabled": {
-      if (typeof raw !== "boolean") throw new Error("ocrEnabled must be true or false");
+    case "ocrEnabled":
+    case "executeDeclared": {
+      if (typeof raw !== "boolean") throw new Error(`${key} must be true or false`);
       return raw as ModelSettings[K];
     }
     case "modelProvider": {
@@ -184,6 +196,9 @@ export function seedFromConfig(config: Config): ModelSettings {
     // On when a sidecar is configured, the way it always was; the switch is
     // then the owner's, and the URL stays what the environment says.
     ocrEnabled: config.ocrSidecarUrl !== null,
+    executeDeclared: config.executeDeclared,
+    executeStepTimeoutMs: config.executeStepTimeoutMs,
+    executedReportBytes: config.executedReportBytes,
   };
 }
 
