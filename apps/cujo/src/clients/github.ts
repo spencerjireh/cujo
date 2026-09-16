@@ -331,7 +331,7 @@ export class GitHubReader {
     if (cached && cached.expiresAt > Date.now()) return cached.state;
     const [app, installations, deliveries] = await Promise.all([
       this.getAsApp<Record<string, unknown>>("/app"),
-      this.getAsApp<Record<string, unknown>[]>("/app/installations?per_page=100"),
+      this.allInstallations(),
       this.getAsApp<Record<string, unknown>[]>("/app/hook/deliveries?per_page=20"),
     ]);
     const state: AppState = {
@@ -366,6 +366,20 @@ export class GitHubReader {
     };
     this.appStateCache = { state, expiresAt: Date.now() + REPO_CACHE_MS };
     return state;
+  }
+
+  /** Every installation, paged the way `listInstalledRepos` pages them. */
+  private async allInstallations(): Promise<Record<string, unknown>[]> {
+    const out: Record<string, unknown>[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const items = await this.getAsApp<Record<string, unknown>[]>(
+        `/app/installations?per_page=100&page=${page}`,
+      );
+      out.push(...items);
+      if (items.length < 100) break;
+      if (page === MAX_PAGES) this.log.warn("github.page_cap", { path: "/app/installations" });
+    }
+    return out;
   }
 
   /** The App JWT's own reads, which belong to no single installation. */
