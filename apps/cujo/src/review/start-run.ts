@@ -425,7 +425,12 @@ function coverageNote(report: unknown): string {
     head?: unknown;
     base_pass_head_fail?: unknown;
     endpoints?: unknown;
+    base_not_run?: unknown;
   };
+  // Base is run only when head gives it something to answer (decision 169),
+  // and a line that did not say so would read as a comparison that came back
+  // clean.
+  const skipped = r.base_not_run === true ? "base not run, head was clean: " : "";
   if (Array.isArray(r.endpoints)) {
     const rows = r.endpoints as { base_status?: unknown; head_status?: unknown }[];
     const answered = rows.filter((row) => typeof row.head_status === "number").length;
@@ -435,10 +440,12 @@ function coverageNote(report: unknown): string {
         row.base_status < 400 &&
         (typeof row.head_status !== "number" || row.head_status >= 400),
     ).length;
+    if (skipped) return `${skipped}${rows.length} requests, ${answered} answered on head`;
     return `${rows.length} requests on head and base; ${answered} answered on head, ${worse} worse than base`;
   }
   const count = (map: unknown) =>
     map && typeof map === "object" ? Object.keys(map as object).length : 0;
   const failed = Array.isArray(r.base_pass_head_fail) ? r.base_pass_head_fail.length : 0;
+  if (skipped) return `${skipped}${count(r.head)} on head, nothing to compare`;
   return `${count(r.base)} on base and ${count(r.head)} on head; ${failed} passed on base and failed on head`;
 }

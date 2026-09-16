@@ -88,10 +88,16 @@ is.
 
 Start from `executed.tests`. Its `base_pass_head_fail` is the zero-token fact of this
 review: a test that passed on base and fails on head is a regression the pull request
-introduced, and it is a hard rule. Read the two `runs[]` entries — exit, duration,
+introduced, and it is a hard rule. Read the `runs[]` entries — exit, duration,
 output tails, egress, files written, subprocesses — for what the suite did and what the
 sensors saw while it did it. If `sniff.py report` marked a sensor unarmed, say so in
 the review's coverage.
+
+`base_not_run: true` means head passed everything, so base was never run: nothing head
+passed can be a test head failed, and the comparison would have been empty whatever
+base did. It is not a base that failed and not a suite that was skipped, and there is
+one tree in `runs[]` rather than two. Say the suite passed on head; do not say it
+passed on base, and do not report the missing side as a coverage gap.
 
 When `executed.detonation` is there, read it before anything else: a dependency that
 read the decoy, wrote somewhere sensitive or reached a host that is neither an index
@@ -100,7 +106,9 @@ nor allowlisted is a malice finding, and four of the five hard rules live there.
 When `executed.smoke` is there, read it next: an endpoint that answered on base and
 errors on head is a regression as plain as a failing test, and `runs[]` says what the
 app touched and contacted while it served. A base that never listened is a fact
-about the fixture, not about the change.
+about the fixture, not about the change. Here too `base_not_run: true` means head
+booted and served every declared request, so base was not booted and every
+`base_status` is null for that reason and no other.
 
 Then decide what only a model can add.
 
