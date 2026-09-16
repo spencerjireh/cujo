@@ -1222,3 +1222,23 @@ describe("the run carries its delivery past the request", () => {
     expect(store.runs.getRun(run.id)?.deliveryId).toBeNull();
   });
 });
+
+describe("the push window as a getter (decision 164)", () => {
+  it("reads the delay at every schedule, so a board change applies to the next push", () => {
+    vi.useFakeTimers();
+    try {
+      let delay = 1000;
+      const debounce = new PushDebounce(() => delay);
+      const fired: string[] = [];
+      debounce.schedule("a", () => fired.push("a"));
+      delay = 0;
+      // Zero now: this one fires at once, and the earlier one still waits its window.
+      expect(debounce.schedule("b", () => fired.push("b"))).toBe(false);
+      expect(fired).toEqual(["b"]);
+      vi.advanceTimersByTime(1000);
+      expect(fired).toEqual(["b", "a"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

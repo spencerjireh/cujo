@@ -138,7 +138,12 @@ function repoPath(repo: string): string {
     .join("/");
 }
 
-/** The eight instance settings (decision 152), the provider's key masked. */
+/**
+ * The instance settings: the models and the provider (decision 152), the
+ * provider's key masked, and the limits and switches (decision 164). The
+ * server's `settings.ts` is the list; this mirrors it, and the groups the
+ * server serves say which form each key is drawn on.
+ */
 export interface InstanceSettings {
   model: string;
   modelReasoningEffort: string;
@@ -156,13 +161,23 @@ export interface InstanceSettings {
     maxTokens: number;
     reasoning: boolean;
   } | null;
+  turnTimeoutMs: number;
+  diffTimeoutMs: number;
+  diffBytes: number;
+  pushDebounceMs: number;
+  converseLimit: number;
+  converseWindowMs: number;
+  converseTimeoutMs: number;
+  ocrEnabled: boolean;
 }
 
 type SettingSource = "seed" | "owner";
+type SettingGroup = "models" | "provider" | "limits";
 
 export interface InstanceSettingsView {
   settings: InstanceSettings;
   sources: Record<keyof InstanceSettings, SettingSource>;
+  groups: Record<keyof InstanceSettings, SettingGroup>;
 }
 
 export interface BotState {

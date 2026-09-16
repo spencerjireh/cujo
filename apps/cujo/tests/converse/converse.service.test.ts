@@ -52,6 +52,8 @@ function harness(
     /** What GitHub reports as the current head; null means unreadable. */
     head?: string | null;
     isPublic?: boolean;
+    /** The board's switch (decision 164); absent means on. */
+    enabled?: boolean;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -116,6 +118,7 @@ function harness(
     spec: () => ({ model: { name: "m" }, mcpServers: [] }) as unknown as AgentSpec,
     limit: new ConverseRateLimit({ limit: over.limit ?? 3, windowMs: 60_000 }),
     turnTimeoutMs: 50,
+    ...(over.enabled === undefined ? {} : { enabled: () => over.enabled === true }),
   });
   // Each call is a distinct comment, as two questions on a pull request are.
   // Passing an id explicitly is how a redelivery of one comment is written.
@@ -741,5 +744,15 @@ describe("the turn timeout", () => {
     expect(subscribes).toBe(2);
     expect(replies[0]).toContain("lost track");
     expect(replies[0]).not.toContain("half a thought");
+  });
+});
+
+describe("the board's switch (decision 164)", () => {
+  it("answers nothing and starts no session when conversation is off", async () => {
+    const h = harness({ enabled: false });
+    await h.ask("@cujo-guard why did the smoke check fail?");
+    expect(h.started).toEqual([]);
+    expect(h.replies).toEqual([]);
+    expect(h.lines.find((l) => l.event === "converse.disabled")).toBeDefined();
   });
 });
