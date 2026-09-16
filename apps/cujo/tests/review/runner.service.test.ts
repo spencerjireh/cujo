@@ -1279,8 +1279,11 @@ describe("usage recovered on a timed-out turn (decision 165)", () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     let cancelled = 0;
+    // The cancel answers late, as it does when a tool call is in flight; the
+    // turn settles on its own two polls later.
+    let polls = 0;
     const turnState = () =>
-      cancelled > 0
+      cancelled > 0 && ++polls > 2
         ? {
             status: "cancelled" as const,
             completedAt: "2026-08-27T10:00:10Z",
@@ -1308,6 +1311,7 @@ describe("usage recovered on a timed-out turn (decision 165)", () => {
       ]),
       cancelTurn: vi.fn(async () => {
         cancelled += 1;
+        await new Promise((resolve) => setTimeout(resolve, 60_000));
       }),
       listEvents: vi.fn(async () => [
         { turnId: "t1", event: turnCreated("t1", null, "2026-08-27T10:00:01Z") },
@@ -1332,7 +1336,7 @@ describe("usage recovered on a timed-out turn (decision 165)", () => {
     const runner = new Runner(
       store.runs,
       harness,
-      { turnTimeoutMs: 50, retryDelaysMs: [] },
+      { turnTimeoutMs: 50, retryDelaysMs: [], usageRecoveryPollMs: 10 },
       createLogger({ service: "cujo", sink: () => {} }),
     );
     await runner.start(r, "brief");
