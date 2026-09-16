@@ -1,26 +1,30 @@
-import { RunsView } from "@/components/runs/RunsView";
-import { runsListOptions } from "@/lib/api/queries";
-import { getQueryClient } from "@/lib/query-client";
-import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
+import { Landing } from "@/components/landing/Landing";
+import { whoIsReading } from "@/lib/api/session";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The front door (decision 160). Indexed, like the manual and unlike anything
+ * else here: it quotes nobody's code, and it is the page somebody deciding
+ * whether to install Cujo has to be able to find.
+ */
+export const metadata: Metadata = {
+  title: "cujo",
+  description: "A pull request reviewer that runs the code.",
+  robots: { index: true, follow: true },
+  openGraph: { title: "cujo", description: "A pull request reviewer that runs the code." },
+};
+
 export default async function Page() {
-  const queryClient = getQueryClient();
-
-  // Awaited. Leaving it pending and dehydrating the pending query streams the
-  // shell sooner, but then the server renders the loading state while the
-  // client hydrates with data already in the cache, and React reports the
-  // difference as a hydration error. `GET /runs` is one small request, so the
-  // wait costs less than a Suspense boundary would.
-  //
-  // A failure here is not fatal: RunsView refetches in the browser and shows
-  // its own error state, which also covers the API being briefly unreachable.
-  await queryClient.prefetchQuery(runsListOptions());
-
+  // Who is reading decides the first two links and nothing else. The session
+  // is not seeded into the query cache (see /repos for why).
+  const reader = await whoIsReading();
   return (
-    <HydrationBoundary state={dehydrate(queryClient)}>
-      <RunsView />
-    </HydrationBoundary>
+    <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
+      <div className="pt-10">
+        <Landing reader={"me" in reader ? "owner" : "visitor"} />
+      </div>
+    </div>
   );
 }

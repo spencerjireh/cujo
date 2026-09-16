@@ -7,7 +7,7 @@
 
 <p align="center">
   A pull request reviewer that reads the diff and runs the code when reading is not enough.<br>
-  <a href="https://cujo.spencerjireh.com">Live board</a> &middot;
+  <a href="https://cujo.spencerjireh.com/galaxy">Live board</a> &middot;
   <a href="https://cujo.spencerjireh.com/docs">Manual</a> &middot;
   <a href="docs/architecture.md">Architecture</a>
 </p>

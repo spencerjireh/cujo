@@ -33,7 +33,7 @@ export default function ErrorBoundary({
           Try again
         </button>
         <a
-          href="/"
+          href="/galaxy"
           className="rounded-md border border-line px-4 py-1.5 text-sm no-underline transition-colors hover:border-fg-muted"
         >
           All runs

@@ -12,10 +12,8 @@ import {
   Table,
   UL,
 } from "@/components/docs/Prose";
+import { INSTALL_URL } from "@/lib/install-url";
 import Link from "next/link";
-
-/** The App this board runs. A self-hoster makes their own; see /docs/self-host. */
-const APP_URL = "https://github.com/apps/cujo-guard";
 
 /**
  * The page a reader lands on when they have decided to try it.
@@ -53,7 +51,7 @@ export function Install() {
           <Step n={1} title="Install the App on the repository.">
             <P>
               <a
-                href={APP_URL}
+                href={INSTALL_URL}
                 target="_blank"
                 rel="noreferrer"
                 className="text-accent underline underline-offset-4"

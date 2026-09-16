@@ -185,9 +185,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               argument is an instrument, and the instrument was starting below
               a rule. What replaced it is `HomeMark`, placed by each page
               because the mark takes its colour from the ground it sits on and
-              only the page knows which ground that is. `main` keeps no measure
-              of its own, because the chamber runs the full width; a page that
-              wants the old column applies it itself, as `/runs/[id]` does. */}
+              only the page knows which ground that is; it goes home, which is
+              the landing (decision 160), and the board is at `/galaxy`. `main`
+              keeps no measure of its own, because the chamber runs the full
+              width; a page that wants the column applies it itself. */}
           <div className="flex min-h-screen flex-col">
             <main className="flex-1">{children}</main>
             <SiteFooter />
