@@ -1,4 +1,5 @@
 import { environmentManager } from "@tanstack/react-query";
+import type { Plane } from "./owner";
 import type { Run, RunList } from "./types";
 
 /**
@@ -68,7 +69,10 @@ export function fetchRun(id: string, signal?: AbortSignal): Promise<Run> {
   return get<Run>(`${PUBLIC_PREFIX}/runs/${encodeURIComponent(id)}`, signal);
 }
 
-/** The one stream. A fixed path, so nothing the browser sends chooses it. */
-export function runStreamUrl(id: string): string {
-  return `/api/public/runs/${encodeURIComponent(id)}/events`;
+/**
+ * The one stream per plane. A fixed path, so nothing the browser sends
+ * chooses it; the owner plane's twin carries the session (decision 159).
+ */
+export function runStreamUrl(id: string, plane: Plane = "public"): string {
+  return `/api/${plane}/runs/${encodeURIComponent(id)}/events`;
 }
