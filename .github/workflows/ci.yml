@@ -70,7 +70,13 @@ jobs:
       # boot with none must reach that refusal and not a module error.
       - name: the image boots far enough to refuse its configuration
         run: |
-          timeout 60 docker run --rm cujo-${{ matrix.service }}:ci > boot.log 2>&1 || true
+          # Detached, because a service that starts and stays up would hold a
+          # foreground `docker run` open: `timeout` signals the client, which
+          # hands the signal to a container under no obligation to take it.
+          cid=$(docker run -d cujo-${{ matrix.service }}:ci)
+          sleep 15
+          docker logs "$cid" > boot.log 2>&1 || true
+          docker rm -f "$cid" > /dev/null 2>&1 || true
           cat boot.log
           if grep -qiE "Dynamic require of|Cannot find module|Cannot find package|ERR_MODULE_NOT_FOUND" boot.log; then
             echo "::error::${{ matrix.service }}: the bundle does not load"
