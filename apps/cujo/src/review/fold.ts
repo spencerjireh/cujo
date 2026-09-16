@@ -388,7 +388,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
       title: executed.check,
       isCheck: (CHECK_NAMES as readonly string[]).includes(executed.check as CheckName),
       status: "done",
-      report: executed.report,
+      report:
+        executed.check === "detonation" && options.cachedDetonations
+          ? substituteCachedDetonations(executed.report, options.cachedDetonations)
+          : executed.report,
       error: null,
       startedAt: executed.startedAt,
       endedAt: executed.endedAt,

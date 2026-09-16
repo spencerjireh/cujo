@@ -8149,6 +8149,40 @@ port turns up; **inferring the boot command** for a policy without one,
 which is the gather rubric's job; **the app's output to a file**, when the
 pipes are drained by the process that kills the group.
 
+## 163. Detonation runs in the executor, and the gather rubric is for undeclared repositories
+
+The last of the three wrapper sub-agents. `detonation` was already the most
+deterministic check: the specifiers come out of the manifest diff the
+trusted side reads for the cache (145), the source is a regex, and each
+`sniff.py detonate` opens its own window and records its own entry. The
+sub-agent's whole job was to list the specifiers, run one command per
+specifier with `--cached` where the brief said so, and ask for the report.
+
+So the executor does it, before the install, since it needs the trees and
+the sensors and nothing else: one `sniff.py detonate --dependency
+--source` per added specifier, `--cached` for one the cache holds, then
+`sniff.py report --check detonation`. The fold seats the executed envelope
+with each cached stub replaced by the stored entry, as it does for a
+thread's report (148), and the runner's cache write fires on the executed
+check as it fired on a finished thread, since both are a `detonation` check
+that is done. The judge rubric reads `executed.detonation` and spawns no
+detonation sub-agent; `detonation_cached` leaves the judge brief, since the
+parent no longer runs anything it names. `probes` is now the one sub-agent
+a judge run spawns, which is what track 7 set out to leave.
+
+`SKILL.md` is now the gather rubric and says so at the top: a repository
+whose `.cujo.yml` declares no `test` is reviewed on it, with the parent
+inferring and gathering as before. It is kept rather than deleted, because
+a repository that is not the owner's is the case it exists for.
+
+Accepted: **detonation before the install**, the order the rubric already
+asked for; **the cache write unchanged**, keyed on a done `detonation`
+check whatever its thread id; **the brief without `detonation_cached`**.
+
+Rejected: **retiring `SKILL.md`**, until inference moves somewhere that is
+not a model; **a per-specifier timeout below the step bound**, since
+`sniff.py detonate` already bounds its own install.
+
 ## 164. The limits and switches live on the board
 
 Every knob that moves a run's cost or length lived in the deploy's

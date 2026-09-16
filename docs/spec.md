@@ -185,14 +185,15 @@ on and a `.cujo.yml` at the base commit that parses and declares `test`, the
 run is a **judge run**: `apps/cujo` provisions the box through `sandbox-mcp`
 itself, runs `sniff.py prepare` and `setup`, the declared `install` on each
 tree and the declared `test` on base then head, asks `sniff.py report` for the
-`tests` envelope, and, when the policy declares `boot`, runs `sniff.py smoke` on head then base
-for the `smoke` envelope (decision 162); then starts a turn on the judge spec
+`tests` envelope, when a manifest changed, `sniff.py detonate`s each added specifier — a cached
+one as a `--cached` stub the fold replaces (decision 163) — and, when the
+policy declares `boot`, runs `sniff.py smoke` on head then base for the
+`smoke` envelope (decision 162); then starts a turn on the judge spec
 (`agent/JUDGE.md`) whose brief carries `sandbox: {id, env}`, `policy`,
-`executed: {tests: {report, truncated}, smoke?: {…}}` and a `coverage`
-prefilled with what ran — and neither
+`executed: {tests: {report, truncated}, smoke?: {…}, detonation?: {…}}` and
+a `coverage` prefilled with what ran — and neither
 `clone_url` nor `staged`, since the box is prepared. The parent reads the
-evidence, spawns `probes` by default and `detonation` when a manifest
-changed, and posts; `apps/cujo` destroys the box when the turn ends. Any
+evidence, spawns `probes` by default, and posts; `apps/cujo` destroys the box when the turn ends. Any
 other run is a **gather run**, the path below, on `agent/SKILL.md`. Logged as
 `run.path.resolved` with `path_kind` and a reason (`declared`, `undeclared`,
 `disabled`); a file that does not parse logs `policy.invalid` and takes the
@@ -517,6 +518,12 @@ so no report is folded from it and it is never evidence.
     "stdout_tail": "Successfully installed humanize-4.9.0"
   }
   ```
+
+  On a judge run `apps/cujo` runs this check (decision 163): one `sniff.py
+  detonate` per added specifier from the manifest diff it already reads for
+  the cache, `--cached` for a specifier the cache holds, then `sniff.py
+  report --check detonation`; the fold puts the stored entry in each stub's
+  place before any rule reads it, as it does for a sub-agent's report.
 
   plus the shared sensor block below, and `resolved` — what the install said
   the specifier became (`humanize==4.9.0`), read best effort after the sensed
