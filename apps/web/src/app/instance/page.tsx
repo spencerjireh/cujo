@@ -20,7 +20,11 @@ export default async function Page() {
   const reader = await whoIsReading();
   const queryClient = getQueryClient();
   if ("me" in reader) {
-    queryClient.setQueryData(ownerKeys.me(), { ...reader.me, expires_at: "" });
+    // The session is not seeded here, on purpose. The footer's sign-in state
+    // reads `me` in the browser, and this page is async: the server streams
+    // the footer before the page resolves, with an empty cache, while the
+    // browser would hydrate with a seeded one. Seeding it made every owner
+    // page a hydration mismatch.
     // `prefetchQuery` never throws; a plane that did not answer is the view's
     // error state. The App's state and the health are read in the browser,
     // since one asks GitHub and the other is asked again every few seconds.

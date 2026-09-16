@@ -23,7 +23,11 @@ export default async function Page({ params }: Params) {
   const reader = await whoIsReading();
   const queryClient = getQueryClient();
   if ("me" in reader) {
-    queryClient.setQueryData(ownerKeys.me(), { ...reader.me, expires_at: "" });
+    // The session is not seeded here, on purpose. The footer's sign-in state
+    // reads `me` in the browser, and this page is async: the server streams
+    // the footer before the page resolves, with an empty cache, while the
+    // browser would hydrate with a seeded one. Seeding it made every owner
+    // page a hydration mismatch.
     // `prefetchQuery` never throws: a repository the registry has not heard
     // of is a 404 the view shows in place, with the list one link away, and
     // a plane that did not answer is the view's error state. The list page
