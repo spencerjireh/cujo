@@ -8172,3 +8172,69 @@ which no install on this run grew.
 
 Reverses part of 146: an outside-workspace row is no longer kept whatever
 the count; a sensitive one still is.
+
+**Root cause, written after the fix held** (the seventh run finished clean
+with its largest tool result at 72 KB). Five things lined up, none wrong
+alone. (a) 146's reason for keeping outside-workspace rows, "the rules
+read them", was already false when written: 146 itself computed the
+`derived` flags over the full list before the cut, so the rows were kept
+for a human reader and nobody priced them. (b) 147 exempted a one-JSON-
+object stream from the clip because "sniff's own caps bound a report";
+they bounded three of its five lists, and `subprocesses` is still
+unbounded. (c) The bound was tuned on the orders-api fixture, a pip
+project whose venv sits inside the workspace, where the capped pool
+absorbed the install; pnpm's content-addressed store in the home directory
+was a shape no fixture had. (d) The provider row's context window went
+from 128k to 1M for deepseek-flash the same day: a result this size would
+have failed the request on glm-flash, and on deepseek-flash it fit and was
+paid for. (e) 165's budget is what made it visible; before #180 the same
+run was a timeout with zero usage, which is what runs one to four of #176
+may have been.
+
+Two follow-ups from the same account. **A `sniff.py run` under a name
+outside the four checks prints its outcome, not its lists**: `exit`,
+`duration_s`, the tails, `derived`, `sensors`, `truncated`, and `recorded`,
+the path of the entry file in the box, which `sandbox_read_file` can fetch
+when a flag says something happened. The rubric already said the setup
+run is not evidence; the parent read two whole envelopes of it per run
+anyway, 60 KB each after the bound. The four names print whole, because a
+sub-agent reads `run`'s stdout to choose its next command and the fold
+reads `report`'s, not `run`'s; the judge path's executor ignores the
+install's stdout and is unaffected. **The outside-workspace sample takes
+rows under no package cache first** (`CACHE_ROOTS`: `~/.cache`, `~/.npm`,
+`~/.local/share/pnpm`, `~/.local/share/uv`, `~/.yarn`, `~/.cargo/registry`,
+`/tmp`), a stable sort before the cut, so forty thousand store paths
+cannot be the reason a write to `/etc/cron.d` is the row that is dropped.
+No schema change: which two hundred, not how many.
+
+Kept as is, on the operator's call: **the 512 KB ceiling**, about 130k
+tokens. A detonation report carries one entry per new dependency and a
+worst-case entry after the caps is about 100 KB, so a pull request adding
+more than about five reads `check_missing` on detonation. Accepted until
+one is seen; 1 MB and 2 MB were the alternatives, each buying dependencies
+with tokens a pathological result could spend before the clip.
+
+## 167. The sandbox has a memory cap and no CPU cap
+
+The sandbox container ran with no resource flag at all: an install shared
+the host's 4 GB with Traefik, Coolify's sentinel, cujo, the harness, both
+MCP servers and the web, and a pnpm install of this monorepo plus its
+builds is what the OOM killer would have chosen from. The host now has
+8 GB, which is the room to draw the line.
+
+`sandbox-mcp`'s local runtime passes `--memory` and `--memory-swap`, both
+set to `CUJO_SANDBOX_MEMORY` (compose default `5g`), so swap does not
+extend the cap and a runaway install becomes that run's failure rather
+than the services'. No `--cpus`: an install gets every idle core, and the
+services are not CPU-bound while a box runs. An env rather than a board
+setting, because `sandbox-mcp` has no store and takes nothing about its
+own limits from a caller (the architecture's crossings table); a cap above
+the host's RAM never binds, so the default is safe on a smaller box.
+
+Accepted: **5 of 8 GB to the box**, leaving 3 for everything else, which
+is more than the whole host had before; **one figure for memory and
+swap**, since a cap swap can exceed is not a cap. Rejected: **a CPU
+reservation for the services**, slower installs on a two-core box for a
+contention nobody has measured; **the cap as a board setting**, which
+would have to cross into `sandbox-mcp` on `sandbox_create` and make a
+tool input of a limit the service owns.

@@ -19,6 +19,7 @@ from typing import Any
 
 from cujo_sniff.paths import display_path
 from cujo_sniff.policy import (
+    CACHE_ROOTS,
     KNOWN_INDEX_HOSTS,
     MAX_FILES_READ,
     MAX_FS_CHANGES,
@@ -50,13 +51,17 @@ def bound_fs_changes(fs_changes: list[dict[str, Any]]) -> tuple[list[dict[str, A
     Every sensitive row stays whatever the count; the benign rows stop at
     `MAX_FS_CHANGES` on each side of the workspace line, so a reader still
     sees where an install wrote outside the tree without every file of a
-    package store. Applied per command and again after a merge, because two
-    commands each under the bound are not under it together.
+    package store. Outside the tree the sample takes rows under no package
+    cache first: forty thousand store paths say one thing, and a write to
+    `/etc/cron.d` beside them must not be the row that is dropped. Applied
+    per command and again after a merge, because two commands each under
+    the bound are not under it together.
     """
     kept: list[dict[str, Any]] = []
     benign = {True: 0, False: 0}
     dropped = 0
-    for change in fs_changes:
+    ordered = sorted(fs_changes, key=_cache_last)
+    for change in ordered:
         side = bool(change["in_workspace"])
         if change["sensitive"]:
             kept.append(change)
@@ -66,6 +71,14 @@ def bound_fs_changes(fs_changes: list[dict[str, Any]]) -> tuple[list[dict[str, A
         else:
             dropped += 1
     return kept, dropped > 0
+
+
+def _cache_last(change: dict[str, Any]) -> int:
+    """Sort key: benign outside-workspace rows under a package cache after
+    everything else. `sorted` is stable, so nothing else moves."""
+    if change["sensitive"] or change["in_workspace"]:
+        return 0
+    return 1 if str(change.get("path", "")).startswith(CACHE_ROOTS) else 0
 
 
 def health(armed: bool, detail: str) -> dict[str, Any]:

@@ -195,6 +195,32 @@ describe("LocalRuntime.create", () => {
     expect(sandbox).toContain("runsc");
   });
 
+  it("caps the sandbox's memory and its swap alike when a cap is configured", async () => {
+    const { docker, calls } = fakeDocker();
+    const capped = new LocalRuntime({
+      image: "i",
+      gatewayImage: "g",
+      memory: "5g",
+      docker,
+      log: createLogger({ service: "sandbox-mcp", sink: () => {} }),
+    });
+    await capped.create({ allowHosts: [] });
+    const sandbox = calls.find((c) => c[0] === "run" && c.includes("i")) ?? [];
+    expect(sandbox.slice(sandbox.indexOf("--memory"), sandbox.indexOf("--memory") + 4)).toEqual([
+      "--memory",
+      "5g",
+      "--memory-swap",
+      "5g",
+    ]);
+    // No CPU cap: an install gets every idle core.
+    expect(sandbox).not.toContain("--cpus");
+    // And none of it when no cap is configured.
+    const { docker: plain, calls: plainCalls } = fakeDocker();
+    await runtime(plain).create({ allowHosts: [] });
+    const bare = plainCalls.find((c) => c[0] === "run" && c.includes("cujo/sandbox:pinned")) ?? [];
+    expect(bare).not.toContain("--memory");
+  });
+
   it("connects the gateway to the egress network, which is its only second leg", async () => {
     const { docker, calls } = fakeDocker();
     await runtime(docker).create({ allowHosts: [] });

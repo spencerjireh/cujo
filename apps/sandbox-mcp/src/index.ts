@@ -71,6 +71,7 @@ export function buildRuntime(log = createLogger({ service: "sandbox-mcp" })): Sa
     maxLifetimeMs: process.env.CUJO_SANDBOX_MAX_LIFETIME_MS
       ? Number(process.env.CUJO_SANDBOX_MAX_LIFETIME_MS)
       : undefined,
+    memory: process.env.CUJO_SANDBOX_MEMORY || undefined,
     log,
   });
 }
