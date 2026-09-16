@@ -59,8 +59,9 @@ export function Sandbox() {
         </UL>
         <Note>
           No token, key, clone credential or hostname ever enters the sandbox. That is the property
-          the whole design protects, and it is also why private repositories are unsupported rather
-          than partly supported — there is no credential to clone one with, by construction.
+          the whole design protects, and it holds for a private repository too: its trees are
+          fetched outside the box with the App&rsquo;s own access and copied in, so the box clones
+          nothing and holds nothing to clone with.
         </Note>
       </Section>
 

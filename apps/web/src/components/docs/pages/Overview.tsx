@@ -6,8 +6,8 @@ import Link from "next/link";
  *
  * It answers two questions and stops: what this does that a diff-reading
  * reviewer cannot, and what it will not do. The limits are on this page and not
- * buried at the back, because a reader who finds out on their own that private
- * repositories are unsupported has been misled by the three pages in between.
+ * buried at the back, because a reader who finds out on their own what the
+ * sandbox cannot see has been misled by the three pages in between.
  */
 export function Overview() {
   return (
@@ -60,9 +60,11 @@ export function Overview() {
         </P>
         <UL>
           <LI>
-            <strong className="font-medium text-fg">Public repositories only.</strong> There is no
-            clone credential anywhere in this system, so there is nothing a private repository could
-            be cloned with. A private repository gets no page on this board either.
+            <strong className="font-medium text-fg">Hold a credential where the code runs.</strong>{" "}
+            The sandbox gets a tree and no token. A private repository is reviewed all the same: its
+            base and head trees are fetched outside the box, with the App&rsquo;s own access, and
+            copied in. Its runs have pages too, for the repository&rsquo;s owner signed in on this
+            board; anyone else gets a 404.
           </LI>
           <LI>
             <strong className="font-medium text-fg">Egress is metadata, never payload.</strong> The
