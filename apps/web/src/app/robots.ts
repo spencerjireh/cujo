@@ -13,13 +13,15 @@ import type { MetadataRoute } from "next";
  * not reach it: the manual is ours, it quotes nobody, and it names no
  * repository. It is also the one thing on this site that fails at its job if it
  * cannot be found — somebody deciding whether to point Cujo at their repository
- * is not holding a link to it yet. `Allow` is more specific than `Disallow`, so
- * a crawler that follows the standard takes the manual and leaves the runs; the
- * pages themselves restate the permission in their metadata, which is what a
- * crawler that ignores this file reads instead.
+ * is not holding a link to it yet. The landing at `/` is the second exception
+ * for the same reason (decision 160): `/$` is the root exactly, so `/galaxy`,
+ * `/runs`, `/repos` and `/instance` stay under the `Disallow`. `Allow` is more
+ * specific than `Disallow`, so a crawler that follows the standard takes the
+ * two and leaves the runs; the pages themselves restate the permission in
+ * their metadata, which is what a crawler that ignores this file reads instead.
  *
  * There is one hostname since decision 57, so this needs no per-host branch.
  */
 export default function robots(): MetadataRoute.Robots {
-  return { rules: { userAgent: "*", allow: "/docs", disallow: "/" } };
+  return { rules: { userAgent: "*", allow: ["/$", "/docs"], disallow: "/" } };
 }

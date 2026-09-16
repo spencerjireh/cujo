@@ -2,7 +2,8 @@ import { Mark } from "@/components/brand/Mark";
 import Link from "next/link";
 
 /**
- * The way back to the board, and the only chrome left at the top of a page.
+ * The way home, and the only chrome left at the top of a page. Home is the
+ * landing (decision 160); the board is one link from it, at `/galaxy`.
  *
  * There used to be a bar holding this and a theme control. The bar cost the
  * chamber the top of the window and gave back a wordmark and a second copy of a
@@ -40,7 +41,7 @@ export function HomeMark({
     <header className={`absolute top-4 left-4 z-10 md:top-6 md:left-6 ${className}`}>
       <Link
         href="/"
-        aria-label="cujo, all runs"
+        aria-label="cujo, home"
         // The clear space brand.md asks for — one ear height, about a quarter
         // of the mark — as padding, so the hit target carries it too.
         className={`-m-2 block p-2 no-underline ${

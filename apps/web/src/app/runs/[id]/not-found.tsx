@@ -8,7 +8,7 @@ export default function NotFound() {
         This run is not in the store. A run is recorded per pull request head, so an old link stops
         resolving once its database is reset.
       </p>
-      <Link href="/" className="text-sm text-accent underline underline-offset-4">
+      <Link href="/galaxy" className="text-sm text-accent underline underline-offset-4">
         All runs
       </Link>
     </div>
