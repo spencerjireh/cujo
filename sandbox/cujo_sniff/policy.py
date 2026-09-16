@@ -28,6 +28,24 @@ DECOY_REL = Path(".aws/credentials")
 TAIL_CHARS = 4000
 MAX_SCRIPT_CHARS = 8000
 MAX_FILES_READ = 200
+# The four checks whose `sniff.py run` output a sub-agent reads whole. Any
+# other `--check` name (the rubric's `setup` around an install) is sensed for
+# the lock and the flags, not for the report: nothing folds it, so its lists
+# are recorded and not printed (decision 166).
+CHECK_NAMES = frozenset({"tests", "probes", "smoke", "detonation"})
+# Where a package manager keeps its own files outside the workspace. Benign
+# rows under these come last in the outside-workspace sample of
+# `fs_changes`, so an install's store cannot crowd out a write anywhere
+# else (decision 166). Display paths, home shown as `~`.
+CACHE_ROOTS = (
+    "~/.cache/",
+    "~/.npm/",
+    "~/.local/share/pnpm/",
+    "~/.local/share/uv/",
+    "~/.yarn/",
+    "~/.cargo/registry/",
+    "/tmp/",
+)
 # Benign rows of `fs_changes` a report keeps, on each side of the workspace
 # line. An install writes every file of a fresh environment and a suite
 # writes its caches; a report that listed them all ran past what a model can
