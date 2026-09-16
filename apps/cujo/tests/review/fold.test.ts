@@ -1488,6 +1488,44 @@ describe("executed checks (decision 161)", () => {
     expect(missing).toEqual(["probes"]);
   });
 
+  it("puts the stored entry in an executed detonation's cached stub", () => {
+    const stored = {
+      schema_version: 1,
+      dependency: "left-pad==1.0.0",
+      source: "pypi",
+      install_ok: true,
+      derived: {},
+    };
+    const p = fold([], {
+      executed: [
+        {
+          check: "detonation",
+          report: {
+            schema_version: 1,
+            check: "detonation",
+            runs: [
+              { schema_version: 1, dependency: "left-pad==1.0.0", source: "pypi", cached: true },
+            ],
+            derived: {},
+          },
+          startedAt: "2026-08-27T00:00:00Z",
+          endedAt: "2026-08-27T00:00:10Z",
+        },
+      ],
+      cachedDetonations: [
+        {
+          source: "pypi",
+          specifier: "left-pad==1.0.0",
+          report: stored,
+          cachedFromRun: "run-earlier",
+          cachedAt: "2026-08-20T00:00:00Z",
+        },
+      ],
+    });
+    const runs = (p.checks[0]?.report as { runs: Record<string, unknown>[] }).runs;
+    expect(runs[0]).toMatchObject({ install_ok: true, cached_from_run: "run-earlier" });
+  });
+
   it("closes the setup window at the turn's creation, from the executor's start", () => {
     const p = fold([turnCreated("t1", [], "2026-08-27T00:02:00Z")], { executed: executed() });
     expect(p.setup.agentStartedAt).toBe("2026-08-27T00:00:00Z");
