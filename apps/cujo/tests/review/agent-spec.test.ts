@@ -704,11 +704,20 @@ describe("the judge spec and brief (decision 161)", () => {
 
   it("is its own spec on its own rubric, with both servers", () => {
     const spec = buildJudgeSpec(
-      { model: "p/m", modelReasoningEffort: "", modelTemperature: null, modelMaxTokens: null },
+      {
+        model: "p/m",
+        modelReasoningEffort: "",
+        modelTemperature: null,
+        modelMaxTokens: null,
+        sandboxBudgetTokens: 3_000_000,
+      },
       "# judge",
+      { probes: "probe it" },
     );
     expect(spec.instructions).toBe("# judge");
     expect(spec.mcpServers.map((s) => s.name)).toEqual(["github-mcp", "sandbox-mcp"]);
     expect(spec.config?.iterationLimit).toBe(80);
+    expect(spec.config?.tokenBudget).toBe(3_000_000);
+    expect(spec.subagents).toEqual({ probes: "probe it" });
   });
 });

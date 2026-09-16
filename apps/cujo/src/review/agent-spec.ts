@@ -226,8 +226,12 @@ export function buildAgentSpec(
  * the tests are no longer its turns to spend.
  */
 export function buildJudgeSpec(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
+  config: Pick<
+    Config,
+    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sandboxBudgetTokens"
+  >,
   rubric = loadRubric("JUDGE.md"),
+  subagents: Record<string, string> = loadCheckRubrics(["probes", "smoke", "detonation"]),
 ): AgentSpec {
   return {
     model: modelRef(config),
@@ -236,9 +240,11 @@ export function buildJudgeSpec(
       { name: "github-mcp", requireApprovalForTools: [] },
       { name: "sandbox-mcp", requireApprovalForTools: [] },
     ],
+    subagents,
     config: {
       compaction: { enabled: true },
       iterationLimit: 80,
+      tokenBudget: config.sandboxBudgetTokens,
     },
   };
 }

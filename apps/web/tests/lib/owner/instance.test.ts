@@ -71,6 +71,9 @@ describe("the instance page's sentences (decision 157)", () => {
         converseWindowMs: "seed",
         converseTimeoutMs: "seed",
         ocrEnabled: "seed",
+        executeDeclared: "seed",
+        executeStepTimeoutMs: "seed",
+        executedReportBytes: "seed",
       }),
     ).toEqual(["model", "diffModel", "turnTimeoutMs"]);
   });

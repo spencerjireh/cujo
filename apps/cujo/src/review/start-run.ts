@@ -354,6 +354,7 @@ export async function startRun(
         sessionId,
         mode: "sandbox",
         ...judge.provenance,
+        ...(deps.sandboxBudgetTokens ? { budgetTokens: deps.sandboxBudgetTokens() } : {}),
       });
       if (!judged) throw new Error("run row vanished before its turn started");
       await deps.runner.start(
