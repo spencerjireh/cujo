@@ -12,12 +12,20 @@ import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { RunStore } from "../store";
 import type { DetonationCacheStore } from "../store/detonations";
+import type { ExecutionStore } from "../store/executions";
 import type { RepositorySettingsStore } from "../store/repository-settings";
-import { buildDiffTurnMessage, buildTurnMessage, manifestChanged } from "./agent-spec";
+import {
+  buildDiffTurnMessage,
+  buildJudgeTurnMessage,
+  buildTurnMessage,
+  manifestChanged,
+} from "./agent-spec";
 import { lookupCachedDetonations } from "./detonation-cache";
+import { type ExecuteDeps, executeDeclared } from "./execute";
 import { readInstructions } from "./instructions";
 import { resolveMode } from "./mode";
 import { type OcrShadowDeps, shadowReview } from "./ocr-shadow";
+import { readPolicy } from "./policy";
 import { type PrepareCaps, prepareReviewPackage } from "./prepare";
 import type { Runner } from "./runner.service";
 import { addedSpecifiers } from "./specifiers";
@@ -38,6 +46,24 @@ export interface DiffReviewDeps {
   /** What the diff spec is, stamped on the run the way the sandbox spec's is. */
   provenance: { model: string; rubricSha256: string; budgetTokens: number };
   caps: PrepareCaps;
+}
+
+/**
+ * What a judge run needs (decision 161): the executor's sandbox door, the
+ * store its results go to, a session on the judge spec, and the spec's
+ * provenance. Optional on `StartRunDeps` so a composition without it — and
+ * every test that predates it — starts every sandbox run as a gather run.
+ */
+interface JudgeDeps {
+  /** `CUJO_EXECUTE_DECLARED`: off sends every run down the gather path. */
+  enabled: boolean;
+  sandbox: ExecuteDeps["sandbox"];
+  executions: Pick<ExecutionStore, "putCheck" | "putSandbox">;
+  /** A fresh harness session on the judge spec, one per run, like the diff review's. */
+  createSession: () => Promise<string>;
+  provenance: { model: string; rubricSha256: string };
+  stepTimeoutMs: number;
+  reportBytes: number;
 }
 
 export interface StartRunDeps {
@@ -74,6 +100,7 @@ export interface StartRunDeps {
   sandboxBudgetTokens?: () => number;
   /** The sandbox turn's ceiling, told to the parent so it can bound its setup (decision 165). */
   turnTimeoutMs?: () => number;
+  judge?: JudgeDeps;
   /**
    * The run id to name in the review, or `""` when the review should carry no
    * link (decision 36). Injected rather than read from `Config` here, so
@@ -285,6 +312,79 @@ export async function startRun(
       !run.isPublic && stage
         ? await stageTrees({ github: deps.github, stager: stage.stager, log }, pr)
         : "";
+    // Which path (decision 161): the repository's declared commands run here
+    // with no model and the parent judges, or the parent gathers as before.
+    // Declared means a `test` in `.cujo.yml` at base that parsed.
+    const judge = deps.judge;
+    const policy = judge?.enabled ? await readPolicy(deps.github, log, run.repo, pr.baseSha) : null;
+    const path = judge?.enabled && policy?.test ? "judge" : "gather";
+    log.info("run.path.resolved", {
+      path_kind: path,
+      reason: !judge?.enabled ? "disabled" : policy?.test ? "declared" : "undeclared",
+    });
+    if (path === "judge" && judge && policy) {
+      const execution = await executeDeclared(
+        { sandbox: judge.sandbox, log, stepTimeoutMs: judge.stepTimeoutMs },
+        {
+          repo: run.repo,
+          prNumber: run.prNumber,
+          baseSha: pr.baseSha,
+          headSha: run.headSha,
+          cloneUrl: pr.cloneUrl,
+          staged,
+        },
+        policy,
+      );
+      // Persisted before the turn exists, so every fold of this run — live,
+      // refold, rehydrate — seats the same checks, and the runner knows
+      // which box to destroy when the turn ends.
+      judge.executions.putSandbox({
+        runId: run.id,
+        sandboxId: execution.sandboxId,
+        provisionedMs: execution.provisionedMs,
+        env: execution.env,
+      });
+      for (const executed of execution.executed) {
+        judge.executions.putCheck({ runId: run.id, ...executed });
+      }
+      // A judge run has a session and a spec of its own, like a diff run
+      // (decision 137): corrected on the row before the turn exists.
+      const sessionId = await judge.createSession();
+      const judged = deps.store.updateRun(run.id, {
+        sessionId,
+        mode: "sandbox",
+        ...judge.provenance,
+      });
+      if (!judged) throw new Error("run row vanished before its turn started");
+      await deps.runner.start(
+        judged,
+        buildJudgeTurnMessage(
+          pr,
+          deps.reviewRunId(judged),
+          cached.brief,
+          instructions,
+          {
+            sandbox: { id: execution.sandboxId, env: execution.env },
+            policy: {
+              ...(policy.install ? { install: policy.install } : {}),
+              ...(policy.test ? { test: policy.test } : {}),
+              ...(policy.boot ? { boot: policy.boot } : {}),
+              ...(policy.smoke ? { smoke: policy.smoke } : {}),
+            },
+            executed: execution.executed,
+            coverage: {
+              ran: execution.executed.map((e) => ({
+                check: e.check,
+                note: coverageNote(e.report),
+              })),
+              skipped: [],
+            },
+          },
+          judge.reportBytes,
+        ),
+      );
+      return;
+    }
     await deps.runner.start(
       current,
       buildTurnMessage(
@@ -304,4 +404,14 @@ export async function startRun(
   } finally {
     deps.onSettled?.(run.id);
   }
+}
+
+/** One line for `coverage.ran`: what the executed suite said, in numbers. */
+function coverageNote(report: unknown): string {
+  if (!report || typeof report !== "object") return "executed";
+  const r = report as { base?: unknown; head?: unknown; base_pass_head_fail?: unknown };
+  const count = (map: unknown) =>
+    map && typeof map === "object" ? Object.keys(map as object).length : 0;
+  const failed = Array.isArray(r.base_pass_head_fail) ? r.base_pass_head_fail.length : 0;
+  return `${count(r.base)} on base and ${count(r.head)} on head; ${failed} passed on base and failed on head`;
 }

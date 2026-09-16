@@ -114,6 +114,16 @@ export interface Config {
    * archive to the sandbox service's last byte (decision 158).
    */
   stageTimeoutMs: number;
+  /**
+   * Whether a repository's declared commands run on the trusted side with no
+   * model (decision 161). Off forces every run down the gather path, which
+   * is the rollback switch that needs no rubric change.
+   */
+  executeDeclared: boolean;
+  /** The bound on one executed install or test run, in the box. */
+  executeStepTimeoutMs: number;
+  /** Bytes of each executed report the judge's brief carries; the fold reads the whole. */
+  executedReportBytes: number;
   /** Concurrent public run streams this process will hold (decision 34). */
   publicStreamLimit: number;
   /**
@@ -310,6 +320,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ocrSidecarUrl: env.CUJO_OCR_SIDECAR_URL || null,
     ocrTimeoutMs: count(env.CUJO_OCR_TIMEOUT_MS, 21 * 60 * 1000),
     stageTimeoutMs: count(env.CUJO_STAGE_TIMEOUT_MS, 5 * 60 * 1000),
+    executeDeclared: (env.CUJO_EXECUTE_DECLARED ?? "1") !== "0",
+    executeStepTimeoutMs: count(env.CUJO_EXECUTE_STEP_TIMEOUT_MS, 15 * 60 * 1000),
+    executedReportBytes: count(env.CUJO_EXECUTED_REPORT_BYTES, 24_000),
     publicStreamLimit: count(env.CUJO_PUBLIC_STREAM_LIMIT, 200),
     converseLimit: count(env.CUJO_CONVERSE_LIMIT, 3, { zeroOk: true }),
     converseWindowMs: count(env.CUJO_CONVERSE_WINDOW_MS, 60 * 60 * 1000),

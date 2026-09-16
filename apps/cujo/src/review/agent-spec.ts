@@ -219,6 +219,30 @@ export function buildAgentSpec(
  * were tuned for the other one, and `modelRef`'s warning about a rejected key
  * applies twice over to a model nobody has tried them on.
  */
+/**
+ * The judge spec (decision 161): the sandbox spec on `JUDGE.md`. Both MCP
+ * servers, since the parent still probes on the box the executor handed it
+ * and posts through github-mcp; a lower iteration limit, since setup and
+ * the tests are no longer its turns to spend.
+ */
+export function buildJudgeSpec(
+  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
+  rubric = loadRubric("JUDGE.md"),
+): AgentSpec {
+  return {
+    model: modelRef(config),
+    instructions: rubric,
+    mcpServers: [
+      { name: "github-mcp", requireApprovalForTools: [] },
+      { name: "sandbox-mcp", requireApprovalForTools: [] },
+    ],
+    config: {
+      compaction: { enabled: true },
+      iterationLimit: 80,
+    },
+  };
+}
+
 export function buildDiffSpec(
   config: Pick<
     Config,
@@ -341,6 +365,69 @@ export function buildTurnMessage(
     ...(instructions ? { instructions } : {}),
   };
   return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+}
+
+/** What the judge's brief carries beyond the sandbox brief (decision 161). */
+export interface JudgeBrief {
+  sandbox: { id: string; env: Record<string, string> };
+  policy: { install?: string; test?: string; boot?: string; smoke?: string[] };
+  /** Each executed check's envelope, cut to `reportBytes` for the brief. */
+  executed: readonly { check: string; report: unknown }[];
+  coverage: {
+    ran: { check: string; note: string }[];
+    skipped: { check: string; reason: string }[];
+  };
+}
+
+/**
+ * The judge run's single user message (decision 161): the sandbox brief with
+ * no clone URL and no ticket — the box is prepared — plus the box, the
+ * policy, the executed reports and the coverage they earn. A report is cut
+ * to `reportBytes` on its JSON text with a `truncated` flag beside it; the
+ * fold read the whole from the store, so a cut here costs the model context
+ * and the run nothing.
+ */
+export function buildJudgeTurnMessage(
+  pr: PullRequestInfo,
+  runId: string,
+  cached: readonly CachedDetonation[],
+  instructions: Instructions | null,
+  judge: JudgeBrief,
+  reportBytes: number,
+): string {
+  const docsOnly = isDocsOnly(pr.changedFiles);
+  const executed: Record<string, { report: unknown; truncated: boolean }> = {};
+  for (const entry of judge.executed) {
+    const text = JSON.stringify(entry.report);
+    const truncated = Buffer.byteLength(text, "utf8") > reportBytes;
+    executed[entry.check] = truncated
+      ? { report: cutJson(text, reportBytes), truncated }
+      : { report: entry.report, truncated };
+  }
+  const payload = {
+    repo: pr.repo,
+    pr_number: pr.prNumber,
+    pr_title: pr.title,
+    pr_body: pr.body,
+    base_sha: pr.baseSha,
+    head_sha: pr.headSha,
+    changed_files: pr.changedFiles,
+    manifest_changed: manifestChanged(pr.changedFiles),
+    ...(docsOnly ? { docs_only: true } : {}),
+    ...(runId ? { run_id: runId } : {}),
+    ...(cached.length > 0 ? { detonation_cached: cached } : {}),
+    ...(instructions ? { instructions } : {}),
+    sandbox: judge.sandbox,
+    policy: judge.policy,
+    executed,
+    coverage: judge.coverage,
+  };
+  return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+}
+
+/** The first `bytes` of a report's JSON, as a string the model can still read. */
+function cutJson(text: string, bytes: number): string {
+  return `${Buffer.from(text, "utf8").subarray(0, bytes).toString("utf8")}…`;
 }
 
 /**
