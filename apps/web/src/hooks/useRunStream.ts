@@ -2,6 +2,7 @@
 
 import { runStreamUrl } from "@/lib/api/client";
 import { runKeys } from "@/lib/api/keys";
+import type { Plane } from "@/lib/api/owner";
 import { runOptions, runsListOptions } from "@/lib/api/queries";
 import { parseSnapshot, reduceList, reduceRun } from "@/lib/api/stream";
 import { type RunStatus, isLive } from "@/lib/api/types";
@@ -25,7 +26,7 @@ import { useEffect, useState } from "react";
  * updating with nothing said — silent staleness, which is worse on a public
  * page than a visible failure. The caller says so and falls back to polling.
  */
-export function useRunStream(id: string, status: RunStatus | undefined) {
+export function useRunStream(id: string, status: RunStatus | undefined, plane: Plane = "public") {
   const queryClient = useQueryClient();
   const [streamFailed, setStreamFailed] = useState(false);
   const live = status !== undefined && isLive(status);
@@ -34,7 +35,7 @@ export function useRunStream(id: string, status: RunStatus | undefined) {
     if (!live) return;
     setStreamFailed(false);
 
-    const source = new EventSource(runStreamUrl(id));
+    const source = new EventSource(runStreamUrl(id, plane));
     let closed = false;
     const close = () => {
       if (closed) return;
@@ -67,7 +68,7 @@ export function useRunStream(id: string, status: RunStatus | undefined) {
     };
 
     return close;
-  }, [id, live, queryClient]);
+  }, [id, live, plane, queryClient]);
 
   /**
    * The fallback. `runOptions` never polls because the stream is meant to be

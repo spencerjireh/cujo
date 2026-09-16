@@ -2,6 +2,13 @@ import { generateMetadata } from "@/app/runs/[id]/page";
 import type { Run } from "@/lib/api/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// The page reads the request's cookie through `next/headers`, which has no
+// request here; the reader is stubbed per test instead.
+vi.mock("@/lib/api/session", () => ({
+  whoIsReading: vi.fn(async () => ({ reason: "anonymous" })),
+}));
+import { whoIsReading } from "@/lib/api/session";
+
 /**
  * `generateMetadata` is a data-layer unit in practice: it reads the run the
  * same anonymous caller could read from the same URL and returns plain
@@ -103,5 +110,51 @@ describe("run page metadata", () => {
     // private run, and its preview must not become a probe.
     stubFetch({ error: "not found" }, 404);
     await expect(generateMetadata(PARAMS("r6"))).rejects.toThrow();
+  });
+});
+
+describe("run page for a private run (decision 159)", () => {
+  /** The public plane says 404; the owner plane answers with the run. */
+  function stubBothPlanes(body: Run): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/public/")) {
+          return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+        }
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+  }
+
+  it("falls back to the owner plane, with the session, for a signed-in owner", async () => {
+    stubBothPlanes(run("p1", { repo: "o/private" }));
+    vi.mocked(whoIsReading).mockResolvedValueOnce({
+      me: { login: "octocat", is_owner: true },
+      session: "a".repeat(64),
+    });
+    const metadata = await generateMetadata(PARAMS("p1"));
+    expect(metadata.title).toBe("o/private #7 — Add a thing");
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as [
+      string,
+      RequestInit,
+    ][];
+    const ownerCall = calls.find(([url]) => url.includes("/owner/runs/p1"));
+    expect(ownerCall?.[0]).toBe("http://cujo:8080/owner/runs/p1");
+    expect(new Headers(ownerCall?.[1].headers).get("authorization")).toBe(
+      `Bearer ${"a".repeat(64)}`,
+    );
+  });
+
+  it("stays a 404 for anyone who is not signed in as an owner, and asks the owner plane nothing", async () => {
+    stubBothPlanes(run("p2"));
+    vi.mocked(whoIsReading).mockResolvedValueOnce({ reason: "not_owner" });
+    await expect(generateMetadata(PARAMS("p2"))).rejects.toThrow();
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as [string][];
+    expect(calls.some(([url]) => url.includes("/owner/"))).toBe(false);
   });
 });

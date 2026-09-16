@@ -1,6 +1,9 @@
 import { queryOptions } from "@tanstack/react-query";
 import { fetchRun, fetchRuns } from "./client";
 import { runKeys } from "./keys";
+import type { Plane } from "./owner";
+import { fetchOwnerRun, fetchOwnerRuns } from "./owner-client";
+import { ownerKeys } from "./owner-keys";
 import { type RunList, isLive } from "./types";
 
 /**
@@ -37,11 +40,33 @@ export function runsListOptions() {
  * source of truth and writes straight into this cache entry, and once it is
  * terminal nothing can change it.
  */
-export function runOptions(id: string) {
+export function runOptions(id: string, plane: Plane = "public") {
   return queryOptions({
+    // One key whichever plane answered: the run is the same run, and the
+    // stream writes into this entry by id (decision 159).
     queryKey: runKeys.detail(id),
-    queryFn: ({ signal }) => fetchRun(id, signal),
+    queryFn: ({ signal }) =>
+      plane === "owner" ? fetchOwnerRun(id, undefined, signal) : fetchRun(id, signal),
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Every run as an owner sees it, private ones included (decision 159). Polls
+ * the way the public list does, since a private run's page streams but the
+ * list it sits in does not.
+ */
+export function ownerRunsOptions() {
+  return queryOptions({
+    queryKey: ownerKeys.runs(),
+    queryFn: ({ signal }) => fetchOwnerRuns(undefined, signal),
+    refetchInterval: (query) => {
+      const data = query.state.data as RunList | undefined;
+      const anyLive = (data?.runs ?? []).some((run) => isLive(run.status));
+      return anyLive ? POLL_LIVE_MS : POLL_QUIET_MS;
+    },
+    refetchIntervalInBackground: false,
+    staleTime: 2_000,
   });
 }

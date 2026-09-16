@@ -348,6 +348,20 @@ export class RunStore {
    * instead of showing a blank sensor strip forever. Bounded by `limit`, and
    * paid once per run.
    */
+  /**
+   * Every run with its digest, private ones included: the owner plane's list
+   * (decision 159), in the public list's shape so one serializer serves both.
+   */
+  listRunsWithDigests(limit = 100): PublicRunRow[] {
+    const rows = this.db
+      .prepare(`${PUBLIC_RUN_SELECT} ORDER BY runs.created_at DESC LIMIT ?`)
+      .all(limit) as (RunRow & { digest: string | null })[];
+    return rows.map((row) => ({
+      run: toRecord(row),
+      digest: row.digest ? (JSON.parse(row.digest) as RunDigest) : this.backfillDigest(row.id),
+    }));
+  }
+
   listPublicRuns(limit = 100): PublicRunRow[] {
     const rows = this.db
       .prepare(
