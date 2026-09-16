@@ -7999,3 +7999,46 @@ things that carry it are the repository's own — its pull request, its
 check, its channel — and an owner follows it, while anyone else meets the
 same 404. The review's own footer is unchanged: the brief carries a run id
 only for a public run (36), since the agent's side cannot know who reads.
+
+## 160. The front door is a landing, and the galaxy is at `/galaxy`
+
+The site's front page was the board: a full-height chamber of public runs,
+the readout rack, the record and the key (80 to 95). That was the product
+when the board was the product. Track 10 makes Cujo a personal reviewer with
+a manual (98), an install path and an owner's pages (153 to 159), and a
+reader arriving at the root — from a search, a README, a review's footer —
+was met by an instrument before anything said what it was for.
+
+So the root is a landing: the name, one line, one paragraph, and two links.
+For a visitor the links are the App on GitHub and the manual; for a
+signed-in owner they are their repositories and the instance, with the
+manual kept as a third. Under them, three short sections in the manual's
+own prose kit: what lands on a pull request, what it will not do, where the
+evidence is. Nothing on the page is live — no run, no count, no poll — and
+the board is one link away at `/galaxy`, exactly as it was, with everything
+80 to 95 made it. The corner mark goes home, which is now the landing, and
+every "all runs" link on a run page or an error page goes to `/galaxy`.
+
+Reversed, of 80 to 95: only that the board is the site's first thing and
+that the chamber is pinned under the root. Kept: everything the board is,
+and 98's "no site header" — the landing has a mark in the corner like every
+page. Amended, of 98: the manual is no longer the one thing indexed; the
+landing is too, for the same reason — it is ours, it quotes nobody, and it
+is the page somebody deciding whether to install has to find — and
+`robots.txt` allows `/$` and `/docs` and nothing under them.
+
+Accepted: **one landing for everyone**, with the owner's pair in place of
+the install link, because the page is the same page and only the next step
+differs; **nothing live on it**, so the front door never waits on the API
+and never shows a stranger's run as its first impression; **the manual's
+style**, one bold element and the prose kit, so the front page and its
+manual read as one thing; **the App's public page as the install link**,
+which renders for a reader who is not signed in, where `/installations/new`
+would bounce them through a login first.
+
+Rejected: **the chamber as the landing's hero**, which is the front page
+this replaces with a paragraph on top; **a header bar**, for the reasons
+the layout's own comment gives; **sending an owner straight to `/repos`**,
+since an owner is also the person who shares the landing's link; **a
+recent-runs strip**, which would make the landing a second board; **a
+sitemap**, until there are more than two indexed roots.

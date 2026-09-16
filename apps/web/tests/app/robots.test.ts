@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
  * crawl nobody watches.
  */
 describe("robots", () => {
-  it("keeps the board out of the index and lets the manual in", () => {
-    expect(robots()).toEqual({ rules: { userAgent: "*", allow: "/docs", disallow: "/" } });
+  it("keeps the board out of the index and lets the landing and the manual in", () => {
+    expect(robots()).toEqual({
+      rules: { userAgent: "*", allow: ["/$", "/docs"], disallow: "/" },
+    });
   });
 });

@@ -72,7 +72,10 @@ export function RunHeader({ run }: { run: Run }) {
           — so without this a reader who has scrolled has no route to the rest
           of the runs at all. A breadcrumb rather than chrome: it sits where the
           eye already is, and costs the board nothing. */}
-      <Link href="/" className="font-mono text-xs text-fg-muted no-underline hover:text-accent">
+      <Link
+        href="/galaxy"
+        className="font-mono text-xs text-fg-muted no-underline hover:text-accent"
+      >
         ← all runs
       </Link>
       {/* The shape beside the name, and beside everything under it: the title,

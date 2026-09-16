@@ -1,4 +1,4 @@
-import { LI, Lead, Note, P, Section, UL } from "@/components/docs/Prose";
+import { C, LI, Lead, Note, P, Section, UL } from "@/components/docs/Prose";
 import Link from "next/link";
 
 export function Board() {
@@ -18,8 +18,8 @@ export function Board() {
 
       <Section id="reading" title="Reading a run">
         <P>
-          The board draws its newest runs as a field of star systems, and{" "}
-          <Link href="/" className="text-accent underline underline-offset-4">
+          The board, at <C>/galaxy</C>, draws its newest runs as a field of star systems, and{" "}
+          <Link href="/galaxy" className="text-accent underline underline-offset-4">
             the key under the record
           </Link>{" "}
           names each part where you can see the thing it names. In short: the core is the verdict
