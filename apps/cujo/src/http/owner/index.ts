@@ -36,8 +36,10 @@ export interface OwnerDeps {
   repositories: Pick<RepositoryStore, "listAll" | "setEnabled" | "get">;
   /** The board's per-repository layer (decision 155). */
   repositorySettings: Pick<RepositorySettingsStore, "get" | "set">;
-  /** For what the repository's own file says, read at its default branch. */
-  github: Pick<GitHubReader, "declaredMode" | "readFile">;
+  /** For what the repository's own file says, and what GitHub says about the App. */
+  github: Pick<GitHubReader, "declaredMode" | "readFile" | "appState">;
+  /** Whether the process can take a run right now: the same answer `/readyz` gives. */
+  health: () => { harness: "ready" | "bootstrapping"; store: "ok" | "error"; uptimeMs: number };
   log: Logger;
   now?: () => Date;
 }
@@ -50,6 +52,16 @@ type OwnerEnv = RequestEnv & { Variables: RequestEnv["Variables"] & { session: W
  * branch's name. The review reads the same file at the pull request's base.
  */
 const DEFAULT_BRANCH_REF = "HEAD";
+
+/** What the reviews need from the App, by GitHub's permission names (README). */
+const NEEDED_PERMISSIONS: readonly [string, "read" | "write"][] = [
+  ["contents", "read"],
+  ["metadata", "read"],
+  ["pull_requests", "write"],
+  ["checks", "write"],
+  ["issues", "read"],
+];
+const LEVEL: Record<string, number> = { read: 1, write: 2, admin: 3 };
 
 const SETTABLE: readonly SettingKey[] = [
   "model",
@@ -206,6 +218,53 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
       ok: true,
       settings: redacted(deps.settings.current()),
       sources: deps.settings.sources(),
+    });
+  });
+
+  /**
+   * The App as GitHub sees it, beside what this instance needs from it
+   * (decision 157). The permissions it should hold are the README's list;
+   * a level below the needed one is what a missing review looks like before
+   * it is a missing review. The registry's counts ride along so the page can
+   * say how many repositories each installation covers.
+   */
+  owner.get("/bot", async (c) => {
+    try {
+      const state = await deps.github.appState();
+      const held = state.app.permissions;
+      const permissions = NEEDED_PERMISSIONS.map(([name, needed]) => {
+        const level = held[name] ?? null;
+        return {
+          name,
+          needed,
+          held: level,
+          ok: level !== null && (LEVEL[level] ?? 0) >= (LEVEL[needed] ?? 0),
+        };
+      });
+      const active = deps.repositories.listAll().filter((row) => row.removedAt === null);
+      const installations = state.installations.map((installation) => ({
+        ...installation,
+        repositories: active.filter((row) => row.installationId === installation.id).length,
+      }));
+      return c.json({
+        ok: true,
+        app: state.app,
+        permissions,
+        installations,
+        deliveries: state.deliveries,
+      });
+    } catch (error) {
+      c.get("log").warn("owner.bot.read.failed", errorFields(error));
+      return c.json({ ok: false, error: "GitHub did not answer for the App" }, 502);
+    }
+  });
+
+  owner.get("/health", (c) => {
+    const health = deps.health();
+    return c.json({
+      ok: true,
+      ...health,
+      ready: health.harness === "ready" && health.store === "ok",
     });
   });
 
