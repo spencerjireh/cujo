@@ -1,3 +1,4 @@
+import { createLogger } from "@cujo/log";
 import { describe, expect, it } from "vitest";
 import type { PullRequestInfo } from "../../src/clients/github";
 import { emptyProjection } from "../../src/review/fold";
@@ -12,7 +13,14 @@ import { Store } from "../../src/store";
 
 const caps = { diffBytes: 1000, standardsFileBytes: 40, standardsTotalBytes: 60 };
 
-/** A reader over a map of `ref:path` to text; a missing key is a 404. */
+/** Swallowed: these tests assert on the package, not on what was logged. */
+const log = createLogger({ service: "cujo", sink: () => {} });
+
+/**
+ * A reader over a map of `ref:path` to text; a missing key is a 404. The tree
+ * is every path the map holds, which is what the build facts reader lists
+ * before it reads anything.
+ */
 function reader(files: Record<string, string>, fail?: string) {
   const reads: string[] = [];
   return {
@@ -22,6 +30,12 @@ function reader(files: Record<string, string>, fail?: string) {
       if (path === fail) throw new Error("GitHub /contents returned 500");
       return files[`${ref}:${path}`] ?? null;
     },
+    tree: async (_repo: string, sha: string) => ({
+      paths: Object.keys(files)
+        .filter((key) => key.startsWith(`${sha}:`))
+        .map((key) => key.slice(sha.length + 1)),
+      truncated: false,
+    }),
   };
 }
 
@@ -139,7 +153,7 @@ describe("prepareReviewPackage", () => {
       isPublic: true,
     }).run;
     const gh = reader({ "base:CONTRIBUTING.md": "## Standards\n" });
-    const pkg = await prepareReviewPackage({ github: gh, store: store.runs, caps }, pr, run);
+    const pkg = await prepareReviewPackage({ github: gh, store: store.runs, caps, log }, pr, run);
     expect(pkg.pr).toEqual({
       repo: "o/r",
       prNumber: 7,
@@ -157,5 +171,64 @@ describe("prepareReviewPackage", () => {
     // fetch and nobody it can address.
     expect(JSON.stringify(pkg)).not.toContain("github.com");
     expect(JSON.stringify(pkg)).not.toContain("octocat");
+    // A repository that declares no service gets an empty block, not a
+    // missing key: the model is told what was read (decision 170).
+    expect(pkg.buildFacts).toEqual({ services: [], hazards: [] });
+  });
+
+  it("carries how the services this change touches are built (decision 170)", async () => {
+    const store = new Store(":memory:");
+    const run = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "head",
+      sessionId: "s",
+      isPublic: true,
+    }).run;
+    const gh = reader({
+      "head:src/package.json": '{"name":"svc","type":"module"}',
+      "head:src/Dockerfile": 'FROM node:24-slim\nCMD ["node", "dist/index.js"]\n',
+    });
+    const pkg = await prepareReviewPackage({ github: gh, store: store.runs, caps, log }, pr, run);
+    expect(pkg.buildFacts.services).toEqual([
+      {
+        path: "src",
+        name: "svc",
+        module_type: "module",
+        bundler: null,
+        format: null,
+        bundles: "none",
+        require_shim: null,
+        start: '["node", "dist/index.js"]',
+        runtime_installs: false,
+        python: null,
+      },
+    ]);
+  });
+
+  it("posts the review without the facts rather than ending the run on a failed read", async () => {
+    const lines: Record<string, unknown>[] = [];
+    const noisy = createLogger({ service: "cujo", sink: (line) => lines.push(JSON.parse(line)) });
+    const store = new Store(":memory:");
+    const run = store.runs.createRun({
+      repo: "o/r",
+      prNumber: 7,
+      headSha: "head",
+      sessionId: "s",
+      isPublic: true,
+    }).run;
+    const gh = {
+      readFile: async () => null,
+      tree: async () => {
+        throw new Error("GitHub /git/trees returned 409");
+      },
+    };
+    const pkg = await prepareReviewPackage(
+      { github: gh, store: store.runs, caps, log: noisy },
+      pr,
+      run,
+    );
+    expect(pkg.buildFacts).toEqual({ services: [], hazards: [], unavailable: true });
+    expect(lines.map((l) => l.event)).toContain("review.build_facts.failed");
   });
 });

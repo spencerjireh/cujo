@@ -357,6 +357,19 @@ export const SCHEMA = `
     env_json TEXT NOT NULL,
     destroyed_at TEXT
   );
+
+  -- How this run's services are built (decision 170): the block the diff
+  -- brief carried, stored before the turn exists. The findings it implies
+  -- are derived on the trusted side, so the fold has to read the same facts
+  -- after a restart as it read live -- there is no network in a refold.
+  -- A new table rather than a column on \`runs\`, because
+  -- CREATE TABLE IF NOT EXISTS reaches a deployed database on open and a
+  -- column needs the migration ladder for no gain (decision 25).
+  CREATE TABLE IF NOT EXISTS run_build_facts (
+    run_id TEXT PRIMARY KEY REFERENCES runs (id),
+    facts_json TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+  );
 `;
 
 /**

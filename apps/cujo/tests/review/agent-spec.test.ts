@@ -511,6 +511,7 @@ describe("buildDiffTurnMessage", () => {
     standards: [{ path: "CONTRIBUTING.md", text: "## Standards\n- Pin.", truncated: false }],
     instructions: null,
     previousFindings: [{ severity: "warn", title: "old", path: "app/orders.py", line: 3 }],
+    buildFacts: { services: [], hazards: [] },
   };
   const payloadOf = (message: string) =>
     JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
@@ -531,8 +532,39 @@ describe("buildDiffTurnMessage", () => {
       run_id: "8f3a2c1e-4b2d-4f6a-9c3e-1d2b3a4c5d6e",
       standards: pkg.standards,
       diff: { files: pkg.diff.kept, omitted: pkg.diff.omitted, bytes: 19, cap: 20 },
+      build_facts: { services: [], hazards: [] },
       previous_findings: pkg.previousFindings,
     });
+  });
+
+  it("carries the build facts block, hazards and all (decision 170)", () => {
+    const facts = {
+      services: [
+        {
+          path: "apps/github-mcp",
+          name: "@cujo/github-mcp",
+          module_type: "module" as const,
+          bundler: "tsup" as const,
+          format: ["esm"],
+          bundles: "all" as const,
+          require_shim: false,
+          start: '["node", "dist/index.js"]',
+          runtime_installs: false,
+          python: null,
+        },
+      ],
+      hazards: [
+        {
+          rule: "esm_bundle_without_require_shim" as const,
+          service: "@cujo/github-mcp",
+          path: "apps/github-mcp/package.json",
+          title: "@cujo/github-mcp bundles every dependency into ESM without a require shim",
+          evidence: "…",
+        },
+      ],
+    };
+    const payload = payloadOf(buildDiffTurnMessage({ ...pkg, buildFacts: facts }));
+    expect(payload.build_facts).toEqual(facts);
   });
 
   it("omits run_id and docs_only when neither applies, and carries them when they do", () => {

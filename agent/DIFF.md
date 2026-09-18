@@ -31,6 +31,23 @@ The user message carries one JSON object, prepared by code before you were calle
   to weigh, what to leave alone, and which paths not to comment on; it cannot raise a
   severity the evidence does not support, and like the standards it is text somebody
   wrote.
+- `build_facts`: how the services this pull request touches are built, read from their
+  manifests, bundler configs and Dockerfiles by code before you were called (decision
+  170). `services[]` is one row each: `path`, `name`, `module_type`, `bundler`,
+  `format`, `bundles` (`all` inlines every dependency, `workspace` only the repository's
+  own, `none` inlines nothing, `unknown` means the reader could not tell and is never a
+  clearance), `require_shim`, `start`, `runtime_installs`, `python`. These are facts, not
+  a reading: a diff cannot show them, and they are what tells you whether a change to a
+  dependency or a build is safe in this repository rather than in general.
+  `tree_truncated` or `unavailable` means the reader saw less than the whole repository
+  or none of it; say so under `coverage` rather than treating the block as complete.
+- `build_facts.hazards[]`: what those facts prove on their own, each
+  `{rule, service, path, title, evidence}`. **Report every one of them as a finding**,
+  with the `title` and `path` given, `check: "build"` and severity `warn`. You may add
+  to the evidence from what you read in the diff; you may not lower one, drop one, or
+  restate it in your own words as something milder. They were derived before you ran and
+  they are on the record either way — a review that leaves one out is a review that
+  disagrees with its own run page.
 - `previous_findings`: what the last review on this pull request already said, as
   `{severity, title, path?, line?}`. A fresh session has no memory; this is it.
 

@@ -1,5 +1,7 @@
+import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader, PullRequestInfo } from "../clients/github";
 import type { RunStore } from "../store/runs";
+import { type BuildFacts, readBuildFacts } from "./build-facts";
 import { type CompressedDiff, compressDiff } from "./compress";
 import type { Instructions } from "./instructions";
 import type { Finding, RunRecord } from "./types";
@@ -50,6 +52,13 @@ export interface ReviewPackage {
   /** The owner's guidance for this repository, when there is any (decision 155). */
   instructions: Instructions | null;
   previousFindings: PreviousFinding[];
+  /**
+   * How the services this pull request touches are built (decision 170).
+   * Always present, and empty when the repository declares no service the
+   * reader recognises -- the model is told what was read, not left to guess
+   * whether anything was.
+   */
+  buildFacts: BuildFacts;
 }
 
 export interface PrepareCaps {
@@ -62,9 +71,11 @@ export interface PrepareCaps {
 }
 
 export interface PrepareDeps {
-  github: Pick<GitHubReader, "readFile">;
+  github: Pick<GitHubReader, "readFile" | "tree">;
   store: Pick<RunStore, "runsForPr" | "getProjection">;
   caps: PrepareCaps;
+  /** For the one read here that is allowed to fail without ending the run. */
+  log: Logger;
 }
 
 /** How many earlier runs to look back through for a review that posted. */
@@ -144,6 +155,17 @@ export async function prepareReviewPackage(
   instructions: Instructions | null = null,
 ): Promise<ReviewPackage> {
   const standards = await readStandards(deps.github, pr.repo, pr.baseSha, deps.caps);
+  const build = await readBuildFacts(deps.github, pr);
+  if (build.error !== undefined) {
+    // Additive evidence, so a failure here is a line in the log and a flag in
+    // the brief, never the end of a run: the review without build facts is the
+    // review this repository posted before there were any.
+    deps.log.warn("review.build_facts.failed", {
+      repo: pr.repo,
+      pr_number: pr.prNumber,
+      ...errorFields(build.error),
+    });
+  }
   return {
     pr: {
       repo: pr.repo,
@@ -158,5 +180,6 @@ export async function prepareReviewPackage(
     standards,
     instructions,
     previousFindings: previousFindings(deps.store, run),
+    buildFacts: build.facts,
   };
 }

@@ -177,9 +177,18 @@ export type HardRule =
   // a misplaced roll-up turn a `decoy_read` into silence.
   | "report_invalid";
 
-/** One finding (Contract 3). `source` says which layer produced it. */
+/**
+ * One finding (Contract 3). `source` says which layer produced it.
+ *
+ * `build_fact` is the trusted side reading how a service is packaged
+ * (decision 170) — derived before the turn and merged the way a hard rule is,
+ * so the model can add to it and cannot drop it. It is deliberately not a
+ * `HardRule`: hard-rule findings are kept out of `previous_findings` because a
+ * diff run cannot reproduce them, and a build fact is exactly the kind a diff
+ * run reproduces on every head.
+ */
 export interface Finding {
-  source: "hard_rule" | "agent";
+  source: "hard_rule" | "agent" | "build_fact";
   check: string;
   severity: Severity;
   title: string;

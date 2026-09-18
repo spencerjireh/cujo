@@ -227,6 +227,24 @@ describe("GitHubReader.declaredMode and readFile", () => {
       await new GitHubReader("1", "pem", missing.impl).readFile("o/r", "AGENTS.md", "abc"),
     ).toBeNull();
   });
+
+  it("lists a commit's paths in one request, blobs only, and carries the cut flag", async () => {
+    const body = JSON.stringify({
+      truncated: true,
+      tree: [
+        { path: "apps", type: "tree" },
+        { path: "apps/cujo/package.json", type: "blob" },
+        { path: "README.md", type: "blob" },
+        { type: "blob" },
+      ],
+    });
+    const { impl, paths } = fakeRefFetch({ status: 200, body });
+    expect(await new GitHubReader("1", "pem", impl).tree("o/r", "abc")).toEqual({
+      paths: ["apps/cujo/package.json", "README.md"],
+      truncated: true,
+    });
+    expect(paths).toEqual(["/repos/o/r/git/trees/abc?recursive=1"]);
+  });
 });
 
 describe("GitHubReader.declaredGuild", () => {

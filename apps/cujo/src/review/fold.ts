@@ -7,6 +7,7 @@ import type {
   TurnMetrics,
 } from "@cujo/harness-contract";
 import { type RenderInput, renderReviewBody, reviewComments } from "@cujo/review-render";
+import { type BuildFacts, buildFactFindings } from "./build-facts";
 import {
   agentFindings,
   hardRuleFindings,
@@ -91,6 +92,13 @@ export interface FoldOptions {
   executed?: readonly ExecutedCheck[];
   /** The box the executor provisioned, when it did: what `sandbox_create` used to say. */
   sandbox?: { provisionedMs: number };
+  /**
+   * The build facts this run was briefed with (decision 170). Read from the
+   * store per run, because the findings they imply are derived on the trusted
+   * side and a refold has no network to read GitHub with. Absent for a
+   * sandbox run and for every run from before the block existed.
+   */
+  buildFacts?: BuildFacts;
 }
 
 /** One check the executor ran: the envelope and its span. */
@@ -362,6 +370,11 @@ export function parseReview(call: ToolCall): DraftedReview | null {
  */
 export function fold(events: readonly Event[], options: FoldOptions = {}): Projection {
   const p = emptyProjection();
+  // Derived before the turn and true whatever the turn did, so they are in
+  // hand before the first event and merged into every projection below: a run
+  // that errored before it posted still shows what its facts said.
+  const factFindings = options.buildFacts ? buildFactFindings(options.buildFacts) : [];
+  p.findings = mergeFindings(factFindings, []);
   const messages = new Map<string, ModelMessageEvent>();
   // Review calls parsed off `model.message`, waiting for their response. The
   // call carries the arguments and the response carries the outcome, and only
@@ -403,7 +416,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
   if (options.sandbox) p.setup.sandboxProvisionedMs = options.sandbox.provisionedMs;
   if (p.checks.length > 0) {
     p.hardRuleHits = [...hardRuleFindings(p.checks), ...invalidReportFindings(p.checks)];
-    p.findings = mergeFindings(p.hardRuleHits, []);
+    p.findings = mergeFindings([...p.hardRuleHits, ...factFindings], []);
   }
   const rowFor = (threadId: string): LedgerThread => {
     if (threadId === "main") return ledgerThread(p.ledger, ledgerRows, threadId, "main", 1);
@@ -538,7 +551,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         // the report holding the wrapped commands' own durations.
         check.timings = checkTimings(check);
         p.hardRuleHits = [...hardRuleFindings(p.checks), ...invalidReportFindings(p.checks)];
-        p.findings = mergeFindings(p.hardRuleHits, agentFindings(p.review));
+        p.findings = mergeFindings([...p.hardRuleHits, ...factFindings], agentFindings(p.review));
         break;
       }
       case "tool.approval_required": {
@@ -611,6 +624,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         p.findings = mergeFindings(
           [
             ...p.hardRuleHits,
+            ...factFindings,
             ...(diff
               ? []
               : missingCheckFindings(p.checks, { judge: Boolean(options.executed?.length) })),

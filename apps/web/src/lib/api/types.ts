@@ -157,7 +157,7 @@ export interface CheckState {
 }
 
 export interface Finding {
-  source: "hard_rule" | "agent";
+  source: "hard_rule" | "agent" | "build_fact";
   check: string;
   severity: Severity;
   title: string;
