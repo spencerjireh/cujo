@@ -265,6 +265,33 @@ export class GitHubReader {
     return res.body;
   }
 
+  /**
+   * Every path at one commit, in one request (decision 170).
+   *
+   * The build facts reader needs to know which directories hold a
+   * `package.json` or a `pyproject.toml` before it reads anything. Probing for
+   * them with `readFile` would cost one request per candidate path and each of
+   * those also pays an uncached installation lookup, so the recursive tree —
+   * one call, every path — is cheaper than the cheapest probe.
+   *
+   * GitHub caps the answer and says so with `truncated`. The flag is passed
+   * back rather than swallowed: facts derived from a cut tree are still facts,
+   * but the brief has to say the tree was cut, the way a report says what it
+   * could not observe (decision 54). Blobs only — a tree entry is a directory
+   * and holds no path a file reader wants.
+   */
+  async tree(repo: string, sha: string): Promise<{ paths: string[]; truncated: boolean }> {
+    const answer = await this.get<{
+      tree?: { path?: unknown; type?: unknown }[];
+      truncated?: unknown;
+    }>(repo, `/repos/${repo}/git/trees/${sha}?recursive=1`);
+    const paths: string[] = [];
+    for (const entry of answer.tree ?? []) {
+      if (entry.type === "blob" && typeof entry.path === "string") paths.push(entry.path);
+    }
+    return { paths, truncated: answer.truncated === true };
+  }
+
   async pullRequest(repo: string, prNumber: number): Promise<PullRequestInfo> {
     const pr = await this.get<{
       title: string;

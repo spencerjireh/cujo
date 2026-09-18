@@ -109,6 +109,7 @@ async function main(): Promise<void> {
     github,
     store.detonations,
     { client: sandboxMcp, store: store.executions },
+    store.buildFacts,
   );
   harness.modelProvider = () => settings.current().modelProvider;
   settings.onChange((key, current) => {
@@ -370,6 +371,7 @@ async function main(): Promise<void> {
         runner,
         diff,
         detonations: store.detonations,
+        buildFacts: store.buildFacts,
         ocr,
         stage,
         judge,
@@ -545,6 +547,7 @@ async function main(): Promise<void> {
       runner,
       diff,
       detonations: store.detonations,
+      buildFacts: store.buildFacts,
       ocr,
       stage,
       judge,

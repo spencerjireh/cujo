@@ -11,6 +11,7 @@
 import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader } from "../clients/github";
 import type { RunStore } from "../store";
+import type { BuildFactsStore } from "../store/build-facts";
 import type { DetonationCacheStore } from "../store/detonations";
 import type { ExecutionStore } from "../store/executions";
 import type { RepositorySettingsStore } from "../store/repository-settings";
@@ -76,6 +77,12 @@ export interface StartRunDeps {
    * it — every test that predates the cache — briefs the agent as before.
    */
   detonations?: Pick<DetonationCacheStore, "get" | "putForRun">;
+  /**
+   * Where a diff run's build facts are recorded before its turn exists
+   * (decision 170). Optional so a composition without it — and every test
+   * that predates the block — briefs and folds exactly as before.
+   */
+  buildFacts?: Pick<BuildFactsStore, "putForRun">;
   /**
    * The shadow review (decision 149). Optional so a composition without a
    * sidecar — and every test that predates it — asks nobody.
@@ -258,11 +265,22 @@ export async function startRun(
       // reads the session id off its argument.
       const sessionId = await deps.diff.createSession();
       const pkg = await prepareReviewPackage(
-        { github: deps.github, store: deps.store, caps: deps.diff.caps },
+        { github: deps.github, store: deps.store, caps: deps.diff.caps, log },
         pr,
         run,
         instructions,
       );
+      // Written before the turn exists, for the reason the briefed detonations
+      // are: the findings these facts imply are derived on the trusted side,
+      // and every later fold — live, refold, or a rehydration after a restart
+      // — has to read the same facts the brief carried (decision 170).
+      deps.buildFacts?.putForRun(run.id, pkg.buildFacts, new Date().toISOString());
+      if (pkg.buildFacts.hazards.length > 0) {
+        log.info("run.build_facts.read", {
+          services: pkg.buildFacts.services.length,
+          hazards: pkg.buildFacts.hazards.length,
+        });
+      }
       const current = deps.store.updateRun(run.id, {
         sessionId,
         mode: "diff",

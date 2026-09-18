@@ -1115,6 +1115,57 @@ describe("the diff review's ladder (decision 136)", () => {
     ]);
   });
 
+  it("carries the build facts' own finding, whatever the turn did (decision 170)", () => {
+    const hazard = {
+      rule: "esm_bundle_without_require_shim" as const,
+      service: "@cujo/github-mcp",
+      path: "apps/github-mcp/package.json",
+      title: "@cujo/github-mcp bundles every dependency into ESM without a require shim",
+      evidence: "Its tsup config inlines every dependency and has no createRequire banner.",
+    };
+    const options = { ...diff, buildFacts: { services: [], hazards: [hazard] } };
+    const p = fold([turnCreated("t1"), advisory(), toolResponse("call-0"), turnDone()], options);
+    expect(p.status).toBe("clean");
+    expect(p.findings).toEqual([
+      {
+        source: "build_fact",
+        check: "build",
+        severity: "warn",
+        title: hazard.title,
+        evidence: hazard.evidence,
+        path: hazard.path,
+      },
+    ]);
+    // And it is there before the turn ends, so a run that errors still shows it.
+    expect(fold([turnCreated("t1")], options).findings).toHaveLength(1);
+  });
+
+  it("keeps one copy when the model reports the hazard it was handed", () => {
+    const hazard = {
+      rule: "esm_bundle_without_require_shim" as const,
+      service: "@cujo/github-mcp",
+      path: "apps/github-mcp/package.json",
+      title: "@cujo/github-mcp bundles every dependency into ESM without a require shim",
+      evidence: "Its tsup config inlines every dependency and has no createRequire banner.",
+    };
+    const p = fold(
+      [
+        turnCreated("t1"),
+        advisory([
+          { check: "build", severity: "warn", title: hazard.title, path: hazard.path, line: 3 },
+          { check: "diff", severity: "info", title: "Renames the helper" },
+        ]),
+        toolResponse("call-0"),
+        turnDone(),
+      ],
+      { ...diff, buildFacts: { services: [], hazards: [hazard] } },
+    );
+    expect(p.findings.map((f) => [f.source, f.title])).toEqual([
+      ["build_fact", hazard.title],
+      ["agent", "Renames the helper"],
+    ]);
+  });
+
   it("is an error when the advisory carries a critical, the rubric forbids it", () => {
     // Same rung as the sandbox ladder: the review is already on the pull
     // request, so the contradiction is recorded rather than clamped (74).

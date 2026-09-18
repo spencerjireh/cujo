@@ -87,6 +87,10 @@ export const FIELD_NAMES = [
   "posted_inline",
   "moved_to_body",
   "findings",
+  // Build facts (decision 170): how many services the reader described and
+  // how many hazards it derived. Counts, never the facts themselves.
+  "services",
+  "hazards",
   "runs_restamped",
   "bytes",
   "count",
@@ -182,6 +186,8 @@ export const FIELD_CLASS: Record<FieldName, FieldClass> = {
   error_kind: "enum",
   step: "enum",
   path_kind: "enum",
+  services: "count",
+  hazards: "count",
   attempt: "count",
   attempts: "count",
   round: "count",

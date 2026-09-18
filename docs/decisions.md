@@ -8456,3 +8456,92 @@ takes an exclusive lock and the sensors are the reason; **reading base
 from a cache of an earlier run of the same base commit**, which is a real
 saving and a stale-evidence question that needs its own decision;
 **skipping base for smoke only**, which leaves the larger half.
+
+## 170. The reviewer is told how the code is built, and reads it without running it
+
+The one defect this reviewer has caused was a packaging defect. `yaml` is
+CommonJS; `apps/cujo` bundles every dependency into an ESM output; esbuild's
+ESM shim throws for the `require` that a bundled CommonJS module calls at
+load. The container exited on its first line and the site was down for
+fifty-five minutes. Eight review runs had read that code. None of them could
+have caught it, because nothing in the diff says what the diff is compiled
+into — the fact that makes it a defect lives in `tsup.config.ts`, which the
+pull request need not touch at all.
+
+So the trusted side reads the packaging and hands it to the review as facts,
+the way it already hands over the diff and the standards (decision 134). One
+new block on the diff brief, `build_facts`: per service, the module type, the
+bundler, the output format, what `noExternal` inlines, whether the bundle has
+a `createRequire` banner (decision 168), the image's `CMD`, and whether the
+runtime stage installs anything. Scoped to the services the change lands in —
+the nearest ancestor of each changed file holding a `package.json` or a
+`pyproject.toml` — and capped at eight, because a repository-wide sweep is not
+worth thirty near-identical rows.
+
+**Read, never run.** A bundler config is TypeScript from a pull request, and
+importing one to learn what it says would execute untrusted code in the
+trusted zone — the crossing the whole architecture exists to prevent. Every
+config here is matched as text. The cost is precision, and it is paid in one
+direction only: a config this reader cannot take apart is `unknown`, never
+`none` and never safe, and the rule below says nothing about a service it
+could not read.
+
+**Head, not base.** Every other read on this path takes the base commit
+(`readStandards`, `readInstructions`, `.cujo.yml`), because what a pull request
+may be *held to* is decided by the branch it targets (decision 13). Build facts
+are the other kind of thing: they describe what the change *produces*, so they
+come from the change. The one base read is a touched service's `package.json`,
+and only to tell an added dependency from a bumped one.
+
+**One rule, and it fires on a change rather than on a shape.**
+`esm_bundle_without_require_shim`: a service whose bundle is ESM, inlines every
+dependency, and has no `createRequire` banner, *when this pull request adds a
+dependency to it or edits its bundler config*. The shape alone is true of three
+services in this repository on every pull request, and a finding that is always
+there is a finding nobody reads. `dependencies` only; a `devDependencies` entry
+can be bundled too, but saying so on every tooling bump is the noise this rule
+exists to avoid.
+
+**`warn`, not `critical`.** The facts are read, and a reader can reproduce
+them, which is the line decision 136 draws for what a diff review may block on.
+The rule is a signal to check the dependency's entry points, not proof that one
+of them is CommonJS — proof needs the boot, and the boot is decision 168's CI
+step, which already runs on every image and costs nothing.
+
+**Derived twice, like a hard rule (decision 21).** The rubric tells the agent
+to report each hazard verbatim, which is how it reaches the posted review at
+all — `github-mcp` composes that review from the model's tool call and
+`apps/cujo` cannot inject into it. `apps/cujo` also derives the same findings
+itself with `source: "build_fact"`, so the run page and the check counts carry
+the hazard whether or not the model repeated it. Not a `HardRule`, though:
+hard-rule findings are kept out of `previous_findings` because a diff run
+cannot reproduce them, and a build fact is exactly what a diff run reproduces
+on every head.
+
+**Stored on the run before the turn.** The facts go in `run_build_facts` the
+way briefed detonations go in `run_detonation_cache` (decision 148) and
+executed checks in `run_executions` (decision 161): a refold has no network, so
+the fold has to read the same facts the brief carried or a run would describe
+itself differently after a restart.
+
+**A failed read does not end the run.** This is the one place the reader
+departs from `readStandards`, which throws. A review with no standards judges
+against the model's taste and is worth stopping for; a review with no build
+facts is the review this repository posted all week. The block says
+`unavailable`, a line says why, and the review goes out.
+
+Accepted: **one more GitHub request per diff run** for the recursive tree, plus
+one read per config file, each also paying an uncached installation lookup —
+which is why the tree is listed once rather than probed path by path;
+**text-matched configs**, so a config written in a way this reader does not
+recognise produces no claim; **facts only for services the change touches**, so
+a hazard in a service this pull request does not go near is not mentioned.
+
+Rejected: **evaluating the config** (the crossing above); **blocking on the
+rule** (decision 136, and the rule is a signal rather than a proof);
+**deriving it from the diff's patches** rather than reading head and base
+manifests, which turns a set difference into JSON-hunk parsing;
+**caching the facts across runs**, which is a real saving and a
+staleness question that needs its own decision; **putting the block on the
+sandbox and judge briefs too**, which is where it goes next but is not what
+this change measures.
