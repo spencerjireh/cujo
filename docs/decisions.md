@@ -8421,6 +8421,15 @@ what it covers and which is minutes, not seconds.
 The gap this closes is not the bundler's. It is that "green" meant built,
 not run.
 
+*Amended 2026-09-19:* the banner went on `apps/cujo` alone, because that is
+the service the outage took down. The other three bundled services
+(`github-mcp`, `ocr-sidecar`, `sandbox-mcp`) declare the same
+`format: ["esm"]` with `noExternal: [/(.*)/]` and were left without one, so
+the next CommonJS dependency any of them gained would have done it again.
+Decision 170's rule found them on its first real run. All four now carry the
+banner; the CI boot gate is what proves it, and it is the reason this was a
+two-line change per service rather than an outage.
+
 ## 169. Base is run when head fails, and not before
 
 The executor installed and tested both trees on every judge run. On this
