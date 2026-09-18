@@ -995,6 +995,23 @@ already posted (that tool is not gated), so the run ends `error` with a
 message naming the rule instead of `clean`; the operator sees the
 contradiction rather than a green run.
 
+**Layer 1b — the build facts (deterministic, code, no execution).** The diff
+review has a third source, `build_fact` (decision 170). Before the turn,
+`apps/cujo` reads how each service the pull request touches is packaged and
+derives a `warn` finding for each hazard those facts prove — today one rule,
+`esm_bundle_without_require_shim`. The findings carry `check: "build"` and
+`source: "build_fact"`, head the list beside the hard rules, and are deduped
+against the agent's own by check and title exactly as a hard rule's are. They
+are stored on the run before the turn starts, so a refold derives the same list
+without reading GitHub again.
+
+`warn` and never `critical`: the facts are *read*, and a reader can reproduce
+them, which is the line decision 136 draws for what a diff review may block on.
+The rubric tells the agent to report each hazard verbatim so it reaches the
+posted review; the trusted-side copy is what puts it on the record when the
+agent does not. Unlike a hard rule, a `build_fact` finding is not held out of
+`previous_findings` — a later diff run reproduces it from the same files.
+
 **Layer 2 — the agent judges the rest** against the rubric carried as its
 instructions (the `SKILL.md`):
 
@@ -2029,6 +2046,7 @@ same `run_id` rule as Contract 1's:
 | `standards[]` | The repository's own instruction files at the **base** commit, in this order: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/copilot-instructions.md`. Each is `{path, text, truncated}`, cut on a line at 16 KB, and the set is cut at 48 KB (a file past the line is dropped whole). Base and not head for the reason `.cujo.yml` is (decision 13): a pull request that rewrites CONTRIBUTING.md to permit itself has changed nothing until it is merged. A missing file is skipped; a read that failed ends the run in `error`, because "the repo has no standards" and "GitHub did not answer" are different facts. |
 | `diff` | `{files, omitted, bytes, cap}`. `files` is every changed file whose hunks fit under `CUJO_DIFF_BYTES`, as `{path, status, additions, deletions, patch}`, kept **whole** — a hunk cut mid-line is a line the model will anchor a finding to and `github-mcp` will refuse. Order is rank, then GitHub's order: source, then prose (`isDocsPath`), then generated and vendored paths, then lockfiles. `omitted` lists every file not given, with its counts and a `reason`: `no_patch` (a binary, a rename, or a file GitHub would not diff) or `over_cap`. The model is told what it did not read, the way a sensor report says what it could not observe (decision 54). |
 | `instructions`? | The owner's guidance for this repository (decision 155), as `{source, text, truncated}`: `.cujo/REVIEW.md` at the **base** commit when the repository carries one (`source: "file"`), else what the owner set on the board (`source: "board"`), else the key is absent. Cut on a line at 16 KB. The same key rides in the sandbox brief (Contract 1). It may narrow and weigh what the review says; it cannot switch a hard rule off or move a severity the evidence does not support. |
+| `build_facts` | How the services this pull request touches are built (decision 170), read at **head** and never executed: `services[]` of `{path, name, module_type, bundler, format, bundles, require_shim, start, runtime_installs, python}`, and `hazards[]` of `{rule, service, path, title, evidence}`. Head and not base, unlike every other read on this path, because these describe what the change *produces* rather than what it is held to; the one base read is a touched service's `package.json`, to tell an added dependency from a bumped one. Scoped to the services the change lands in (the nearest ancestor of each changed file holding a `package.json` or `pyproject.toml`), at most eight. `tree_truncated` says GitHub cut the listing; `unavailable` says the read failed, which is a flag and a log line and never the end of a run. Each hazard is also a `build_fact` finding on the run (Contract 3), whatever the agent does with it. |
 | `previous_findings[]` | The agent findings of the newest earlier run on this pull request whose review posted, as `{severity, title, path?, line?}`; hard-rule findings are left out, since a diff run cannot reproduce them. A diff run has a fresh session (decision 137), so this is its whole memory, and the rubric tells it not to say the same thing twice. |
 
 **The session** is the diff spec (`buildDiffSpec`): `agent/DIFF.md` as its
@@ -2038,7 +2056,8 @@ iteration limit of 12, and `config.tokenBudget` set to `CUJO_DIFF_BUDGET_TOKENS`
 it differs, no sampling params go with it, since the three were tuned for the
 other model.
 
-**What it may say.** Findings carry `check: "diff"` and a severity of `info` or
+**What it may say.** Findings carry `check: "diff"` — or `check: "build"` for a
+hazard handed to it in `build_facts` — and a severity of `info` or
 `warn`; `critical` is not available, because a block needs evidence a reader
 cannot produce, and the sandbox review is what produces it (decision 136). A
 `critical` on the advisory is a contradiction: the review is already on the pull

@@ -5,6 +5,7 @@ import type { GitHubReader } from "../clients/github";
 import type { Harness, SessionEvent, StreamEvent } from "../clients/harness";
 import type { SandboxMcp } from "../clients/sandbox-mcp";
 import type { RunStore } from "../store";
+import type { BuildFactsStore } from "../store/build-facts";
 import type { DetonationCacheStore } from "../store/detonations";
 import type { ExecutionStore } from "../store/executions";
 import { announceEvidenceGaps, announceTimeout } from "./announce";
@@ -186,6 +187,12 @@ export class Runner {
         "checksForRun" | "sandboxForRun" | "markDestroyed" | "listUndestroyed"
       >;
     } | null = null,
+    /**
+     * The build facts a run was briefed with (decision 170), read back so a
+     * refold derives the same findings the live fold did. Null in a
+     * composition with no diff review, where no run carries any.
+     */
+    private readonly buildFacts: Pick<BuildFactsStore, "forRun"> | null = null,
   ) {
     this.retryDelaysMs = options.retryDelaysMs ?? [2_000, 5_000, 15_000];
   }
@@ -238,17 +245,20 @@ export class Runner {
   /**
    * The mode; for a run briefed with cached detonations, the entries the
    * fold substitutes; for a judge run, the checks the executor ran and the
-   * box it provisioned (decision 161).
+   * box it provisioned (decision 161); for a diff run, the build facts it was
+   * briefed with (decision 170).
    */
   private foldOptions(runId: string, run: RunRecord | null): FoldOptions {
     const cached = this.detonations?.forRun(runId) ?? [];
     const executed = this.sandboxes?.store.checksForRun(runId) ?? [];
     const box = this.sandboxes?.store.sandboxForRun(runId) ?? null;
+    const facts = this.buildFacts?.forRun(runId) ?? null;
     return {
       ...(run ? { mode: run.mode } : {}),
       ...(cached.length > 0 ? { cachedDetonations: cached } : {}),
       ...(executed.length > 0 ? { executed } : {}),
       ...(box ? { sandbox: { provisionedMs: box.provisionedMs } } : {}),
+      ...(facts ? { buildFacts: facts } : {}),
     };
   }
 

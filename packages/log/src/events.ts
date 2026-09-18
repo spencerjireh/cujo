@@ -158,6 +158,10 @@ export const EVENT_NAMES = [
   "review.duplicate.skipped",
   "review.failed",
   "review.anchor.moved",
+  // Build facts (decision 170): additive evidence, so a read that fails is a
+  // line here and a flag in the brief rather than the end of a run.
+  "review.build_facts.failed",
+  "run.build_facts.read",
   // Stale review dismissal (decision 52).
   "review.stale.skipped",
   "review.stale.dismissed",

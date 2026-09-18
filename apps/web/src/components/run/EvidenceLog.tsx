@@ -83,6 +83,16 @@ function Entry({
   );
 }
 
+/**
+ * What produced a finding, when code did. An agent finding says nothing here:
+ * the page is a record of a review, and the review is the agent's by default.
+ */
+function derivedLabel(source: Finding["source"]): string {
+  if (source === "hard_rule") return "hard rule";
+  if (source === "build_fact") return "build fact";
+  return "";
+}
+
 function FindingRow({ finding }: { finding: Finding }) {
   return (
     <li className="grid grid-cols-[5.5rem_1fr] items-start gap-3 border-t border-line py-3">
@@ -94,11 +104,11 @@ function FindingRow({ finding }: { finding: Finding }) {
             {finding.evidence}
           </p>
         ) : null}
-        {finding.path || finding.source === "hard_rule" ? (
+        {finding.path || derivedLabel(finding.source) ? (
           <p className="mt-1 font-mono text-xs text-fg-muted">
             {finding.path ? `${finding.path}${finding.line ? `:${finding.line}` : ""}` : ""}
-            {finding.path && finding.source === "hard_rule" ? " · " : ""}
-            {finding.source === "hard_rule" ? "hard rule" : ""}
+            {finding.path && derivedLabel(finding.source) ? " · " : ""}
+            {derivedLabel(finding.source)}
           </p>
         ) : null}
       </div>
