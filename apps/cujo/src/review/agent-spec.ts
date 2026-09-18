@@ -461,6 +461,7 @@ export function buildDiffTurnMessage(pkg: ReviewPackage, runId = ""): string {
       bytes: pkg.diff.bytes,
       cap: pkg.diff.cap,
     },
+    build_facts: pkg.buildFacts,
     previous_findings: pkg.previousFindings,
   };
   return `Review this pull request by reading it. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;

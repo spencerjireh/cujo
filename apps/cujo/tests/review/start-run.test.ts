@@ -44,6 +44,8 @@ function harness(over: {
   stage?: { fail?: Error };
   /** Wire the judge path (decision 161): `.cujo.yml` at base, and whether execution fails. */
   judge?: { policy?: string | null; enabled?: boolean; fail?: Error };
+  /** The head tree the build facts reader lists (decision 170). */
+  tree?: string[];
   /** Wire the shadow review with this answer (decision 149). */
   ocr?: () => Promise<
     | { ok: true; result: unknown; exitCode: number | null; durationMs: number }
@@ -75,6 +77,7 @@ function harness(over: {
       if (over.declaredError) throw over.declaredError;
       return over.declared ?? null;
     }),
+    tree: vi.fn(async () => ({ paths: over.tree ?? [], truncated: false })),
     readFile: vi.fn(async (_r: string, path: string) =>
       path === "CONTRIBUTING.md"
         ? "## Standards\n"
@@ -196,6 +199,7 @@ function harness(over: {
     ...(stage ? { stage } : {}),
     ...(judge ? { judge } : {}),
     ...(over.cache ? { detonations } : {}),
+    buildFacts: store.buildFacts,
     ...(ocr ? { ocr } : {}),
     ...(over.board
       ? {
@@ -289,6 +293,37 @@ describe("startRun picks the review", () => {
       mode: "diff",
       reason: "declared",
     });
+  });
+
+  it("records the build facts before the turn, so a refold reads what the brief did", async () => {
+    const h = harness({
+      declared: "diff",
+      tree: ["src/package.json", "src/tsup.config.ts"],
+    });
+    await startRun(h.deps, h.run);
+    expect(h.store.buildFacts.forRun(h.run.id)).toEqual({
+      services: [
+        {
+          path: "src",
+          name: null,
+          module_type: null,
+          bundler: "tsup",
+          format: null,
+          // The config is in the tree but the fake reader hands back nothing:
+          // a config that could not be read is `unknown`, never a clearance.
+          bundles: "unknown",
+          require_shim: null,
+          start: null,
+          runtime_installs: null,
+          python: null,
+        },
+      ],
+      hazards: [],
+    });
+    // The same block the model was handed.
+    const message = (h.runner.start as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls[0]?.[1];
+    expect(String(message)).toContain('"build_facts"');
   });
 
   it("takes the deploy default when the repo declares none", async () => {
