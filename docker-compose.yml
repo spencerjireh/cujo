@@ -326,6 +326,48 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # The repository map (decision 172). Holds no secret: what arrives is a pull
+  # request's own trees as tarballs `apps/cujo` already fetched, and what
+  # leaves is JSON about them. It makes no outbound call of its own, which is
+  # why it needs no credential and is given none.
+  mapper:
+    build:
+      context: .
+      dockerfile: apps/mapper/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 8084
+      # The ceiling for every indexed repository together. Whole repositories
+      # are evicted, least recently used first, before an ingest that would
+      # cross it.
+      CUJO_MAPPER_DISK_MB: ${CUJO_MAPPER_DISK_MB:-8192}
+      CUJO_MAPPER_TREE_BYTES: ${CUJO_MAPPER_TREE_BYTES:-268435456}
+      # The engine's own tools over MCP, for a review spec that wants them.
+      # Off: nothing asks yet, and the HTTP routes are what a slice uses.
+      CUJO_MAPPER_MCP: ${CUJO_MAPPER_MCP:-}
+    volumes:
+      - mapperdata:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8084/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20m
+    restart: unless-stopped
+
   # Internal MCP server the agent calls to post reviews. It is the only service
   # that holds the GitHub App private key besides cujo, so the same hardening
   # applies. Never routed by Traefik.
@@ -416,3 +458,4 @@ services:
 volumes:
   harnessdata:
   cujodata:
+  mapperdata:

@@ -16,7 +16,7 @@
  * that no scan can see. Both were fixed rather than exempted.
  *
  * It lives here rather than in an app because the vocabulary is this package's
- * and the emitters are spread across four of them. A new app has to be added to
+ * and the emitters are spread across several of them. A new app has to be added to
  * `APPS` below, and the failure is loud rather than silent: its events are
  * declared and nothing appears to emit them, which is exactly the direction this
  * test exists to catch.
@@ -32,6 +32,7 @@ const APPS = [
   "apps/cujo/src",
   "apps/github-mcp/src",
   "apps/harness/src",
+  "apps/mapper/src",
   "apps/ocr-sidecar/src",
   "apps/sandbox-mcp/src",
   "apps/web/src",

@@ -2094,6 +2094,41 @@ retried. The watchdog window is `CUJO_DIFF_TIMEOUT_MS`, and a diff run that
 reaches it posts the timeout comment in diff words: no checks to name, push
 again or `/cujo review`.
 
+## Contract 12 — the map
+
+The repository map (decision 172), served by `apps/mapper` on the compose
+network. Nothing in `apps/cujo` calls it yet; this contract is what it will
+call, and what the service already answers.
+
+**The doors.**
+
+| Route | What it does |
+|-------|--------------|
+| `PUT /ingest/<key>/<base\|head>` | One tree, as a gzipped tar, streamed. `key` is 32 hex characters minted by the caller and never a repository's name. Bounded as it is written by `CUJO_MAPPER_TREE_BYTES`: `201 {ok, bytes}`, `413` over the cap, `409` for a tree already staged, `400` for a bad key or a tree that is not `base` or `head`. A refused write leaves nothing behind. |
+| `POST /ingest/<key>/index` | Makes a git repository of the two trees and indexes it. `200 {ok, project, base, head, nodes, edges, status, parse_partial, evicted}`; `404` when a tree was never staged. The tarballs are dropped afterwards — the graph and the worktree are what queries read. |
+| `POST /slice` | `{project, base, depth?}` in, and the slice out: `{changed_files[], impacted[], impacted_total, truncated}`, each impacted symbol `{qn, label, file, hop}`. Paged until the engine says there is no more, bounded by a symbol cap and a page cap. |
+| `GET /healthz`, `GET /readyz` | `{ok: true, service: "mapper"}`. |
+| `POST /mcp` | The engine's own tools over streamable HTTP, **only** when `CUJO_MAPPER_MCP` is set. Absent otherwise, as a 404. |
+
+**The repository the trees become.** Base is extracted and committed, the
+head tree *replaces* the working tree and is committed on top, both under a
+fixed identity and a fixed clock. So a deletion in the pull request is a
+deletion in the diff the engine reads, and the same two trees always produce
+the same two commit ids. `base` and `head` in the index answer are those
+ids, and `base` is what `/slice` takes.
+
+**What may cross.** Tarball bytes and a changed-file list, and nothing else:
+no token, no clone URL, no hostname (`docs/architecture.md`, the crossings
+table). The engine is confined to the trees directory by `CBM_ALLOWED_ROOT`.
+
+**Bounds.** `CUJO_MAPPER_DISK_MB` caps the volume; whole repositories are
+evicted least-recently-used first before an ingest that would cross it, and
+never the one being written. A repository is indexed or absent, never half of
+either. `CUJO_MAPPER_TIMEOUT_MS` bounds one engine call, and a call that
+reaches it is answered as a timeout rather than waited on — the engine starts
+index workers that inherit its pipes, so waiting for the child to close is
+not a bound.
+
 ## Stretch — remediation
 
 A fourth gated tool `open_remediation_pr`: on a `critical` finding with an
