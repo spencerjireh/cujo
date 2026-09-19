@@ -210,8 +210,15 @@ export async function executeDeclared(
       const exit = typeof report?.exit === "number" ? report.exit : (result.exitCode ?? -1);
       const stderr = typeof report?.stderr_tail === "string" ? report.stderr_tail : result.stderr;
       const stdout = typeof report?.stdout_tail === "string" ? report.stdout_tail : result.stdout;
-      deps.log.info("execute.install", { path: tree, exit_code: exit });
-      return { exit, tail: lastLines(stderr || stdout) };
+      const tail = lastLines(`${stdout}\n${stderr}`);
+      // On the log too, not only in the error: a run that ends elsewhere
+      // still leaves the install's own words somewhere an operator can read.
+      deps.log.info("execute.install", {
+        path: tree,
+        exit_code: exit,
+        ...(exit === 0 ? {} : { problem: tail }),
+      });
+      return { exit, tail };
     };
 
     // Head first, and base only when head is not clean (decision 169). A
@@ -429,9 +436,28 @@ function merged(envelope: Record<string, unknown>, extra: object): Record<string
   return { ...extra, ...envelope };
 }
 
-/** The tail of a failure, short enough for a run's error line. */
-function lastLines(text: string, lines = 3, max = 400): string {
-  const kept = text.trimEnd().split("\n").slice(-lines).join(" | ").trim();
+/**
+ * Lines a runtime writes to stderr that are never the reason anything
+ * failed. Node's deprecation notices are two lines apiece and land last, so
+ * on the first real use of this they pushed the actual error out of the tail
+ * entirely: the run said an install exited 1 and then quoted a warning about
+ * `url.parse`.
+ */
+const NOISE = [/DeprecationWarning/, /--trace-deprecation/, /^\s*$/];
+
+/**
+ * The tail of a failure, short enough for a run's error line and long enough
+ * to hold the failure. Noise is dropped before the tail is taken, not after,
+ * or the noise decides what survives.
+ */
+function lastLines(text: string, lines = 8, max = 1200): string {
+  const kept = text
+    .trimEnd()
+    .split("\n")
+    .filter((line) => !NOISE.some((pattern) => pattern.test(line)))
+    .slice(-lines)
+    .join(" | ")
+    .trim();
   return kept.length > max ? `${kept.slice(0, max)}...` : kept;
 }
 
