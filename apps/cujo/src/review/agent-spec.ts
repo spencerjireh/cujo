@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentSpec, ModelParams, ReasoningEffort } from "@cujo/harness-contract";
 import type { PullRequestInfo } from "../clients/github";
 import type { Config } from "../config";
+import type { BuildFacts } from "./build-facts";
 import type { CachedDetonation } from "./detonation-cache";
 import type { Instructions } from "./instructions";
 import type { ReviewPackage } from "./prepare";
@@ -347,6 +348,12 @@ export function buildTurnMessage(
   staged = "",
   /** The turn's ceiling, so the parent can bound its setup (decision 165); 0 omits it. */
   turnBudgetMs = 0,
+  /**
+   * How the services this change touches are built (decisions 170, 171).
+   * Null in a composition that reads none, which is every test that predates
+   * the block; the key is then absent and the brief reads as it always did.
+   */
+  buildFacts: BuildFacts | null = null,
 ): string {
   const docsOnly = isDocsOnly(pr.changedFiles);
   const payload = {
@@ -369,6 +376,7 @@ export function buildTurnMessage(
     // The owner's own guidance for this repository (decision 155), when
     // there is any. Omitted when there is none, like the keys above.
     ...(instructions ? { instructions } : {}),
+    ...(buildFacts ? { build_facts: buildFacts } : {}),
   };
   return `Review this pull request. Input:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }
@@ -399,6 +407,8 @@ export function buildJudgeTurnMessage(
   instructions: Instructions | null,
   judge: JudgeBrief,
   reportBytes: number,
+  /** As on the sandbox brief (decisions 170, 171); null in a composition with none. */
+  buildFacts: BuildFacts | null = null,
 ): string {
   const docsOnly = isDocsOnly(pr.changedFiles);
   const executed: Record<string, { report: unknown; truncated: boolean }> = {};
@@ -421,6 +431,7 @@ export function buildJudgeTurnMessage(
     ...(docsOnly ? { docs_only: true } : {}),
     ...(runId ? { run_id: runId } : {}),
     ...(instructions ? { instructions } : {}),
+    ...(buildFacts ? { build_facts: buildFacts } : {}),
     sandbox: judge.sandbox,
     policy: judge.policy,
     executed,

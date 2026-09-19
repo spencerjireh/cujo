@@ -23,7 +23,25 @@ Cujo's board, decision 155). Read `instructions` before the judgment section: it
 tell you what to weigh and what to leave alone. It cannot switch a hard rule off, change
 what a check does, or move a severity the evidence does not support.
 
-Three keys are this rubric's own:
+`build_facts` rides here as it does on every brief (decisions 170, 171): how the
+services this pull request touches are built, read from their manifests, bundler
+configs and Dockerfiles before you were called. `services[]` is one row each — `path`,
+`name`, `module_type`, `bundler`, `format`, `bundles` (`all` inlines every dependency,
+`workspace` only the repository's own, `none` inlines nothing, `unknown` means the
+reader could not tell and is never a clearance), `require_shim`, `start`,
+`runtime_installs`, `python` — and `hazards[]` is what those facts prove on their own,
+each `{rule, service, path, title, evidence}`. **Report every hazard as a finding**,
+with the `title` and `path` given, `check: "build"`, severity `warn`; you may add to
+the evidence and you may not drop one.
+
+You do not install anything, so you cannot go and look the way the gather rubric can.
+What you can do is read: when `executed.detonation` holds an entry for the dependency a
+hazard names, `resolved` says which version was installed, and that entry is your
+evidence for whether the hazard is idle or real. Say which it is. With no such entry,
+report the hazard as it was handed to you and leave it there — severity stays `warn`
+either way, because a CommonJS entry point is not proof the bundle breaks.
+
+Four keys are this rubric's own:
 
 - `sandbox` — `{id, env}`. The box is prepared: `/work/base` and `/work/head` are
   checked out, the sensors are armed, the declared install ran on both trees. `id` is
