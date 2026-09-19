@@ -27,7 +27,7 @@ pnpm knip          # unused files, exports, and dependencies (knip.json lists th
 pnpm format        # biome format --write .
 pnpm typecheck     # tsc --noEmit in every workspace
 pnpm test          # vitest run in every workspace
-pnpm build         # tsup in the five Node services, next build in apps/web
+pnpm build         # tsup in the six Node services, next build in apps/web
 
 uv sync && uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```
@@ -45,7 +45,7 @@ uv run pytest sandbox/tests/test_cli.py -k name -n0         # ...in one process
 are debugging one test and want its output unbuffered in a single process.
 
 Workspace names: `@cujo/cujo`, `@cujo/github-mcp`, `@cujo/sandbox-mcp`,
-`@cujo/harness`, `@cujo/ocr-sidecar`, `@cujo/web`, `@cujo/harness-contract`, `@cujo/log`,
+`@cujo/harness`, `@cujo/mapper`, `@cujo/ocr-sidecar`, `@cujo/web`, `@cujo/harness-contract`, `@cujo/log`,
 `@cujo/review-render`, `@cujo/gh-app-auth`, `@cujo/brand`.
 
 Local stack (`make up-local` = `docker compose -f docker-compose.yml -f
