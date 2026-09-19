@@ -21,6 +21,7 @@ import {
   buildTurnMessage,
   manifestChanged,
 } from "./agent-spec";
+import { readBuildFacts } from "./build-facts";
 import { lookupCachedDetonations } from "./detonation-cache";
 import { type ExecuteDeps, executeDeclared } from "./execute";
 import { readInstructions } from "./instructions";
@@ -257,6 +258,30 @@ export async function startRun(
       ? await readInstructions(deps.github, deps.repositorySettings, run.repo, pr.baseSha)
       : null;
     if (instructions) log.info("run.instructions.read", { reason: instructions.source });
+    // How the services this change touches are built (decisions 170, 171).
+    // Read here rather than inside the diff review's package, because every
+    // review gets it: the manifest floor sends exactly the pull request the
+    // rule was written for -- one that adds a dependency -- to the sandbox,
+    // so a block only the diff review carried could not fire on it.
+    //
+    // Stored before any turn exists, for the reason the briefed detonations
+    // are: the findings these facts imply are derived on the trusted side,
+    // and every later fold -- live, refold, or a rehydration after a restart
+    // -- has to read the same facts the brief carried.
+    const build = await readBuildFacts(deps.github, pr);
+    if (build.error !== undefined) {
+      // Additive evidence, so a failure here is a line and a flag in the
+      // brief, never the end of a run: the review without build facts is the
+      // review this repository posted before there were any.
+      log.warn("review.build_facts.failed", errorFields(build.error));
+    }
+    deps.buildFacts?.putForRun(run.id, build.facts, new Date().toISOString());
+    if (build.facts.hazards.length > 0) {
+      log.info("run.build_facts.read", {
+        services: build.facts.services.length,
+        hazards: build.facts.hazards.length,
+      });
+    }
     if (mode === "diff" && deps.diff) {
       // The row was claimed on the pull request's sandbox session with the
       // sandbox spec's provenance; a diff run has a session and a spec of its
@@ -265,22 +290,12 @@ export async function startRun(
       // reads the session id off its argument.
       const sessionId = await deps.diff.createSession();
       const pkg = await prepareReviewPackage(
-        { github: deps.github, store: deps.store, caps: deps.diff.caps, log },
+        { github: deps.github, store: deps.store, caps: deps.diff.caps },
         pr,
         run,
         instructions,
+        build.facts,
       );
-      // Written before the turn exists, for the reason the briefed detonations
-      // are: the findings these facts imply are derived on the trusted side,
-      // and every later fold — live, refold, or a rehydration after a restart
-      // — has to read the same facts the brief carried (decision 170).
-      deps.buildFacts?.putForRun(run.id, pkg.buildFacts, new Date().toISOString());
-      if (pkg.buildFacts.hazards.length > 0) {
-        log.info("run.build_facts.read", {
-          services: pkg.buildFacts.services.length,
-          hazards: pkg.buildFacts.hazards.length,
-        });
-      }
       const current = deps.store.updateRun(run.id, {
         sessionId,
         mode: "diff",
@@ -410,6 +425,7 @@ export async function startRun(
             },
           },
           judge.reportBytes,
+          build.facts,
         ),
       );
       return;
@@ -423,6 +439,7 @@ export async function startRun(
         instructions,
         staged,
         deps.turnTimeoutMs?.() ?? 0,
+        build.facts,
       ),
     );
   } catch (error) {

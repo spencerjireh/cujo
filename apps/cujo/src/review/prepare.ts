@@ -1,7 +1,6 @@
-import { type Logger, errorFields } from "@cujo/log";
 import type { GitHubReader, PullRequestInfo } from "../clients/github";
 import type { RunStore } from "../store/runs";
-import { type BuildFacts, readBuildFacts } from "./build-facts";
+import type { BuildFacts } from "./build-facts";
 import { type CompressedDiff, compressDiff } from "./compress";
 import type { Instructions } from "./instructions";
 import type { Finding, RunRecord } from "./types";
@@ -71,11 +70,9 @@ export interface PrepareCaps {
 }
 
 export interface PrepareDeps {
-  github: Pick<GitHubReader, "readFile" | "tree">;
+  github: Pick<GitHubReader, "readFile">;
   store: Pick<RunStore, "runsForPr" | "getProjection">;
   caps: PrepareCaps;
-  /** For the one read here that is allowed to fail without ending the run. */
-  log: Logger;
 }
 
 /** How many earlier runs to look back through for a review that posted. */
@@ -153,19 +150,14 @@ export async function prepareReviewPackage(
   pr: PullRequestInfo,
   run: Pick<RunRecord, "id" | "repo" | "prNumber">,
   instructions: Instructions | null = null,
+  /**
+   * How the services this change touches are built (decisions 170, 171).
+   * Read by `startRun` above the mode branch, because every review gets it
+   * and this one is only the diff review's package.
+   */
+  buildFacts: BuildFacts = { services: [], hazards: [] },
 ): Promise<ReviewPackage> {
   const standards = await readStandards(deps.github, pr.repo, pr.baseSha, deps.caps);
-  const build = await readBuildFacts(deps.github, pr);
-  if (build.error !== undefined) {
-    // Additive evidence, so a failure here is a line in the log and a flag in
-    // the brief, never the end of a run: the review without build facts is the
-    // review this repository posted before there were any.
-    deps.log.warn("review.build_facts.failed", {
-      repo: pr.repo,
-      pr_number: pr.prNumber,
-      ...errorFields(build.error),
-    });
-  }
   return {
     pr: {
       repo: pr.repo,
@@ -180,6 +172,6 @@ export async function prepareReviewPackage(
     standards,
     instructions,
     previousFindings: previousFindings(deps.store, run),
-    buildFacts: build.facts,
+    buildFacts,
   };
 }

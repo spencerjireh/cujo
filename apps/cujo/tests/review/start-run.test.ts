@@ -46,6 +46,8 @@ function harness(over: {
   judge?: { policy?: string | null; enabled?: boolean; fail?: Error };
   /** The head tree the build facts reader lists (decision 170). */
   tree?: string[];
+  /** The tree read fails, which must not end the run (decision 170). */
+  treeFails?: boolean;
   /** Wire the shadow review with this answer (decision 149). */
   ocr?: () => Promise<
     | { ok: true; result: unknown; exitCode: number | null; durationMs: number }
@@ -77,7 +79,10 @@ function harness(over: {
       if (over.declaredError) throw over.declaredError;
       return over.declared ?? null;
     }),
-    tree: vi.fn(async () => ({ paths: over.tree ?? [], truncated: false })),
+    tree: vi.fn(async () => {
+      if (over.treeFails) throw new Error("GitHub /git/trees returned 409");
+      return { paths: over.tree ?? [], truncated: false };
+    }),
     readFile: vi.fn(async (_r: string, path: string) =>
       path === "CONTRIBUTING.md"
         ? "## Standards\n"
@@ -324,6 +329,49 @@ describe("startRun picks the review", () => {
     const message = (h.runner.start as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0]?.[1];
     expect(String(message)).toContain('"build_facts"');
+  });
+
+  it("records and briefs the same facts on a sandbox run, which is where the rule's own case lands (decision 171)", async () => {
+    // A pull request that adds a dependency changes a manifest, and the
+    // manifest floor sends every one of those to the sandbox. A block only
+    // the diff review carried could never fire on the case it was written
+    // for, which is what this test is here to stop regressing.
+    const h = harness({
+      declared: "diff",
+      pr: pr({ changedFiles: ["src/package.json", "src/a.ts"] }),
+      tree: ["src/package.json", "src/tsup.config.ts"],
+    });
+    await startRun(h.deps, h.run);
+    expect(h.store.runs.getRun(h.run.id)?.mode).toBe("sandbox");
+    expect(h.store.buildFacts.forRun(h.run.id)?.services.map((s) => s.path)).toEqual(["src"]);
+    const message = (h.runner.start as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls[0]?.[1];
+    expect(String(message)).toContain('"build_facts"');
+  });
+
+  it("briefs the judge with them too (decision 171)", async () => {
+    const h = harness({
+      judge: { policy: "install: pnpm install\ntest: pnpm test\n" },
+      tree: ["src/package.json"],
+    });
+    await startRun(h.deps, h.run);
+    expect(h.store.buildFacts.forRun(h.run.id)).not.toBeNull();
+    const message = (h.runner.start as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls[0]?.[1];
+    expect(String(message)).toContain('"build_facts"');
+  });
+
+  it("says the facts are unavailable rather than ending the run", async () => {
+    const h = harness({ declared: "diff", treeFails: true });
+    await startRun(h.deps, h.run);
+    expect(h.store.buildFacts.forRun(h.run.id)).toEqual({
+      services: [],
+      hazards: [],
+      unavailable: true,
+    });
+    expect(h.lines.map((l) => l.event)).toContain("review.build_facts.failed");
+    // And the review still went out.
+    expect(h.runner.start).toHaveBeenCalled();
   });
 
   it("takes the deploy default when the repo declares none", async () => {
