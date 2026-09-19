@@ -166,6 +166,18 @@ export const EVENT_NAMES = [
   "review.stale.skipped",
   "review.stale.dismissed",
   "review.stale.dismiss.failed",
+  // The mapper (decision 172): the bytes in, the repository it makes of them,
+  // the graph it indexes, and what leaves the volume to make room.
+  "ingest.received",
+  "ingest.materialised",
+  "ingest.put.failed",
+  "engine.ran",
+  "mapper.indexed",
+  "mapper.index.failed",
+  "mapper.slice.failed",
+  "mapper.request.failed",
+  "mapper.evicted",
+  "mapper.disk.unfittable",
   // The repository registry (decision 151): what the installation webhooks
   // added or removed, and the boot-and-interval reconciliation behind them.
   "registry.installed",

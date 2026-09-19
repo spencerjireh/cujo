@@ -71,3 +71,9 @@ services:
       CUJO_LOG_LEVEL: ${CUJO_LOG_LEVEL:-info}
     ports:
       - '127.0.0.1:8083:8083' # internal shadow reviewer (decision 149)
+
+  mapper:
+    environment:
+      CUJO_LOG_LEVEL: ${CUJO_LOG_LEVEL:-info}
+    ports:
+      - '127.0.0.1:8084:8084' # the repository map (decision 172)

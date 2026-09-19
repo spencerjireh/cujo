@@ -8615,3 +8615,99 @@ could stay on the diff path, which trades a real protection for a cheaper
 review; **a `critical` when the sandbox confirms it** (above); **leaving it
 until the detonation-only mode shrinks what the floor sends to the sandbox**,
 which is several slices away and leaves the rule unreachable until then.
+
+## 172. The map is a service that compiles its own engine, and the two trees become a repository
+
+Track 11's premise is that a reviewer which cannot see past the diff will
+keep missing what matters. #190 named `codebase-memory-mcp` as the engine on
+the strength of a survey; before building anything on it, it was built and
+scored against hand-verified answers from this repository (the spike, on
+#190). It indexed this monorepo in 6.1 seconds into 25 MB, answered 81% of
+the probes, got the cross-package one right — both declarations of a type
+that `apps/web` mirrors by hand — and `detect_changes` named the `apps/web`
+file that #191 actually had to change. So: `apps/mapper`.
+
+**Compiled here, not downloaded.** MIT C with every dependency vendored, so
+the build needs a toolchain and zlib and nothing from the network once the
+source is present. The clone is shallow and the commit is pinned in one
+`ARG`. This binary parses other people's code; a release asset would be a
+thing we trust rather than a thing we made, and #190 ruled that out before
+the spike agreed with it. The costs are real and worth naming: a 1.4 GB
+source tree in the build stage, 163 vendored tree-sitter grammars, a 31 MB
+embedding blob, a ~300 MB binary, and two to four minutes on one CI job.
+
+**Two trees, because a tarball is not a repository.** `detect_changes` is
+the tool this service exists to reach and it takes a git ref, reports a
+merge base, and runs git-history and git-diff passes. `github.archive`
+carries no `.git`. So the mapper takes base *and* head — the bytes
+`review/stage.ts` already fetches for the sandbox — extracts the base,
+commits it, replaces the working tree with the head and commits again. The
+head tree *replaces* rather than merges, so a file the pull request deletes
+is deleted here and the diff the engine reads is the diff GitHub shows. The
+identity and the clock are fixed, so the same two trees always produce the
+same two commit ids and a slice that changes means the code changed.
+
+**HTTP now, MCP behind a switch.** The engine speaks MCP over stdio only;
+its HTTP port is the graph UI. Every other MCP server here speaks streamable
+HTTP because that is what the harness connects to, so the mapper cannot
+simply be the third one — it wraps the binary. The review needs a
+precomputed slice, which is an HTTP route; attaching the engine's own tools
+to a review spec is a later slice and a different surface. The bridge exists
+behind `CUJO_MAPPER_MCP`, off, with no caller: having the seam costs a file,
+and discovering later that the wrapper could not expose the tools at all
+would cost the design.
+
+**One-shot commands, never the daemon.** The engine's MCP mode starts a
+coordination daemon that owns watchers, shared indexing jobs and an
+account-wide admission barrier. Inside a container that indexes one tree and
+is done, that is the wrong shape. Every call is `cbm cli <tool>`, which the
+engine documents as deliberately daemonless.
+
+**Query the graph, not the call tracer.** The spike's most useful finding.
+`trace_path` traverses `CALLS` and leaves `CALL_REFERENCE` alone, so
+`findings.filter(isMaliceClaim)` has no caller as far as it is concerned —
+it returned two of three call sites on this repository. The graph holds the
+edge; only the convenience tool drops it. A reviewer told "nothing uses
+this" about a function three things use is worse served than one told
+nothing. The `Route` model is ignored for the same kind of reason: it
+conflates routes served with URLs called and carries no host-plane
+information, which is the distinction that matters here (decision 57).
+
+**Paged, because one call is a partial answer.** `detect_changes --format
+json` returned 72 of 141 impacted symbols on this repository's own diff,
+with an empty module summary and `continuation_requires_higher_budget`.
+
+**No secret, and confined.** The mapper receives tarball bytes and a
+changed-file list; it holds no token, no clone URL and no hostname, and it
+makes no outbound call. `CBM_ALLOWED_ROOT` points the engine at the trees
+directory, so a path resolving outside it is refused by the engine itself.
+A new row in the crossings table, the same shape as the sandbox's and for
+the same reason: code goes in, JSON comes out.
+
+**A live test against the real binary**, skipped unless `CUJO_MAPPER_BIN`
+names one. It has already earned its place twice: `index_repository` refuses
+`--format`, which every stubbed test was happy to pass, and `query_graph`
+answers with a `columns` list and positional row arrays rather than objects.
+Both are an external project's shapes, and a version bump is exactly when
+they move.
+
+**The image is checked by running it, not by loading it.** CI's boot gate
+(decision 168) greps for module errors, and the first image built here passed
+it while carrying an engine that could not execute at all: compiled on trixie,
+run on a bookworm `node:24-slim`, `GLIBC_2.38 not found`. A bundle that loads
+says nothing about a C binary beside it. Both stages are trixie now, and the
+service execs the engine at boot, exits on failure, and answers 503 on every
+route but `/healthz` until it has seen the engine run. Found by the first live
+ingest and not by any check that came before it.
+
+Accepted: **a ~300 MB binary and a slow first build**; **two tarballs per
+pull request** rather than one; **a surface with no caller** in the MCP
+bridge; **an engine whose output shapes we do not control**, held by one
+live test and a pinned commit.
+
+Rejected: **a downloaded release binary** (above, and #190); **indexing head
+alone**, which loses `detect_changes` entirely; **holding the engine's
+daemon open** across requests, whose lifetime nothing here would own;
+**`trace_path`** (above); **wiring the slice into the review in this change**
+— the service is proven against this repository first, which is the order
+build facts took and the reason that landed clean.
