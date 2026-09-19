@@ -481,6 +481,89 @@ describe("isDocsPath and isLockfilePath", () => {
   });
 });
 
+describe("the sandbox briefs carry the build facts too (decision 171)", () => {
+  const prInfo = () => ({
+    repo: "o/r",
+    prNumber: 7,
+    title: "Add yaml",
+    body: "",
+    baseSha: "b".repeat(40),
+    headSha: "h".repeat(40),
+    cloneUrl: "https://github.com/o/r.git",
+    changedFiles: ["apps/github-mcp/package.json"],
+    files: [],
+    authorLogin: "x",
+    authorId: 1,
+    authorIsBot: false,
+  });
+  const facts = {
+    services: [
+      {
+        path: "apps/github-mcp",
+        name: "@cujo/github-mcp",
+        module_type: "module" as const,
+        bundler: "tsup" as const,
+        format: ["esm"],
+        bundles: "all" as const,
+        require_shim: false,
+        start: '["node", "dist/index.js"]',
+        runtime_installs: false,
+        python: null,
+      },
+    ],
+    hazards: [
+      {
+        rule: "esm_bundle_without_require_shim" as const,
+        service: "@cujo/github-mcp",
+        path: "apps/github-mcp/package.json",
+        title: "@cujo/github-mcp bundles every dependency into ESM without a require shim",
+        evidence: "…",
+      },
+    ],
+  };
+  const payload = (message: string) =>
+    JSON.parse(/```json\n([\s\S]*?)\n```/.exec(message)?.[1] ?? "{}");
+
+  it("is on the gather brief, which is where a manifest change lands", () => {
+    const message = buildTurnMessage(prInfo(), "", [], null, "", 0, facts);
+    expect(payload(message).build_facts).toEqual(facts);
+  });
+
+  it("is on the judge brief", () => {
+    const message = buildJudgeTurnMessage(
+      prInfo(),
+      "",
+      null,
+      {
+        sandbox: { id: "sbx-1", env: {} },
+        policy: { install: "pnpm install", test: "pnpm test" },
+        executed: [],
+        coverage: { ran: [], skipped: [] },
+      },
+      24_000,
+      facts,
+    );
+    expect(payload(message).build_facts).toEqual(facts);
+  });
+
+  it("is absent from either when a composition reads none", () => {
+    expect(payload(buildTurnMessage(prInfo()))).not.toHaveProperty("build_facts");
+    const judge = buildJudgeTurnMessage(
+      prInfo(),
+      "",
+      null,
+      {
+        sandbox: { id: "sbx-1", env: {} },
+        policy: {},
+        executed: [],
+        coverage: { ran: [], skipped: [] },
+      },
+      24_000,
+    );
+    expect(payload(judge)).not.toHaveProperty("build_facts");
+  });
+});
+
 describe("buildDiffTurnMessage", () => {
   const pkg: ReviewPackage = {
     pr: {

@@ -93,10 +93,11 @@ export interface FoldOptions {
   /** The box the executor provisioned, when it did: what `sandbox_create` used to say. */
   sandbox?: { provisionedMs: number };
   /**
-   * The build facts this run was briefed with (decision 170). Read from the
-   * store per run, because the findings they imply are derived on the trusted
-   * side and a refold has no network to read GitHub with. Absent for a
-   * sandbox run and for every run from before the block existed.
+   * The build facts this run was briefed with (decisions 170, 171). Read
+   * from the store per run, because the findings they imply are derived on
+   * the trusted side and a refold has no network to read GitHub with. Every
+   * run carries them, whatever its mode; absent only for a run from before
+   * the block existed.
    */
   buildFacts?: BuildFacts;
 }
