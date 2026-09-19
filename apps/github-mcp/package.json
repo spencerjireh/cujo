@@ -13,6 +13,7 @@
     "@cujo/log": "workspace:*",
     "@cujo/review-render": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
+    "yaml": "2.9.0",
     "zod": "3.25.76"
   }
 }
