@@ -33,3 +33,10 @@ __pycache__/
 
 # brand render output
 brand/logo/png/
+
+# Working notes, untracked on purpose: raw investigation — costs,
+# infrastructure ids, half-formed conclusions — scrubbed by hand if anything
+# in them graduates to docs/. An over-broad `git add -A` published all three
+# once; ignored here so that cannot happen again.
+plan.md
+findings-*.md
