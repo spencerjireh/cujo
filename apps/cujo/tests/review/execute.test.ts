@@ -61,7 +61,14 @@ function fakeSandbox(
             check: "setup",
             exit,
             stdout_tail: "",
-            stderr_tail: exit === 0 ? "" : "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen",
+            stderr_tail:
+              exit === 0
+                ? ""
+                : [
+                    "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen",
+                    "(node:62) [DEP0169] DeprecationWarning: `url.parse()` behavior is not",
+                    "(Use `node --trace-deprecation ...` to show where the warning was created)",
+                  ].join("\n"),
           }),
         );
       }
@@ -241,10 +248,16 @@ describe("executeDeclared", () => {
     await expect(
       executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, policy),
     ).rejects.toThrow(/the declared install exited 1/);
-    // And it says which command, and what the command said.
+    // And it says which command, and what the command said -- past the
+    // runtime's own noise, which on the first real use of this pushed the
+    // actual error out of the tail and left a warning about `url.parse` in
+    // its place.
     await expect(
       executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, policy),
     ).rejects.toThrow(/ERR_PNPM_OUTDATED_LOCKFILE/);
+    await expect(
+      executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, policy),
+    ).rejects.not.toThrow(/DeprecationWarning/);
     // Nothing downstream ran: no suite on a tree with no dependencies.
     const checks = box.calls
       .map((c) => c.request.argv)

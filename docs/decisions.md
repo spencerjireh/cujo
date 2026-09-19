@@ -8781,6 +8781,13 @@ rather than the one instance that was reported.
 the gather path, where a check sub-agent writes the extras and an argument
 is the only door it has.
 
+*Amended 2026-09-19, on the first real use:* the run said the install exited
+1 and then quoted a warning about `url.parse`. Node writes two-line
+deprecation notices to stderr and they land last, so a three-line tail held
+nothing but noise. The tail is now taken after the noise is filtered rather
+than before, and it is eight lines rather than three. A failure's own words
+have to survive the thing that is not the failure.
+
 Accepted: **runs that now end in `error` where they used to post a review**
 — correctly, since those reviews were reporting an empty environment;
 **two places that build a report** until the gather path is retired;
