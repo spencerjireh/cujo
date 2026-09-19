@@ -188,9 +188,10 @@ export class Runner {
       >;
     } | null = null,
     /**
-     * The build facts a run was briefed with (decision 170), read back so a
-     * refold derives the same findings the live fold did. Null in a
-     * composition with no diff review, where no run carries any.
+     * The build facts a run was briefed with (decisions 170, 171), read back
+     * so a refold derives the same findings the live fold did. Every run
+     * carries them, whatever its mode; null only in a composition that
+     * records none.
      */
     private readonly buildFacts: Pick<BuildFactsStore, "forRun"> | null = null,
   ) {
@@ -245,8 +246,8 @@ export class Runner {
   /**
    * The mode; for a run briefed with cached detonations, the entries the
    * fold substitutes; for a judge run, the checks the executor ran and the
-   * box it provisioned (decision 161); for a diff run, the build facts it was
-   * briefed with (decision 170).
+   * box it provisioned (decision 161); and for every run, the build facts it
+   * was briefed with (decisions 170, 171).
    */
   private foldOptions(runId: string, run: RunRecord | null): FoldOptions {
     const cached = this.detonations?.forRun(runId) ?? [];

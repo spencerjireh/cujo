@@ -8539,6 +8539,8 @@ against the model's taste and is worth stopping for; a review with no build
 facts is the review this repository posted all week. The block says
 `unavailable`, a line says why, and the review goes out.
 
+*The "diff brief only" half of this is reversed by decision 171.*
+
 Accepted: **one more GitHub request per diff run** for the recursive tree, plus
 one read per config file, each also paying an uncached installation lookup —
 which is why the tree is listed once rather than probed path by path;
@@ -8554,3 +8556,62 @@ manifests, which turns a set difference into JSON-hunk parsing;
 staleness question that needs its own decision; **putting the block on the
 sandbox and judge briefs too**, which is where it goes next but is not what
 this change measures.
+
+## 171. Every review is told how the code is built, and the sandbox settles it
+
+Decision 170 put the build facts on the diff brief and nowhere else. That
+scoping was wrong, and it was wrong in a way the decision itself could have
+caught: `resolveMode` applies the manifest floor **first**
+(`apps/cujo/src/review/mode.ts:35`), so a pull request that touches a
+`package.json` goes to the sandbox. The rule 170 wrote — *this pull request
+adds a dependency to a service that inlines every dependency into a shimless
+ESM bundle* — describes the outage exactly, and every pull request that could
+trip it routes to a review that never saw the block. Only the second trigger,
+an edited bundler config, was reachable, which is why the verification pull
+request (#192) had to edit a `tsup.config.ts` rather than add a dependency.
+
+So the facts are read once per run, above the mode branch, beside
+`readInstructions` — the existing "computed once, used by both reviews"
+precedent and the only place that dominates all three turns. Every run stores
+them, and all three briefs carry them. The cost is one recursive tree request
+on the sandbox path too, which is the smaller half of a run that provisions a
+container.
+
+**What the sandbox adds.** The diff review can only say "check this": it
+cannot know whether a named dependency really ships CommonJS. A run with a box
+installs that dependency anyway, so the gather rubric is told to look at what
+the installed package ships — a `main` with no ESM entry under `exports` or
+`module` — and say whether the risk is real, naming the package and version.
+The judge never installs (its rubric forbids it), so it settles the same
+question from `executed.detonation`, which already holds the resolved version
+for every specifier the pull request added, and otherwise reports the hazard as
+handed. A hazard stops being a question on the one path that can answer it.
+
+**Severity does not move.** `warn` on every path, confirmed or not, even
+though the sandbox review may post `critical`. A CommonJS entry point says the
+bundle *can* break, not that it does; what proves it is the boot, and the boot
+is decision 168's CI step. Letting the confirmation block would be a severity
+bought with evidence that does not reach that far.
+
+**Where it is not.** Not on `JudgeBrief`, whose doc comment defines that type
+as what the judge carries *beyond* the sandbox brief; `build_facts` is now a
+shared key and sits beside `instructions` on both. And not in the rubrics'
+`## Judgment` sections, which `JUDGE.md` states are word for word identical to
+`SKILL.md`'s — the two paths differ in what they can do about a hazard, so the
+difference lives in each rubric's own evidence section.
+
+The read also left `prepare.ts`, which had grown a `Logger` and a `tree`
+dependency for it alone; both are gone again, and the package receives the
+facts rather than fetching them.
+
+Accepted: **one more GitHub request on the sandbox path**; **a rubric
+instruction that can be got wrong** — an agent may misread a package's entry
+points and say a hazard is idle when it is not, which is why the severity does
+not move and why the instruction asks it to name the version it looked at;
+**two rubrics to keep in step** on a block they describe differently.
+
+Rejected: **narrowing the manifest floor** so a dependency-adding pull request
+could stay on the diff path, which trades a real protection for a cheaper
+review; **a `critical` when the sandbox confirms it** (above); **leaving it
+until the detonation-only mode shrinks what the floor sends to the sandbox**,
+which is several slices away and leaves the rule unreachable until then.
