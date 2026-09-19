@@ -217,6 +217,8 @@ export const EVENT_NAMES = [
   // The base tree was not run, because head answered what base was for
   // (decision 169).
   "execute.base.skipped",
+  // The declared install's own exit, which for a week nothing read (dec. 173).
+  "execute.install",
   "execute.finished",
   "execute.failed",
   "sandbox.destroyed",

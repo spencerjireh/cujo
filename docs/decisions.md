@@ -8711,3 +8711,84 @@ daemon open** across requests, whose lifetime nothing here would own;
 **`trace_path`** (above); **wiring the slice into the review in this change**
 — the service is proven against this repository first, which is the order
 build facts took and the reason that landed clean.
+
+## 173. An install whose exit nobody reads is not an install that worked
+
+For a week every judge run on this repository reported `vitest: not found`
+on both trees, and the note in `plan.md` said the declared install "exits 0
+and leaves no `node_modules`". The premise was wrong, and it was wrong in a
+way that made the real cause unreachable.
+
+`sniff.py run` exits 0 **unconditionally** — the wrapped command's exit is a
+field in the JSON it prints, never the process's status. `sniff()` in the
+executor inspects only `timedOut`. And `install()` discarded its result
+entirely: no variable, no branch. The comment above it said a non-zero exit
+"is not the run's failure: it is what the tests will show", which is a
+defensible rule for a test command and the wrong one for an install,
+because what the tests then show — a missing runner — reads exactly like a
+repository that never had one.
+
+So the install's own exit code and stderr were printed on stdout and written
+to `runs/setup.jsonl` on every failed run, and nothing ever read either.
+`runSensed`, twenty lines away in the same file, already contained the
+four-line unwrap that would have surfaced it.
+
+**Head is fatal, base is not.** A head tree that cannot install makes every
+check downstream a measurement of the environment rather than of the pull
+request, so the run ends in `error` naming the declared command, its exit
+code and its stderr tail. A base tree that cannot install is a different
+fact: the pull request may be the thing that repairs it, and ending the run
+would punish it for what it fixes. Base's suite is skipped, the outcome
+carries `base_not_installed`, and the coverage line reads "base did not
+install, nothing to compare" — a third state beside decision 169's "base
+not run, head was clean", and deliberately not folded into it. A comparison
+that could not be made must not read like one that came back clean
+(decisions 20, 54).
+
+**What the reproduction settled, and what it did not.** In the sandbox image,
+as the `cujo` user, the declared install succeeds: exit 0, `node_modules`
+present, 1m21s, corepack downloading pnpm without complaint — both bare and
+wrapped in `sniff.py run` exactly as the executor wraps it. So the image,
+the command, the wrapping and the corepack bootstrap are all exonerated.
+What could not be reproduced here is the box's egress path, where the only
+route out is the in-box logging proxy relaying to the filtering gateway; in
+production the install took five minutes against that 1m21s, which is the
+shape of retries against something unreachable. The cause is now narrowed
+to that path and, more to the point, the next failure reports itself.
+
+## The same change: the report is assembled outside the box (#197)
+
+The extras rode into the sandbox as one argument to `sniff.py report`, and
+`sandbox-mcp` caps every argv element at 4096 characters (decision 113's
+"one tool call cannot hand a runtime an unbounded argument"). A real test
+suite passes that without trying: the payload holds the union of failing
+test ids **three times** — under `base`, under `head`, and in
+`base_pass_head_fail` — so forty failures at sixty characters is already
+over. The smoke extras are worse and bounded by nothing useful: thirty-two
+endpoints with a body tail each, plus a boot log, is ~26 KB.
+
+It has never fired until now only because the install always failed, which
+kept both maps at one entry. Two defects, each hiding the other.
+
+The executor already holds the envelope and the extras, so it merges them
+itself, spread in the order `cmd_report` uses so the envelope's own keys
+still win and the extras still cannot overwrite what the sensors observed.
+The payload stops crossing a boundary that has a limit rather than being
+made to fit one, and this covers tests, smoke and detonation together
+rather than the one instance that was reported.
+
+`sandbox/cujo_sniff/` does not change. `--extra` stays exactly as it is for
+the gather path, where a check sub-agent writes the extras and an argument
+is the only door it has.
+
+Accepted: **runs that now end in `error` where they used to post a review**
+— correctly, since those reviews were reporting an empty environment;
+**two places that build a report** until the gather path is retired;
+**a third coverage state** to explain.
+
+Rejected: **raising the 4096 cap**, which moves the failure to the next
+limit and keeps a report's size tied to a command line; **writing the
+extras to a file in the box**, which works but adds a door and leaves the
+data crossing for no reason; **inferring the install failed** from a suite
+that failed identically on both trees, which is a guess where an exit code
+is a fact.

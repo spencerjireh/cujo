@@ -24,6 +24,12 @@ export interface SuiteOutcome {
   base_pass_head_fail: string[];
   /** Base was never run, because head was clean and could not need it (decision 169). */
   base_not_run?: true;
+  /**
+   * Base was needed and could not be prepared: its declared install failed
+   * (decision 173). Head's own evidence stands; there is nothing to compare
+   * it against, and that is a different fact from base having been skipped.
+   */
+  base_not_installed?: true;
 }
 
 /** The whole suite, when no runner named a test. */

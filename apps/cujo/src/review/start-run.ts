@@ -461,11 +461,18 @@ function coverageNote(report: unknown): string {
     base_pass_head_fail?: unknown;
     endpoints?: unknown;
     base_not_run?: unknown;
+    base_not_installed?: unknown;
   };
   // Base is run only when head gives it something to answer (decision 169),
   // and a line that did not say so would read as a comparison that came back
-  // clean.
-  const skipped = r.base_not_run === true ? "base not run, head was clean: " : "";
+  // clean. A base that could not be installed is a third state again: it was
+  // wanted and could not be had (decision 173).
+  const skipped =
+    r.base_not_installed === true
+      ? "base did not install, nothing to compare: "
+      : r.base_not_run === true
+        ? "base not run, head was clean: "
+        : "";
   if (Array.isArray(r.endpoints)) {
     const rows = r.endpoints as { base_status?: unknown; head_status?: unknown }[];
     const answered = rows.filter((row) => typeof row.head_status === "number").length;
