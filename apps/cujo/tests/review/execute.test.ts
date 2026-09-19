@@ -15,7 +15,14 @@ interface Call {
 
 /** A sandbox that answers each sniff command the way `sniff.py` would. */
 function fakeSandbox(
-  over: { prepareOk?: boolean; headExit?: number; reportExit?: number; smokeBroken?: boolean } = {},
+  over: {
+    prepareOk?: boolean;
+    headExit?: number;
+    reportExit?: number;
+    smokeBroken?: boolean;
+    /** The declared install's own exit, per tree (decision 173). */
+    installExit?: Record<string, number>;
+  } = {},
 ) {
   const calls: Call[] = [];
   const destroyed: string[] = [];
@@ -47,7 +54,17 @@ function fakeSandbox(
     if (sub === "run") {
       const tree = argv[argv.indexOf("--cwd") + 1];
       const check = argv[argv.indexOf("--check") + 1];
-      if (check === "setup") return done(JSON.stringify({ check: "setup", exit: 0 }));
+      if (check === "setup") {
+        const exit = over.installExit?.[tree ?? ""] ?? 0;
+        return done(
+          JSON.stringify({
+            check: "setup",
+            exit,
+            stdout_tail: "",
+            stderr_tail: exit === 0 ? "" : "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen",
+          }),
+        );
+      }
       const exit = tree === "/work/head" ? (over.headExit ?? 0) : 0;
       const tail =
         exit === 0 ? "3 passed" : "FAILED tests/test_total.py::test_bulk - assert\n1 failed";
@@ -84,11 +101,12 @@ function fakeSandbox(
       );
     }
     if (sub === "report") {
+      // The envelope, and only the envelope. The extras are merged on the
+      // trusted side now (decision 173), so the box is never told them and
+      // this fake cannot read them back out of argv.
       const check = argv[argv.indexOf("--check") + 1];
-      const extra = JSON.parse(argv[argv.indexOf("--extra") + 1] ?? "{}") as object;
       return done(
         JSON.stringify({
-          ...extra,
           schema_version: 1,
           check,
           runs: [{ exit: 0 }, { exit: 1 }],
@@ -182,7 +200,8 @@ describe("executeDeclared", () => {
       "-c",
       "python -m pytest -q",
     ]);
-    expect(argvs[4]?.slice(0, 4)).toEqual(["report", "--check", "tests", "--extra"]);
+    // No payload rides with it: the extras are merged outside the box.
+    expect(argvs[4]).toEqual(["report", "--check", "tests"]);
     // Base is never touched: a test head passed cannot be one head failed
     // (decision 169).
     expect(argvs.some((argv) => argv.includes("/work/base"))).toBe(false);
@@ -212,6 +231,60 @@ describe("executeDeclared", () => {
     expect(lines.filter((l) => l.event === "execute.base.skipped")).toMatchObject([
       { check: "tests", reason: "head_clean" },
     ]);
+  });
+
+  it("ends the run when head's declared install fails, naming the command (decision 173)", async () => {
+    // `sniff.py run` exits 0 whatever the wrapped command did, so for a week
+    // this read as a successful install and the suite that followed reported
+    // `vitest: not found` — indistinguishable from a repo with no runner.
+    const box = fakeSandbox({ installExit: { "/work/head": 1 } });
+    await expect(
+      executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, policy),
+    ).rejects.toThrow(/the declared install exited 1/);
+    // And it says which command, and what the command said.
+    await expect(
+      executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, policy),
+    ).rejects.toThrow(/ERR_PNPM_OUTDATED_LOCKFILE/);
+    // Nothing downstream ran: no suite on a tree with no dependencies.
+    const checks = box.calls
+      .map((c) => c.request.argv)
+      .filter((argv) => argv[2] === "run")
+      .map((argv) => argv[argv.indexOf("--check") + 1]);
+    expect(checks).not.toContain("tests");
+  });
+
+  it("carries on when base's install fails, and says base was not comparable (decision 173)", async () => {
+    // A pull request that repairs a broken lockfile must not end in error
+    // for the very thing it fixes.
+    const box = fakeSandbox({ headExit: 1, installExit: { "/work/base": 1 } });
+    const execution = await executeDeclared(
+      { sandbox: box.sandbox, log, stepTimeoutMs: 1000, now },
+      input,
+      policy,
+    );
+    const report = execution.executed[0]?.report as Record<string, unknown>;
+    expect(report).toMatchObject({ base_not_installed: true, base: {} });
+    // Base's suite never ran, because there was nothing to run it against.
+    const trees = box.calls
+      .map((c) => c.request.argv)
+      .filter((argv) => argv[2] === "run")
+      .map((argv) => [argv[argv.indexOf("--check") + 1], argv[argv.indexOf("--cwd") + 1]]);
+    expect(trees).toEqual([
+      ["setup", "/work/head"],
+      ["tests", "/work/head"],
+      ["setup", "/work/base"],
+    ]);
+  });
+
+  it("puts no payload on a command line, whatever the suite did (decision 173, #197)", async () => {
+    // Every argv element is capped at 4096 characters by `sandbox-mcp`, and
+    // a real suite's outcome is far larger than that. The extras are merged
+    // outside the box, so the cap is not something the payload has to fit.
+    const box = fakeSandbox({ headExit: 1 });
+    await executeDeclared({ sandbox: box.sandbox, log, stepTimeoutMs: 1000, now }, input, policy);
+    const longest = Math.max(...box.calls.flatMap((c) => c.request.argv.map((arg) => arg.length)));
+    expect(longest).toBeLessThan(4096);
+    expect(box.calls.some((c) => c.request.argv.includes("--extra"))).toBe(false);
   });
 
   it("installs and runs base once head fails, and names the regression head introduced", async () => {

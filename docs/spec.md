@@ -194,7 +194,15 @@ serve every request, on base too for the `smoke` envelope (decision 162); then s
 `executed: {tests: {report, truncated}, smoke?: {…}, detonation?: {…}}` and
 a `coverage` prefilled with what ran, plus the `build_facts` every brief
 carries — and neither
-`clone_url` nor `staged`, since the box is prepared. The parent reads the
+`clone_url` nor `staged`, since the box is prepared. The executor reads the
+declared install's own exit code, which `sniff.py run` reports as a field
+rather than as its status (decision 173): a **head** install that exits
+non-zero ends the run in `error` naming the command and its tail, since
+every check after it would measure the environment; a **base** install that
+exits non-zero skips base's suite, marks the outcome `base_not_installed`,
+and lets the review post on head's own evidence. Each check's extras are
+merged into its envelope **on the trusted side**, under the envelope's own
+keys, so no report's size is bounded by an argument's length. The parent reads the
 evidence, spawns `probes` by default, and posts; `apps/cujo` destroys the box when the turn ends. Any
 other run is a **gather run**, the path below, on `agent/SKILL.md`. Logged as
 `run.path.resolved` with `path_kind` and a reason (`declared`, `undeclared`,

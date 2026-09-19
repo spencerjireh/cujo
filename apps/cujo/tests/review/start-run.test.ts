@@ -165,11 +165,9 @@ function harness(over: {
                   ? { ok: true, env: { CUJO_SANDBOX: "1" } }
                   : sub === "report"
                     ? {
-                        // `sniff.py report` spreads the executor's `--extra`
-                        // under the envelope, so the fake does too.
-                        ...(JSON.parse(
-                          request.argv[request.argv.indexOf("--extra") + 1] ?? "{}",
-                        ) as object),
+                        // Just the envelope: the extras are merged on the
+                        // trusted side now (decision 173), so nothing rides
+                        // into the box for the fake to read back.
                         check: "tests",
                         runs: [],
                         derived: {},

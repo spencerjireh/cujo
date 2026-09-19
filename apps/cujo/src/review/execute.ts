@@ -155,7 +155,7 @@ export async function executeDeclared(
         });
       }
       const detonationReport = await sniff(deps, box.sandboxId, "report detonation", {
-        argv: [...SNIFF, "report", "--check", "detonation", "--extra", "{}"],
+        argv: [...SNIFF, "report", "--check", "detonation"],
         env,
         timeoutMs: SETUP_TIMEOUT_MS,
       });
@@ -170,12 +170,23 @@ export async function executeDeclared(
       });
     }
 
-    // The install, at the tree root, sensed under `--check setup` so no
-    // check's report carries it (the rubric's own rule). A non-zero exit is
-    // not the run's failure: it is what the tests will show.
-    const install = async (tree: string) => {
-      if (!policy.install) return;
-      await sniff(deps, box.sandboxId, `install ${tree}`, {
+    /**
+     * The install, at the tree root, sensed under `--check setup` so no
+     * check's report carries it (the rubric's own rule).
+     *
+     * Its exit code is read, which for a week it was not (decision 173).
+     * `sniff.py run` exits 0 whatever the wrapped command did — the command's
+     * own exit is data inside the JSON it prints — and this discarded that
+     * JSON, so an install that failed was indistinguishable from one that
+     * worked. What the tests then showed was `vitest: not found`, which reads
+     * exactly like a repository with no test runner.
+     *
+     * Answers with the wrapped command's own exit, or null when the policy
+     * declares no install.
+     */
+    const install = async (tree: string): Promise<{ exit: number; tail: string } | null> => {
+      if (!policy.install) return null;
+      const result = await sniff(deps, box.sandboxId, `install ${tree}`, {
         argv: [
           ...SNIFF,
           "run",
@@ -194,6 +205,13 @@ export async function executeDeclared(
         env,
         timeoutMs: deps.stepTimeoutMs,
       });
+      const report = result.json;
+      // The same unwrap `runSensed` does, for the same reason.
+      const exit = typeof report?.exit === "number" ? report.exit : (result.exitCode ?? -1);
+      const stderr = typeof report?.stderr_tail === "string" ? report.stderr_tail : result.stderr;
+      const stdout = typeof report?.stdout_tail === "string" ? report.stdout_tail : result.stdout;
+      deps.log.info("execute.install", { path: tree, exit_code: exit });
+      return { exit, tail: lastLines(stderr || stdout) };
     };
 
     // Head first, and base only when head is not clean (decision 169). A
@@ -201,7 +219,18 @@ export async function executeDeclared(
     // `base_pass_head_fail` empty whatever base would have said, and the
     // second install and second suite buy nothing.
     const testsStartedAt = now().toISOString();
-    await install(HEAD);
+    const headInstall = await install(HEAD);
+    if (headInstall && headInstall.exit !== 0) {
+      // Nothing downstream is worth measuring: a suite run against a tree
+      // with no dependencies reports what the environment did, not what the
+      // pull request did (decision 173).
+      throw new ExecuteError(
+        "install head",
+        `the declared install exited ${headInstall.exit}: ${policy.install}${
+          headInstall.tail ? ` -- ${headInstall.tail}` : ""
+        }`,
+      );
+    }
     const head = await runSensed(deps, box.sandboxId, "tests", HEAD, policy.test, env);
     const headRun = { exit: head.exitCode, stdout: head.stdout, stderr: head.stderr };
     let extra: ReturnType<typeof suiteOutcome>;
@@ -209,18 +238,26 @@ export async function executeDeclared(
       deps.log.info("execute.base.skipped", { check: "tests", reason: "head_clean" });
       extra = headOnlyOutcome(headRun);
     } else {
-      await install(BASE);
-      const base = await runSensed(deps, box.sandboxId, "tests", BASE, policy.test, env);
-      // The extras the sub-agent used to write by reading the output,
-      // computed here from the same output; `sniff.py report` spreads them
-      // under the envelope's own keys, which nothing here can overwrite.
-      extra = suiteOutcome(
-        { exit: base.exitCode, stdout: base.stdout, stderr: base.stderr },
-        headRun,
-      );
+      const baseInstall = await install(BASE);
+      if (baseInstall && baseInstall.exit !== 0) {
+        // Not fatal, and deliberately so: a pull request whose whole purpose
+        // is repairing a broken lockfile would otherwise end in error for
+        // the very thing it fixes. Head's own evidence still stands; there
+        // is simply nothing to compare it against (decision 173).
+        deps.log.info("execute.base.skipped", { check: "tests", reason: "base_install_failed" });
+        extra = { ...headOnlyOutcome(headRun), base_not_installed: true };
+      } else {
+        const base = await runSensed(deps, box.sandboxId, "tests", BASE, policy.test, env);
+        // The extras the sub-agent used to write by reading the output,
+        // computed here from the same output.
+        extra = suiteOutcome(
+          { exit: base.exitCode, stdout: base.stdout, stderr: base.stderr },
+          headRun,
+        );
+      }
     }
     const reported = await sniff(deps, box.sandboxId, "report tests", {
-      argv: [...SNIFF, "report", "--check", "tests", "--extra", JSON.stringify(extra)],
+      argv: [...SNIFF, "report", "--check", "tests"],
       env,
       timeoutMs: SETUP_TIMEOUT_MS,
     });
@@ -229,7 +266,7 @@ export async function executeDeclared(
     }
     executed.push({
       check: "tests",
-      report: reported.json,
+      report: merged(reported.json, extra),
       startedAt: testsStartedAt,
       endedAt: now().toISOString(),
     });
@@ -280,17 +317,7 @@ export async function executeDeclared(
         await boot("base", BASE);
       }
       const smokeReport = await sniff(deps, box.sandboxId, "report smoke", {
-        argv: [
-          ...SNIFF,
-          "report",
-          "--check",
-          "smoke",
-          "--extra",
-          JSON.stringify({
-            ...smokeExtras(entries),
-            ...(headClean ? { base_not_run: true } : {}),
-          }),
-        ],
+        argv: [...SNIFF, "report", "--check", "smoke"],
         env,
         timeoutMs: SETUP_TIMEOUT_MS,
       });
@@ -299,7 +326,10 @@ export async function executeDeclared(
       }
       executed.push({
         check: "smoke",
-        report: smokeReport.json,
+        report: merged(smokeReport.json, {
+          ...smokeExtras(entries),
+          ...(headClean ? { base_not_run: true } : {}),
+        }),
         startedAt: smokeStartedAt,
         endedAt: now().toISOString(),
       });
@@ -376,6 +406,33 @@ function smokeExtras(entries: {
       .filter((part): part is string => typeof part === "string" && part.length > 0)
       .join("\n"),
   };
+}
+
+/**
+ * The envelope with this check's extras under it (decision 173).
+ *
+ * These used to ride into the box as one argument to `sniff.py report`, and
+ * `sandbox-mcp` caps every argv element at 4096 characters — which a real
+ * test suite passes without trying, and a smoke run with a chatty boot log
+ * passes twice over. The executor already holds the envelope and the extras;
+ * merging them here means the payload never crosses a boundary that has a
+ * limit, rather than being made to fit one.
+ *
+ * `--extra` stays on `sniff.py` for the gather path, where a check sub-agent
+ * writes the extras and an argument is the only door it has.
+ *
+ * Spread in the same order `cmd_report` uses, so the envelope's own keys —
+ * `check`, `runs`, `derived`, `schema_version` — still win, and the extras
+ * still cannot overwrite what the sensors observed.
+ */
+function merged(envelope: Record<string, unknown>, extra: object): Record<string, unknown> {
+  return { ...extra, ...envelope };
+}
+
+/** The tail of a failure, short enough for a run's error line. */
+function lastLines(text: string, lines = 3, max = 400): string {
+  const kept = text.trimEnd().split("\n").slice(-lines).join(" | ").trim();
+  return kept.length > max ? `${kept.slice(0, max)}...` : kept;
 }
 
 /** The output of the wrapped command inside `sniff.py run`, as its report says. */
