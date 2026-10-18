@@ -6,7 +6,6 @@ import { Legend } from "@/components/board/Legend";
 import { ReadoutRack } from "@/components/board/ReadoutRack";
 import { Record } from "@/components/board/Record";
 import { SpecimenKey } from "@/components/board/SpecimenKey";
-import { HomeMark } from "@/components/brand/HomeMark";
 import { POLL_LIVE_MS, POLL_QUIET_MS, runsListOptions } from "@/lib/api/queries";
 import { boardMetrics } from "@/lib/board/metrics";
 import { useFocusedRun } from "@/lib/board/store";
@@ -121,11 +120,6 @@ export function RunsView() {
           pinned ? "z-0 md:sticky md:top-0 md:h-[100svh]" : ""
         }`}
       >
-        {/* On the chamber, so it takes the pinned viewport tokens rather than
-            the page's: this surface is a screen and stays dark in a lit room.
-            Inside the section and not above it, because it is positioned
-            against the chamber and scrolls away with it. */}
-        <HomeMark tone="chamber" />
         {/* From `md` up, and only there. Below it there is no drawing at all:
             the record is a long thin thing, the same picture turned sideways in
             a hundred-pixel margin was a column of dots, and a phone should not

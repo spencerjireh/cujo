@@ -7,13 +7,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ChecksTimeline } from "./ChecksTimeline";
 import { EvidenceLog } from "./EvidenceLog";
+import { RunFold } from "./RunFold";
 import { RunHeader } from "./RunHeader";
 import { RunProvenance } from "./RunProvenance";
 
 /**
- * Timeline first: the lanes are the page's thesis. Then the evidence log
- * (decision 154), which is the lanes expanded in order — what each check ran,
- * saw and concluded, then the review — and last the operator's context.
+ * The verdict first, with what it rests on and what to do (decision 175): most
+ * readers arrive from a link in a GitHub review with one question. Then three
+ * folds, closed until asked for: the timeline, the evidence log (decision
+ * 154), which is the lanes expanded in order, and the run's details. Picking a
+ * lane on the timeline opens the log at that check.
  */
 export function RunView({ id, plane = "public" }: { id: string; plane?: Plane }) {
   const { data: run, error } = useQuery(runOptions(id, plane));
@@ -32,6 +35,8 @@ export function RunView({ id, plane = "public" }: { id: string; plane?: Plane })
    * it again means it again.
    */
   const [picked, setPicked] = useState<{ check: string; nonce: number } | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
 
   if (error) {
     return (
@@ -43,10 +48,10 @@ export function RunView({ id, plane = "public" }: { id: string; plane?: Plane })
   if (!run) return <p className="text-sm text-fg-muted">Loading the run…</p>;
 
   return (
-    <article className="flex flex-col gap-10 pb-4">
+    <article className="flex flex-col pb-4">
       <RunHeader run={run} />
       {streamFailed ? (
-        <p className="-mt-6 text-xs text-fg-muted">
+        <p className="-mt-6 mb-6 text-xs text-fg-muted">
           Live updates are unavailable right now. Reload to see the latest.
         </p>
       ) : null}
@@ -55,19 +60,36 @@ export function RunView({ id, plane = "public" }: { id: string; plane?: Plane })
           sentence says what the page would otherwise leave a reader to infer
           from a blank. */}
       {run.mode === "diff" ? (
-        <p className="max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
+        <p className="mb-6 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
           A diff review. No check ran; the findings are the model's reading of the diff against the
           repository's standards, and a finding here is at most a warning.
         </p>
       ) : (
-        <ChecksTimeline
-          checks={run.checks}
-          findings={run.findings}
-          setup={run.setup}
-          onSelect={(check) => setPicked((was) => ({ check, nonce: (was?.nonce ?? 0) + 1 }))}
-        />
+        <RunFold
+          title="Checks timeline"
+          summary={`${run.checks.filter((c) => c.isCheck).length} checks on one time axis`}
+          open={timelineOpen}
+          onOpenChange={setTimelineOpen}
+        >
+          <ChecksTimeline
+            checks={run.checks}
+            findings={run.findings}
+            setup={run.setup}
+            onSelect={(check) => {
+              setLogOpen(true);
+              setPicked((was) => ({ check, nonce: (was?.nonce ?? 0) + 1 }));
+            }}
+          />
+        </RunFold>
       )}
-      <EvidenceLog run={run} picked={picked} />
+      <RunFold
+        title="What happened"
+        summary="Each check's commands, what the sensors saw, and the review as posted"
+        open={logOpen}
+        onOpenChange={setLogOpen}
+      >
+        <EvidenceLog run={run} picked={picked} />
+      </RunFold>
       {/* Last, and folded: what the run cost and what produced it are context
           for the verdict, never an argument for it, and they are the
           operator's context rather than the author's. */}

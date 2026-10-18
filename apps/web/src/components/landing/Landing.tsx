@@ -18,12 +18,9 @@ import type { ReactNode } from "react";
  * no corner mark above: the one page where the name is already the first
  * thing would otherwise say it twice.
  *
- * `reader` is decided by the page from the request's session. An owner's
- * first two links are their own pages; a visitor's are the App and the
- * manual. The manual stays on both, because it answers the question either
- * of them has next.
+ * Only a visitor reads it: an owner is sent to their activity (decision 175).
  */
-export function Landing({ reader }: { reader: "visitor" | "owner" }) {
+export function Landing() {
   return (
     <article>
       <header className="mb-14">
@@ -42,25 +39,10 @@ export function Landing({ reader }: { reader: "visitor" | "owner" }) {
           </Lead>
         </div>
         <nav aria-label="Where to go" className="mt-8 flex flex-wrap items-center gap-3">
-          {reader === "owner" ? (
-            <>
-              <Primary href="/repos">Your repositories</Primary>
-              <Secondary href="/instance">Instance</Secondary>
-              <Link
-                href="/docs"
-                className="px-2 font-mono text-xs text-fg-muted underline decoration-line underline-offset-4 hover:text-accent"
-              >
-                Read the manual
-              </Link>
-            </>
-          ) : (
-            <>
-              <Primary href={INSTALL_URL} external>
-                Install the App
-              </Primary>
-              <Secondary href="/docs">Read the manual</Secondary>
-            </>
-          )}
+          <Primary href={INSTALL_URL} external>
+            Install the App
+          </Primary>
+          <Secondary href="/docs">Read the manual</Secondary>
         </nav>
       </header>
 

@@ -1,10 +1,9 @@
 "use client";
 
-import { Chevron } from "@/components/icons/Chevron";
 import type { Run } from "@/lib/api/types";
 import { absoluteTime, shortSha } from "@/lib/format";
-import * as Collapsible from "@radix-ui/react-collapsible";
 import { type ReactNode, useState } from "react";
+import { RunFold } from "./RunFold";
 import { RunLedger } from "./RunLedger";
 import { ThreadLedger } from "./ThreadLedger";
 
@@ -87,53 +86,44 @@ export function RunProvenance({ run }: { run: Run }) {
     .join(" · ");
 
   return (
-    <section aria-label="Operator details">
-      <h2 className="mb-1 text-lg">Operator details</h2>
+    <RunFold title="Run details" summary={summary} open={open} onOpenChange={setOpen}>
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
         What produced this verdict. None of it authorizes anything: the harness these name answers
         only on its own network, and a block is lifted on the pull request.
       </p>
-      <Collapsible.Root open={open} onOpenChange={setOpen}>
-        <Collapsible.Trigger className="-mx-2 flex w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-sm border-t border-line px-2 py-3 text-left hover:bg-bg-raised">
-          <span className="wrap-anywhere font-mono text-xs text-fg-muted">
-            {summary || "Operator details"}
-          </span>
-          <Chevron open={open} className="text-fg-muted" />
-        </Collapsible.Trigger>
-        <Collapsible.Content className="pb-4">
-          {/* Inside the fold with the handles, and above them: the cost is
+      <div className="pb-4">
+        {/* Inside the fold with the handles, and above them: the cost is
               the operator's number a reader is likeliest to want, and the
               handles are the ones they copy. */}
-          <RunLedger usage={run.usage} budget={run.budget_tokens} />
-          <ThreadLedger ledger={run.ledger} />
-          <dl>
-            {run.mode ? <Entry label="mode">{run.mode}</Entry> : null}
-            {typeof run.budget_tokens === "number" ? (
-              <Entry label="budget">{run.budget_tokens.toLocaleString("en-US")} tokens</Entry>
-            ) : null}
-            {run.model ? <Entry label="model">{run.model}</Entry> : null}
-            {run.rubric_sha256 ? <Entry label="rubric">{run.rubric_sha256}</Entry> : null}
-            {run.session_id ? <Entry label="session">{run.session_id}</Entry> : null}
-            {run.turn_ids && run.turn_ids.length > 0 ? (
-              <Entry label={run.turn_ids.length === 1 ? "turn" : "turns"}>
-                {run.turn_ids.join(", ")}
-              </Entry>
-            ) : null}
-            {run.delivery_id ? <Entry label="delivery">{run.delivery_id}</Entry> : null}
-            {setup ? (
-              <>
-                <Stamp label="turn created" iso={setup.turnCreatedAt} />
-                {/* Absent on a re-run, and that absence is the fact: the event
+        <RunLedger usage={run.usage} budget={run.budget_tokens} />
+        <ThreadLedger ledger={run.ledger} />
+        <dl>
+          {run.mode ? <Entry label="mode">{run.mode}</Entry> : null}
+          {typeof run.budget_tokens === "number" ? (
+            <Entry label="budget">{run.budget_tokens.toLocaleString("en-US")} tokens</Entry>
+          ) : null}
+          {run.model ? <Entry label="model">{run.model}</Entry> : null}
+          {run.rubric_sha256 ? <Entry label="rubric">{run.rubric_sha256}</Entry> : null}
+          {run.session_id ? <Entry label="session">{run.session_id}</Entry> : null}
+          {run.turn_ids && run.turn_ids.length > 0 ? (
+            <Entry label={run.turn_ids.length === 1 ? "turn" : "turns"}>
+              {run.turn_ids.join(", ")}
+            </Entry>
+          ) : null}
+          {run.delivery_id ? <Entry label="delivery">{run.delivery_id}</Entry> : null}
+          {setup ? (
+            <>
+              <Stamp label="turn created" iso={setup.turnCreatedAt} />
+              {/* Absent on a re-run, and that absence is the fact: the event
                     is session-scoped, so a second run on the same pull request
                     never sees one because the sandbox was already there. */}
-                <Stamp label="sandbox created" iso={setup.sandboxCreatedAt} />
-                <Stamp label="agent started" iso={setup.agentStartedAt} />
-                <Stamp label="first check" iso={setup.firstCheckAt} />
-              </>
-            ) : null}
-          </dl>
-        </Collapsible.Content>
-      </Collapsible.Root>
-    </section>
+              <Stamp label="sandbox created" iso={setup.sandboxCreatedAt} />
+              <Stamp label="agent started" iso={setup.agentStartedAt} />
+              <Stamp label="first check" iso={setup.firstCheckAt} />
+            </>
+          ) : null}
+        </dl>
+      </div>
+    </RunFold>
   );
 }

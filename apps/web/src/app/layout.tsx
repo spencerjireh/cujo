@@ -1,6 +1,6 @@
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Mark } from "@/components/brand/Mark";
-import { SessionButtons } from "@/components/owner/SessionButtons";
+import { SiteHeader } from "@/components/shell/SiteHeader";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
@@ -13,7 +13,9 @@ import "./globals.css";
 // name collision would resolve by stylesheet order. globals.css maps these.
 const display = Bricolage_Grotesque({
   subsets: ["latin"],
-  weight: ["700"],
+  // 400 and 500 are the working pages' UI face (brand.md, decision 175); 700
+  // stays the display weight.
+  weight: ["400", "500", "700"],
   variable: "--font-display-src",
   display: "swap",
 });
@@ -79,13 +81,12 @@ const SOURCE = [
  * carry the scope, the mechanism and the credit at once and so said none of
  * them.
  *
- * The theme control lives here and nowhere else now. It had a second home in
- * the header, and the two agreed because the choice lives in
- * `lib/theme-store.ts` rather than inside either of them. That store is still
- * the right shape and is now load-bearing for a different reason: this control
- * is at the end of a long page, so it reads the document's state rather than
- * remembering its own, and arriving here after a theme was set elsewhere — a
- * system change, another tab — must not show a control claiming otherwise.
+ * The theme control lives here and not in the header (decision 175): it is
+ * set once and rarely again, and the bar is for getting around. The choice
+ * lives in `lib/theme-store.ts`, so this control reads the document's state
+ * rather than remembering its own, and arriving here after a theme was set
+ * elsewhere — a system change, another tab — must not show a control
+ * claiming otherwise. Sign-in and the owner's pages moved to the header.
  */
 export function SiteFooter() {
   return (
@@ -154,9 +155,6 @@ export function SiteFooter() {
           <Link href="/docs/install" className={FOOTER_BUTTON}>
             Install the App
           </Link>
-          {/* Sign in, or who is signed in, for the owner's pages (decision
-              156). Asked on mount, so the layout stays static. */}
-          <SessionButtons className={FOOTER_BUTTON} />
           <ThemeToggle />
         </div>
       </div>
@@ -180,16 +178,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="min-h-screen bg-bg text-fg">
         <Providers>
-          {/* No bar. It held a wordmark and a second theme control, and cost
-              the chamber the top of the window to do it — the board's whole
-              argument is an instrument, and the instrument was starting below
-              a rule. What replaced it is `HomeMark`, placed by each page
-              because the mark takes its colour from the ground it sits on and
-              only the page knows which ground that is; it goes home, which is
-              the landing (decision 160), and the board is at `/galaxy`. `main`
-              keeps no measure of its own, because the chamber runs the full
-              width; a page that wants the column applies it itself. */}
-          <div className="flex min-h-screen flex-col">
+          {/* The bar is back (decision 175): without it an owner's pages
+              could be reached only from the landing or the footer. It is a
+              client component that asks who is reading, so this layout stays
+              static. On `/galaxy` it floats over the chamber, which still
+              takes the whole window, so this box is its positioned ancestor.
+              `main` keeps no measure of its own, because the chamber runs the
+              full width; a page that wants the column applies it itself. */}
+          <div className="relative flex min-h-screen flex-col">
+            <SiteHeader />
             <main className="flex-1">{children}</main>
             <SiteFooter />
           </div>

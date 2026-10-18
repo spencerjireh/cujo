@@ -15,7 +15,7 @@ import type { MetadataRoute } from "next";
  * cannot be found — somebody deciding whether to point Cujo at their repository
  * is not holding a link to it yet. The landing at `/` is the second exception
  * for the same reason (decision 160): `/$` is the root exactly, so `/galaxy`,
- * `/runs`, `/repos` and `/instance` stay under the `Disallow`. `Allow` is more
+ * `/runs`, `/activity`, `/repos` and `/settings` stay under the `Disallow`. `Allow` is more
  * specific than `Disallow`, so a crawler that follows the standard takes the
  * two and leaves the runs; the pages themselves restate the permission in
  * their metadata, which is what a crawler that ignores this file reads instead.

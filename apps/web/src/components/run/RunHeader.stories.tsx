@@ -10,7 +10,8 @@ export default meta;
 
 type Story = StoryObj<typeof RunHeader>;
 
-export const AwaitingApproval: Story = { args: { run: run() } };
+/** Detonation caught the exfiltration, and the tests failed on head. */
+export const Exfiltration: Story = { args: { run: run() } };
 
 export const Clean: Story = {
   args: {

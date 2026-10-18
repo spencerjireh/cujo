@@ -153,12 +153,12 @@ export class PrChecks {
       status: "completed",
       conclusion: "neutral",
       detailsUrl: this.deps.links.publicBaseUrl
-        ? `${this.deps.links.publicBaseUrl}/instance`
+        ? `${this.deps.links.publicBaseUrl}/settings`
         : null,
       output: {
         title: "Cujo is not configured",
         summary:
-          "No model is configured on this Cujo instance, so this commit was not reviewed. Its owner chooses one on the board.",
+          "No model is configured on this Cujo instance, so this commit was not reviewed. Its owner chooses one on the Settings page.",
       },
     };
     this.tail = this.tail.then(async () => {

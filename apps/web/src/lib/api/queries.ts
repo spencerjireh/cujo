@@ -2,7 +2,14 @@ import { queryOptions } from "@tanstack/react-query";
 import { fetchRun, fetchRuns } from "./client";
 import { runKeys } from "./keys";
 import type { Plane } from "./owner";
-import { fetchOwnerRun, fetchOwnerRuns } from "./owner-client";
+import {
+  fetchBot,
+  fetchHealth,
+  fetchInstanceSettings,
+  fetchOwnerRun,
+  fetchOwnerRuns,
+  fetchRepositories,
+} from "./owner-client";
 import { ownerKeys } from "./owner-keys";
 import { type RunList, isLive } from "./types";
 
@@ -68,5 +75,42 @@ export function ownerRunsOptions() {
     },
     refetchIntervalInBackground: false,
     staleTime: 2_000,
+  });
+}
+
+/** The repositories the App holds (decision 156). */
+export function ownerRepositoriesOptions() {
+  return queryOptions({
+    queryKey: ownerKeys.repositories(),
+    queryFn: ({ signal }) => fetchRepositories(undefined, signal),
+    staleTime: 30_000,
+  });
+}
+
+/** The instance settings (decision 157). */
+export function ownerInstanceOptions() {
+  return queryOptions({
+    queryKey: ownerKeys.instance(),
+    queryFn: ({ signal }) => fetchInstanceSettings(undefined, signal),
+    staleTime: 30_000,
+  });
+}
+
+/** The App as GitHub sees it. Not retried: a GitHub that did not answer is shown as such. */
+export function ownerBotOptions() {
+  return queryOptions({
+    queryKey: ownerKeys.bot(),
+    queryFn: ({ signal }) => fetchBot(undefined, signal),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** Whether the process can take a run, asked again every 15 s. */
+export function ownerHealthOptions() {
+  return queryOptions({
+    queryKey: ownerKeys.health(),
+    queryFn: ({ signal }) => fetchHealth(undefined, signal),
+    refetchInterval: 15_000,
   });
 }

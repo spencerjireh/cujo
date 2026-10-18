@@ -1,5 +1,5 @@
 import type { RepositorySettingsView } from "@/lib/api/owner-client";
-import { describeInstructions, describeMode } from "@/lib/owner/settings";
+import { describeInstructions, describeMode, effectiveMode } from "@/lib/owner/settings";
 import { describe, expect, it } from "vitest";
 
 function view(over: Partial<RepositorySettingsView> = {}): RepositorySettingsView {
@@ -14,7 +14,7 @@ function view(over: Partial<RepositorySettingsView> = {}): RepositorySettingsVie
 
 describe("describeMode (decision 155)", () => {
   it("names the layer that wins and the one it shadows", () => {
-    expect(describeMode(view())).toContain("follows the instance");
+    expect(describeMode(view())).toContain("uses the default: Full review");
     expect(
       describeMode(
         view({
@@ -22,7 +22,7 @@ describe("describeMode (decision 155)", () => {
           effective: { mode: { value: "diff", source: "board" }, instructions: null },
         }),
       ),
-    ).toContain("Set here: the next run will read it");
+    ).toContain("Set here: Diff only");
     const shadowed = describeMode(
       view({
         file: { mode: "sandbox", instructions: null, path: ".cujo/REVIEW.md" },
@@ -30,8 +30,24 @@ describe("describeMode (decision 155)", () => {
         effective: { mode: { value: "sandbox", source: "file" }, instructions: null },
       }),
     );
-    expect(shadowed).toContain(".cujo.yml sets this: the next run will run it");
-    expect(shadowed).toContain("has no effect while the file speaks");
+    expect(shadowed).toContain("Set by .cujo.yml in the repository: Full review");
+    expect(shadowed).toContain("Diff only, is ignored while the file sets it");
+  });
+});
+
+describe("effectiveMode (decision 175)", () => {
+  it("names the mode in effect and its source in one line", () => {
+    expect(effectiveMode(view())).toBe("Full review, the default");
+    expect(
+      effectiveMode(
+        view({ effective: { mode: { value: "diff", source: "file" }, instructions: null } }),
+      ),
+    ).toBe("Diff only, set by .cujo.yml");
+    expect(
+      effectiveMode(
+        view({ effective: { mode: { value: "diff", source: "board" }, instructions: null } }),
+      ),
+    ).toBe("Diff only, set here");
   });
 });
 
@@ -57,8 +73,8 @@ describe("describeInstructions (decision 155)", () => {
         },
       }),
     );
-    expect(file).toContain(".cujo/REVIEW.md sets these");
-    expect(file).toContain("no effect while the file exists");
+    expect(file).toContain("Set by .cujo/REVIEW.md in the repository");
+    expect(file).toContain("ignored while the file exists");
     expect(file).toContain("Cut on a line");
   });
 });
