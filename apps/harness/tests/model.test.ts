@@ -76,3 +76,39 @@ describe("Models.resolve", () => {
     expect(models.resolve("real/stub", undefined).baseUrl).toBe("http://stub.invalid");
   });
 });
+
+describe("an anthropic provider", () => {
+  const anthropic = { kind: "anthropic", name: "anthropic", apiKey: "sk-ant-x" } as const;
+
+  it("registers the key alone, so the built-in catalog stays whole", () => {
+    expect(providerConfigOf(anthropic)).toEqual({ name: "anthropic", apiKey: "sk-ant-x" });
+  });
+
+  it("resolves a catalog id with its limits and its price", async () => {
+    const models = await Models.create();
+    models.register(anthropic);
+    const model = models.resolve("anthropic/claude-sonnet-5", undefined);
+    expect(model.api).toBe("anthropic-messages");
+    expect(model.baseUrl).toBe("https://api.anthropic.com");
+    expect(model.cost.input).toBeGreaterThan(0);
+    expect(models.runtime.hasConfiguredAuth("anthropic")).toBe(true);
+  });
+
+  it("builds a Claude id newer than the catalog with adaptive thinking and no price", async () => {
+    const models = await Models.create();
+    models.register(anthropic);
+    const model = models.resolve("anthropic/claude-sonnet-9", undefined);
+    expect(model.id).toBe("claude-sonnet-9");
+    expect(model.api).toBe("anthropic-messages");
+    expect(model.cost.input).toBe(0);
+    expect(model.compat).toMatchObject({ forceAdaptiveThinking: true, supportsTemperature: false });
+    expect(() => models.resolve("anthropic/gpt-4", undefined)).toThrow("Unknown model");
+  });
+
+  it("resolves nothing once unregistered", async () => {
+    const models = await Models.create();
+    models.register(anthropic);
+    models.unregister("anthropic");
+    expect(() => models.resolve("anthropic/claude-sonnet-5", undefined)).toThrow("Unknown model");
+  });
+});

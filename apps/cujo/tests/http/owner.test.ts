@@ -35,6 +35,8 @@ function build(
     files?: Record<string, string>;
     /** GitHub does not answer for the file. */
     githubDown?: boolean;
+    /** The harness does not answer the provider questions. */
+    providerDown?: boolean;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -58,6 +60,20 @@ function build(
     start: vi.fn(),
   } as unknown as Runner;
   const files = new Map<string, string>(Object.entries(options.files ?? {}));
+  // What the harness would answer; each call is recorded with the provider it carried.
+  const asked: { provider: unknown; model?: string }[] = [];
+  const providers = {
+    listProviderModels: vi.fn(async (provider: unknown) => {
+      asked.push({ provider });
+      if (options.providerDown) throw new Error("harness down");
+      return [{ id: "claude-sonnet-5", costKnown: true }];
+    }),
+    testProvider: vi.fn(async (provider: unknown, model: string) => {
+      asked.push({ provider, model });
+      if (options.providerDown) throw new Error("harness down");
+      return { ok: true, latencyMs: 9 };
+    }),
+  };
   const github = {
     declaredMode: vi.fn(async () => {
       if (options.githubDown) throw new Error("GitHub 502");
@@ -150,7 +166,13 @@ function build(
             repositories: store.repositories,
             repositorySettings: store.repositorySettings,
             github,
-            health: () => ({ harness: "ready" as const, store: "ok" as const, uptimeMs: 1234 }),
+            health: () => ({
+              harness: "ready" as const,
+              store: "ok" as const,
+              configured: true,
+              uptimeMs: 1234,
+            }),
+            providers,
             runs: store.runs,
             runner,
             streamLimit: 1,
@@ -188,6 +210,7 @@ function build(
     store,
     settings,
     oauth,
+    asked,
     call,
     signIn,
     logged: (e: string) => lines.filter((l) => l.event === e),
@@ -285,10 +308,10 @@ describe("the owner plane", () => {
     const h = build();
     const { session } = await h.signIn();
     const shown = (await (await h.call("/owner/settings", {}, session)).json()) as {
-      settings: { modelProvider: { apiKey: string } };
+      settings: { modelProviders: { apiKey: string }[] };
       sources: Record<string, string>;
     };
-    expect(shown.settings.modelProvider.apiKey).toBe("****1234");
+    expect(shown.settings.modelProviders[0]?.apiKey).toBe("****1234");
     expect(shown.sources.model).toBe("seed");
     // A bad second key leaves the good first one unapplied.
     const bad = await h.call(
@@ -322,27 +345,118 @@ describe("the owner plane", () => {
     expect(h.logged("owner.settings.changed")).toMatchObject([{ actor: "octocat", count: 2 }]);
   });
 
-  it("keeps the real key when the board sends the masked one back", async () => {
+  it("keeps the real key when the board sends the masked one back, by provider name", async () => {
     const h = build();
     const { session } = await h.signIn();
-    const provider = { ...h.settings.current().modelProvider, apiKey: "****1234", name: "renamed" };
+    const [stored] = h.settings.current().modelProviders;
+    const kept = { ...stored, apiKey: "****1234", contextWindow: 64_000 };
+    const anthropic = { kind: "anthropic", name: "anthropic", apiKey: "sk-ant-9999" };
     const res = await h.call(
       "/owner/settings",
-      { method: "PATCH", body: JSON.stringify({ modelProvider: provider }) },
+      { method: "PATCH", body: JSON.stringify({ modelProviders: [kept, anthropic] }) },
       session,
     );
     expect(res.status).toBe(200);
-    expect(h.settings.current().modelProvider).toMatchObject({
-      name: "renamed",
-      apiKey: "sk-secret-1234",
-    });
-    const fresh = { ...provider, apiKey: "sk-new" };
-    await h.call(
+    expect(h.settings.current().modelProviders).toEqual([
+      { ...stored, contextWindow: 64_000 },
+      anthropic,
+    ]);
+    const shown = (await res.json()) as { settings: { modelProviders: { apiKey: string }[] } };
+    expect(shown.settings.modelProviders.map((p) => p.apiKey)).toEqual(["****1234", "****9999"]);
+    // Renamed, the mask finds no provider of its name: refused, not stored as the key.
+    const renamed = await h.call(
       "/owner/settings",
-      { method: "PATCH", body: JSON.stringify({ modelProvider: fresh }) },
+      {
+        method: "PATCH",
+        body: JSON.stringify({ modelProviders: [{ ...kept, name: "renamed" }, anthropic] }),
+      },
       session,
     );
-    expect(h.settings.current().modelProvider?.apiKey).toBe("sk-new");
+    expect(renamed.status).toBe(400);
+    expect(await renamed.json()).toMatchObject({ error: expect.stringContaining("renamed") });
+  });
+
+  it("refuses a model whose provider the same change leaves out (decision 174)", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    const gone = await h.call(
+      "/owner/settings",
+      { method: "PATCH", body: JSON.stringify({ modelProviders: [] }) },
+      session,
+    );
+    expect(gone.status).toBe(400);
+    expect(await gone.json()).toMatchObject({
+      error: "model names provider p, which is not configured",
+    });
+    const anthropic = { kind: "anthropic", name: "anthropic", apiKey: "sk-ant" };
+    const swapped = await h.call(
+      "/owner/settings",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          modelProviders: [anthropic],
+          model: "anthropic/claude-sonnet-5",
+          diffModel: null,
+        }),
+      },
+      session,
+    );
+    expect(swapped.status).toBe(200);
+    expect(h.settings.current()).toMatchObject({
+      model: "anthropic/claude-sonnet-5",
+      diffModel: null,
+    });
+  });
+
+  it("lists a draft provider's models and tests it, reading a masked key back", async () => {
+    const h = build();
+    const { session } = await h.signIn();
+    const [stored] = h.settings.current().modelProviders;
+    const draft = { ...stored, apiKey: "****1234" };
+    const models = await h.call(
+      "/owner/settings/providers/models",
+      { method: "POST", body: JSON.stringify({ provider: draft }) },
+      session,
+    );
+    expect(await models.json()).toEqual({
+      ok: true,
+      models: [{ id: "claude-sonnet-5", costKnown: true }],
+    });
+    const tested = await h.call(
+      "/owner/settings/providers/test",
+      { method: "POST", body: JSON.stringify({ provider: draft, model: "m" }) },
+      session,
+    );
+    expect(await tested.json()).toEqual({ ok: true, result: { ok: true, latencyMs: 9 } });
+    expect(h.asked.map((a) => (a.provider as { apiKey: string }).apiKey)).toEqual([
+      "sk-secret-1234",
+      "sk-secret-1234",
+    ]);
+    const noModel = await h.call(
+      "/owner/settings/providers/test",
+      { method: "POST", body: JSON.stringify({ provider: draft }) },
+      session,
+    );
+    expect(noModel.status).toBe(400);
+    const bad = await h.call(
+      "/owner/settings/providers/models",
+      { method: "POST", body: JSON.stringify({ provider: { kind: "anthropic" } }) },
+      session,
+    );
+    expect(bad.status).toBe(400);
+  });
+
+  it("answers 502 when the harness does not answer a provider question", async () => {
+    const h = build({ providerDown: true });
+    const { session } = await h.signIn();
+    const anthropic = { kind: "anthropic", name: "anthropic", apiKey: "sk-ant" };
+    const res = await h.call(
+      "/owner/settings/providers/models",
+      { method: "POST", body: JSON.stringify({ provider: anthropic }) },
+      session,
+    );
+    expect(res.status).toBe(502);
+    expect(h.logged("owner.provider.models.failed")).toHaveLength(1);
   });
 
   it("shows a repository's three layers and which wins, and writes the board's", async () => {
@@ -461,6 +575,7 @@ describe("the owner plane", () => {
       ok: true,
       harness: "ready",
       store: "ok",
+      configured: true,
       uptimeMs: 1234,
       ready: true,
     });

@@ -53,7 +53,12 @@ export interface Config {
    */
   defaultDiscordGuild: string | null;
   dbPath: string;
-  model: string;
+  /**
+   * `<provider>/<model>`, or null for "not configured" (decision 174): the
+   * board is where a deploy chooses its model, and this is only the seed a
+   * dev or test stack starts from.
+   */
+  model: string | null;
   /**
    * How hard the model is asked to think, passed straight through to the
    * provider as `model.params.reasoningEffort`. Empty means "say nothing", so
@@ -89,7 +94,7 @@ export interface Config {
    * sandbox. When it differs from `model`, no sampling params are sent with it:
    * the three above were tuned for the other model.
    */
-  diffModel: string;
+  diffModel: string | null;
   /** `config.tokenBudget` on the diff spec (decision 132): billed tokens per run. */
   diffBudgetTokens: number;
   /**
@@ -166,12 +171,25 @@ export interface Config {
    */
   botLogin: string;
   bootstrap: {
-    modelProvider: ModelProviderConfig | null;
+    modelProviders: ProviderConfig[];
   };
 }
 
-/** The provider `apps/cujo` registers on the harness (decision 127). */
-export interface ModelProviderConfig {
+/**
+ * A provider `apps/cujo` registers on the harness (decisions 127, 174): an
+ * OpenAI-compatible host with its models declared, or Anthropic's own API,
+ * which is a key and nothing else because the harness has its catalog.
+ */
+export type ProviderConfig = OpenAiProviderConfig | AnthropicProviderConfig;
+
+interface AnthropicProviderConfig {
+  kind: "anthropic";
+  name: "anthropic";
+  apiKey: string;
+}
+
+interface OpenAiProviderConfig {
+  kind: "openai";
   name: string;
   baseUrl: string;
   apiKey: string;
@@ -181,8 +199,8 @@ export interface ModelProviderConfig {
    * What the harness needs to know about every one of these models
    * (decision 127): the window it clamps the output cap against, that cap,
    * and whether a reasoning effort means anything to it at all. One value
-   * each for every model in the list, because a deploy registers one
-   * provider and, in practice, one model.
+   * each for every model in the list, because a host is registered for
+   * one or two models in practice.
    */
   contextWindow: number;
   maxTokens: number;
@@ -274,8 +292,6 @@ export function mode(raw: string | undefined): ReviewMode {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const modelProviderBaseUrl = env.MODEL_PROVIDER_BASE_URL;
-  const modelProviderApiKey = env.MODEL_PROVIDER_API_KEY;
   const chosen = (env.CUJO_MODEL_REASONING_EFFORT ?? "").trim();
   // The seven words the harness clamps against what the model declares
   // (decision 127); nothing has to be announced to the provider any more.
@@ -298,7 +314,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     discordPublicKey: env.DISCORD_PUBLIC_KEY || null,
     defaultDiscordGuild: env.CUJO_DEFAULT_DISCORD_GUILD || null,
     dbPath: env.CUJO_DB_PATH ?? "/data/cujo.db",
-    model: required(env, "CUJO_MODEL"),
+    // `||`: the compose optional arrives empty, and an empty name is not a
+    // model. Unset is "not configured", which the board fixes (decision 174).
+    model: env.CUJO_MODEL || null,
     modelReasoningEffort,
     modelTemperature: sampling(env.CUJO_MODEL_TEMPERATURE, "CUJO_MODEL_TEMPERATURE"),
     modelMaxTokens: sampling(env.CUJO_MODEL_MAX_TOKENS, "CUJO_MODEL_MAX_TOKENS"),
@@ -310,7 +328,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     reviewMode: mode(env.CUJO_REVIEW_MODE),
     // `||`: the compose optional arrives empty, and an empty model name is
     // not a model.
-    diffModel: env.CUJO_DIFF_MODEL || required(env, "CUJO_MODEL"),
+    diffModel: env.CUJO_DIFF_MODEL || env.CUJO_MODEL || null,
     diffBudgetTokens: count(env.CUJO_DIFF_BUDGET_TOKENS, 400_000),
     sandboxBudgetTokens: count(env.CUJO_SANDBOX_BUDGET_TOKENS, 3_000_000),
     diffTimeoutMs: count(env.CUJO_DIFF_TIMEOUT_MS, 10 * 60 * 1000),
@@ -336,30 +354,43 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     prChecks: env.CUJO_PR_CHECKS !== "0",
     pushDebounceMs: count(env.CUJO_PUSH_DEBOUNCE_MS, 60_000, { zeroOk: true }),
     botLogin: env.CUJO_BOT_LOGIN || "cujo-guard[bot]",
-    bootstrap: {
-      modelProvider:
-        modelProviderBaseUrl && modelProviderApiKey
-          ? {
-              name: env.MODEL_PROVIDER_NAME ?? "openrouter",
-              baseUrl: modelProviderBaseUrl,
-              apiKey: modelProviderApiKey,
-              // MODEL_PROVIDER_MODELS: `<name>=<provider model id>,...`.
-              models: (env.MODEL_PROVIDER_MODELS ?? "")
-                .split(",")
-                .map((m) => m.trim())
-                .filter(Boolean)
-                .map((pair) => {
-                  const eq = pair.indexOf("=");
-                  if (eq === -1) return { name: pair, modelId: pair };
-                  return { name: pair.slice(0, eq).trim(), modelId: pair.slice(eq + 1).trim() };
-                }),
-              contextWindow: count(env.MODEL_PROVIDER_CONTEXT_WINDOW, 128_000),
-              maxTokens: count(env.MODEL_PROVIDER_MAX_TOKENS, 16_384),
-              // Only an explicit "0" turns it off: a model that reasons and is
-              // told it does not gets no effort at all.
-              reasoning: env.MODEL_PROVIDER_REASONING !== "0",
-            }
-          : null,
-    },
+    bootstrap: { modelProviders: seedProviders(env) },
   };
+}
+
+/**
+ * The providers a dev or test stack starts with (decision 174): the
+ * `MODEL_PROVIDER_*` block as one OpenAI-compatible host, and
+ * `ANTHROPIC_API_KEY` as Anthropic. A deploy leaves both unset and adds
+ * providers on the board.
+ */
+function seedProviders(env: NodeJS.ProcessEnv): ProviderConfig[] {
+  const providers: ProviderConfig[] = [];
+  if (env.MODEL_PROVIDER_BASE_URL && env.MODEL_PROVIDER_API_KEY) {
+    providers.push({
+      kind: "openai",
+      name: env.MODEL_PROVIDER_NAME || "openrouter",
+      baseUrl: env.MODEL_PROVIDER_BASE_URL,
+      apiKey: env.MODEL_PROVIDER_API_KEY,
+      // MODEL_PROVIDER_MODELS: `<name>=<provider model id>,...`.
+      models: (env.MODEL_PROVIDER_MODELS ?? "")
+        .split(",")
+        .map((m) => m.trim())
+        .filter(Boolean)
+        .map((pair) => {
+          const eq = pair.indexOf("=");
+          if (eq === -1) return { name: pair, modelId: pair };
+          return { name: pair.slice(0, eq).trim(), modelId: pair.slice(eq + 1).trim() };
+        }),
+      contextWindow: count(env.MODEL_PROVIDER_CONTEXT_WINDOW, 128_000),
+      maxTokens: count(env.MODEL_PROVIDER_MAX_TOKENS, 16_384),
+      // Only an explicit "0" turns it off: a model that reasons and is
+      // told it does not gets no effort at all.
+      reasoning: env.MODEL_PROVIDER_REASONING !== "0",
+    });
+  }
+  if (env.ANTHROPIC_API_KEY) {
+    providers.push({ kind: "anthropic", name: "anthropic", apiKey: env.ANTHROPIC_API_KEY });
+  }
+  return providers;
 }

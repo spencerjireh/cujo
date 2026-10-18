@@ -141,6 +141,46 @@ export class PrChecks {
     this.apply(run, running(run));
   }
 
+  /**
+   * A neutral check on a head no run was claimed for, because no model is
+   * configured (decision 174). Neutral, not failure: the commit is not
+   * blocked by an instance that never looked at it, and the title says why.
+   * One write, queued behind the rest; no run, so nothing to retry against.
+   */
+  notConfigured(repo: string, sha: string): void {
+    const payload: CheckPayload = {
+      runId: "not-configured",
+      status: "completed",
+      conclusion: "neutral",
+      detailsUrl: this.deps.links.publicBaseUrl
+        ? `${this.deps.links.publicBaseUrl}/instance`
+        : null,
+      output: {
+        title: "Cujo is not configured",
+        summary:
+          "No model is configured on this Cujo instance, so this commit was not reviewed. Its owner chooses one on the board.",
+      },
+    };
+    this.tail = this.tail.then(async () => {
+      try {
+        await this.deps.checks.write(repo, sha, payload, null);
+        this.log.info("check_run.written", {
+          repo,
+          head_sha: sha,
+          status: "neutral",
+          reason: "not_configured",
+        });
+      } catch (error) {
+        this.log.error("check_run.failed", {
+          repo,
+          head_sha: sha,
+          reason: "not_configured",
+          ...errorFields(error),
+        });
+      }
+    });
+  }
+
   /** Never throws, never awaits: it is called from inside the fold path. */
   onRunChanged(view: RunView | null): void {
     if (!view) return;

@@ -16,7 +16,7 @@
  *                           with one of the verbs above
  */
 
-import type { ModelProviderManifest } from "@cujo/harness-contract";
+import type { OpenAiProviderManifest } from "@cujo/harness-contract";
 import {
   type AssistantMessage,
   type AssistantMessageEventStream,
@@ -41,7 +41,7 @@ export class StubModel {
   readonly requests: Request[] = [];
   private calls = 0;
 
-  constructor(readonly manifest: ModelProviderManifest = manifestOf()) {}
+  constructor(readonly manifest: OpenAiProviderManifest = manifestOf()) {}
 
   register(models: Models): void {
     models.registerRaw(STUB_PROVIDER, this.manifest, {
@@ -199,8 +199,9 @@ function message(
   };
 }
 
-export function manifestOf(): ModelProviderManifest {
+export function manifestOf(): OpenAiProviderManifest {
   return {
+    kind: "openai",
     name: STUB_PROVIDER,
     baseUrl: "http://stub.invalid",
     apiKey: "stub",

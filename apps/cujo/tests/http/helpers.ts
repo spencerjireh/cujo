@@ -53,6 +53,9 @@ export function build(
     streamLimit: number;
     level: Level;
     isReady: () => boolean;
+    /** False models an instance with no model configured (decision 174). */
+    configured: () => boolean;
+    notConfigured: (repo: string, sha: string) => void;
     /** Overridden by the secret sweep, so the value under test is the real one. */
     webhookSecret: string;
     /** The one call the webhook makes to another service, so the one that can fail. */
@@ -110,6 +113,8 @@ export function build(
       runner,
       createSession: overrides.createSession ?? (async () => "sess-1"),
       ...(overrides.isReady ? { isReady: overrides.isReady } : {}),
+      ...(overrides.configured ? { configured: overrides.configured } : {}),
+      ...(overrides.notConfigured ? { notConfigured: overrides.notConfigured } : {}),
       reviewRunId: (run) => (run.isPublic ? run.id : ""),
       provenance: overrides.provenance ?? { model: "vendor/m", rubricSha256: "a".repeat(64) },
       onClaimed: (run) => claimed.push(run.id),

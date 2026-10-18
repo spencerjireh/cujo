@@ -59,6 +59,13 @@ export interface WebhookDeps extends StartRunDeps {
   createSession: (repo: string, prNumber: number) => Promise<string>;
   /** False until the harness bootstrap has completed every registration. */
   isReady?: () => boolean;
+  /**
+   * False while no model is configured (decision 174). Absent means
+   * configured, which is what every test that predates it assumes.
+   */
+  configured?: () => boolean;
+  /** The neutral check such a head gets; absent when checks are off. */
+  notConfigured?: (repo: string, sha: string) => void;
   /** Absent means `/cujo` on a pull request is off; deliveries are still 200. */
   prCommands?: Pick<PrCommandService, "handle">;
   /** Absent means `@cujo-guard` is off; deliveries are still 200. */
@@ -68,7 +75,7 @@ export interface WebhookDeps extends StartRunDeps {
    * configured model, and a digest of the instructions a session would be
    * given. Optional so a test can compose this route without them.
    */
-  provenance?: { model: string; rubricSha256: string };
+  provenance?: { model: string | null; rubricSha256: string };
   /**
    * Holds a `synchronize` start for the push window (decision 144). Absent
    * means every delivery starts at once, which is what a test wants.
@@ -681,6 +688,20 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
         reason: "harness_not_ready",
       });
       return c.json({ ok: false, error: "harness not ready" }, 503);
+    }
+    if (deps.configured && !deps.configured()) {
+      // 200: a redelivery would find the same instance. The check on the
+      // commit is what the author sees; this line is what the owner does.
+      log.warn("webhook.ignored", {
+        event_type: "pull_request",
+        action: event.action,
+        reason: "not_configured",
+        repo,
+        pr_number: prNumber,
+        head_sha: headSha,
+      });
+      deps.notConfigured?.(repo, headSha);
+      return c.json({ ok: true, ignored: "not configured" }, 200);
     }
 
     // Find or create the session first, so the run row can be claimed before

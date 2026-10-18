@@ -9,15 +9,18 @@ const config = {
   sandboxMcpUrl: "http://sandbox-mcp:8082/mcp",
   turnTimeoutMs: 1000,
   bootstrap: {
-    modelProvider: {
-      name: "p",
-      baseUrl: "http://llm/v1",
-      apiKey: "k",
-      models: [{ name: "m", modelId: "m-1" }],
-      contextWindow: 128_000,
-      maxTokens: 16_384,
-      reasoning: true,
-    },
+    modelProviders: [
+      {
+        kind: "openai",
+        name: "p",
+        baseUrl: "http://llm/v1",
+        apiKey: "k",
+        models: [{ name: "m", modelId: "m-1" }],
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+        reasoning: true,
+      },
+    ],
   },
 } as unknown as Config;
 
@@ -53,23 +56,69 @@ function fakeFetch(
   return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
 }
 
-describe("Harness.registerModelProvider (decision 152)", () => {
-  it("upserts the provider the accessor names, so a runtime change reaches the harness", async () => {
-    const bodies: unknown[] = [];
-    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      bodies.push(JSON.parse(String(init?.body)));
-      return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
+const anthropic = { kind: "anthropic", name: "anthropic", apiKey: "sk-ant" } as const;
+
+describe("Harness.registerModelProvider (decisions 152, 174)", () => {
+  it("upserts the providers the accessor names, so a runtime change reaches the harness", async () => {
+    const { calls, fetchImpl } = fakeFetch();
     const h = new Harness(config, log, fetchImpl);
-    const base = config.bootstrap.modelProvider;
-    if (!base) throw new Error("fixture has no provider");
+    const base = config.bootstrap.modelProviders[0];
+    if (base?.kind !== "openai") throw new Error("fixture has no provider");
     const provider = { ...base, name: "other", apiKey: "k2" };
-    h.modelProvider = () => provider;
+    h.modelProviders = () => [provider, anthropic];
     await h.registerModelProvider(provider);
-    expect(bodies[0]).toMatchObject({ name: "other", apiKey: "k2" });
-    // Bootstrap reads the same accessor.
+    expect(calls[0]?.body).toMatchObject({ kind: "openai", name: "other", apiKey: "k2" });
+    expect(h.isRegistered("other")).toBe(true);
+    // Bootstrap reads the same accessor, and an anthropic provider is its key.
     await h.bootstrap();
-    expect(bodies.at(-1)).toMatchObject({ name: "other" });
+    expect(calls.at(-1)?.body).toEqual(anthropic);
+    expect(h.isRegistered("anthropic")).toBe(true);
+  });
+});
+
+describe("Harness.syncModelProviders (decision 174)", () => {
+  it("puts what is new or changed and deletes what is gone", async () => {
+    const { calls, fetchImpl } = fakeFetch();
+    const h = new Harness(config, log, fetchImpl);
+    const [p] = config.bootstrap.modelProviders;
+    if (!p) throw new Error("fixture has no provider");
+    await h.syncModelProviders([p, anthropic], [{ ...anthropic, apiKey: "sk-ant-2" }]);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([
+      ["PUT", "http://harness:8790/settings/model-providers"],
+      ["DELETE", "http://harness:8790/settings/model-providers/p"],
+    ]);
+    expect(h.isRegistered("p")).toBe(false);
+    expect(h.isRegistered("anthropic")).toBe(true);
+  });
+
+  it("applies the rest when one fails, and names the one that did", async () => {
+    const { calls, fetchImpl } = fakeFetch((call) =>
+      call.method === "PUT" ? { status: 500, body: { error: "boom" } } : {},
+    );
+    const h = new Harness(config, log, fetchImpl);
+    const [p] = config.bootstrap.modelProviders;
+    if (!p) throw new Error("fixture has no provider");
+    await expect(h.syncModelProviders([p], [anthropic])).rejects.toThrow(
+      "providers not synced: anthropic",
+    );
+    expect(calls.map((c) => c.method)).toEqual(["PUT", "DELETE"]);
+  });
+});
+
+describe("Harness provider questions (decision 174)", () => {
+  it("asks for models and for a test with the provider's manifest", async () => {
+    const { calls, fetchImpl } = fakeFetch((call) =>
+      call.url.endsWith("/models")
+        ? { body: { models: [{ id: "claude-sonnet-5", costKnown: true }] } }
+        : { body: { ok: true, latencyMs: 12 } },
+    );
+    const h = new Harness(config, log, fetchImpl);
+    expect(await h.listProviderModels(anthropic)).toEqual([
+      { id: "claude-sonnet-5", costKnown: true },
+    ]);
+    expect(await h.testProvider(anthropic, "claude-sonnet-5")).toEqual({ ok: true, latencyMs: 12 });
+    expect(calls[1]?.body).toEqual({ manifest: anthropic, model: "claude-sonnet-5" });
+    expect(h.isRegistered("anthropic")).toBe(false);
   });
 });
 
@@ -90,6 +139,7 @@ describe("Harness.bootstrap", () => {
     ]);
     // What the harness needs about each model (decision 127), nothing else.
     expect(calls[2]?.body).toEqual({
+      kind: "openai",
       name: "p",
       baseUrl: "http://llm/v1",
       apiKey: "k",

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { Config } from "../../src/config";
 import {
   buildAgentSpec,
   buildConverseSpec,
@@ -17,6 +16,7 @@ import {
   specFingerprint,
 } from "../../src/review/agent-spec";
 import type { ReviewPackage } from "../../src/review/prepare";
+import type { ReadySettings as Config } from "../../src/settings";
 
 describe("manifestChanged", () => {
   it("matches dependency manifests and lockfiles at any depth", () => {

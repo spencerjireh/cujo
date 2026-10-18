@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentSpec, ModelParams, ReasoningEffort } from "@cujo/harness-contract";
 import type { PullRequestInfo } from "../clients/github";
-import type { Config } from "../config";
+import type { ReadySettings } from "../settings";
 import type { BuildFacts } from "./build-facts";
 import type { CachedDetonation } from "./detonation-cache";
 import type { Instructions } from "./instructions";
@@ -154,7 +154,10 @@ export function specFingerprint(spec: AgentSpec): string {
  * provider accepts it.
  */
 function modelRef(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
+  config: Pick<
+    ReadySettings,
+    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens"
+  >,
 ): AgentSpec["model"] {
   const params: ModelParams = {
     ...(config.modelReasoningEffort
@@ -170,7 +173,7 @@ function modelRef(
 
 export function buildAgentSpec(
   config: Pick<
-    Config,
+    ReadySettings,
     "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sandboxBudgetTokens"
   >,
   rubric = loadRubric(),
@@ -228,7 +231,7 @@ export function buildAgentSpec(
  */
 export function buildJudgeSpec(
   config: Pick<
-    Config,
+    ReadySettings,
     "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens" | "sandboxBudgetTokens"
   >,
   rubric = loadRubric("JUDGE.md"),
@@ -252,7 +255,7 @@ export function buildJudgeSpec(
 
 export function buildDiffSpec(
   config: Pick<
-    Config,
+    ReadySettings,
     | "model"
     | "modelReasoningEffort"
     | "modelTemperature"
@@ -297,7 +300,10 @@ export function buildDiffSpec(
  * paraphrase the report it was handed.
  */
 export function buildConverseSpec(
-  config: Pick<Config, "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens">,
+  config: Pick<
+    ReadySettings,
+    "model" | "modelReasoningEffort" | "modelTemperature" | "modelMaxTokens"
+  >,
   rubric = loadRubric("CONVERSE.md"),
 ): AgentSpec {
   return {

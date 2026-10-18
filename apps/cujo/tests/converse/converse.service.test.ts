@@ -14,6 +14,7 @@ import type { SessionEvent, StreamEvent } from "../../src/clients/harness";
 import { ConverseService } from "../../src/converse/converse.service";
 import { ConverseRateLimit } from "../../src/converse/rate-limit";
 import type { Projection } from "../../src/review/types";
+import { NotConfiguredError } from "../../src/settings";
 import { Store } from "../../src/store";
 
 const at = "2026-08-29T10:00:00Z";
@@ -54,6 +55,8 @@ function harness(
     isPublic?: boolean;
     /** The board's switch (decision 164); absent means on. */
     enabled?: boolean;
+    /** What building the spec does; absent builds one. */
+    spec?: () => AgentSpec;
   } = {},
 ) {
   const store = new Store(":memory:");
@@ -115,7 +118,7 @@ function harness(
         return 2;
       },
     },
-    spec: () => ({ model: { name: "m" }, mcpServers: [] }) as unknown as AgentSpec,
+    spec: over.spec ?? (() => ({ model: { name: "m" }, mcpServers: [] }) as unknown as AgentSpec),
     limit: new ConverseRateLimit({ limit: over.limit ?? 3, windowMs: 60_000 }),
     turnTimeoutMs: 50,
     ...(over.enabled === undefined ? {} : { enabled: () => over.enabled === true }),
@@ -281,6 +284,16 @@ describe("ConverseService", () => {
     });
     await h.ask("@cujo-guard why?");
     expect(h.replies[0]).toContain("could not start a sandbox");
+  });
+
+  it("says no model is configured rather than that something broke (decision 174)", async () => {
+    const h = harness({
+      spec: () => {
+        throw new NotConfiguredError();
+      },
+    });
+    await h.ask("@cujo-guard why?");
+    expect(h.replies[0]).toContain("No model is configured");
   });
 
   it("replies when the agent finished but said nothing usable", async () => {

@@ -1,5 +1,8 @@
 import {
   type AgentSpecInput,
+  type ModelProviderManifestInput,
+  type ProviderModel,
+  type ProviderTestResult,
   type SessionEvent,
   SessionEventSchema,
   type StreamEvent,
@@ -8,13 +11,35 @@ import {
   type TurnInputItem,
 } from "@cujo/harness-contract";
 import { type Logger, createLogger, errorFields } from "@cujo/log";
-import type { Config, ModelProviderConfig } from "../config";
+import type { Config, ProviderConfig } from "../config";
 
 export type { SessionEvent, StreamEvent };
 export type {
   TurnCreatedEvent,
   TurnDoneEvent,
 } from "@cujo/harness-contract";
+
+/**
+ * The wire shape of a provider. An OpenAI-compatible host's limits are one
+ * value per provider on the board and one per model on the harness, so they
+ * are copied onto each.
+ */
+function manifestOf(provider: ProviderConfig): ModelProviderManifestInput {
+  if (provider.kind === "anthropic") return provider;
+  return {
+    kind: "openai",
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    models: provider.models.map((m) => ({
+      name: m.name,
+      modelId: m.modelId,
+      contextWindow: provider.contextWindow,
+      maxTokens: provider.maxTokens,
+      reasoning: provider.reasoning,
+    })),
+  };
+}
 
 /** What the harness answers a refused request with. */
 export class HarnessRequestError extends Error {
@@ -36,11 +61,13 @@ export class Harness {
   /** True once every bootstrap registration succeeded; webhooks wait for it. */
   ready = false;
   /**
-   * Where the provider to register comes from. The environment at first, and
-   * the settings store once `index.ts` points this at it (decision 152), so a
-   * provider changed at runtime is what the next registration carries.
+   * Where the providers to register come from. The environment at first, and
+   * the settings store once `index.ts` points this at it (decisions 152, 174),
+   * so a provider changed at runtime is what the next registration carries.
    */
-  modelProvider: () => ModelProviderConfig | null;
+  modelProviders: () => ProviderConfig[];
+  /** The provider names the harness holds right now, for "is a model configured". */
+  private readonly registered = new Set<string>();
   private readonly baseUrl: string;
 
   constructor(
@@ -51,7 +78,7 @@ export class Harness {
     // No token: the harness sits on the compose network and answers to nobody
     // else; there is no credential to present.
     this.baseUrl = config.harnessBaseUrl.replace(/\/+$/, "");
-    this.modelProvider = () => config.bootstrap.modelProvider;
+    this.modelProviders = () => config.bootstrap.modelProviders;
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -107,8 +134,7 @@ export class Harness {
       }),
     );
 
-    const provider = this.modelProvider();
-    if (provider) {
+    for (const provider of this.modelProviders()) {
       await step(`model-provider ${provider.name}`, () => this.registerModelProvider(provider));
     }
 
@@ -123,18 +149,55 @@ export class Harness {
    * re-registers it live, so a call after boot takes effect on the next turn.
    * Called by `bootstrap` and, at runtime, when the setting changes.
    */
-  async registerModelProvider(provider: ModelProviderConfig): Promise<void> {
-    await this.request("PUT", "/settings/model-providers", {
-      name: provider.name,
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      models: provider.models.map((m) => ({
-        name: m.name,
-        modelId: m.modelId,
-        contextWindow: provider.contextWindow,
-        maxTokens: provider.maxTokens,
-        reasoning: provider.reasoning,
-      })),
+  async registerModelProvider(provider: ProviderConfig): Promise<void> {
+    await this.request("PUT", "/settings/model-providers", manifestOf(provider));
+    this.registered.add(provider.name);
+  }
+
+  async unregisterModelProvider(name: string): Promise<void> {
+    await this.request("DELETE", `/settings/model-providers/${encodeURIComponent(name)}`);
+    this.registered.delete(name);
+  }
+
+  /**
+   * Bring the harness from one list to the next: every provider that is new
+   * or changed is put, every one that is gone is deleted. Each is its own
+   * call, so one that fails leaves the rest applied; the error names it.
+   */
+  async syncModelProviders(previous: ProviderConfig[], next: ProviderConfig[]): Promise<void> {
+    const failures: string[] = [];
+    const before = new Map(previous.map((provider) => [provider.name, JSON.stringify(provider)]));
+    for (const provider of next) {
+      if (before.get(provider.name) === JSON.stringify(provider)) continue;
+      await this.registerModelProvider(provider).catch(() => failures.push(provider.name));
+    }
+    const kept = new Set(next.map((provider) => provider.name));
+    for (const name of before.keys()) {
+      if (kept.has(name)) continue;
+      await this.unregisterModelProvider(name).catch(() => failures.push(name));
+    }
+    if (failures.length > 0) throw new Error(`providers not synced: ${failures.join(", ")}`);
+  }
+
+  isRegistered(name: string): boolean {
+    return this.registered.has(name);
+  }
+
+  /** What a provider offers, asked before it is saved (decision 174). */
+  async listProviderModels(provider: ProviderConfig): Promise<ProviderModel[]> {
+    const { models } = await this.request<{ models: ProviderModel[] }>(
+      "POST",
+      "/settings/model-providers/models",
+      { manifest: manifestOf(provider) },
+    );
+    return models;
+  }
+
+  /** One short call on a provider that is not registered; a failure is an answer, not a throw. */
+  testProvider(provider: ProviderConfig, model: string): Promise<ProviderTestResult> {
+    return this.request("POST", "/settings/model-providers/test", {
+      manifest: manifestOf(provider),
+      model,
     });
   }
 

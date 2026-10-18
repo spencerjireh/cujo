@@ -7,11 +7,17 @@ afterEach(async () => {
   for (const h of open.splice(0)) h.engine.close();
 });
 
-async function app() {
+async function app(fetch?: typeof globalThis.fetch) {
   const h = await harness();
   open.push(h);
   const log = (h.engine as unknown as { log: never }).log;
-  const hono = createApp({ engine: h.engine, store: h.store, models: h.models, log });
+  const hono = createApp({
+    engine: h.engine,
+    store: h.store,
+    models: h.models,
+    log,
+    ...(fetch ? { fetch } : {}),
+  });
   const call = async (method: string, path: string, body?: unknown) => {
     const response = await hono.request(path, {
       method,
@@ -127,5 +133,76 @@ describe("the HTTP surface", () => {
     const { call } = await app();
     const session = (await call("POST", "/sessions", { spec: spec() })).json.id as string;
     expect((await call("POST", `/sessions/${session}/cancel`)).status).toBe(200);
+  });
+});
+
+describe("model providers", () => {
+  const anthropic = { kind: "anthropic", name: "anthropic", apiKey: "sk-ant-x" };
+
+  it("registers an anthropic key and resolves catalog models by id", async () => {
+    const { call, store } = await app();
+    expect((await call("PUT", "/settings/model-providers", anthropic)).status).toBe(200);
+    expect(store.listModelProviders()).toEqual([anthropic]);
+    const created = await call("POST", "/sessions", {
+      spec: spec({ model: { name: "anthropic/claude-sonnet-5" } }),
+    });
+    expect(created.status).toBe(201);
+  });
+
+  it("removes a provider from the store and from resolution", async () => {
+    const { call, store } = await app();
+    await call("PUT", "/settings/model-providers", anthropic);
+    expect((await call("DELETE", "/settings/model-providers/anthropic")).status).toBe(200);
+    expect(store.listModelProviders()).toEqual([]);
+    const created = await call("POST", "/sessions", {
+      spec: spec({ model: { name: "anthropic/claude-sonnet-5" } }),
+    });
+    expect(created.status).toBe(400);
+  });
+
+  it("lists the catalog for anthropic and a host's /models for openai", async () => {
+    const fake = (async (url: string) => {
+      expect(url).toBe("http://host.invalid/v1/models");
+      return Response.json({ data: [{ id: "a/b", context_length: 32_000 }, { id: 7 }] });
+    }) as unknown as typeof fetch;
+    const { call } = await app(fake);
+    const catalog = await call("POST", "/settings/model-providers/models", { manifest: anthropic });
+    expect(catalog.json.models).toContainEqual(
+      expect.objectContaining({ id: "claude-sonnet-5", costKnown: true }),
+    );
+    const listed = await call("POST", "/settings/model-providers/models", {
+      manifest: {
+        name: "or",
+        baseUrl: "http://host.invalid/v1/",
+        apiKey: "k",
+        models: [{ name: "b", modelId: "a/b", contextWindow: 1, maxTokens: 1, reasoning: false }],
+      },
+    });
+    expect(listed.json.models).toEqual([{ id: "a/b", contextWindow: 32_000, costKnown: false }]);
+  });
+
+  it("answers 502 when a host's /models fails", async () => {
+    const fake = (async () => new Response("no", { status: 401 })) as unknown as typeof fetch;
+    const { call } = await app(fake);
+    const listed = await call("POST", "/settings/model-providers/models", {
+      manifest: {
+        name: "or",
+        baseUrl: "http://host.invalid/v1",
+        apiKey: "k",
+        models: [{ name: "b", modelId: "b", contextWindow: 1, maxTokens: 1, reasoning: false }],
+      },
+    });
+    expect(listed.status).toBe(502);
+    expect(listed.json.error).toBe("models: HTTP 401");
+  });
+
+  it("reports a test that cannot resolve the model as a failure, not an error", async () => {
+    const { call } = await app();
+    const result = await call("POST", "/settings/model-providers/test", {
+      manifest: anthropic,
+      model: "gpt-4",
+    });
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ ok: false, error: 'Unknown model "anthropic/gpt-4"' });
   });
 });

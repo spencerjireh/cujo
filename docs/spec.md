@@ -1381,10 +1381,12 @@ on the owner plane:
 | `POST /auth/callback` | `{ code, state }` from GitHub's redirect, via `apps/web`. Consumes the state, trades the code for a user token, decides the owner verdict, and answers the session id, the login and `is_owner`. 400 for a state it did not issue or one already used; 502 when GitHub did not complete the sign-in. |
 | `POST /auth/logout` | Ends the session the bearer names. |
 | `GET /owner/me` | The signed-in login, `is_owner`, and the session's expiry. |
-| `GET /owner/settings` | Every key `settings.ts` lists — the models and the provider (decision 152), the limits and switches (decision 164) — with the provider key masked to its last four characters, where each value came from (`seed` or `owner`), and `groups`, which form each key is drawn on. |
-| `PATCH /owner/settings` | Any of those keys. Validated as a whole before anything is written. A masked key sent back keeps the stored one. A limit is read at its next use — the next run's ceiling, the next push's window, the next question — and a run under way keeps what it started with. |
+| `GET /owner/settings` | Every key `settings.ts` lists — the models and the providers (decisions 152, 174), the limits and switches (decision 164) — with every provider key masked to its last four characters, where each value came from (`seed` or `owner`), and `groups`, which form each key is drawn on. `model` is null on an instance not configured yet; `diffModel` null means the diff review runs on `model`. `modelProviders` is a list of `{ kind: "anthropic", name: "anthropic", apiKey }` and `{ kind: "openai", name, baseUrl, apiKey, models[{ name, modelId }], contextWindow, maxTokens, reasoning }`, names unique. |
+| `PATCH /owner/settings` | Any of those keys. Validated as a whole before anything is written, the result included: a `model` or `diffModel` naming a provider the list does not hold is a 400. A masked key sent back keeps the stored key of the provider of that name; one that matches no provider by name is a 400 rather than a key. A limit is read at its next use — the next run's ceiling, the next push's window, the next question — and a run under way keeps what it started with. |
+| `POST /owner/settings/providers/models` | `{ provider }`, saved or not, a masked key read back as on the PATCH. The models it serves, from the harness: Anthropic's catalog with limits and whether a price is on file, or an OpenAI-compatible host's `/models`. 502 when the host does not list them. |
+| `POST /owner/settings/providers/test` | `{ provider, model }`, the same way. One short call through the harness on a runtime of its own, nothing registered: `{ ok, latencyMs, error? }`. A refused key or an unknown model is `ok: false`, not an error. |
 | `GET /owner/bot` | The App as GitHub sees it (decision 157): the App, its permissions against the five the reviews need with a verdict each, its installations with the registry's count of repositories under each, and its last twenty webhook deliveries with the status this process answered. 502 when GitHub does not answer. |
-| `GET /owner/health` | The same answer `/readyz` gives — harness, store, uptime — for a signed-in owner. |
+| `GET /owner/health` | The same answer `/readyz` gives — harness, store, uptime — for a signed-in owner, and `configured`: whether a model is chosen and its provider registered (decision 174). While it is false, every pull request gets a neutral `cujo/guard` check, "Cujo is not configured", and no run. |
 | `GET /owner/repositories` | The registry (decision 151), removed rows included. |
 | `GET /owner/runs` | Every run, private ones included (decision 159), in the public list's shape and through the public serializer: nothing an owner reads here is a field the anonymous board could not, only runs it could not. |
 | `GET /owner/runs/:id` | One run, public or private, in the public detail's shape. 404 only for a run that does not exist. |
@@ -2071,9 +2073,9 @@ same `run_id` rule as Contract 1's:
 **The session** is the diff spec (`buildDiffSpec`): `agent/DIFF.md` as its
 instructions, `github-mcp` as its only MCP server and ungated, no compaction, an
 iteration limit of 12, and `config.tokenBudget` set to `CUJO_DIFF_BUDGET_TOKENS`
-(decision 132). The model is `CUJO_DIFF_MODEL`, falling back to `CUJO_MODEL`; when
-it differs, no sampling params go with it, since the three were tuned for the
-other model.
+(decision 132). The model is the board's diff model, falling back to the
+sandbox review's model (decision 174); when it differs, no sampling params go
+with it, since the three were tuned for the other model.
 
 **What it may say.** Findings carry `check: "diff"` — or `check: "build"` for a
 hazard handed to it in `build_facts` — and a severity of `info` or

@@ -17,8 +17,15 @@ describe("loadConfig", () => {
    */
   it("names the first missing required variable", () => {
     expect(() => loadConfig({})).toThrow("GITHUB_WEBHOOK_SECRET is required");
+  });
+
+  it("boots with no model, which is an instance not configured yet (decision 174)", () => {
     const { CUJO_MODEL: _model, ...withoutModel } = base;
-    expect(() => loadConfig(withoutModel)).toThrow("CUJO_MODEL is required");
+    const config = loadConfig(withoutModel);
+    expect(config.model).toBeNull();
+    expect(config.diffModel).toBeNull();
+    expect(config.bootstrap.modelProviders).toEqual([]);
+    expect(loadConfig({ ...withoutModel, CUJO_MODEL: "" }).model).toBeNull();
   });
 
   it("starts with no credential configured, because none exists", () => {
@@ -45,7 +52,7 @@ describe("loadConfig", () => {
       dbPath: "/data/cujo.db",
       githubMcpUrl: "http://github-mcp:8081/mcp",
       turnTimeoutMs: 30 * 60 * 1000,
-      bootstrap: { modelProvider: null },
+      bootstrap: { modelProviders: [] },
     });
   });
 
@@ -89,22 +96,37 @@ describe("loadConfig", () => {
       MODEL_PROVIDER_API_KEY: "k",
       MODEL_PROVIDER_MODELS: " fast=vendor/fast-1 , plain ,",
     });
-    expect(config.bootstrap.modelProvider).toEqual({
-      name: "openrouter",
-      baseUrl: "https://llm.example/v1",
-      apiKey: "k",
-      models: [
-        { name: "fast", modelId: "vendor/fast-1" },
-        { name: "plain", modelId: "plain" },
-      ],
-      contextWindow: 128_000,
-      maxTokens: 16_384,
-      reasoning: true,
-    });
+    expect(config.bootstrap.modelProviders).toEqual([
+      {
+        kind: "openai",
+        name: "openrouter",
+        baseUrl: "https://llm.example/v1",
+        apiKey: "k",
+        models: [
+          { name: "fast", modelId: "vendor/fast-1" },
+          { name: "plain", modelId: "plain" },
+        ],
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+        reasoning: true,
+      },
+    ]);
     expect(
       loadConfig({ ...base, MODEL_PROVIDER_BASE_URL: "https://llm.example/v1" }).bootstrap
-        .modelProvider,
-    ).toBeNull();
+        .modelProviders,
+    ).toEqual([]);
+  });
+
+  it("seeds an anthropic provider from ANTHROPIC_API_KEY, beside the other", () => {
+    const providers = loadConfig({
+      ...base,
+      MODEL_PROVIDER_BASE_URL: "https://llm.example/v1",
+      MODEL_PROVIDER_API_KEY: "k",
+      MODEL_PROVIDER_MODELS: "m",
+      ANTHROPIC_API_KEY: "sk-ant",
+    }).bootstrap.modelProviders;
+    expect(providers.map((p) => p.name)).toEqual(["openrouter", "anthropic"]);
+    expect(providers[1]).toEqual({ kind: "anthropic", name: "anthropic", apiKey: "sk-ant" });
   });
 
   const withProvider = {
@@ -120,13 +142,13 @@ describe("loadConfig", () => {
       MODEL_PROVIDER_CONTEXT_WINDOW: "200000",
       MODEL_PROVIDER_MAX_TOKENS: "32000",
       MODEL_PROVIDER_REASONING: "0",
-    }).bootstrap.modelProvider;
+    }).bootstrap.modelProviders[0];
     expect(provider).toMatchObject({ contextWindow: 200_000, maxTokens: 32_000, reasoning: false });
     // Only an explicit "0" turns reasoning off.
     expect(
-      loadConfig({ ...base, ...withProvider, MODEL_PROVIDER_REASONING: "" }).bootstrap.modelProvider
-        ?.reasoning,
-    ).toBe(true);
+      loadConfig({ ...base, ...withProvider, MODEL_PROVIDER_REASONING: "" }).bootstrap
+        .modelProviders[0],
+    ).toMatchObject({ reasoning: true });
   });
 
   it("refuses a value that is not a reasoning effort at all", () => {

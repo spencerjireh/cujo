@@ -79,18 +79,21 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
       githubMcpUrl: GITHUB_MCP_URL,
       sandboxMcpUrl: SANDBOX_MCP_URL,
       bootstrap: {
-        modelProvider: {
-          name: PROVIDER,
-          baseUrl: `http://${STUB_HOST}:${stub.port}/v1`,
-          apiKey: "stub",
-          models: [{ name: "stub", modelId: "stub-1" }],
-          contextWindow: 100_000,
-          maxTokens: 4_000,
-          // The spec below asks for an effort anyway: the harness clamps it to
-          // nothing for a model that declares none (decision 127), and that
-          // clamp, not a refusal, is the contract.
-          reasoning: false,
-        },
+        modelProviders: [
+          {
+            kind: "openai",
+            name: PROVIDER,
+            baseUrl: `http://${STUB_HOST}:${stub.port}/v1`,
+            apiKey: "stub",
+            models: [{ name: "stub", modelId: "stub-1" }],
+            contextWindow: 100_000,
+            maxTokens: 4_000,
+            // The spec below asks for an effort anyway: the harness clamps it to
+            // nothing for a model that declares none (decision 127), and that
+            // clamp, not a refusal, is the contract.
+            reasoning: false,
+          },
+        ],
       },
     } as unknown as Config;
     harness = new Harness(config);
@@ -112,6 +115,31 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
     ]);
     expect(harness.ready).toBe(true);
     await expect(harness.bootstrap()).resolves.toEqual(applied);
+  });
+
+  /** The stub host under another name: what the board would have in a form. */
+  const renamed = (name: string) => {
+    const [provider] = harness.modelProviders();
+    if (provider?.kind !== "openai") throw new Error("no stub provider");
+    return { ...provider, name };
+  };
+
+  it("tests a provider with one short call, without registering it (decision 174)", async () => {
+    await expect(harness.testProvider(renamed("draft"), "stub")).resolves.toMatchObject({
+      ok: true,
+    });
+    await expect(
+      harness.createSession({ ...spec(), model: { name: "draft/stub" } }),
+    ).rejects.toThrow(/Unknown model/);
+  });
+
+  it("deletes a provider, and its models resolve no more (decision 174)", async () => {
+    await harness.registerModelProvider(renamed("doomed"));
+    await harness.createSession({ ...spec(), model: { name: "doomed/stub" } });
+    await harness.unregisterModelProvider("doomed");
+    await expect(
+      harness.createSession({ ...spec(), model: { name: "doomed/stub" } }),
+    ).rejects.toThrow(/Unknown model/);
   });
 
   it("creates a session from an inline agent spec that gates nothing", async () => {
