@@ -1,4 +1,4 @@
-import type { BotState, Health, InstanceSettingsView } from "@/lib/api/owner-client";
+import type { BotState, Health, InstanceSettingsView, ProviderModel } from "@/lib/api/owner-client";
 import { ownerKeys } from "@/lib/api/owner-keys";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,15 +14,18 @@ const settings: InstanceSettingsView = {
     diffBudgetTokens: 400_000,
     sandboxBudgetTokens: 3_000_000,
     reviewMode: "sandbox",
-    modelProvider: {
-      name: "openrouter",
-      baseUrl: "https://openrouter.ai/api/v1",
-      apiKey: "****1234",
-      models: [{ name: "glm-flash", modelId: "z-ai/glm-5.3-flash" }],
-      contextWindow: 128_000,
-      maxTokens: 16_384,
-      reasoning: true,
-    },
+    modelProviders: [
+      {
+        kind: "openai",
+        name: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: "****1234",
+        models: [{ name: "glm-flash", modelId: "z-ai/glm-5.3-flash" }],
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+        reasoning: true,
+      },
+    ],
     turnTimeoutMs: 1_800_000,
     diffTimeoutMs: 600_000,
     diffBytes: 60_000,
@@ -44,7 +47,7 @@ const settings: InstanceSettingsView = {
     diffBudgetTokens: "seed",
     sandboxBudgetTokens: "seed",
     reviewMode: "seed",
-    modelProvider: "seed",
+    modelProviders: "seed",
     turnTimeoutMs: "owner",
     diffTimeoutMs: "seed",
     diffBytes: "seed",
@@ -66,7 +69,7 @@ const settings: InstanceSettingsView = {
     diffBudgetTokens: "models",
     sandboxBudgetTokens: "models",
     reviewMode: "models",
-    modelProvider: "provider",
+    modelProviders: "provider",
     turnTimeoutMs: "limits",
     diffTimeoutMs: "limits",
     diffBytes: "limits",
@@ -146,15 +149,47 @@ const bot: BotState = {
   ],
 };
 
-const health: Health = { harness: "ready", store: "ok", uptimeMs: 5_400_000, ready: true };
+const health: Health = {
+  harness: "ready",
+  store: "ok",
+  configured: true,
+  uptimeMs: 5_400_000,
+  ready: true,
+};
 
-function seeded(over: { bot?: BotState; health?: Health } = {}) {
+/** A deploy that booted with no model: no providers, nothing chosen (decision 174). */
+const unconfigured: InstanceSettingsView = {
+  ...settings,
+  settings: { ...settings.settings, model: null, diffModel: null, modelProviders: [] },
+};
+
+/** Claude for the sandbox review, OpenRouter for the diff review. */
+const twoProviders: InstanceSettingsView = {
+  ...settings,
+  settings: {
+    ...settings.settings,
+    model: "anthropic/claude-sonnet-5",
+    modelProviders: [
+      { kind: "anthropic", name: "anthropic", apiKey: "****9f2a" },
+      ...settings.settings.modelProviders,
+    ],
+  },
+};
+
+const catalog: ProviderModel[] = [
+  { id: "claude-haiku-4-5", contextWindow: 200_000, maxTokens: 64_000, costKnown: true },
+  { id: "claude-sonnet-5", contextWindow: 1_000_000, maxTokens: 128_000, costKnown: true },
+  { id: "claude-opus-5", contextWindow: 1_000_000, maxTokens: 128_000, costKnown: true },
+];
+
+function seeded(over: { bot?: BotState; health?: Health; settings?: InstanceSettingsView } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Number.POSITIVE_INFINITY, refetchInterval: false },
     },
   });
-  client.setQueryData(ownerKeys.instance(), settings);
+  client.setQueryData(ownerKeys.instance(), over.settings ?? settings);
+  client.setQueryData(ownerKeys.providerModels("anthropic"), catalog);
   client.setQueryData(ownerKeys.bot(), over.bot ?? bot);
   client.setQueryData(ownerKeys.health(), over.health ?? health);
   return function Decorated(Story: () => React.ReactElement) {
@@ -175,6 +210,20 @@ export const Ready: Story = { decorators: [seeded()] };
 /** The harness is still registering its settings. */
 export const Bootstrapping: Story = {
   decorators: [
-    seeded({ health: { harness: "bootstrapping", store: "ok", uptimeMs: 12_000, ready: false } }),
+    seeded({
+      health: {
+        harness: "bootstrapping",
+        store: "ok",
+        configured: false,
+        uptimeMs: 12_000,
+        ready: false,
+      },
+    }),
   ],
 };
+/** Booted with no model: the banner, and an empty provider list. */
+export const Unconfigured: Story = {
+  decorators: [seeded({ settings: unconfigured, health: { ...health, configured: false } })],
+};
+/** Anthropic beside an OpenAI-compatible host; the picker offers both. */
+export const TwoProviders: Story = { decorators: [seeded({ settings: twoProviders })] };

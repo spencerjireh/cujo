@@ -1046,6 +1046,23 @@ describe("the webhook logs every branch it takes", () => {
     });
   });
 
+  it("claims nothing and writes a neutral check while no model is configured", async () => {
+    const neutral: [string, string][] = [];
+    const createSession = vi.fn(async () => "sess-1");
+    const { app, store, logged } = build({
+      configured: () => false,
+      notConfigured: (repo, sha) => neutral.push([repo, sha]),
+      createSession,
+    });
+    const response = await app.fetch(post(prBody()));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, ignored: "not configured" });
+    expect(createSession).not.toHaveBeenCalled();
+    expect(store.runs.listRuns()).toEqual([]);
+    expect(neutral).toEqual([["o/r", "abc1234def"]]);
+    expect(logged("webhook.ignored")[0]).toMatchObject({ level: "warn", reason: "not_configured" });
+  });
+
   it("answers 502 and says why when the session cannot be created", async () => {
     // Found by driving the real stack: the harness refused the model, the
     // exception escaped the handler, and the only record was a stack trace on

@@ -6,7 +6,14 @@
 import { createLogger } from "@cujo/log";
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config";
-import { type ModelSettings, Settings, parseSetting, seedFromConfig } from "../src/settings";
+import {
+  type ModelSettings,
+  Settings,
+  parseSetting,
+  ready,
+  seedFromConfig,
+  unresolvable,
+} from "../src/settings";
 import { Store } from "../src/store";
 
 const env = {
@@ -57,7 +64,7 @@ describe("Settings.open", () => {
         "executedReportBytes",
         "model",
         "modelMaxTokens",
-        "modelProvider",
+        "modelProviders",
         "modelReasoningEffort",
         "modelTemperature",
         "ocrEnabled",
@@ -85,13 +92,13 @@ describe("Settings.open", () => {
   it("replaces a row that no longer parses with the seed and says so", () => {
     const h = harness();
     h.store.settings.put("reviewMode", JSON.stringify("nonsense"), "owner", "t0");
-    h.store.settings.put("modelProvider", "{not json", "owner", "t0");
+    h.store.settings.put("modelProviders", "{not json", "owner", "t0");
     const settings = Settings.open(h.store.settings, h.seed, h.log, h.now);
     expect(settings.current().reviewMode).toBe("diff");
-    expect(settings.current().modelProvider).toEqual(h.seed.modelProvider);
+    expect(settings.current().modelProviders).toEqual(h.seed.modelProviders);
     expect(h.logged("settings.invalid").map((l) => l.reason)).toEqual([
       "reviewMode",
-      "modelProvider",
+      "modelProviders",
     ]);
     expect(h.store.settings.get("reviewMode")).toMatchObject({ value: '"diff"', source: "seed" });
   });
@@ -130,20 +137,50 @@ describe("Settings.set", () => {
     expect(() => settings.set("reviewMode", "yolo")).toThrow(/not a review mode/);
     expect(() => settings.set("modelReasoningEffort", "harder")).toThrow(/reasoning effort/);
     expect(() => settings.set("model", "")).toThrow(/model name/);
+    expect(() => settings.set("model", "no-slash")).toThrow(/<provider>\/<model>/);
     expect(() => settings.set("diffBudgetTokens", -1)).toThrow(/positive integer/);
     expect(() => settings.set("modelTemperature", "hot")).toThrow(/non-negative number/);
-    expect(() => settings.set("modelProvider", { name: "p" })).toThrow(/modelProvider/);
+    expect(() => settings.set("modelProviders", [{ name: "p" }])).toThrow(/modelProviders/);
+    expect(() =>
+      settings.set("modelProviders", [
+        { kind: "anthropic", name: "anthropic", apiKey: "a" },
+        { kind: "anthropic", name: "anthropic", apiKey: "b" },
+      ]),
+    ).toThrow(/two providers are named anthropic/);
     expect(listener).not.toHaveBeenCalled();
     expect(settings.current()).toEqual(h.seed);
     expect(h.store.settings.get("reviewMode")).toMatchObject({ source: "seed" });
   });
 
-  it("takes a whole provider and hands it to the listener", () => {
+  it("takes the whole provider list and hands it to the listener", () => {
     const h = harness();
     const settings = Settings.open(h.store.settings, h.seed, h.log, h.now);
-    const seen: ModelSettings["modelProvider"][] = [];
-    settings.onChange((_key, current) => seen.push(current.modelProvider));
-    const provider = {
+    const seen: ModelSettings["modelProviders"][] = [];
+    settings.onChange((_key, current) => seen.push(current.modelProviders));
+    const providers = [
+      {
+        kind: "openai",
+        name: "q",
+        baseUrl: "https://other.example/v1",
+        apiKey: "k2",
+        models: [{ name: "m", modelId: "vendor/m2" }],
+        contextWindow: 200_000,
+        maxTokens: 8_192,
+        reasoning: false,
+      },
+      { kind: "anthropic", name: "anthropic", apiKey: "sk-ant" },
+    ];
+    expect(settings.set("modelProviders", providers)).toEqual(providers);
+    expect(seen).toEqual([providers]);
+    expect(settings.set("modelProviders", [])).toEqual([]);
+    expect(settings.set("model", null)).toBeNull();
+  });
+});
+
+describe("the single provider row (decision 174)", () => {
+  it("becomes a one-entry list that keeps its source", () => {
+    const h = harness();
+    const old = {
       name: "q",
       baseUrl: "https://other.example/v1",
       apiKey: "k2",
@@ -152,9 +189,44 @@ describe("Settings.set", () => {
       maxTokens: 8_192,
       reasoning: false,
     };
-    expect(settings.set("modelProvider", provider)).toEqual(provider);
-    expect(seen).toEqual([provider]);
-    expect(settings.set("modelProvider", null)).toBeNull();
+    h.store.settings.put("modelProvider", JSON.stringify(old), "owner", "t0");
+    const settings = Settings.open(h.store.settings, h.seed, h.log, h.now);
+    expect(settings.current().modelProviders).toEqual([{ kind: "openai", ...old }]);
+    expect(settings.sources().modelProviders).toBe("owner");
+    expect(h.store.settings.get("modelProvider")).toBeNull();
+    expect(h.logged("settings.migrated")).toHaveLength(1);
+  });
+
+  it("becomes an empty list when it held none", () => {
+    const h = harness();
+    h.store.settings.put("modelProvider", "null", "seed", "t0");
+    const settings = Settings.open(h.store.settings, h.seed, h.log, h.now);
+    expect(settings.current().modelProviders).toEqual([]);
+  });
+});
+
+describe("ready and unresolvable (decision 174)", () => {
+  it("is null with no model, or with one whose provider is gone", () => {
+    const h = harness();
+    expect(ready({ ...h.seed, model: null })).toBeNull();
+    expect(ready({ ...h.seed, modelProviders: [] })).toBeNull();
+    expect(ready({ ...h.seed, diffModel: "gone/x" })).toBeNull();
+  });
+
+  it("resolves the diff model to the review model when it has none", () => {
+    const h = harness();
+    expect(ready({ ...h.seed, diffModel: null })).toMatchObject({ model: "p/m", diffModel: "p/m" });
+  });
+
+  it("names the key whose provider is not in the list", () => {
+    const h = harness();
+    expect(unresolvable(h.seed)).toBeNull();
+    expect(
+      unresolvable({ ...h.seed, model: null, diffModel: null, modelProviders: [] }),
+    ).toBeNull();
+    expect(unresolvable({ ...h.seed, diffModel: "x/y" })).toBe(
+      "diffModel names provider x, which is not configured",
+    );
   });
 });
 
@@ -163,9 +235,10 @@ describe("Settings.current", () => {
     const h = harness();
     const settings = Settings.open(h.store.settings, h.seed, h.log, h.now);
     const held = settings.current();
-    held.modelProvider?.models.push({ name: "rogue", modelId: "x" });
-    if (held.modelProvider) held.modelProvider.apiKey = "leaked";
-    expect(settings.current().modelProvider).toEqual(h.seed.modelProvider);
+    const [first] = held.modelProviders;
+    if (first?.kind === "openai") first.models.push({ name: "rogue", modelId: "x" });
+    if (first) first.apiKey = "leaked";
+    expect(settings.current().modelProviders).toEqual(h.seed.modelProviders);
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * The settings an owner changes at runtime (decision 152): the models the
  * three reviews run on, their sampling, the diff review's budget, the review
- * mode default, and the model provider itself. Held in the store, seeded once
+ * mode default, and the model providers themselves. Held in the store, seeded once
  * from the environment on the first boot that knows each key, and read at
  * use — a session built after a change is built on the new value, a run
  * claimed after it is stamped with the new model, and a provider change is
@@ -11,11 +11,15 @@
  * environment is the seed and because every validator lives there. What
  * changed is who is asked: nothing reads `config.model` after boot; it reads
  * `settings.current().model`.
+ *
+ * The seed is a dev and test convenience and nothing more (decision 174): a
+ * deploy boots with no model at all, answers every pull request with a
+ * neutral "not configured" check, and is configured on the board.
  */
 
 import { type Logger, errorFields } from "@cujo/log";
 import { z } from "zod";
-import { type Config, type ModelProviderConfig, effort, mode, sampling } from "./config";
+import { type Config, type ProviderConfig, effort, mode, sampling } from "./config";
 import type { ReviewMode } from "./review/types";
 import type { SettingsStore } from "./store/settings";
 
@@ -26,16 +30,18 @@ import type { SettingsStore } from "./store/settings";
  * The name is the original one; every key here is read live at use.
  */
 export interface ModelSettings {
-  model: string;
+  /** Null until an owner picks one: the instance is "not configured". */
+  model: string | null;
   modelReasoningEffort: Config["modelReasoningEffort"];
   modelTemperature: number | null;
   modelMaxTokens: number | null;
-  diffModel: string;
+  /** Null means the diff review runs on `model`. */
+  diffModel: string | null;
   diffBudgetTokens: number;
   /** The ceiling on a sandbox run's billed tokens (decision 165). */
   sandboxBudgetTokens: number;
   reviewMode: ReviewMode;
-  modelProvider: ModelProviderConfig | null;
+  modelProviders: ProviderConfig[];
   /** The ceiling on a sandbox turn, in milliseconds. */
   turnTimeoutMs: number;
   /** The ceiling on a diff turn, which reads and posts. */
@@ -78,7 +84,7 @@ export const SETTING_GROUPS: Readonly<Record<SettingKey, SettingGroup>> = {
   diffBudgetTokens: "models",
   sandboxBudgetTokens: "models",
   reviewMode: "models",
-  modelProvider: "provider",
+  modelProviders: "provider",
   turnTimeoutMs: "limits",
   diffTimeoutMs: "limits",
   diffBytes: "limits",
@@ -104,8 +110,9 @@ function wholeNumber(key: string, raw: unknown, options: { zeroOk?: boolean } = 
   return value;
 }
 
-const ProviderSchema = z
+const OpenAiProviderSchema = z
   .object({
+    kind: z.literal("openai"),
     name: z.string().min(1),
     baseUrl: z.string().url(),
     apiKey: z.string().min(1),
@@ -116,6 +123,23 @@ const ProviderSchema = z
   })
   .strict();
 
+const AnthropicProviderSchema = z
+  .object({ kind: z.literal("anthropic"), name: z.literal("anthropic"), apiKey: z.string().min(1) })
+  .strict();
+
+/** Unique names, because a spec's model is found by the name before its slash. */
+const ProvidersSchema = z
+  .array(z.discriminatedUnion("kind", [OpenAiProviderSchema, AnthropicProviderSchema]))
+  .superRefine((providers, ctx) => {
+    const seen = new Set<string>();
+    for (const provider of providers) {
+      if (seen.has(provider.name)) {
+        ctx.addIssue({ code: "custom", message: `two providers are named ${provider.name}` });
+      }
+      seen.add(provider.name);
+    }
+  });
+
 /**
  * One value, checked the way `loadConfig` checks the environment. Throws with
  * the same message a bad environment variable would, so an owner's mistake
@@ -125,8 +149,9 @@ export function parseSetting<K extends SettingKey>(key: K, raw: unknown): ModelS
   switch (key) {
     case "model":
     case "diffModel": {
-      if (typeof raw !== "string" || raw.trim() === "")
-        throw new Error(`${key} must be a model name`);
+      if (raw === null) return null as ModelSettings[K];
+      if (typeof raw !== "string" || !/^[^/\s]+\/\S+$/.test(raw.trim()))
+        throw new Error(`${key} must be a model name, <provider>/<model>`);
       return raw.trim() as ModelSettings[K];
     }
     case "modelReasoningEffort": {
@@ -163,11 +188,10 @@ export function parseSetting<K extends SettingKey>(key: K, raw: unknown): ModelS
       if (typeof raw !== "boolean") throw new Error(`${key} must be true or false`);
       return raw as ModelSettings[K];
     }
-    case "modelProvider": {
-      if (raw === null) return null as ModelSettings[K];
-      const parsed = ProviderSchema.safeParse(raw);
+    case "modelProviders": {
+      const parsed = ProvidersSchema.safeParse(raw);
       if (!parsed.success)
-        throw new Error(`modelProvider: ${parsed.error.issues[0]?.message ?? "invalid"}`);
+        throw new Error(`modelProviders: ${parsed.error.issues[0]?.message ?? "invalid"}`);
       return parsed.data as ModelSettings[K];
     }
   }
@@ -185,7 +209,7 @@ export function seedFromConfig(config: Config): ModelSettings {
     diffBudgetTokens: config.diffBudgetTokens,
     sandboxBudgetTokens: config.sandboxBudgetTokens,
     reviewMode: config.reviewMode,
-    modelProvider: config.bootstrap.modelProvider,
+    modelProviders: config.bootstrap.modelProviders,
     turnTimeoutMs: config.turnTimeoutMs,
     diffTimeoutMs: config.diffTimeoutMs,
     diffBytes: config.diffBytes,
@@ -200,6 +224,72 @@ export function seedFromConfig(config: Config): ModelSettings {
     executeStepTimeoutMs: config.executeStepTimeoutMs,
     executedReportBytes: config.executedReportBytes,
   };
+}
+
+/**
+ * The single `modelProvider` row decision 152 wrote, as the one-entry list
+ * that replaced it (decision 174). Its source carries over, so a provider an
+ * owner set stays the owner's. Run before the keys are read, so the list is
+ * found rather than seeded over it.
+ */
+function migrateProvider(store: SettingsStore, log: Logger): void {
+  const legacy = store.get("modelProvider");
+  if (!legacy) return;
+  if (!store.get("modelProviders")) {
+    const old = JSON.parse(legacy.value) as Record<string, unknown> | null;
+    const list = old ? [{ kind: "openai", ...old }] : [];
+    store.put("modelProviders", JSON.stringify(list), legacy.source, legacy.updatedAt);
+  }
+  store.delete("modelProvider");
+  log.info("settings.migrated", { reason: "modelProvider" });
+}
+
+/** The settings a session can be built on: a model chosen, and the diff model resolved. */
+export type ReadySettings = Omit<ModelSettings, "model" | "diffModel"> & {
+  model: string;
+  diffModel: string;
+};
+
+/**
+ * The settings with a model in them, or null. A model naming a provider no
+ * longer in the list is no model at all; the PATCH refuses that, but a row
+ * written before the check existed could still say it.
+ */
+export function ready(current: ModelSettings): ReadySettings | null {
+  const { model } = current;
+  if (!model) return null;
+  const diffModel = current.diffModel ?? model;
+  const names = new Set(current.modelProviders.map((provider) => provider.name));
+  if (!names.has(providerOf(model)) || !names.has(providerOf(diffModel))) return null;
+  return { ...current, model, diffModel };
+}
+
+export function providerOf(model: string): string {
+  return model.slice(0, model.indexOf("/"));
+}
+
+/**
+ * What a set of values would leave unresolvable, or null. Checked on the
+ * whole staged state, so a PATCH that adds a provider and picks its model in
+ * one body passes, and one that removes a provider still in use does not.
+ */
+export function unresolvable(staged: ModelSettings): string | null {
+  const names = new Set(staged.modelProviders.map((provider) => provider.name));
+  for (const key of ["model", "diffModel"] as const) {
+    const value = staged[key];
+    if (value && !names.has(providerOf(value))) {
+      return `${key} names provider ${providerOf(value)}, which is not configured`;
+    }
+  }
+  return null;
+}
+
+/** Thrown where a session would be built while no model is configured. */
+export class NotConfiguredError extends Error {
+  constructor() {
+    super("no model is configured");
+    this.name = "NotConfiguredError";
+  }
 }
 
 export type SettingsListener = (changed: SettingKey, current: ModelSettings) => void;
@@ -231,6 +321,7 @@ export class Settings {
   ): Settings {
     const at = now().toISOString();
     const current = { ...seed };
+    migrateProvider(store, log);
     for (const key of SETTING_KEYS) {
       const row = store.get(key);
       if (!row) {
@@ -248,8 +339,8 @@ export class Settings {
   }
 
   /**
-   * The effective values now. A snapshot, and a deep one: the provider is an
-   * object with a list inside it, and a consumer that edited a shared copy
+   * The effective values now. A snapshot, and a deep one: the providers are a
+   * list of objects, and a consumer that edited a shared copy
    * would be editing what the next registration sends. Hold it for one
    * operation, not longer.
    */

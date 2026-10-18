@@ -86,6 +86,25 @@ const build = (checks: GitHubChecks, extra: Partial<PrChecksDeps> = {}) =>
   });
 
 describe("PrChecks", () => {
+  it("writes one neutral check on a head nobody reviews, linking the board (decision 174)", async () => {
+    const { checks, writes } = fake();
+    const service = build(checks);
+    service.notConfigured("o/r", "h9");
+    await service.flush();
+    expect(writes).toEqual([
+      {
+        sha: "h9",
+        knownId: null,
+        payload: expect.objectContaining({
+          status: "completed",
+          conclusion: "neutral",
+          detailsUrl: "https://cujo.example.com/instance",
+          output: expect.objectContaining({ title: "Cujo is not configured" }),
+        }),
+      },
+    ]);
+  });
+
   it("writes an in-progress check on the head as soon as the run is claimed", async () => {
     const { checks, writes } = fake();
     const service = build(checks);

@@ -138,30 +138,45 @@ function repoPath(repo: string): string {
     .join("/");
 }
 
+/** An OpenAI-compatible host, every model declared as `name=provider id`. */
+interface OpenAiProvider {
+  kind: "openai";
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  models: { name: string; modelId: string }[];
+  contextWindow: number;
+  maxTokens: number;
+  reasoning: boolean;
+}
+
+/** Anthropic's own API: a key; the harness has the models (decision 174). */
+interface AnthropicProvider {
+  kind: "anthropic";
+  name: "anthropic";
+  apiKey: string;
+}
+
+export type ProviderSettings = OpenAiProvider | AnthropicProvider;
+
 /**
- * The instance settings: the models and the provider (decision 152), the
- * provider's key masked, and the limits and switches (decision 164). The
- * server's `settings.ts` is the list; this mirrors it, and the groups the
- * server serves say which form each key is drawn on.
+ * The instance settings: the models and the providers (decisions 152, 174),
+ * every key masked, and the limits and switches (decision 164). The server's
+ * `settings.ts` is the list; this mirrors it, and the groups the server
+ * serves say which form each key is drawn on.
  */
 export interface InstanceSettings {
-  model: string;
+  /** Null until one is chosen: the instance is not configured. */
+  model: string | null;
   modelReasoningEffort: string;
   modelTemperature: number | null;
   modelMaxTokens: number | null;
-  diffModel: string;
+  /** Null means the diff review runs on `model`. */
+  diffModel: string | null;
   diffBudgetTokens: number;
   sandboxBudgetTokens: number;
   reviewMode: ReviewMode;
-  modelProvider: {
-    name: string;
-    baseUrl: string;
-    apiKey: string;
-    models: { name: string; modelId: string }[];
-    contextWindow: number;
-    maxTokens: number;
-    reasoning: boolean;
-  } | null;
+  modelProviders: ProviderSettings[];
   turnTimeoutMs: number;
   diffTimeoutMs: number;
   diffBytes: number;
@@ -215,6 +230,8 @@ export interface BotState {
 export interface Health {
   harness: "ready" | "bootstrapping";
   store: "ok" | "error";
+  /** A model chosen and its provider registered; false, pull requests get a neutral check. */
+  configured: boolean;
   uptimeMs: number;
   ready: boolean;
 }
@@ -238,4 +255,39 @@ export function fetchBot(session?: string, signal?: AbortSignal): Promise<BotSta
 
 export function fetchHealth(session?: string, signal?: AbortSignal): Promise<Health> {
   return call<Health>("/health", { session, signal });
+}
+
+/** What a provider offers; `costKnown` says whether a run on it reports dollars. */
+export interface ProviderModel {
+  id: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  costKnown: boolean;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  latencyMs: number;
+  error?: string;
+}
+
+/** A provider's models, asked of the draft in the form; a masked key is read back server-side. */
+export async function listProviderModels(provider: ProviderSettings): Promise<ProviderModel[]> {
+  const { models } = await call<{ models: ProviderModel[] }>("/settings/providers/models", {
+    method: "POST",
+    body: { provider },
+  });
+  return models;
+}
+
+/** One short call on the draft provider, before it is saved. */
+export async function testProvider(
+  provider: ProviderSettings,
+  model: string,
+): Promise<ProviderTestResult> {
+  const { result } = await call<{ result: ProviderTestResult }>("/settings/providers/test", {
+    method: "POST",
+    body: { provider, model },
+  });
+  return result;
 }

@@ -86,7 +86,10 @@ services:
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
-      CUJO_MODEL: ${CUJO_MODEL}
+      # Optional (decision 174): a deploy chooses its model on the board and
+      # boots without one. This and the model settings below seed a dev or
+      # test stack's first boot only.
+      CUJO_MODEL: ${CUJO_MODEL:-}
       # How hard the model is asked to think: none, minimal, low, medium, high,
       # xhigh, max. Unset leaves the provider's default, which is what a model
       # that does not reason at all needs (decision 53).
@@ -165,9 +168,13 @@ services:
       CUJO_EXECUTE_DECLARED: ${CUJO_EXECUTE_DECLARED:-1}
       CUJO_EXECUTE_STEP_TIMEOUT_MS: ${CUJO_EXECUTE_STEP_TIMEOUT_MS:-900000}
       CUJO_EXECUTED_REPORT_BYTES: ${CUJO_EXECUTED_REPORT_BYTES:-24000}
-      # The model provider, registered on the harness at start (decision 127).
-      # The harness holds nothing until this process tells it; there is no
-      # console to configure it in.
+      # Seeds for the providers a dev or test stack starts with (decisions 127,
+      # 174). A deploy adds providers on the board instead; cujo registers
+      # whatever the board holds on the harness at start and on every change.
+      # ANTHROPIC_API_KEY goes to this service only, never to `harness`: pi
+      # reads that variable from its own environment, and a key there would
+      # bypass the board.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MODEL_PROVIDER_NAME: ${MODEL_PROVIDER_NAME:-}
       MODEL_PROVIDER_BASE_URL: ${MODEL_PROVIDER_BASE_URL:-}
       MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}

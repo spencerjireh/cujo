@@ -3,22 +3,17 @@ import Link from "next/link";
 
 const REQUIRED = `GITHUB_APP_ID
 GITHUB_APP_PRIVATE_KEY     # the PEM text; literal \\n is accepted
-GITHUB_WEBHOOK_SECRET
-CUJO_MODEL                 # <provider name>/<model name>`;
+GITHUB_WEBHOOK_SECRET`;
 
-const DIFF = `CUJO_REVIEW_MODE          # sandbox (default) or diff, when a repo declares none
-CUJO_DIFF_MODEL           # <provider name>/<model name>; unset means CUJO_MODEL
-CUJO_DIFF_BUDGET_TOKENS   # billed tokens per diff run, default 400000
-CUJO_DIFF_TIMEOUT_MS      # default 600000
-CUJO_DIFF_BYTES           # bytes of diff the model is handed, default 60000`;
+const BOARD = `GITHUB_OAUTH_CLIENT_ID       # the App's own OAuth client
+GITHUB_OAUTH_CLIENT_SECRET
+CUJO_PUBLIC_BASE_URL         # the board's origin; the OAuth callback is under it`;
 
-const PROVIDERS = `MODEL_PROVIDER_NAME
-MODEL_PROVIDER_BASE_URL             # an OpenAI-compatible chat-completions endpoint
-MODEL_PROVIDER_API_KEY
-MODEL_PROVIDER_MODELS               # <model name>=<provider model id>, comma separated
-MODEL_PROVIDER_CONTEXT_WINDOW       # default 128000
-MODEL_PROVIDER_MAX_TOKENS           # default 16384
-MODEL_PROVIDER_REASONING            # 0 for a model that takes no reasoning effort`;
+const SEEDS = `CUJO_MODEL                   # <provider name>/<model name>
+ANTHROPIC_API_KEY            # seeds an Anthropic provider
+MODEL_PROVIDER_BASE_URL      # seeds one OpenAI-compatible provider,
+MODEL_PROVIDER_API_KEY       #   with MODEL_PROVIDER_NAME and
+MODEL_PROVIDER_MODELS        #   <model name>=<provider model id>, comma separated`;
 
 /**
  * Vendor-neutral on purpose. This board runs on one particular host behind one
@@ -109,42 +104,39 @@ export function SelfHost() {
         <Lead>Required. The services exit at start without these.</Lead>
         <Pre>{REQUIRED}</Pre>
         <P>
-          The model provider, which the service registers on the harness at boot. There is nowhere
-          else to configure one. The three limits apply to every model in the list: the window the
-          harness compacts against, the output cap, and whether a reasoning effort means anything to
-          the model.
+          Models are not set here. The service starts with none, and every pull request gets a
+          neutral <C>cujo/guard</C> check saying so until an owner chooses one on the board&rsquo;s
+          instance page. That page needs the sign-in, so set these too:
         </P>
-        <Pre>{PROVIDERS}</Pre>
+        <Pre>{BOARD}</Pre>
         <P>
-          Any OpenAI-compatible provider works — the model is chosen at deploy time and nothing in
-          the code names one. Discord is configured with <C>DISCORD_BOT_TOKEN</C> and{" "}
-          <C>DISCORD_PUBLIC_KEY</C>; leave them unset and the service runs and notifies nobody. The
-          rest — turn timeout, conversation limits, the public stream cap, the pull request reaction
-          switch — have working defaults.
+          On the instance page, add a provider — Anthropic takes a key and nothing else, since the
+          harness has its models, limits and prices; any OpenAI-compatible host takes a URL, a key
+          and the models you declare — press Test, save, then choose the model each review runs on.
+          The diff review can run on a different, cheaper model. A run on an Anthropic model reports
+          what it cost. Discord is configured with <C>DISCORD_BOT_TOKEN</C> and{" "}
+          <C>DISCORD_PUBLIC_KEY</C>; leave them unset and the service runs and notifies nobody.
         </P>
         <P>
-          The diff review has its own five, all optional. The model must be one of{" "}
-          <C>MODEL_PROVIDER_MODELS</C>; a cheap one is the point. The budget is billed tokens, with
-          the context counted again on every message, and a run that passes it ends in <C>error</C>{" "}
-          with the count on its record.
+          A local or test stack can skip the board: these seed the first boot only, and the board
+          holds the values after that.
         </P>
-        <Pre>{DIFF}</Pre>
+        <Pre>{SEEDS}</Pre>
       </Section>
 
       <Section id="traps" title="Two settings that fail confusingly">
         <UL>
           <LI>
-            <C>CUJO_MODEL_REASONING_EFFORT</C> is clamped to what the model can take: a model with{" "}
-            <C>MODEL_PROVIDER_REASONING=0</C> gets none, and <C>xhigh</C> or <C>max</C> fold to{" "}
-            <C>high</C> unless the model maps them. Nothing refuses to start over it; check the
-            harness log for what was actually sent if a review reasons less than you asked.
+            The reasoning effort is clamped to what the model can take: a model whose provider says
+            it does not reason gets none, and <C>xhigh</C> or <C>max</C> fold to <C>high</C> unless
+            the model maps them. Nothing refuses to start over it; check the harness log for what
+            was actually sent if a review reasons less than you asked.
           </LI>
           <LI>
-            A sampling key your provider rejects — <C>CUJO_MODEL_TEMPERATURE</C> on a model that
-            only accepts one value, say — produces exactly that failure: readiness stays green and
-            every review fails. Both are unset by default, and unset means the key is not sent at
-            all rather than sent with a default. Check what your provider accepts before setting
-            either.
+            A sampling value your provider rejects — a temperature on a model that only accepts one
+            value, say — produces exactly that failure: readiness stays green and every review
+            fails. Both are unset by default, and unset means the key is not sent at all rather than
+            sent with a default. Check what your provider accepts before setting either.
           </LI>
         </UL>
       </Section>

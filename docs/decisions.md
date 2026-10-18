@@ -8799,3 +8799,80 @@ extras to a file in the box**, which works but adds a door and leaves the
 data crossing for no reason; **inferring the install failed** from a suite
 that failed identically on both trees, which is a guess where an exit code
 is a fact.
+
+## 174. Models are configured on the board; the environment only seeds a dev stack
+
+Two limits met at once. The harness spoke one wire protocol: `model.ts`
+registered every provider as OpenAI chat completions, so an Anthropic key
+could only reach Claude through Anthropic's OpenAI-compatible endpoint, which
+caches no prompts and maps reasoning partially. A review re-sends a long
+system prompt, every tool definition and a growing history on every step, so
+that endpoint bills the whole context again each time. And `apps/cujo` held
+one provider: decision 152 put it in the `settings` table, but as a single
+row, so Claude for the sandbox review and a cheap host for the diff review
+could not both be registered. Meanwhile `CUJO_MODEL` was still required at
+boot, so the model was deploy configuration in name long after decision 152
+made the table its source.
+
+**Two kinds of provider (amends 127).** A manifest carries `kind`. `openai`
+is the shape it always was, and a manifest stored before the field existed
+reads as one. `anthropic` is a key and nothing else, always named
+`anthropic`: the harness registers it as an overlay on pi's built-in
+`anthropic` provider, which leaves pi's catalog whole. The catalog holds each
+Claude model's window, output cap, thinking format and price, so a spec names
+a model by its Anthropic id (`anthropic/claude-sonnet-5`), the Messages API
+gets its `cache_control` markers, and a run on one reports `totalCostInUsd`.
+The path from there to "$x estimated" on the run ledger already existed and
+had never been fed. A Claude id newer than the catalog resolves to a model
+built on a catalog model's shape, with adaptive thinking, no temperature,
+limits every current model clears, and no price, so its cost is not reported
+rather than reported as zero. Any other id under `anthropic/` is refused at
+session creation, where a typo belongs.
+
+**A list of providers (amends 152).** `modelProvider` became
+`modelProviders`, names unique. The old row is migrated once on open, keeping
+its source, so a provider an owner set stays the owner's. A change is synced
+to the harness as a difference: a PUT for each provider that is new or
+changed, a DELETE for each that is gone. The harness gained the delete,
+because pi's own registration outlives a provider's removal and only the
+manifest map `resolve` checks can retire it.
+
+**No model at deploy.** `CUJO_MODEL` is optional and `model` may be null. A
+model counts as configured when it is chosen and the harness holds its
+provider. Until then no session is built: a pull request gets a neutral
+`cujo/guard` check, "Cujo is not configured", and no run row; `/cujo review`
+and `@cujo-guard` say the same in a line; the instance page carries a banner.
+Neutral, because a commit is not blocked by an instance that never looked at
+it. The model variables, `ANTHROPIC_API_KEY` and the `MODEL_PROVIDER_*` block
+still seed a first boot, which is what a local stack and CI want, and the
+deploy docs no longer name them. `ANTHROPIC_API_KEY` goes to `cujo` only: pi
+reads that variable from its own process, and in the harness's environment it
+would configure Claude behind the board's back.
+
+**The board asks before it saves.** Two owner routes send a draft provider,
+masked key read back, to the harness: one lists what it serves (the catalog,
+or an OpenAI-compatible host's `/models`), one makes a single short call on a
+runtime of its own and answers `{ ok, latencyMs, error? }`. A bad key fails on
+the form, not on the next pull request. The model fields offer what the saved
+providers serve and still take free text.
+
+The spec digests were taken from a spec built at boot, which needs a model.
+`specFingerprint` hashes the instructions and nothing else, so the digests are
+now taken on a stand-in model and are unchanged.
+
+Accepted: **Anthropic as a catalog-backed provider type**, at the cost of a
+pi bump before a new model has a price; **a fallback for uncatalogued Claude
+ids**, which can be wrong about limits for a model nobody has described yet;
+**a neutral check while unconfigured**, so a fresh deploy is visible on every
+pull request rather than silent; **keys stored as text** in the settings table,
+masked on the way out, as the single provider's key already was; **a provider
+renamed with its masked key is refused**, so the mask is never stored as a key.
+
+Rejected: **a JSON list of providers in one environment variable**, which is
+deploy configuration again and the hardest kind to edit; **one key variable
+per vendor**, which drops arbitrary OpenAI-compatible hosts; **keys encrypted
+with a master key from the environment**, whose key sits on the same host as
+the database it would protect; **a `protocol` field on the OpenAI-compatible
+slot** for third-party Anthropic-compatible hosts, until one is needed;
+**renaming the seed variables**, which changes every dev `.env` for nothing,
+since a stored row beats the environment anyway.

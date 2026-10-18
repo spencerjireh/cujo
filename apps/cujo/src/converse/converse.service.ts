@@ -28,6 +28,7 @@ import type { Harness, SessionEvent } from "../clients/harness";
 import { parseMention } from "../review/commands/parse";
 import { messageText } from "../review/fold";
 import type { CheckState, Finding, Projection, RunRecord } from "../review/types";
+import { NotConfiguredError } from "../settings";
 import type { RunStore } from "../store";
 import type { ConverseRateLimit } from "./rate-limit";
 
@@ -93,6 +94,8 @@ const UNKNOWN_PERMISSION =
 const NO_RUN = "I have not reviewed this pull request, so there is nothing for me to explain yet.";
 const IN_FLIGHT =
   "I am still working on the last question on this pull request. Ask again once I have answered it.";
+const NOT_CONFIGURED =
+  "No model is configured on this Cujo instance yet, so I cannot answer. Its owner sets one on the board.";
 const BROKE =
   "Something broke while I was working on that, and it was not your comment. Nothing changed.";
 
@@ -139,7 +142,10 @@ export class ConverseService {
         comment_id: String(request.commentId),
         error_kind: error instanceof Error ? error.name : "unknown",
       });
-      outcome = { kind: "refused", reason: "internal_error", say: BROKE };
+      outcome =
+        error instanceof NotConfiguredError
+          ? { kind: "refused", reason: "not_configured", say: NOT_CONFIGURED }
+          : { kind: "refused", reason: "internal_error", say: BROKE };
     }
     if (outcome.kind === "ignored") return;
     if (outcome.kind === "refused") {

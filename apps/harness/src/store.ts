@@ -14,15 +14,16 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
-import type {
-  AgentSpec,
-  McpServerManifest,
-  ModelProviderManifest,
-  SessionEvent,
-  SessionEventItem,
-  Turn,
-  TurnInputItem,
-  TurnState,
+import {
+  type AgentSpec,
+  type McpServerManifest,
+  type ModelProviderManifest,
+  ModelProviderManifestSchema,
+  type SessionEvent,
+  type SessionEventItem,
+  type Turn,
+  type TurnInputItem,
+  type TurnState,
 } from "@cujo/harness-contract";
 
 // Loaded through the runtime rather than an import so vitest's module
@@ -123,15 +124,16 @@ export class Store {
     this.putSetting("model-provider", manifest.name, manifest);
   }
 
-  getModelProvider(name: string): ModelProviderManifest | null {
-    return this.getSetting<ModelProviderManifest>("model-provider", name);
+  deleteModelProvider(name: string): void {
+    this.db.prepare("DELETE FROM settings WHERE kind = 'model-provider' AND name = ?").run(name);
   }
 
+  /** Parsed, so a manifest stored before there was a `kind` comes back as `openai`. */
   listModelProviders(): ModelProviderManifest[] {
     const rows = this.db
       .prepare("SELECT manifest FROM settings WHERE kind = 'model-provider' ORDER BY name")
       .all() as { manifest: string }[];
-    return rows.map((row) => JSON.parse(row.manifest) as ModelProviderManifest);
+    return rows.map((row) => ModelProviderManifestSchema.parse(JSON.parse(row.manifest)));
   }
 
   private putSetting(kind: string, name: string, manifest: unknown): void {

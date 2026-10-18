@@ -65,6 +65,33 @@ describe("ModelProviderManifestSchema", () => {
       }),
     ).toThrow();
   });
+
+  it("reads a manifest stored before there was a kind as openai", () => {
+    const manifest = ModelProviderManifestSchema.parse({
+      name: "p",
+      baseUrl: "http://x",
+      apiKey: "k",
+      models: [{ name: "m", modelId: "m-1", contextWindow: 1, maxTokens: 1, reasoning: false }],
+    });
+    expect(manifest.kind).toBe("openai");
+  });
+
+  it("takes an anthropic provider as a key alone, under its own name only", () => {
+    expect(
+      ModelProviderManifestSchema.parse({ kind: "anthropic", name: "anthropic", apiKey: "k" }).kind,
+    ).toBe("anthropic");
+    expect(() =>
+      ModelProviderManifestSchema.parse({ kind: "anthropic", name: "claude", apiKey: "k" }),
+    ).toThrow();
+    expect(() =>
+      ModelProviderManifestSchema.parse({
+        kind: "anthropic",
+        name: "anthropic",
+        apiKey: "k",
+        baseUrl: "http://x",
+      }),
+    ).toThrow();
+  });
 });
 
 describe("events", () => {

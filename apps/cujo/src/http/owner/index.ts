@@ -16,6 +16,8 @@ import { Hono } from "hono";
 import { resolveOwner } from "../../auth/owner";
 import type { GitHubReader } from "../../clients/github";
 import type { GitHubOAuth } from "../../clients/github-oauth";
+import type { Harness } from "../../clients/harness";
+import type { ProviderConfig } from "../../config";
 import { INSTRUCTIONS_BYTES, INSTRUCTIONS_PATH } from "../../review/instructions";
 import { cut } from "../../review/prepare";
 import type { Runner } from "../../review/runner.service";
@@ -27,6 +29,7 @@ import {
   type SettingKey,
   type Settings,
   parseSetting,
+  unresolvable,
 } from "../../settings";
 import type { RunStore } from "../../store";
 import type { RepositoryStore } from "../../store/repositories";
@@ -51,7 +54,15 @@ export interface OwnerDeps {
   /** For what the repository's own file says, and what GitHub says about the App. */
   github: Pick<GitHubReader, "declaredMode" | "readFile" | "appState">;
   /** Whether the process can take a run right now: the same answer `/readyz` gives. */
-  health: () => { harness: "ready" | "bootstrapping"; store: "ok" | "error"; uptimeMs: number };
+  health: () => {
+    harness: "ready" | "bootstrapping";
+    store: "ok" | "error";
+    /** Whether a model is chosen and its provider registered (decision 174). */
+    configured: boolean;
+    uptimeMs: number;
+  };
+  /** The two questions the board asks of a provider before it saves one. */
+  providers: Pick<Harness, "listProviderModels" | "testProvider">;
   /** Every run, private ones included (decision 159). */
   runs: Pick<RunStore, "listRunsWithDigests">;
   runner: Pick<Runner, "view" | "changes">;
@@ -86,13 +97,48 @@ const LEVEL: Record<string, number> = { read: 1, write: 2, admin: 3 };
 /** The keys the board may set: every key `settings.ts` lists (decision 164). */
 const SETTABLE: readonly SettingKey[] = SETTING_KEYS;
 
-/** The provider with its key masked: the board shows that one exists, never what it is. */
+/** Every provider with its key masked: the board shows that one exists, never what it is. */
 function redacted(settings: ModelSettings) {
-  const provider = settings.modelProvider;
   return {
     ...settings,
-    modelProvider: provider ? { ...provider, apiKey: mask(provider.apiKey) } : null,
+    modelProviders: settings.modelProviders.map((provider) => ({
+      ...provider,
+      apiKey: mask(provider.apiKey),
+    })),
   };
+}
+
+/**
+ * The mask the board was shown, sent back unchanged, means "keep the one you
+ * have" for the provider of that name. Compared to the exact mask this
+ * process issued, not to a prefix: a real key that happened to begin with
+ * the mask's characters would otherwise be silently replaced by the stored
+ * one. Anything that is not a provider-shaped object is passed through for
+ * the validator to refuse.
+ */
+function unmask(raw: unknown, stored: ProviderConfig[]): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const provider = raw as Record<string, unknown>;
+  const current = stored.find((p) => p.name === provider.name);
+  if (current && provider.apiKey === mask(current.apiKey)) {
+    return { ...provider, apiKey: current.apiKey };
+  }
+  return raw;
+}
+
+/**
+ * A mask that found no provider of its name: a provider renamed, or one
+ * added by copying another's card. Stored, it would be sent to the provider
+ * as the key, so it is refused with the name to re-enter a key for.
+ */
+function stillMasked(providers: unknown[]): string | null {
+  for (const raw of providers) {
+    const provider = raw as Record<string, unknown> | null;
+    if (typeof provider?.apiKey === "string" && provider.apiKey.startsWith(MASK_PREFIX)) {
+      return `modelProviders: enter the key for ${String(provider.name)} again`;
+    }
+  }
+  return null;
 }
 
 const MASK_PREFIX = "****";
@@ -203,28 +249,27 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
     const keys = Object.keys(body);
     const unknown = keys.filter((k) => !SETTABLE.includes(k as SettingKey));
     if (unknown.length) return c.json({ ok: false, error: `unknown setting: ${unknown[0]}` }, 400);
-    // The mask the board was shown, sent back unchanged, means "keep the one
-    // you have". Compared to the exact mask this process issued, not to a
-    // prefix: a real key that happened to begin with the mask's characters
-    // would otherwise be silently replaced by the stored one.
-    const provider = body.modelProvider as Record<string, unknown> | null | undefined;
-    if (provider && typeof provider === "object" && typeof provider.apiKey === "string") {
-      const current = deps.settings.current().modelProvider;
-      if (current && provider.apiKey === mask(current.apiKey)) {
-        body.modelProvider = { ...provider, apiKey: current.apiKey };
-      }
+    const stored = deps.settings.current().modelProviders;
+    if (Array.isArray(body.modelProviders)) {
+      body.modelProviders = body.modelProviders.map((p) => unmask(p, stored));
+      const masked = stillMasked(body.modelProviders as unknown[]);
+      if (masked) return c.json({ ok: false, error: masked }, 400);
     }
     // Validate everything before writing anything, so a bad second key does not
-    // leave a good first one applied.
+    // leave a good first one applied, and check the result as a whole, so a
+    // model naming a provider the same body removes is refused.
     const staged: Array<[SettingKey, unknown]> = [];
+    const after = { ...deps.settings.current() } as Record<SettingKey, unknown>;
     try {
       for (const key of keys as SettingKey[]) {
-        parseSetting(key, body[key]);
+        after[key] = parseSetting(key, body[key]);
         staged.push([key, body[key]]);
       }
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : "invalid" }, 400);
     }
+    const dangling = unresolvable(after as unknown as ModelSettings);
+    if (dangling) return c.json({ ok: false, error: dangling }, 400);
     for (const [key, value] of staged) deps.settings.set(key, value);
     c.get("log").info("owner.settings.changed", { count: staged.length });
     return c.json({
@@ -233,6 +278,64 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
       sources: deps.settings.sources(),
       groups: SETTING_GROUPS,
     });
+  });
+
+  /**
+   * A provider as the board has it in a form, saved or not: validated the
+   * way the PATCH would, with a masked key read back from the stored one.
+   */
+  const draftProvider = (raw: unknown): ProviderConfig => {
+    const draft = unmask(raw, deps.settings.current().modelProviders);
+    const masked = stillMasked([draft]);
+    if (masked) throw new Error(masked);
+    const [provider] = parseSetting("modelProviders", [draft]);
+    if (!provider) throw new Error("modelProviders: invalid");
+    return provider;
+  };
+
+  // The picker and the test button (decision 174). Asked of the harness,
+  // which holds the catalog and makes model calls; neither registers anything.
+  owner.post("/settings/providers/models", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { provider?: unknown } | null;
+    let provider: ProviderConfig;
+    try {
+      provider = draftProvider(body?.provider);
+    } catch (error) {
+      return c.json({ ok: false, error: error instanceof Error ? error.message : "invalid" }, 400);
+    }
+    try {
+      return c.json({ ok: true, models: await deps.providers.listProviderModels(provider) });
+    } catch (error) {
+      c.get("log").warn("owner.provider.models.failed", errorFields(error));
+      return c.json({ ok: false, error: "the provider did not list its models" }, 502);
+    }
+  });
+
+  owner.post("/settings/providers/test", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      provider?: unknown;
+      model?: unknown;
+    } | null;
+    let provider: ProviderConfig;
+    try {
+      provider = draftProvider(body?.provider);
+    } catch (error) {
+      return c.json({ ok: false, error: error instanceof Error ? error.message : "invalid" }, 400);
+    }
+    if (typeof body?.model !== "string" || !body.model.trim()) {
+      return c.json({ ok: false, error: "model is required" }, 400);
+    }
+    try {
+      const result = await deps.providers.testProvider(provider, body.model.trim());
+      c.get("log").info("owner.provider.tested", {
+        reason: provider.name,
+        status: result.ok ? "ok" : "failed",
+      });
+      return c.json({ ok: true, result });
+    } catch (error) {
+      c.get("log").warn("owner.provider.test.failed", errorFields(error));
+      return c.json({ ok: false, error: "the harness did not answer" }, 502);
+    }
   });
 
   /**

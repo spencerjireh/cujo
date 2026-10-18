@@ -88,10 +88,16 @@ draft stops a run. The rest is in the
 ## Run your own
 
 ```bash
-cp .env.example .env   # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET,
-                       # CUJO_MODEL and the MODEL_PROVIDER_* block are required
+cp .env.example .env   # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET
 make up-local          # docker compose up with the local overlay
 ```
+
+Models are configured on the board, not in the environment
+([decision 174](docs/decisions.md#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)):
+sign in, open the instance page, add a provider (an Anthropic key, or any
+OpenAI-compatible host), and choose a model. Until then every pull request
+gets a neutral `cujo/guard` check. `CUJO_MODEL` with `ANTHROPIC_API_KEY` or
+the `MODEL_PROVIDER_*` block seeds a local stack's first boot instead.
 
 The overlay publishes the board on 3000, the harness on 8790, `cujo` on
 8080, `github-mcp` on 8081 and `sandbox-mcp` on 8082, all on `127.0.0.1`
@@ -114,8 +120,8 @@ secret, and pass the client id and secret as `GITHUB_OAUTH_CLIENT_ID` and
 `GITHUB_OAUTH_CLIENT_SECRET`; without them the board is read-only. On a laptop, `cloudflared tunnel --url
 http://localhost:8080` is enough. A repository may carry `.cujo/REVIEW.md`, the owner's guidance
 for reviewing it, read beside the standards files (decision 155).
-`.env.example` documents the model
-provider, the review mode, the diff budget and Discord; the
+`.env.example` documents the seeds,
+Discord and the rest; the
 [self-host page](https://cujo.spencerjireh.com/docs/self-host) has the rest.
 
 ## Tests

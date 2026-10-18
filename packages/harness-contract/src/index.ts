@@ -94,8 +94,14 @@ export const McpServerManifestSchema = z
   .strict();
 export type McpServerManifest = z.infer<typeof McpServerManifestSchema>;
 
-export const ModelProviderManifestSchema = z
+/**
+ * A provider that speaks OpenAI chat completions, with every model declared.
+ * `kind` defaults to `openai` so a manifest stored before there was a second
+ * kind still parses (decision 174).
+ */
+export const OpenAiProviderManifestSchema = z
   .object({
+    kind: z.literal("openai").default("openai"),
     name: z.string().min(1),
     baseUrl: z.string().url(),
     apiKey: z.string().min(1),
@@ -118,7 +124,56 @@ export const ModelProviderManifestSchema = z
       .min(1),
   })
   .strict();
+
+/**
+ * Anthropic's own API (decision 174): a key and nothing else. The models, their
+ * limits and their prices come from the SDK's catalog, and a spec names one by
+ * its Anthropic id, `anthropic/claude-sonnet-5`. Always named `anthropic`,
+ * because that is the name the catalog is registered under.
+ */
+export const AnthropicProviderManifestSchema = z
+  .object({
+    kind: z.literal("anthropic"),
+    name: z.literal("anthropic"),
+    apiKey: z.string().min(1),
+  })
+  .strict();
+
+export const ModelProviderManifestSchema = z.union([
+  AnthropicProviderManifestSchema,
+  OpenAiProviderManifestSchema,
+]);
 export type ModelProviderManifest = z.infer<typeof ModelProviderManifestSchema>;
+export type ModelProviderManifestInput = z.input<typeof ModelProviderManifestSchema>;
+export type OpenAiProviderManifest = z.infer<typeof OpenAiProviderManifestSchema>;
+
+/** What a provider offers, for the board's picker. `costKnown` is false where no price is on file. */
+export const ProviderModelSchema = z
+  .object({
+    id: z.string().min(1),
+    contextWindow: z.number().int().positive().optional(),
+    maxTokens: z.number().int().positive().optional(),
+    costKnown: z.boolean(),
+  })
+  .strict();
+export type ProviderModel = z.infer<typeof ProviderModelSchema>;
+
+export const ListProviderModelsBodySchema = z
+  .object({ manifest: ModelProviderManifestSchema })
+  .strict();
+/** `model` is what a spec names after the provider's slash. */
+export const TestProviderBodySchema = z
+  .object({ manifest: ModelProviderManifestSchema, model: z.string().min(1) })
+  .strict();
+
+export const ProviderTestResultSchema = z
+  .object({
+    ok: z.boolean(),
+    latencyMs: z.number().nonnegative(),
+    error: z.string().optional(),
+  })
+  .strict();
+export type ProviderTestResult = z.infer<typeof ProviderTestResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Turn input

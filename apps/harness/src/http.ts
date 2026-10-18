@@ -7,15 +7,17 @@
 import {
   CreateSessionBodySchema,
   CreateTurnBodySchema,
+  ListProviderModelsBodySchema,
   McpServerManifestSchema,
   ModelProviderManifestSchema,
+  TestProviderBodySchema,
 } from "@cujo/harness-contract";
 import { type Logger, errorFields } from "@cujo/log";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { z } from "zod";
 import { type Engine, HarnessError } from "./engine";
-import type { Models } from "./model";
+import { type Models, ProviderError, listModels, probe } from "./model";
 import type { Store } from "./store";
 
 export interface AppDeps {
@@ -23,6 +25,8 @@ export interface AppDeps {
   store: Store;
   models: Models;
   log: Logger;
+  /** What `/settings/model-providers/models` reaches a host with; tests pass a fake. */
+  fetch?: typeof fetch;
 }
 
 /** How often a silent subscription sends a comment frame so proxies keep it open. */
@@ -79,6 +83,30 @@ export function createApp(deps: AppDeps): Hono {
     store.putModelProvider(manifest);
     models.register(manifest);
     return c.json({ ok: true, name: manifest.name });
+  });
+
+  app.delete("/settings/model-providers/:name", (c) => {
+    const name = c.req.param("name");
+    store.deleteModelProvider(name);
+    models.unregister(name);
+    return c.json({ ok: true, name });
+  });
+
+  // Both of these take a manifest that is not registered: the board asks
+  // before it saves (decision 174).
+  app.post("/settings/model-providers/models", async (c) => {
+    const { manifest } = await parse(c, ListProviderModelsBodySchema);
+    try {
+      return c.json({ models: await listModels(manifest, models, deps.fetch) });
+    } catch (error) {
+      const message = error instanceof ProviderError ? error.message : "models: unreachable";
+      throw new HarnessError(502, message);
+    }
+  });
+
+  app.post("/settings/model-providers/test", async (c) => {
+    const { manifest, model } = await parse(c, TestProviderBodySchema);
+    return c.json(await probe(manifest, model));
   });
 
   app.post("/sessions", async (c) => {

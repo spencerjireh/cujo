@@ -15,7 +15,17 @@ two `PUT /settings/*` to register MCP servers and model providers, `POST
 schema in `packages/harness-contract`, which both sides compile against; the
 event vocabulary (`turn.created`, `model.message`, `thread.*`,
 `tool.approval_required`, `tool.response`, `turn.done`) is what `fold.ts` and
-the board already spoke, kept on purpose.
+the board already spoke, kept on purpose. Beside them sit three provider
+routes that are settings, not operations (decision 174): `DELETE
+/settings/model-providers/:name`, and `POST /settings/model-providers/models`
+and `/test`, which answer about a manifest the board has not saved and
+register nothing.
+
+**Two kinds of provider.** An `openai` manifest declares every model; an
+`anthropic` manifest is a key, overlaid on pi's built-in `anthropic`
+provider, whose catalog carries each Claude model's limits, thinking format
+and prices. A Claude id newer than the catalog resolves to a model on the
+current format with no price (`model.ts`).
 
 **No auth on the port.** Like `github-mcp` and `sandbox-mcp`: nothing outside
 the compose network can reach it, and there is no credential to present

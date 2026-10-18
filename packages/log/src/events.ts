@@ -188,6 +188,8 @@ export const EVENT_NAMES = [
   // no longer parsed and the environment's value replaced it.
   "settings.changed",
   "settings.invalid",
+  // The single provider row became the provider list (decision 174).
+  "settings.migrated",
   // A provider written at runtime could not be registered on the harness.
   "settings.provider.failed",
   // The owner plane (decision 153): sign-in, and what an owner changed.
@@ -201,6 +203,10 @@ export const EVENT_NAMES = [
   "owner.repository.settings.changed",
   "owner.repository.file.failed",
   "owner.bot.read.failed",
+  // The board asked a provider for its models, or tested one (decision 174).
+  "owner.provider.models.failed",
+  "owner.provider.tested",
+  "owner.provider.test.failed",
   // The owner plane's run streams (decision 159), the public plane's twins.
   "owner.stream.rejected",
   "owner.stream.opened",

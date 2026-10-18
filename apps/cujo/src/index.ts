@@ -36,7 +36,7 @@ import type { DiffReviewDeps } from "./review/start-run";
 import { startRun } from "./review/start-run";
 import type { RunRecord } from "./review/types";
 import { VisibilityService } from "./review/visibility.service";
-import { Settings, seedFromConfig } from "./settings";
+import { NotConfiguredError, Settings, providerOf, ready, seedFromConfig } from "./settings";
 import { Store } from "./store";
 
 export { createApp } from "./http/router";
@@ -111,21 +111,44 @@ async function main(): Promise<void> {
     { client: sandboxMcp, store: store.executions },
     store.buildFacts,
   );
-  harness.modelProvider = () => settings.current().modelProvider;
+  harness.modelProviders = () => settings.current().modelProviders;
+  // The list the harness was last brought to, so a change puts what is new
+  // and deletes what is gone (decision 174).
+  let synced = settings.current().modelProviders;
   settings.onChange((key, current) => {
-    if (key !== "modelProvider" || !current.modelProvider) return;
+    if (key !== "modelProviders") return;
+    const previous = synced;
+    synced = current.modelProviders;
     void harness
-      .registerModelProvider(current.modelProvider)
+      .syncModelProviders(previous, current.modelProviders)
       .catch((error) => log.error("settings.provider.failed", errorFields(error)));
   });
+  // A model is configured when one is chosen and the harness holds its
+  // provider. Until then no session is built: a pull request gets a neutral
+  // "not configured" check and the board says why (decision 174).
+  const readySettings = () => {
+    const current = ready(settings.current());
+    if (!current) return null;
+    const providers = [providerOf(current.model), providerOf(current.diffModel)];
+    return providers.every((name) => harness.isRegistered(name)) ? current : null;
+  };
+  const configured = () => readySettings() !== null;
+  const readyOrThrow = () => {
+    const current = readySettings();
+    if (!current) throw new NotConfiguredError();
+    return current;
+  };
   const rubric = loadRubric();
   const diffRubric = loadRubric("DIFF.md");
   const judgeRubric = loadRubric("JUDGE.md");
   const converseRubric = loadRubric("CONVERSE.md");
   const checkRubrics = loadCheckRubrics();
-  const spec = () => buildAgentSpec(settings.current(), rubric, checkRubrics);
-  const diffSpec = () => buildDiffSpec(settings.current(), diffRubric);
-  const judgeSpec = () => buildJudgeSpec(settings.current(), judgeRubric);
+  const spec = () => buildAgentSpec(readyOrThrow(), rubric, checkRubrics);
+  const diffSpec = () => buildDiffSpec(readyOrThrow(), diffRubric);
+  const judgeSpec = () => buildJudgeSpec(readyOrThrow(), judgeRubric);
+  // The digests cover the instructions and nothing else (`specFingerprint`),
+  // so they are taken once, on a stand-in model: at boot there may be none.
+  const standIn = { ...settings.current(), model: "unset/unset", diffModel: "unset/unset" };
 
   // Contract 7. Optional: with no token the service runs and simply does not
   // notify. Subscribed before the rehydrate loop so a run that changed status
@@ -204,7 +227,7 @@ async function main(): Promise<void> {
     get model() {
       return settings.current().model;
     },
-    rubricSha256: specFingerprint(spec()),
+    rubricSha256: specFingerprint(buildAgentSpec(standIn, rubric, checkRubrics)),
   };
   // The shadow review (decision 149). Optional: with no sidecar URL no run
   // asks, and the table stays empty.
@@ -222,7 +245,7 @@ async function main(): Promise<void> {
 
   // The judge path (decision 161): declared commands executed with no model,
   // the parent on its own spec with its own digest, like the diff review.
-  const judgeRubricSha256 = specFingerprint(judgeSpec());
+  const judgeRubricSha256 = specFingerprint(buildJudgeSpec(standIn, judgeRubric));
   const judge = {
     get enabled() {
       return settings.current().executeDeclared;
@@ -231,7 +254,7 @@ async function main(): Promise<void> {
     executions: store.executions,
     createSession: () => harness.createSession(judgeSpec()),
     get provenance() {
-      return { model: settings.current().model, rubricSha256: judgeRubricSha256 };
+      return { model: readyOrThrow().model, rubricSha256: judgeRubricSha256 };
     },
     get stepTimeoutMs() {
       return settings.current().executeStepTimeoutMs;
@@ -244,14 +267,14 @@ async function main(): Promise<void> {
   // The diff review's half of the same (Contract 11): its own spec, so its own
   // digest and model, plus the budget the spec carries; a fresh session per
   // run (decision 137); and the three caps `prepare` cuts the package to.
-  const diffRubricSha256 = specFingerprint(diffSpec());
+  const diffRubricSha256 = specFingerprint(buildDiffSpec(standIn, diffRubric));
   const diff: DiffReviewDeps = {
     get deployDefault() {
       return settings.current().reviewMode;
     },
     createSession: () => harness.createSession(diffSpec()),
     get provenance() {
-      const current = settings.current();
+      const current = readyOrThrow();
       return {
         model: current.diffModel,
         rubricSha256: diffRubricSha256,
@@ -290,6 +313,12 @@ async function main(): Promise<void> {
     headSha: string;
     actor: string;
   }): Promise<{ ok: true } | { ok: false; detail: string }> => {
+    if (!configured()) {
+      return {
+        ok: false,
+        detail: "No model is configured on this instance yet. Its owner sets one on the board.",
+      };
+    }
     // A repo GitHub will not answer about is one this run cannot decide the
     // visibility of, and `isPublic` decides whether the run gets a public page
     // at all (decision 34). Refuse rather than guess private and quietly
@@ -415,7 +444,7 @@ async function main(): Promise<void> {
     runs: store.runs,
     harness,
     github,
-    spec: () => buildConverseSpec(settings.current(), converseRubric),
+    spec: () => buildConverseSpec(readyOrThrow(), converseRubric),
     limit: new ConverseRateLimit({
       get limit() {
         return settings.current().converseLimit;
@@ -519,9 +548,11 @@ async function main(): Promise<void> {
           github,
           health: () => ({
             harness: harness.ready ? ("ready" as const) : ("bootstrapping" as const),
+            configured: configured(),
             store: store.runs.ping() ? ("ok" as const) : ("error" as const),
             uptimeMs: Math.round(process.uptime() * 1000),
           }),
+          providers: harness,
           runs: store.runs,
           runner,
           log,
@@ -564,6 +595,10 @@ async function main(): Promise<void> {
       createSession: () => harness.createSession(spec()),
       provenance,
       isReady: () => harness.ready,
+      configured,
+      ...(checks
+        ? { notConfigured: (repo: string, sha: string) => checks.notConfigured(repo, sha) }
+        : {}),
       prCommands,
       debounce,
       converse,

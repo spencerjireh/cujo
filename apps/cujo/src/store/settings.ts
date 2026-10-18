@@ -42,6 +42,10 @@ export class SettingsStore {
     return rows.map(toRow);
   }
 
+  delete(key: string): void {
+    this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+  }
+
   put(key: string, value: string, source: SettingSource, at: string): void {
     this.db
       .prepare(

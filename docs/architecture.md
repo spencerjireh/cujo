@@ -139,7 +139,7 @@ Every crossing, with what it carries and what protects it:
 | Sandbox → internet | Through the egress gateway, outside the box (decision 116) | Only what `allow_hosts` named, resolved by name. Everything else is dropped on a network the sandbox has no route off. The in-sandbox proxy still records every attempt, so `egress[]` is still the evidence — and a row in it now means a connection that genuinely did not leave | Default deny at the network layer, in a container the code under review cannot reach. The decoy secret is still the only "secret" it can find |
 | A repository's `.cujo.yml` → the gateway | `allow_hosts` on `sandbox_create` | Hostnames, and nothing else. This is untrusted text configuring a **trusted-side** control, which it was not before, so it is validated and refused rather than repaired: no scheme, port, path, CIDR, wildcard, credentials, control character or address, and at most 32 entries (decision 116) | Validated in `apps/sandbox-mcp/src/allowlist.ts` before any runtime sees it |
 | `apps/cujo` → `mapper` | HTTP on the compose network | A pull request's base and head trees, as the gzipped tarballs `apps/cujo` fetched from GitHub, under a single-use key; then the changed-file list to ask for a slice. **No token, no clone URL, no hostname** — the same rule the sandbox is held to, for the same reason: the mapper parses code a pull request wrote, and a parser is an attack surface. What comes back is JSON about that code | Internal, and nothing to present. The mapper mints no credential and makes no outbound call; the engine is confined to the trees directory by `CBM_ALLOWED_ROOT` |
-| `apps/harness` → model provider | HTTPS, OpenAI-compatible chat completions | Prompts, reports, tool calls | Provider key, registered once on the harness by `apps/cujo` at boot and held in memory there |
+| `apps/harness` → model provider | HTTPS: Anthropic's Messages API for an `anthropic` provider, OpenAI-compatible chat completions for any other (decision 174) | Prompts, reports, tool calls | One key per provider, entered on the board, stored in `apps/cujo`'s `settings` table, and registered on the harness by `apps/cujo` at boot and on every change; the harness holds it in its own store and in memory. Never in the harness's environment, where pi would read `ANTHROPIC_API_KEY` on its own |
 | `apps/harness` → `github-mcp` | MCP on the compose network | `post_advisory_review` or `post_blocking_review`, one call, neither held (decision 138) | Internal |
 | `github-mcp` → GitHub | REST API | The review, as `cujo-guard[bot]`: a body **composed by `github-mcp`** from the agent's findings, coverage and egress (verdict headline, findings by severity, coverage, egress, a machine-readable block — decision 74), plus one inline comment per anchored finding, derived from the findings rather than sent beside them; `apps/cujo` rebuilds both with the same `@cujo/review-render` package for the board | Installation token minted from the App private key |
 | `apps/cujo` → GitHub | REST API | One reaction on the pull request description, tracking the run's status (Contract 9). No text, no finding, no decision — the closed set of eight emoji is the whole payload | Installation token minted from the App private key; `pull_requests: write`, which the App already holds (decision 38) |
@@ -386,10 +386,13 @@ Coolify has parsed the service from the compose file on `main`, which `web`
 already satisfies. `cujo-harness.spencerjireh.com` routed to TrueForge's
 console and has nothing behind it since decision 123.
 Configuration reaches the services as environment variables set in Coolify;
-`.env.example` lists every name. For `cujo`, the models and the provider are
-an exception since decision 152: the environment seeds them into the `settings`
-table on the first boot that knows each key, and from then on the table is the
-source — a change there takes effect on the next session, with no deploy.
+`.env.example` lists every name. For `cujo`, the models and the providers are
+an exception since decision 152, and since decision 174 they are not deploy
+configuration at all: the service boots with none, every pull request gets a
+neutral "not configured" check, and an owner adds providers and chooses models
+on the board's instance page. The table is the source; a change there takes
+effect on the next session, with no deploy. The environment only seeds a dev
+or test stack's first boot.
 
 Every service logs structured JSON to stdout through `@cujo/log`, one event per
 line, which is where Coolify reads it. There is no log collector and no tracing

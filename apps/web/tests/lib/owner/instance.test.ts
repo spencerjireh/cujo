@@ -40,14 +40,26 @@ describe("the instance page's sentences (decision 157)", () => {
   });
 
   it("says what the process is waiting on", () => {
-    expect(describeHealth({ harness: "ready", store: "ok", uptimeMs: 1, ready: true })).toContain(
-      "Ready",
-    );
     expect(
-      describeHealth({ harness: "bootstrapping", store: "ok", uptimeMs: 1, ready: false }),
+      describeHealth({ harness: "ready", store: "ok", configured: true, uptimeMs: 1, ready: true }),
+    ).toContain("Ready");
+    expect(
+      describeHealth({
+        harness: "bootstrapping",
+        store: "ok",
+        configured: true,
+        uptimeMs: 1,
+        ready: false,
+      }),
     ).toContain("harness");
     expect(
-      describeHealth({ harness: "ready", store: "error", uptimeMs: 1, ready: false }),
+      describeHealth({
+        harness: "ready",
+        store: "error",
+        configured: true,
+        uptimeMs: 1,
+        ready: false,
+      }),
     ).toContain("store");
   });
 
@@ -62,7 +74,7 @@ describe("the instance page's sentences (decision 157)", () => {
         diffBudgetTokens: "seed",
         sandboxBudgetTokens: "seed",
         reviewMode: "seed",
-        modelProvider: "seed",
+        modelProviders: "seed",
         turnTimeoutMs: "owner",
         diffTimeoutMs: "seed",
         diffBytes: "seed",
