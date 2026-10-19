@@ -13,7 +13,10 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
-RUN pnpm install --frozen-lockfile --filter @cujo/sandbox-mcp...
+# The package store is a build cache every image shares, and 'locked' makes
+# the seven installs take turns (decision 176): one download, not seven at once.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store --filter @cujo/sandbox-mcp...
 RUN pnpm --filter @cujo/sandbox-mcp build
 
 FROM node:24-slim AS runner

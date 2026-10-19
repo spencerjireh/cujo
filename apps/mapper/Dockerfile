@@ -38,7 +38,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json .
 COPY packages ./packages
 COPY apps ./apps
 # Filtered so apps/web's dependencies stay out of this image.
-RUN pnpm install --frozen-lockfile --filter @cujo/mapper...
+# The package store is a build cache every image shares, and 'locked' makes
+# the seven installs take turns (decision 176): one download, not seven at once.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store --filter @cujo/mapper...
 RUN pnpm --filter @cujo/mapper build
 
 # trixie and not slim: the engine is built against this glibc. `ocr-sidecar`
