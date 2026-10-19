@@ -6,9 +6,10 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The front door (decision 160): indexed, and its first two links decided by
- * who is reading. The page reads the request's cookie through `next/headers`,
- * which has no request here, so the reader is stubbed.
+ * The front door (decision 160): indexed, and only for a visitor; an owner
+ * is sent to their activity (decision 175). The page reads the request's
+ * cookie through `next/headers`, which has no request here, so the reader is
+ * stubbed.
  */
 
 vi.mock("next/link", () => ({
@@ -23,6 +24,13 @@ vi.mock("@/lib/api/session", () => ({
   whoIsReading: vi.fn(async () => ({ reason: "anonymous" })),
 }));
 import { whoIsReading } from "@/lib/api/session";
+
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn(() => {
+    throw new Error("NEXT_REDIRECT");
+  }),
+}));
+import { redirect } from "next/navigation";
 
 afterEach(cleanup);
 
@@ -44,19 +52,21 @@ describe("the landing", () => {
     expect(screen.getByRole("link", { name: "the board" }).getAttribute("href")).toBe("/galaxy");
   });
 
-  it("sends an owner to their pages, and keeps the manual", async () => {
+  it("sends an owner to their activity", async () => {
     vi.mocked(whoIsReading).mockResolvedValueOnce({
       me: { login: "octocat", is_owner: true },
       session: "a".repeat(64),
     });
+    await expect(Page()).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirect).toHaveBeenCalledWith("/activity");
+  });
+
+  it("shows a signed-in non-owner the front door", async () => {
+    vi.mocked(whoIsReading).mockResolvedValueOnce({
+      me: { login: "hubot", is_owner: false },
+      session: "a".repeat(64),
+    });
     render(await Page());
-    expect(screen.getByRole("link", { name: "Your repositories" }).getAttribute("href")).toBe(
-      "/repos",
-    );
-    expect(screen.getByRole("link", { name: "Instance" }).getAttribute("href")).toBe("/instance");
-    expect(screen.getByRole("link", { name: "Read the manual" }).getAttribute("href")).toBe(
-      "/docs",
-    );
-    expect(screen.queryByRole("link", { name: "Install the App" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Install the App" })).toBeTruthy();
   });
 });

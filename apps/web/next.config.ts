@@ -21,9 +21,14 @@ const config: NextConfig = {
   // The manual's page on the human gate became the page on blocking when the
   // gate went (decision 138). The manual is the one indexed part of the site,
   // so the old address keeps answering. Static, so nothing from the
-  // environment is baked in — the objection to `rewrites` below.
+  // environment is baked in — the objection to `rewrites` below. The
+  // instance page became Settings (decision 175); the check run's details
+  // link and any bookmark still name the old address.
   async redirects() {
-    return [{ source: "/docs/the-gate", destination: "/docs/blocking", permanent: true }];
+    return [
+      { source: "/docs/the-gate", destination: "/docs/blocking", permanent: true },
+      { source: "/instance", destination: "/settings", permanent: true },
+    ];
   },
   // The only remote images this app loads: a PR author's GitHub avatar
   // (decision 55). Routed through `/_next/image` rather than loaded straight

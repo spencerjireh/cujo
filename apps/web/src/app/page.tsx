@@ -1,6 +1,7 @@
 import { Landing } from "@/components/landing/Landing";
 import { whoIsReading } from "@/lib/api/session";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -17,13 +18,16 @@ export const metadata: Metadata = {
 };
 
 export default async function Page() {
-  // Who is reading decides the first two links and nothing else. The session
-  // is not seeded into the query cache (see /repos for why).
+  // An owner's home is their activity (decision 175, reversing 160's "not
+  // straight to their pages"). Sign-in lands here, so this is also where an
+  // owner arrives after signing in. A visitor, and a signed-in non-owner, get
+  // the front door.
   const reader = await whoIsReading();
+  if ("me" in reader && reader.me.is_owner) redirect("/activity");
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
-      <div className="pt-10">
-        <Landing reader={"me" in reader ? "owner" : "visitor"} />
+      <div className="pt-6">
+        <Landing />
       </div>
     </div>
   );

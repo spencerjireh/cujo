@@ -105,7 +105,7 @@ reader can tell a live rule from a recorded one before opening it.
 95. [The gates go, depth wanders, and the light beats the star it reads](#95-the-gates-go-depth-wanders-and-the-light-beats-the-star-it-reads)
 96. [The envelope roll-up is the model's work, so the schema reads it leniently](#96-the-envelope-roll-up-is-the-models-work-so-the-schema-reads-it-leniently)
 97. [The template tires the reader, not the model](#97-the-template-tires-the-reader-not-the-model)
-98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed)
+98. [The board carries the manual, and it is the one thing indexed](#98-the-board-carries-the-manual-and-it-is-the-one-thing-indexed) — reversed in part by 175
 99. [The watchdog bounds the run, not the current process](#99-the-watchdog-bounds-the-run-not-the-current-process)
 100. [Cujo leads the card, the opener closes it, and the sections breathe](#100-cujo-leads-the-card-the-opener-closes-it-and-the-sections-breathe)
 101. [The page does not bounce](#101-the-page-does-not-bounce)
@@ -163,8 +163,26 @@ reader can tell a live rule from a recorded one before opening it.
 153. [The owner plane: GitHub sign-in on the App's own OAuth, any admin of the installation](#153-the-owner-plane-github-sign-in-on-the-apps-own-oauth-any-admin-of-the-installation)
 154. [The run page is an evidence log](#154-the-run-page-is-an-evidence-log)
 155. [Per-repository settings and instructions, the file winning](#155-per-repository-settings-and-instructions-the-file-winning)
-156. [The owner's pages: repositories, one repository, and sign-in on the footer](#156-the-owners-pages-repositories-one-repository-and-sign-in-on-the-footer)
-157. [The instance page, and the App as GitHub sees it](#157-the-instance-page-and-the-app-as-github-sees-it)
+156. [The owner's pages: repositories, one repository, and sign-in on the footer](#156-the-owners-pages-repositories-one-repository-and-sign-in-on-the-footer) — amended by 175
+157. [The instance page, and the App as GitHub sees it](#157-the-instance-page-and-the-app-as-github-sees-it) — amended by 175
+158. [Private repositories: the trees are staged on the trusted side, and the box clones nothing](#158-private-repositories-the-trees-are-staged-on-the-trusted-side-and-the-box-clones-nothing)
+159. [An owner sees every run, and a private run's page is the owner's](#159-an-owner-sees-every-run-and-a-private-runs-page-is-the-owners)
+160. [The front door is a landing, and the galaxy is at `/galaxy`](#160-the-front-door-is-a-landing-and-the-galaxy-is-at-galaxy) — reversed in part by 175
+161. [Declared commands run with no model; the parent judges](#161-declared-commands-run-with-no-model-the-parent-judges)
+162. [Smoke is one sensed command, run by the executor](#162-smoke-is-one-sensed-command-run-by-the-executor)
+163. [Detonation runs in the executor, and the gather rubric is for undeclared repositories](#163-detonation-runs-in-the-executor-and-the-gather-rubric-is-for-undeclared-repositories)
+164. [The limits and switches live on the board](#164-the-limits-and-switches-live-on-the-board)
+165. [What a run may spend, and what it was seen to spend](#165-what-a-run-may-spend-and-what-it-was-seen-to-spend)
+166. [A report bounds its benign rows on both sides of the workspace line](#166-a-report-bounds-its-benign-rows-on-both-sides-of-the-workspace-line)
+167. [The sandbox has a memory cap and no CPU cap](#167-the-sandbox-has-a-memory-cap-and-no-cpu-cap)
+168. [A bundled service is not a service until it boots, and CI says so](#168-a-bundled-service-is-not-a-service-until-it-boots-and-ci-says-so)
+169. [Base is run when head fails, and not before](#169-base-is-run-when-head-fails-and-not-before)
+170. [The reviewer is told how the code is built, and reads it without running it](#170-the-reviewer-is-told-how-the-code-is-built-and-reads-it-without-running-it)
+171. [Every review is told how the code is built, and the sandbox settles it](#171-every-review-is-told-how-the-code-is-built-and-the-sandbox-settles-it)
+172. [The map is a service that compiles its own engine, and the two trees become a repository](#172-the-map-is-a-service-that-compiles-its-own-engine-and-the-two-trees-become-a-repository)
+173. [An install whose exit nobody reads is not an install that worked](#173-an-install-whose-exit-nobody-reads-is-not-an-install-that-worked)
+174. [Models are configured on the board; the environment only seeds a dev stack](#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)
+175. [A header, an owner's home, and the run page leads with what to do](#175-a-header-an-owners-home-and-the-run-page-leads-with-what-to-do)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -5483,6 +5501,8 @@ decision 74 reversed — a rule a model applies is a rule that fails silently.
 
 ## 98. The board carries the manual, and it is the one thing indexed
 
+**Reversed in part by 175**, which brings a navigation bar back. The rest stands.
+
 **Status:** active — `/docs` in `apps/web`, `robots.ts` amended.
 
 **Context.** Everything a person needs in order to adopt Cujo was written for
@@ -7838,6 +7858,8 @@ parses by regex, where a paragraph of prose does not belong.
 
 ## 156. The owner's pages: repositories, one repository, and sign-in on the footer
 
+**Amended by 175.** Sign-in, and the links to the owner's pages, moved from the footer to a site header; the header asks who is reading in the browser, for the reason given below.
+
 The owner plane (decision 153) and the per-repository layer (decision 155)
 existed as routes and nothing else; an owner exercised them with a cookie
 and curl. The board is for anyone, and it has stayed that way; these are
@@ -7874,6 +7896,8 @@ sign-in page**, when a button and GitHub's own page are the whole flow;
 **editing a file-set value from the board**, still open (#162).
 
 ## 157. The instance page, and the App as GitHub sees it
+
+**Amended by 175.** The page is Settings, at `/settings`; `/instance` redirects to it. Its three forms are one, saved once.
 
 The settings of decision 152 lived in the store with a route to write them
 and no page; a model change was still a curl. And what the App held on
@@ -8001,6 +8025,8 @@ same 404. The review's own footer is unchanged: the brief carries a run id
 only for a public run (36), since the agent's side cannot know who reads.
 
 ## 160. The front door is a landing, and the galaxy is at `/galaxy`
+
+**Reversed in part by 175**: there is a site header again, and a signed-in owner on `/` is sent to `/activity`. The landing, `/galaxy` and the indexing below stand.
 
 The site's front page was the board: a full-height chamber of public runs,
 the readout rack, the record and the key (80 to 95). That was the product
@@ -8876,3 +8902,91 @@ the database it would protect; **a `protocol` field on the OpenAI-compatible
 slot** for third-party Anthropic-compatible hosts, until one is needed;
 **renaming the seed variables**, which changes every dev `.env` for nothing,
 since a stored row beats the environment anyway.
+
+
+## 175. A header, an owner's home, and the run page leads with what to do
+
+The owner's pages could be reached from the landing's two buttons and from a
+row of footer buttons at the end of a long page, and nowhere else. An owner
+who opened a run or a repository had no way to the others but back, and the
+home link went to the landing, which is for somebody deciding whether to
+install. The pages also spoke the system's words: "Instance", "the board"
+for values saved in the UI, "run it" and "read it" for the two modes, "diff
+bytes" and "push window" as field names. And the run page, which most
+readers reach from a link in a GitHub review, led with a card of severity
+counts and a timeline; why the run blocked, and what lifts it, were a screen
+down at the end of the evidence log.
+
+**A header on every page.** The mark and the name, then Board and Manual for
+everyone; for an owner, Activity, Repositories and Settings before them; and
+on the right, sign-in or `@login` with sign-out. The current page is marked.
+On a phone the links fold behind a Menu button. On `/galaxy` it is not a bar
+over the chamber but floats on it, transparent and in the chamber's tokens,
+so the instrument still takes the window, which was 80's and 98's reason for
+no bar. It is a client component that asks `/me` on mount, as the footer's
+sign-in did (156): a layout that read the cookie would render every page per
+request, and the manual stays static. `HomeMark` and `SessionButtons` are
+gone; the theme control stays in the footer.
+
+**An owner's home is `/activity`.** A signed-in owner on `/` is redirected
+there, and sign-in lands on `/`, so it is also where they arrive. It shows,
+in order: the setup steps left (the App installed with every permission, a
+provider, a model the harness has registered, one repository on), hidden once
+all pass; the pull requests that need a person, which are the newest run of
+each pull request that is `blocked` or `error`, each with what to do, and a
+recent webhook GitHub could not deliver; then the recent runs, filterable by
+repository. Every input is a route the owner plane already serves. "A
+provider tested" is not a step, because nothing stores that a test passed;
+"registered on the harness" is what `Health.configured` can say.
+
+**Repositories show their state.** Each row has its newest run and the count
+of pull requests blocked on their newest run, computed from `/owner/runs`
+(the newest 100 runs, so a quiet repository may show none). The switch is a
+switch. It flips before the server answers and flips back if the save fails;
+turning reviews off shows "Reviews off for x. Undo" for eight seconds, rather
+than a confirmation, because the common case is a deliberate click. A
+repository's page opens on its runs, with its review settings a tab away;
+its header says which mode the next run uses and where that comes from, and
+a value the repository's file sets is shown with its control disabled and a
+note on how to choose here instead.
+
+**Settings is one form.** The instance page is Settings, at `/settings`, and
+`/instance` 308-redirects (the not-configured check run links it). Its three
+forms, each with its own save, became one draft with one save bar, shown only
+when something differs from what was saved; a save sends the keys that
+changed in one PATCH, which the server already validated as a whole. Leaving
+with unsaved changes asks first. The knobs most deploys never touch are under
+Advanced. Fields are named for what they do ("Model for full reviews", "Time
+limit, full review").
+
+**The run page leads with the verdict and the next step.** A headline per
+status ("Blocked by 4 critical findings"), the critical findings by name with
+a place for each (`path:line`, or the first line of the evidence for a
+hard-rule finding, which has no anchor), then what to do: "Fix the findings
+and push a new commit, or a maintainer with write access comments `/cujo
+dismiss`". The other findings fold under a count. The timeline, the evidence
+log and the run's details follow as three folds, closed; picking a lane opens
+the log at that check. The web `Finding` type gains `rule`, which the server
+already sent. The fixture the stories share now holds what the server's fold
+would make of its reports, which it did not: a critical finding beside a
+check that showed "no report", and two criticals where the report tripped
+three rules.
+
+**Type.** Owner pages and the run page's verdict set their words in
+Bricolage Grotesque at 400 and 500, the display family at text weights, as
+`--font-ui`; mono stays for values. `brand/brand.md` says so. The landing
+and the manual keep the mono register.
+
+Accepted: **a client-rendered header**, which draws the visitor's links first
+and adds an owner's when `/me` answers; **an owner who cannot see the landing
+without signing out**, since what they would share is its link, which works;
+**per-repository numbers from the newest 100 runs**, not a new query;
+**folds closed by default on the run page**, at the cost of a click for the
+reader who wanted the timeline.
+
+Rejected: **a server-read session in the layout**, for 156's reason; **a
+confirmation before turning reviews off**, which taxes every deliberate
+click; **a step-by-step setup wizard**, which blocks the pages an owner may
+need first; **a new UI typeface**, which would be a third face where a weight
+of the second does the job; **persisting "provider tested"**, a server field
+for a checklist line.

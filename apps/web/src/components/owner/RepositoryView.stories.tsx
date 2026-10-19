@@ -1,9 +1,8 @@
 import type { RepositorySettingsView } from "@/lib/api/owner-client";
 import { ownerKeys } from "@/lib/api/owner-keys";
-import { runs } from "@/lib/fixtures";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RepositoryView } from "./RepositoryView";
+import { seeded } from "./seeded";
 
 const REPO = "spencerjireh/orders-api";
 
@@ -18,33 +17,30 @@ function view(over: Partial<RepositorySettingsView> = {}): RepositorySettingsVie
 }
 
 function withSettings(seed: RepositorySettingsView) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
-  });
-  client.setQueryData(ownerKeys.settings(REPO), seed);
-  client.setQueryData(ownerKeys.runs(), { runs: runs.map((run) => ({ ...run, repo: REPO })) });
-  return function Decorated(Story: () => React.ReactElement) {
-    return (
-      <QueryClientProvider client={client}>
-        <Story />
-      </QueryClientProvider>
-    );
-  };
+  return seeded({ extra: (client) => client.setQueryData(ownerKeys.settings(REPO), seed) });
 }
 
 const meta: Meta<typeof RepositoryView> = {
   title: "Owner/RepositoryView",
   component: RepositoryView,
   args: { repo: REPO },
+  parameters: { layout: "fullscreen" },
 };
 export default meta;
 type Story = StoryObj<typeof RepositoryView>;
 
-/** Nothing set anywhere: the instance's default, an empty box for instructions. */
-export const Unset: Story = { decorators: [withSettings(view())] };
+/** The Runs tab, which a repository opens on. */
+export const Runs: Story = { decorators: [withSettings(view())] };
 
-/** The board sets both; nothing in the repository contradicts it. */
-export const BoardSet: Story = {
+/** Review settings with nothing set: the default applies, an empty box for instructions. */
+export const Unset: Story = {
+  decorators: [withSettings(view())],
+  parameters: { nextjs: { navigation: { query: { tab: "settings" } } } },
+};
+
+/** Both set here; nothing in the repository contradicts it. */
+export const SetHere: Story = {
+  parameters: { nextjs: { navigation: { query: { tab: "settings" } } } },
   decorators: [
     withSettings(
       view({
@@ -66,8 +62,9 @@ export const BoardSet: Story = {
   ],
 };
 
-/** The repository's own file speaks for both, and the board's choices are shown as shadowed. */
+/** The repository's own files set both: the controls are disabled and say why. */
 export const FileWins: Story = {
+  parameters: { nextjs: { navigation: { query: { tab: "settings" } } } },
   decorators: [
     withSettings(
       view({

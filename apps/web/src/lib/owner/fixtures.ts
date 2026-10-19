@@ -1,10 +1,19 @@
-import type { BotState, Health, InstanceSettingsView, ProviderModel } from "@/lib/api/owner-client";
-import { ownerKeys } from "@/lib/api/owner-keys";
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { InstanceView } from "./InstanceView";
+import type {
+  BotState,
+  Health,
+  InstanceSettingsView,
+  OwnedRepository,
+  ProviderModel,
+} from "@/lib/api/owner-client";
 
-const settings: InstanceSettingsView = {
+/**
+ * What the owner plane serves, for stories and tests (decision 175): one
+ * configured instance and its variants, the App as GitHub sees it (short one
+ * permission), and the repositories it holds. The runs are `ownerRuns` in
+ * `lib/fixtures.ts`.
+ */
+
+export const instanceView: InstanceSettingsView = {
   settings: {
     model: "openrouter/glm-flash",
     modelReasoningEffort: "",
@@ -84,7 +93,7 @@ const settings: InstanceSettingsView = {
   },
 };
 
-const bot: BotState = {
+export const bot: BotState = {
   app: {
     slug: "cujo-guard",
     name: "Cujo",
@@ -149,7 +158,7 @@ const bot: BotState = {
   ],
 };
 
-const health: Health = {
+export const health: Health = {
   harness: "ready",
   store: "ok",
   configured: true,
@@ -158,72 +167,69 @@ const health: Health = {
 };
 
 /** A deploy that booted with no model: no providers, nothing chosen (decision 174). */
-const unconfigured: InstanceSettingsView = {
-  ...settings,
-  settings: { ...settings.settings, model: null, diffModel: null, modelProviders: [] },
+export const unconfigured: InstanceSettingsView = {
+  ...instanceView,
+  settings: { ...instanceView.settings, model: null, diffModel: null, modelProviders: [] },
 };
 
 /** Claude for the sandbox review, OpenRouter for the diff review. */
-const twoProviders: InstanceSettingsView = {
-  ...settings,
+export const twoProviders: InstanceSettingsView = {
+  ...instanceView,
   settings: {
-    ...settings.settings,
+    ...instanceView.settings,
     model: "anthropic/claude-sonnet-5",
     modelProviders: [
       { kind: "anthropic", name: "anthropic", apiKey: "****9f2a" },
-      ...settings.settings.modelProviders,
+      ...instanceView.settings.modelProviders,
     ],
   },
 };
 
-const catalog: ProviderModel[] = [
+export const catalog: ProviderModel[] = [
   { id: "claude-haiku-4-5", contextWindow: 200_000, maxTokens: 64_000, costKnown: true },
   { id: "claude-sonnet-5", contextWindow: 1_000_000, maxTokens: 128_000, costKnown: true },
   { id: "claude-opus-5", contextWindow: 1_000_000, maxTokens: 128_000, costKnown: true },
 ];
 
-function seeded(over: { bot?: BotState; health?: Health; settings?: InstanceSettingsView } = {}) {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY, refetchInterval: false },
-    },
-  });
-  client.setQueryData(ownerKeys.instance(), over.settings ?? settings);
-  client.setQueryData(ownerKeys.providerModels("anthropic"), catalog);
-  client.setQueryData(ownerKeys.bot(), over.bot ?? bot);
-  client.setQueryData(ownerKeys.health(), over.health ?? health);
-  return function Decorated(Story: () => React.ReactElement) {
-    return (
-      <QueryClientProvider client={client}>
-        <Story />
-      </QueryClientProvider>
-    );
-  };
-}
-
-const meta: Meta<typeof InstanceView> = { title: "Owner/InstanceView", component: InstanceView };
-export default meta;
-type Story = StoryObj<typeof InstanceView>;
-
-/** Everything answered; the App is short one permission. */
-export const Ready: Story = { decorators: [seeded()] };
-/** The harness is still registering its settings. */
-export const Bootstrapping: Story = {
-  decorators: [
-    seeded({
-      health: {
-        harness: "bootstrapping",
-        store: "ok",
-        configured: false,
-        uptimeMs: 12_000,
-        ready: false,
-      },
-    }),
-  ],
-};
-/** Booted with no model: the banner, and an empty provider list. */
-export const Unconfigured: Story = {
-  decorators: [seeded({ settings: unconfigured, health: { ...health, configured: false } })],
-};
-/** Anthropic beside an OpenAI-compatible host; the picker offers both. */
-export const TwoProviders: Story = { decorators: [seeded({ settings: twoProviders })] };
+export const repositories: OwnedRepository[] = [
+  {
+    repo: "spencerjireh/orders-api",
+    displayName: "spencerjireh/orders-api",
+    installationId: 1,
+    isPrivate: false,
+    enabled: true,
+    addedAt: "2026-09-01T10:00:00Z",
+    removedAt: null,
+    updatedAt: "2026-09-01T10:00:00Z",
+  },
+  {
+    repo: "spencerjireh/cujo",
+    displayName: "spencerjireh/cujo",
+    installationId: 1,
+    isPrivate: false,
+    enabled: true,
+    addedAt: "2026-09-01T10:00:00Z",
+    removedAt: null,
+    updatedAt: "2026-09-01T10:00:00Z",
+  },
+  {
+    repo: "spencerjireh/notes",
+    displayName: "spencerjireh/notes",
+    installationId: 1,
+    isPrivate: true,
+    enabled: false,
+    addedAt: "2026-08-20T10:00:00Z",
+    removedAt: null,
+    updatedAt: "2026-09-10T10:00:00Z",
+  },
+  {
+    repo: "spencerjireh/old",
+    displayName: "spencerjireh/old",
+    installationId: 1,
+    isPrivate: false,
+    enabled: true,
+    addedAt: "2026-07-01T10:00:00Z",
+    removedAt: "2026-09-12T10:00:00Z",
+    updatedAt: "2026-09-12T10:00:00Z",
+  },
+];

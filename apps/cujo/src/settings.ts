@@ -67,7 +67,7 @@ export interface ModelSettings {
 
 export type SettingKey = keyof ModelSettings;
 
-/** Which form on the instance page a key belongs to. */
+/** Which section of the Settings page (was the instance page) a key belongs to. */
 export type SettingGroup = "models" | "provider" | "limits";
 
 /**

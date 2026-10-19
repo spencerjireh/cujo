@@ -98,7 +98,7 @@ describe("PrChecks", () => {
         payload: expect.objectContaining({
           status: "completed",
           conclusion: "neutral",
-          detailsUrl: "https://cujo.example.com/instance",
+          detailsUrl: "https://cujo.example.com/settings",
           output: expect.objectContaining({ title: "Cujo is not configured" }),
         }),
       },

@@ -94,7 +94,7 @@ make up-local          # docker compose up with the local overlay
 
 Models are configured on the board, not in the environment
 ([decision 174](docs/decisions.md#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)):
-sign in, open the instance page, add a provider (an Anthropic key, or any
+sign in, open Settings, add a provider (an Anthropic key, or any
 OpenAI-compatible host), and choose a model. Until then every pull request
 gets a neutral `cujo/guard` check. `CUJO_MODEL` with `ANTHROPIC_API_KEY` or
 the `MODEL_PROVIDER_*` block seeds a local stack's first boot instead.

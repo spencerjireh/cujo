@@ -31,8 +31,8 @@ export default meta;
 
 type Story = StoryObj<typeof RunView>;
 
-/** PR 3 from the demo: detonation caught the exfiltration, decision pending. */
-export const AwaitingApproval: Story = {
+/** PR 3 from the demo: detonation caught the exfiltration, and the tests failed on head. */
+export const Exfiltration: Story = {
   args: { id: "run-1" },
   decorators: [withRun(run())],
 };

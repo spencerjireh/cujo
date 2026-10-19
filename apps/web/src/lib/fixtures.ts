@@ -45,6 +45,12 @@ export const detonationChecks: CheckState[] = [
       costUsd: 0.0912,
     },
     timings: { wallMs: 108_000, sandboxMs: 81_000, modelMs: 27_000 },
+    report: {
+      command: "pnpm test",
+      base: { passed: 212, failed: 0 },
+      head: { passed: 209, failed: 3 },
+      base_pass_head_fail: ["orders.test.ts:41", "orders.test.ts:58", "orders.test.ts:77"],
+    },
   }),
   check({
     title: "probes",
@@ -59,6 +65,9 @@ export const detonationChecks: CheckState[] = [
       costUsd: 0.0311,
     },
     timings: { wallMs: 52_000, sandboxMs: 7_000, modelMs: 45_000 },
+    report: {
+      probes: [{ name: "refund rounds to the cent", passed: true }],
+    },
   }),
   // No `timings` at all: a check from before the field existed, which the
   // timeline has to draw as one undivided lane rather than as all-model.
@@ -107,9 +116,40 @@ export const runningChecks: CheckState[] = [
   check({ title: "smoke", status: "running", startedAt: at(6), endedAt: null }),
 ];
 
+/**
+ * What the server's fold makes of `detonationChecks` (apps/cujo
+ * `review/findings.ts`): one critical finding per hard rule each report
+ * trips, a `check_missing` warning for the check that reported nothing, and
+ * one note from the model.
+ */
 export const findings: Finding[] = [
   {
     source: "hard_rule",
+    rule: "tests_failed",
+    check: "tests",
+    severity: "critical",
+    title: "3 tests pass on base and fail on head",
+    evidence: "orders.test.ts:41, orders.test.ts:58, orders.test.ts:77",
+  },
+  {
+    source: "hard_rule",
+    rule: "decoy_read",
+    check: "detonation",
+    severity: "critical",
+    title: "the seeded decoy secret was read during detonation",
+    evidence: "secret_probe.decoy_read = true",
+  },
+  {
+    source: "hard_rule",
+    rule: "decoy_in_egress",
+    check: "detonation",
+    severity: "critical",
+    title: "the seeded decoy secret left the sandbox during detonation",
+    evidence: "secret_probe.decoy_in_egress = true",
+  },
+  {
+    source: "hard_rule",
+    rule: "egress_to_unknown_host",
     check: "detonation",
     severity: "critical",
     title: "an install contacted a host that is neither a package index nor allowlisted",
@@ -117,17 +157,11 @@ export const findings: Finding[] = [
   },
   {
     source: "hard_rule",
-    check: "tests",
-    severity: "critical",
-    title: "3 tests pass on base and fail on head",
-    evidence: "orders.test.ts:41, orders.test.ts:58, orders.test.ts:77",
-  },
-  {
-    source: "agent",
+    rule: "check_missing",
     check: "smoke",
     severity: "warn",
     title: "the smoke check returned no report",
-    evidence: "",
+    evidence: "the thread ended without a report",
   },
   {
     source: "agent",
@@ -158,7 +192,7 @@ const detonationDigest: RunDigest = {
     smoke: { status: "done", ms: 70_000, sandboxMs: null },
     detonation: { status: "done", ms: 150_000, sandboxMs: 118_000 },
   },
-  findings: { critical: 2, warn: 1, info: 1 },
+  findings: { critical: 4, warn: 1, info: 1 },
   durationMs: 156_000,
 };
 
@@ -213,7 +247,7 @@ export function run(over: Partial<Run> = {}): Run {
     hard_rule_hits: findings.filter((f) => f.source === "hard_rule"),
     review: review(),
     error: null,
-    summary: "Four checks ran. Two hard rules tripped, so the review blocks the merge.",
+    summary: "Four checks ran. Four hard rules tripped, so the review blocks the merge.",
     // Larger than the four checks add up to, which is the honest shape: the
     // run total is summed over every turn, and the turn that folded the
     // reports and drafted the review is not one of the checks.
@@ -397,4 +431,74 @@ export const runs: RunSummary[] = [
     // checks — the board must not draw this as a run that passed.
     digest: null,
   },
+];
+
+/**
+ * An owner's runs across three repositories (decision 175): the board's five,
+ * plus every status an owner's activity has to word — an error that needs a
+ * re-run, a lifted block, an unproven review — and a pull request whose older
+ * run was blocked and whose newer one is clean, so "blocked now" has to read
+ * the newest run and not any run.
+ */
+export const ownerRuns: RunSummary[] = [
+  {
+    ...summary,
+    id: "run-10",
+    repo: "spencerjireh/notes",
+    pr_number: 7,
+    pr_title: "Sync notes over WebDAV",
+    head_sha: "f1a2b3c",
+    status: "error",
+    created_at: at(600),
+    updated_at: at(640),
+    digest: null,
+  },
+  {
+    ...summary,
+    id: "run-11",
+    repo: "spencerjireh/cujo",
+    pr_number: 210,
+    pr_title: "Tighten the egress allowlist",
+    head_sha: "a9b8c7d",
+    status: "clean",
+    created_at: at(500),
+    updated_at: at(560),
+    digest: { ...detonationDigest, findings: { critical: 0, warn: 1, info: 2 } },
+  },
+  {
+    ...summary,
+    id: "run-12",
+    repo: "spencerjireh/cujo",
+    pr_number: 210,
+    pr_title: "Tighten the egress allowlist",
+    head_sha: "0d1e2f3",
+    status: "blocked",
+    created_at: at(400),
+    updated_at: at(450),
+  },
+  {
+    ...summary,
+    id: "run-13",
+    repo: "spencerjireh/cujo",
+    pr_number: 208,
+    pr_title: "Retry the check run on a 502",
+    head_sha: "4a5b6c7",
+    status: "dismissed",
+    created_at: at(300),
+    updated_at: at(390),
+  },
+  {
+    ...summary,
+    id: "run-14",
+    repo: "spencerjireh/notes",
+    pr_number: 6,
+    pr_title: "Add a search index",
+    head_sha: "8d9e0f1",
+    status: "unproven",
+    mode: "diff",
+    created_at: at(200),
+    updated_at: at(230),
+    digest: { checks: {}, findings: { critical: 0, warn: 0, info: 1 }, durationMs: 30_000 },
+  },
+  ...runs,
 ];

@@ -105,12 +105,12 @@ export function SelfHost() {
         <Pre>{REQUIRED}</Pre>
         <P>
           Models are not set here. The service starts with none, and every pull request gets a
-          neutral <C>cujo/guard</C> check saying so until an owner chooses one on the board&rsquo;s
-          instance page. That page needs the sign-in, so set these too:
+          neutral <C>cujo/guard</C> check saying so until an owner chooses one on the Settings page.
+          That page needs the sign-in, so set these too:
         </P>
         <Pre>{BOARD}</Pre>
         <P>
-          On the instance page, add a provider — Anthropic takes a key and nothing else, since the
+          On the Settings page, add a provider — Anthropic takes a key and nothing else, since the
           harness has its models, limits and prices; any OpenAI-compatible host takes a URL, a key
           and the models you declare — press Test, save, then choose the model each review runs on.
           The diff review can run on a different, cheaper model. A run on an Anthropic model reports

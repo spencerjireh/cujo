@@ -426,7 +426,7 @@ export function EvidenceLog({
 
   return (
     <section aria-label="Evidence log">
-      <h2 className="mb-1 text-lg">What happened</h2>
+      {/* The heading is the fold's (`RunFold`, decision 175). */}
       <p className="mb-4 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
         In the order it happened, from the turn&rsquo;s start. Each check is what it ran, what the
         sensors saw, and what it concluded; the tables behind each fold.

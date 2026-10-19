@@ -19,8 +19,5 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** What anyone arriving from a link or a search sees. */
-export const Visitor: Story = { args: { reader: "visitor" } };
-
-/** The same page for a signed-in owner: their pages first, the manual kept. */
-export const Owner: Story = { args: { reader: "owner" } };
+/** What anyone arriving from a link or a search sees. An owner is sent to /activity. */
+export const Visitor: Story = {};

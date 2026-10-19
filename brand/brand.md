@@ -134,8 +134,13 @@ dark `--bg`, every dark-ramp ratio above is higher still.
 - Display: Bricolage Grotesque 700 for headings, the wordmark, and run titles.
 - Mono: JetBrains Mono 500 for everything that is evidence: commands, test
   names, paths, counts, severity labels, timestamps.
-- Body text in the UI is the mono face at `--text-md`; the UI is a log of what
-  ran, and it should look like one.
+- UI: Bricolage Grotesque 400 and 500 for the words of a working page: labels,
+  hints, navigation, buttons, and sentences on the owner's pages and at the
+  head of a run. It is the display family at text weights, so the site still
+  speaks in two faces, not three (decision 175).
+- Body text in the landing and the manual is the mono face at `--text-md`;
+  they read as a log of what ran. On a working page mono is for values only:
+  a SHA, a model id, a path, a number, a command.
 - Do not use Inter, Roboto, or a system UI stack in brand surfaces.
 
 ## Voice

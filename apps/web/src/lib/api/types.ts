@@ -156,8 +156,21 @@ export interface CheckState {
   timings?: CheckTimings | null;
 }
 
+/** Which hard rule a `hard_rule` finding is (apps/cujo `review/types.ts`). */
+type HardRule =
+  | "tests_failed"
+  | "decoy_read"
+  | "decoy_in_egress"
+  | "wrote_sensitive"
+  | "egress_to_unknown_host"
+  | "check_missing"
+  | "sensor_unarmed"
+  | "report_invalid";
+
 export interface Finding {
   source: "hard_rule" | "agent" | "build_fact";
+  /** Set on a `hard_rule` finding: which rule tripped. */
+  rule?: HardRule;
   check: string;
   severity: Severity;
   title: string;

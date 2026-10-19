@@ -4,10 +4,9 @@ import type { Run } from "@/lib/api/types";
 import { setupWindow } from "@/lib/board/setup";
 import { avatarUrl, duration, prUrl, profileUrl, shortSha } from "@/lib/format";
 import Image from "next/image";
-import Link from "next/link";
 import { RunSpecimen } from "./RunSpecimen";
 import { RunSummary } from "./RunSummary";
-import { VerdictCard } from "./VerdictCard";
+import { RunVerdict } from "./RunVerdict";
 
 const AVATAR = 20;
 
@@ -67,17 +66,6 @@ export function RunHeader({ run }: { run: Run }) {
   const window = setupWindow(run.setup);
   return (
     <header className="mb-8">
-      {/* The mark in the corner scrolls away with the page, and most readers
-          arrive here from a link in a GitHub review rather than from the board
-          — so without this a reader who has scrolled has no route to the rest
-          of the runs at all. A breadcrumb rather than chrome: it sits where the
-          eye already is, and costs the board nothing. */}
-      <Link
-        href="/galaxy"
-        className="font-mono text-xs text-fg-muted no-underline hover:text-accent"
-      >
-        ← all runs
-      </Link>
       {/* The shape beside the name, and beside everything under it: the title,
           the author, the verdict and what setup cost. What reviewed this and
           against which rubric is in the operator details below the evidence,
@@ -96,7 +84,7 @@ export function RunHeader({ run }: { run: Run }) {
           the bottom, so the title block hung off the floor of the specimen
           instead of starting level with it. Both were invisible at 128 pixels
           and neither is at 224. */}
-      <div className="mt-2 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
         <div className="min-w-0 flex-1 basis-80">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {/* The pull request's own title when there is one, and `repo #N`
@@ -150,10 +138,10 @@ export function RunHeader({ run }: { run: Run }) {
               the handles beside it, so a sentence set below the whole row left
               a hole the height of a specimen next to it; here it fills the
               column the object stands against, which is what it is for. */}
-          {/* The verdict, then the run's own words about it. The card is the
-              answer a reader from GitHub came for; the summary under it is the
-              model's two lines, kept because they say why. */}
-          <VerdictCard run={run} />
+          {/* The verdict, what it rests on and what to do (decision 175), then
+              the run's own words about it: the model's two lines, kept
+              because they say why. */}
+          <RunVerdict run={run} />
           {run.summary ? <RunSummary summary={run.summary} /> : null}
         </div>
         {/* Last in the source, so at full width it stands to the right of the

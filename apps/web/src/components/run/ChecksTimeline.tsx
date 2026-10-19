@@ -241,7 +241,7 @@ export function ChecksTimeline({
 
   return (
     <section aria-label="Checks">
-      <h2 className="mb-1 text-lg">Checks</h2>
+      {/* The heading is the fold's (`RunFold`, decision 175). */}
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
         Four sub-agents in one sandbox, on one time axis. Pick a lane to read what it saw.
       </p>

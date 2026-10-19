@@ -44,9 +44,15 @@
   --color-chamber-fg-muted: var(--chamber-fg-muted);
 
   /* next/font publishes --font-*-src; the indirection avoids a specificity tie
-     with tokens.css, which declares --font-display on :root at the same weight. */
-  --font-display: var(--font-display-src), "Helvetica Neue", Arial, sans-serif;
-  --font-mono: var(--font-mono-src), "SF Mono", Menlo, Consolas, monospace;
+     with tokens.css, which declares --font-display on :root at the same weight.
+     Each names its family as the var() fallback: where next/font is not loaded
+     (Storybook) an undefined variable would void the whole declaration, and
+     the text would inherit the mono face instead of falling down this list. */
+  --font-display: var(--font-display-src, "Bricolage Grotesque"), "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: var(--font-mono-src, "JetBrains Mono"), "SF Mono", Menlo, Consolas, monospace;
+  /* The working pages' face: the display family at text weights (decision 175). */
+  --font-ui: var(--font-display-src, "Bricolage Grotesque"), "Helvetica Neue", Arial, sans-serif;
 }
 
 @layer base {

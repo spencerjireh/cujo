@@ -1,4 +1,3 @@
-import { HomeMark } from "@/components/brand/HomeMark";
 import { DocsNav } from "@/components/docs/DocsNav";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
@@ -20,11 +19,7 @@ export const metadata: Metadata = {
 
 export default function DocsLayout({ children }: { children: ReactNode }) {
   return (
-    // The mark's positioned ancestor is the full-width box and not the column,
-    // so it sits in the window's corner the way it does on every other page
-    // (see the note in runs/[id]/page.tsx).
-    <div className="relative">
-      <HomeMark />
+    <div>
       <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
         <a
           href="#doc"
@@ -32,7 +27,7 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
         >
           Skip to content
         </a>
-        <div className="pt-10 lg:grid lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] lg:gap-12">
+        <div className="lg:grid lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] lg:gap-12">
           {/* A disclosure below `lg` and a plain list above it. `<details>`
               rather than a toggle with state: the sidebar has to work with no
               JavaScript, and a summary element is the one control that does
@@ -44,7 +39,7 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
             <summary className="cursor-pointer list-none font-mono text-xs uppercase tracking-[0.18em] text-fg-muted marker:content-['']">
               Contents
             </summary>
-            <div className="mt-5 lg:mt-0 lg:sticky lg:top-8">
+            <div className="mt-5 lg:mt-0 lg:sticky lg:top-22">
               <DocsNav />
             </div>
           </details>
