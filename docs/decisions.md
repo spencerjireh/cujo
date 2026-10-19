@@ -183,6 +183,7 @@ reader can tell a live rule from a recorded one before opening it.
 173. [An install whose exit nobody reads is not an install that worked](#173-an-install-whose-exit-nobody-reads-is-not-an-install-that-worked)
 174. [Models are configured on the board; the environment only seeds a dev stack](#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)
 175. [A header, an owner's home, and the run page leads with what to do](#175-a-header-an-owners-home-and-the-run-page-leads-with-what-to-do)
+176. [The images share one package store and take turns installing](#176-the-images-share-one-package-store-and-take-turns-installing)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -8990,3 +8991,33 @@ click; **a step-by-step setup wizard**, which blocks the pages an owner may
 need first; **a new UI typeface**, which would be a third face where a weight
 of the second does the job; **persisting "provider tested"**, a server field
 for a checklist line.
+
+## 176. The images share one package store and take turns installing
+
+The deploy of #203 failed twice on 2026-10-19 before any code ran. Coolify
+builds the seven service images at once on the deploy box, and each ran its
+own `pnpm install` from an empty store: `resolved 0, reused 0, downloaded
+580` for `cujo` alone, about 24 minutes of it. The box's link to the
+registry dropped connections under that load (`ECONNRESET`, `EPIPE`,
+`ERR_SOCKET_TIMEOUT`), and the first deploy ended when one tarball ran out
+of its two retries. The second took the box down for most of a day, most
+likely out of memory, with seven installs and a Next build side by side.
+
+Every Dockerfile's install now mounts one BuildKit cache, `id=pnpm-store`,
+as the store, with `sharing=locked`. The images take turns installing
+instead of all seven together, and each install after the first, in this
+deploy and in later ones, fetches only what the store lacks. The harness's
+`pnpm deploy`, which reads the same store, mounts it too. `.npmrc` gives a
+fetch five retries with a longer backoff and halves the parallel fetches, so
+a dropped connection is retried and not the end of the deploy.
+
+Accepted: **installs in series**, slower on an empty cache than seven at once
+on a link that holds, and much faster than a deploy that fails; **a cache
+that lives on the deploy box**, which a `docker builder prune` empties, at the
+cost of one slow deploy.
+
+Rejected for now: **images built in CI and pulled by Coolify**, which would
+make a deploy a pull and nothing more, but needs a registry, credentials on
+the box, and a change to how the compose file names its images; **a
+`pnpm fetch` layer keyed on the lockfile alone**, which the cache mount makes
+mostly redundant.

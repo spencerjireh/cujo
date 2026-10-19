@@ -9,7 +9,10 @@ COPY packages ./packages
 COPY apps ./apps
 # Filtered so adding apps/web to the workspace does not pull Next, React, and
 # Storybook into this image's install.
-RUN pnpm install --frozen-lockfile --filter @cujo/cujo...
+# The package store is a build cache every image shares, and 'locked' makes
+# the seven installs take turns (decision 176): one download, not seven at once.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store --filter @cujo/cujo...
 RUN pnpm --filter @cujo/cujo build
 
 FROM node:24-slim AS runner
