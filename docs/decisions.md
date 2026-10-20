@@ -184,6 +184,7 @@ reader can tell a live rule from a recorded one before opening it.
 174. [Models are configured on the board; the environment only seeds a dev stack](#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)
 175. [A header, an owner's home, and the run page leads with what to do](#175-a-header-an-owners-home-and-the-run-page-leads-with-what-to-do)
 176. [The images share one package store and take turns installing](#176-the-images-share-one-package-store-and-take-turns-installing)
+177. [The manual is six pages](#177-the-manual-is-six-pages)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -9021,3 +9022,17 @@ make a deploy a pull and nothing more, but needs a registry, credentials on
 the box, and a change to how the compose file names its images; **a
 `pnpm fetch` layer keyed on the lockfile alone**, which the cache mount makes
 mostly redundant.
+
+## 177. The manual is six pages
+
+**Status:** live
+**Decision:** The manual at `/docs` is six pages: what Cujo is, install,
+configure, reading a review, blocking, and self-hosting. It keeps only what a
+developer acts on when they decide to install the App, install it, and read
+its reviews.
+**Why:** Twelve pages and about 6,400 words explained sensors, trust zones,
+the harness and decision numbers to a reader who needs none of them to use
+Cujo. Two pages also contradicted the product: one said the board has no
+login while owners sign in, and one named an amber state that waits on a
+person when no state does. The design of record stays in `docs/`.
+**See:** decisions 98, 175.

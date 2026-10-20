@@ -1,118 +1,80 @@
-import { C, LI, Lead, Note, P, Section, UL } from "@/components/docs/Prose";
+import { C, LI, Lead, P, Section, UL } from "@/components/docs/Prose";
 import Link from "next/link";
 
+const LINK = "text-accent underline underline-offset-4";
+
 /**
- * The first page, and the only one allowed to argue rather than describe.
- *
- * It answers two questions and stops: what this does that a diff-reading
- * reviewer cannot, and what it will not do. The limits are on this page and not
- * buried at the back, because a reader who finds out on their own what the
- * sandbox cannot see has been misled by the three pages in between.
+ * The first page. What Cujo does, what lands on a pull request, and what it
+ * does not do. The limits are here, not at the back, because they decide
+ * whether Cujo is worth installing.
  */
 export function Overview() {
   return (
     <>
-      <Section id="claim" title="A diff shows what changed, not what happens">
+      <Section id="what" title="It runs the pull request">
         <Lead>
-          A reviewer that only reads the diff cannot see the test that now fails, the endpoint that
-          now returns 500, or the install-time payload in a new dependency. It can guess. It cannot
-          know.
+          A reviewer that only reads the diff cannot see a test that now fails or an install that
+          contacts an unknown host. Cujo runs the code to find out.
         </Lead>
         <P>
-          Cujo reviews a pull request by running it. It clones the head into a disposable sandbox,
-          runs the repository&rsquo;s suite on base and on head, writes and runs its own probes
-          against the changed code, boots the app and hits it, and — when the pull request adds a
-          dependency — installs that dependency in isolation and records what the install did. The
-          review it posts cites what happened.
+          For each pull request, Cujo copies the code into a disposable sandbox. The sandbox holds
+          no token or secret. Cujo runs the test suite on the base and the head, tries the changed
+          code, boots the app, and installs each new dependency alone. The review cites what
+          happened.
         </P>
       </Section>
 
-      <Section id="what-lands" title="What lands on a pull request">
+      <Section id="what-lands" title="What you get on a pull request">
         <UL>
+          <LI>A reaction within about a second, which changes as the run moves.</LI>
           <LI>
-            A reaction, within about a second of the delivery. It says Cujo has the pull request
-            before it has anything to report, and it moves as the run does.
+            One review from <C>cujo-guard[bot]</C>: what ran, the findings, and inline comments on
+            the lines they are about.
           </LI>
           <LI>
-            One review, from <C>cujo-guard[bot]</C>: a summary of what ran, the findings, and inline
-            comments anchored to the lines they are about.
-          </LI>
-          <LI>
-            Nothing else. Cujo never posts APPROVE, so it cannot satisfy branch protection and wave
-            a merge through, and it never comments on style, architecture or preference — every
-            finding follows from something a sensor observed.
+            A <C>cujo/guard</C> check on the commit. It fails when a finding is critical, which
+            holds the merge under branch protection.
           </LI>
         </UL>
         <P>
-          Every review posts unattended, including the ones that block a merge. The one human
-          decision is the unlock:{" "}
-          <Link href="/docs/blocking" className="text-accent underline underline-offset-4">
-            a maintainer lifts a block
+          Cujo never approves a pull request. Reviews post without a person. The only step that
+          needs a person is to{" "}
+          <Link href="/docs/blocking" className={LINK}>
+            lift a block
           </Link>
-          , and nothing else waits for anyone.
+          .
         </P>
       </Section>
 
       <Section id="limits" title="What it does not do">
-        <P>
-          Stated here rather than at the back, because each of these changes whether Cujo is worth
-          pointing at your repository.
-        </P>
         <UL>
           <LI>
-            <strong className="font-medium text-fg">Hold a credential where the code runs.</strong>{" "}
-            The sandbox gets a tree and no token. A private repository is reviewed all the same: its
-            base and head trees are fetched outside the box, with the App&rsquo;s own access, and
-            copied in. Its runs have pages too, for the repository&rsquo;s owner signed in on this
-            board; anyone else gets a 404.
+            It does not read network traffic content. It records which hosts the code contacted and
+            how many bytes, not what was sent.
           </LI>
           <LI>
-            <strong className="font-medium text-fg">Egress is metadata, never payload.</strong> The
-            sandbox&rsquo;s proxy records the host, the port and the byte count. It does not
-            intercept TLS, so it never sees what was sent.
+            It can miss a process that connects to the network directly. A finding needs evidence,
+            so a gap can hide a problem but cannot invent one.
           </LI>
-          <LI>
-            <strong className="font-medium text-fg">
-              A process that opens a direct socket is not observed.
-            </strong>{" "}
-            The proxy sees what honours <C>HTTP_PROXY</C>, which is pip, npm, cargo, go and the
-            common HTTP libraries. Something that deliberately bypasses it is a gap, and the reports
-            say which sensors were watching so that gap is legible rather than silent.
-          </LI>
-          <LI>
-            <strong className="font-medium text-fg">It does not fix anything.</strong> Opening a
-            remediation pull request is designed and not built.
-          </LI>
+          <LI>It does not comment on style or design, and it does not fix code.</LI>
         </UL>
-        <Note>
-          The hard rules are tripwires, not proofs of absence. Each fires only on positive evidence
-          a sensor recorded, so a sensor gap can cost you a finding and can never invent one. A{" "}
-          <C>false</C> in a report means &ldquo;not observed&rdquo;, and everything downstream reads
-          it that way.
-        </Note>
+        <P>
+          Private repositories work. Their runs are visible only to an owner of the installation who
+          signs in with GitHub.
+        </P>
       </Section>
 
-      <Section id="next" title="Where to go next">
-        <UL>
-          <LI>
-            <Link href="/docs/install" className="text-accent underline underline-offset-4">
-              Install it
-            </Link>{" "}
-            — put the App on a repository and open a pull request.
-          </LI>
-          <LI>
-            <Link href="/docs/how-it-works" className="text-accent underline underline-offset-4">
-              How a review runs
-            </Link>{" "}
-            — the whole path, webhook to review.
-          </LI>
-          <LI>
-            <Link href="/docs/self-host" className="text-accent underline underline-offset-4">
-              Self-hosting
-            </Link>{" "}
-            — run your own instance instead.
-          </LI>
-        </UL>
+      <Section id="next" title="Next">
+        <P>
+          <Link href="/docs/install" className={LINK}>
+            Install it
+          </Link>{" "}
+          on a repository, or{" "}
+          <Link href="/docs/self-host" className={LINK}>
+            run your own
+          </Link>
+          .
+        </P>
       </Section>
     </>
   );

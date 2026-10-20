@@ -1,13 +1,11 @@
-import { C, Cell, LI, Lead, Note, P, Pre, Row, Section, Table, UL } from "@/components/docs/Prose";
-import Link from "next/link";
+import { C, Cell, LI, Note, P, Pre, Row, Section, Table, UL } from "@/components/docs/Prose";
 
 const REQUIRED = `GITHUB_APP_ID
-GITHUB_APP_PRIVATE_KEY     # the PEM text; literal \\n is accepted
-GITHUB_WEBHOOK_SECRET`;
-
-const BOARD = `GITHUB_OAUTH_CLIENT_ID       # the App's own OAuth client
+GITHUB_APP_PRIVATE_KEY       # the PEM text; literal \\n is accepted
+GITHUB_WEBHOOK_SECRET
+GITHUB_OAUTH_CLIENT_ID       # the App's own OAuth client
 GITHUB_OAUTH_CLIENT_SECRET
-CUJO_PUBLIC_BASE_URL         # the board's origin; the OAuth callback is under it`;
+CUJO_PUBLIC_BASE_URL         # the board's origin; the sign-in callback is under it`;
 
 const SEEDS = `CUJO_MODEL                   # <provider name>/<model name>
 ANTHROPIC_API_KEY            # seeds an Anthropic provider
@@ -16,152 +14,93 @@ MODEL_PROVIDER_API_KEY       #   with MODEL_PROVIDER_NAME and
 MODEL_PROVIDER_MODELS        #   <model name>=<provider model id>, comma separated`;
 
 /**
- * Vendor-neutral on purpose. This board runs on one particular host behind one
- * particular proxy, and none of that is a requirement of the product — naming
- * it here would read as one. What the product actually needs is a container
- * host with Docker, a TLS-terminating proxy, a model provider and a GitHub
- * App, and that is what this page names.
+ * Vendor-neutral on purpose. The product needs a container host with Docker,
+ * a reverse proxy that terminates TLS, a model provider and a GitHub App, and
+ * that is what this page names.
  */
 export function SelfHost() {
   return (
     <>
-      <Section id="shape" title="What you are deploying">
+      <Section id="shape" title="What you deploy">
         <P>
-          One Compose project, so the services share a network. Nothing here is tied to a particular
-          cloud: any container host and any reverse proxy that terminates TLS will do.
+          One Docker Compose project on any host with Docker and a reverse proxy that terminates
+          TLS.
         </P>
-        <Table head={["Service", "Role", "Published?"]}>
-          <Row>
-            <Cell head>harness</Cell>
-            <Cell>
-              The agent harness: sessions, turns, the event log, the subagents and the approval
-              gate, on the pi coding agent SDK. Its state is one SQLite file on a volume.
-            </Cell>
-            <Cell>No &mdash; internal only. There is no console.</Cell>
-          </Row>
+        <Table head={["Service", "Role", "Public"]}>
           <Row>
             <Cell head>cujo</Cell>
-            <Cell>
-              The service. The only thing GitHub touches, and the harness&rsquo;s only client.
-            </Cell>
-            <Cell>One hostname, for the webhook and the Discord endpoint.</Cell>
+            <Cell>Receives GitHub and Discord events and runs the reviews.</Cell>
+            <Cell>Yes, one hostname.</Cell>
           </Row>
           <Row>
             <Cell head>web</Cell>
-            <Cell>The board. Holds no secret and no state.</Cell>
-            <Cell>One hostname.</Cell>
+            <Cell>This site. Holds no secrets.</Cell>
+            <Cell>Yes, one hostname.</Cell>
+          </Row>
+          <Row>
+            <Cell head>harness</Cell>
+            <Cell>Runs the model. Keeps its state in one SQLite file.</Cell>
+            <Cell>No.</Cell>
           </Row>
           <Row>
             <Cell head>github-mcp</Cell>
-            <Cell>
-              The MCP server the agent calls to post a review. Holds the App&rsquo;s private key.
-            </Cell>
-            <Cell>No — internal only.</Cell>
+            <Cell>Posts reviews. Holds the App&rsquo;s private key.</Cell>
+            <Cell>No.</Cell>
           </Row>
           <Row>
             <Cell head>sandbox-mcp</Cell>
-            <Cell>
-              The MCP server that provisions the sandbox: a container on the host with its egress
-              filtered by a gateway outside it. The one service that holds the Docker socket.
-            </Cell>
-            <Cell>No — internal only.</Cell>
+            <Cell>Starts the sandboxes. Holds the Docker socket.</Cell>
+            <Cell>No.</Cell>
           </Row>
         </Table>
-        <Note>
-          Cujo itself has no application-level login. The webhook host carries two signature-gated
-          routes; the board&rsquo;s read API answers only on the internal Compose name, where
-          anything outside <C>/public</C> is 404 rather than 401. <C>/healthz</C> and <C>/readyz</C>{" "}
-          are ungated operational endpoints. The harness and both MCP servers answer to nobody
-          outside the Compose network, and have no authentication of their own.
-        </Note>
       </Section>
 
       <Section id="app" title="Your own GitHub App">
-        <P>
-          A self-hosted instance does not install this board&rsquo;s App — it needs its own, so that
-          the private key is yours.
-        </P>
+        <P>Create your own App, so that the private key is yours.</P>
         <UL>
           <LI>
             Permissions: Contents read, Metadata read, Pull requests write, Checks write, Issues
-            read. Checks write is the <C>cujo/guard</C> check run, the merge lock; every
-            installation approves it once. Issues read is for event delivery only; GitHub releases{" "}
-            <C>issue_comment</C> on it and on nothing else, and the settings page will not offer the
-            event until the permission is set.
+            read. GitHub offers the <C>issue_comment</C> event only after you set Issues read.
           </LI>
           <LI>
             Events: <C>pull_request</C>, <C>issue_comment</C>, <C>pull_request_review_comment</C>,{" "}
             <C>repository</C>.
           </LI>
           <LI>
-            Webhook URL: <C>POST /webhook</C> on the webhook hostname, with a secret you also set as{" "}
-            <C>GITHUB_WEBHOOK_SECRET</C>.
+            Webhook URL: <C>POST /webhook</C> on the <C>cujo</C> hostname, with the secret you set
+            as <C>GITHUB_WEBHOOK_SECRET</C>.
           </LI>
         </UL>
       </Section>
 
       <Section id="env" title="Configuration">
-        <Lead>Required. The services exit at start without these.</Lead>
+        <P>Required. The services do not start without these.</P>
         <Pre>{REQUIRED}</Pre>
         <P>
-          Models are not set here. The service starts with none, and every pull request gets a
-          neutral <C>cujo/guard</C> check saying so until an owner chooses one on the Settings page.
-          That page needs the sign-in, so set these too:
-        </P>
-        <Pre>{BOARD}</Pre>
-        <P>
-          On the Settings page, add a provider — Anthropic takes a key and nothing else, since the
-          harness has its models, limits and prices; any OpenAI-compatible host takes a URL, a key
-          and the models you declare — press Test, save, then choose the model each review runs on.
-          The diff review can run on a different, cheaper model. A run on an Anthropic model reports
-          what it cost. Discord is configured with <C>DISCORD_BOT_TOKEN</C> and{" "}
-          <C>DISCORD_PUBLIC_KEY</C>; leave them unset and the service runs and notifies nobody.
+          Choose the model on the Settings page, after you sign in. Until you do, every pull request
+          gets a neutral <C>cujo/guard</C> check that says no model is set. Add a provider (an
+          Anthropic key, or any OpenAI-compatible URL, key and model list), press Test, save, and
+          pick a model. The diff review can use a different, cheaper model.
         </P>
         <P>
-          A local or test stack can skip the board: these seed the first boot only, and the board
-          holds the values after that.
+          For Discord, set <C>DISCORD_BOT_TOKEN</C> and <C>DISCORD_PUBLIC_KEY</C>. Without them,
+          Cujo runs and sends no cards.
         </P>
+        <P>For a local or test stack, these set the first model at first start only:</P>
         <Pre>{SEEDS}</Pre>
+        <Note>
+          If your provider rejects a sampling value, such as a temperature, every review fails while
+          the service still reports ready. Leave these unset unless you know what your provider
+          accepts.
+        </Note>
       </Section>
 
-      <Section id="traps" title="Two settings that fail confusingly">
-        <UL>
-          <LI>
-            The reasoning effort is clamped to what the model can take: a model whose provider says
-            it does not reason gets none, and <C>xhigh</C> or <C>max</C> fold to <C>high</C> unless
-            the model maps them. Nothing refuses to start over it; check the harness log for what
-            was actually sent if a review reasons less than you asked.
-          </LI>
-          <LI>
-            A sampling value your provider rejects — a temperature on a model that only accepts one
-            value, say — produces exactly that failure: readiness stays green and every review
-            fails. Both are unset by default, and unset means the key is not sent at all rather than
-            sent with a default. Check what your provider accepts before setting either.
-          </LI>
-        </UL>
-      </Section>
-
-      <Section id="local" title="Trying it locally">
+      <Section id="local" title="Try it locally">
         <Pre>{"cp .env.example .env\nmake up-local"}</Pre>
         <P>
-          That publishes the board on <C>3000</C>, the harness on <C>8790</C>, the service on{" "}
-          <C>8080</C> and the MCP servers on <C>8081</C> and <C>8082</C>, all on loopback. The
-          service dispatches on <C>Host</C>, which is what every production request carries too:
-        </P>
-        <Pre>{"curl -s -H 'Host: cujo' http://localhost:8080/public/runs"}</Pre>
-        <P>
-          Point the App&rsquo;s webhook at your machine with any HTTP tunnel, with the <C>Host</C>{" "}
-          set to the webhook hostname, then open a pull request on a repository the App is installed
-          on. The deployment uses the base Compose file alone; the local overlay is only for this.
-        </P>
-        <P>
-          The full component and deployment reference lives in the repository, in{" "}
-          <C>docs/architecture.md</C>, and every contract the code follows is in <C>docs/spec.md</C>
-          . Start with{" "}
-          <Link href="/docs/sandbox" className="text-accent underline underline-offset-4">
-            the sandbox boundary
-          </Link>{" "}
-          if you are going to change anything that moves data around.
+          The site is on <C>localhost:3000</C>. Send the App&rsquo;s webhook to your machine through
+          an HTTP tunnel, then open a pull request on a repository where the App is installed. The
+          repository&rsquo;s <C>docs/architecture.md</C> describes the full design.
         </P>
       </Section>
     </>
