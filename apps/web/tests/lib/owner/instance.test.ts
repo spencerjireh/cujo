@@ -14,6 +14,7 @@ describe("the instance page's sentences (decision 157)", () => {
       { name: "checks", needed: "write", held: "write", ok: true },
     ];
     expect(describePermissions(all)).toContain("every permission");
+    expect(describePermissions(all)).toBe("The App has every permission it needs.");
     const short: BotState["permissions"] = [
       { name: "checks", needed: "write", held: "read", ok: false },
       { name: "issues", needed: "read", held: null, ok: false },
@@ -51,7 +52,7 @@ describe("the instance page's sentences (decision 157)", () => {
         uptimeMs: 1,
         ready: false,
       }),
-    ).toContain("harness");
+    ).toBe("Starting up.");
     expect(
       describeHealth({
         harness: "ready",
@@ -60,7 +61,7 @@ describe("the instance page's sentences (decision 157)", () => {
         uptimeMs: 1,
         ready: false,
       }),
-    ).toContain("store");
+    ).toBe("Database unreachable.");
   });
 
   it("lists the keys an owner changed", () => {

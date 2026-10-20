@@ -158,7 +158,7 @@ describe("buildLog (decision 154)", () => {
     ).find((e) => e.kind === "check");
     if (unknown?.kind !== "check") throw new Error("no check");
     expect(unknown.egressHosts).toBeNull();
-    expect(unknown.alarms.map((a) => a.text)).toEqual(["egress to an unknown host"]);
+    expect(unknown.alarms.map((a) => a.text)).toEqual(["contacted unknown host"]);
   });
 
   it("labels an offset the way the timeline speaks", () => {

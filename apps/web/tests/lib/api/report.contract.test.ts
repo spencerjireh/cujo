@@ -82,7 +82,7 @@ describe("the canonical report example", () => {
     });
     // Neither one lights the alarm; only a true would.
     expect(alarms(block(EXAMPLE, 1), "detonation").map((alarm) => alarm.text)).not.toContain(
-      "decoy secret left the sandbox",
+      "test secret sent out",
     );
   });
 

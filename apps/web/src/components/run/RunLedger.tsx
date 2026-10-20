@@ -34,8 +34,8 @@ interface Slice {
  * strength rather than competing with the ones that were paid for in full.
  */
 const SLICES: Slice[] = [
-  { key: "inputTokens", label: "model input, tokens", className: "bg-fg" },
-  { key: "outputTokens", label: "model output, tokens", className: "bg-accent-fill" },
+  { key: "inputTokens", label: "input tokens", className: "bg-fg" },
+  { key: "outputTokens", label: "output tokens", className: "bg-accent-fill" },
   { key: "cacheReadTokens", label: "read from cache", className: "bg-fg-muted opacity-60" },
   { key: "cacheWriteTokens", label: "written to cache", className: "bg-fg-muted opacity-30" },
 ];
@@ -65,10 +65,7 @@ export function RunLedger({
 
   return (
     <div aria-label="What this run cost" className="border-line border-t pt-4">
-      <h3 className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-fg">Cost</h3>
-      <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-        What the run spent to reach the verdict. Context for it, never an argument for it.
-      </p>
+      <h3 className="mb-3 font-mono text-xs uppercase tracking-[0.16em] text-fg">Cost</h3>
       <div
         className={`flex h-2 w-full gap-px overflow-hidden ${budget ? "bg-bg-raised" : ""}`}
         aria-hidden="true"
@@ -87,7 +84,7 @@ export function RunLedger({
         <p className="mt-2 font-mono text-xs text-fg-muted">
           {compactCount(total)} of {compactCount(budget)} budget (
           {Math.round((total / budget) * 100)}%)
-          {total > budget ? " · over budget; the turn was ended" : ""}
+          {total > budget ? " · over budget; the run was stopped" : ""}
         </p>
       ) : null}
       <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-xs sm:grid-cols-4">
@@ -104,7 +101,7 @@ export function RunLedger({
       <p className="mt-4 mb-4 font-mono text-xs text-fg-muted">
         {usage.messages} {usage.messages === 1 ? "message" : "messages"} to the model
         {typeof usage.reasoningTokens === "number"
-          ? ` · ${compactCount(usage.reasoningTokens)} tokens spent reasoning`
+          ? ` · ${compactCount(usage.reasoningTokens)} reasoning tokens`
           : ""}
         {/* The provider's own estimate, said to be one. Cujo does not price
             anything and must not look as though it did. */}

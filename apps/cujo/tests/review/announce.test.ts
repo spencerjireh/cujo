@@ -114,11 +114,11 @@ function deps(over: { claim?: () => boolean } = {}) {
 describe("timeoutBody", () => {
   it("names the check that hung and the ones that reported", () => {
     const body = timeoutBody(LINKS, run(), timedOut(), 30 * 60 * 1000);
-    expect(body).toContain("30 minute ceiling");
-    expect(body).toContain("`smoke` still running");
+    expect(body).toContain("30 minute limit");
+    expect(body).toContain("while `smoke` ran");
     expect(body).toContain("from 2 of 4 checks");
-    expect(body).toContain("`tests` reported");
-    expect(body).toContain("`probes` reported");
+    expect(body).toContain("`tests` done");
+    expect(body).toContain("`probes` done");
   });
 
   it("links the run's evidence page when the repo is public", () => {
@@ -170,7 +170,7 @@ describe("timeoutBody", () => {
       }),
       1000,
     );
-    expect(body).toContain("One finding is held for a person to see first");
+    expect(body).toContain("One finding is withheld until a person reviews it");
     expect(body).not.toContain("decoy");
     expect(body).not.toContain("credentials");
     expect(body).not.toContain("evil-package");
@@ -178,7 +178,7 @@ describe("timeoutBody", () => {
 
   it("says so plainly when nothing reported at all", () => {
     const body = timeoutBody(LINKS, run(), projection({ status: "error" }), 1000);
-    expect(body).toContain("No check reported before the ceiling");
+    expect(body).toContain("No check finished in time");
   });
 
   it("separates a gap in the evidence from a claim about the code", () => {
@@ -197,7 +197,7 @@ describe("timeoutBody", () => {
       }),
       1000,
     );
-    expect(body).toContain("say nothing about this code");
+    expect(body).toContain("not problems in this code");
     expect(body).toContain("runs.0.schema_version: Required (+31 more)");
   });
 });
@@ -207,8 +207,8 @@ describe("evidenceGapBody", () => {
     const body = evidenceGapBody(LINKS, run(), [
       finding({ rule: "check_missing", check: "detonation", title: "no report", evidence: "-" }),
     ]);
-    expect(body).toContain("thinner evidence than it looks");
-    expect(body).toContain("do not change the verdict");
+    expect(body).toContain("less evidence than it looks");
+    expect(body).toContain("do not change the result");
     expect(body).toContain("**detonation**");
   });
 });

@@ -175,9 +175,7 @@ describe("github-mcp", () => {
 
     const body = github.posted.at(-1)?.input.body ?? "";
     expect(body).toContain(`**[View the full evidence →](${PUBLIC_BASE}/runs/${RUN_ID})**\n`);
-    expect(body.indexOf("View the full evidence")).toBeGreaterThan(
-      body.indexOf("Machine-readable summary"),
-    );
+    expect(body.indexOf("View the full evidence")).toBeGreaterThan(body.indexOf("Raw data"));
     // The footer is the last thing a reader sees. The duplicate marker sits
     // below it and is an HTML comment, so it renders as nothing.
     expect(body.trimEnd().endsWith("-->")).toBe(true);

@@ -14,10 +14,7 @@ export default function NotFound() {
     // pages that want it when the board took the full window.
     <div className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="mb-2 text-2xl">No such page</h1>
-      <p className="mb-6 max-w-[60ch] text-sm text-fg-muted">
-        This site is a landing, the board of runs with one page per run, the manual, and an
-        owner&rsquo;s pages. Nothing else is served here.
-      </p>
+      <p className="mb-6 max-w-[60ch] text-sm text-fg-muted">This page does not exist.</p>
       <div className="flex gap-6">
         <Link href="/galaxy" className="text-sm text-accent underline underline-offset-4">
           All runs

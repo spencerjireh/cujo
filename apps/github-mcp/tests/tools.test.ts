@@ -91,8 +91,8 @@ describe("the composed body", () => {
       log,
     );
     const at = (needle: string) => body().indexOf(needle);
-    expect(at("Machine-readable summary")).toBeGreaterThan(at("**Advisory**"));
-    expect(at("View the full evidence")).toBeGreaterThan(at("Machine-readable summary"));
+    expect(at("Raw data")).toBeGreaterThan(at("**Advisory**"));
+    expect(at("View the full evidence")).toBeGreaterThan(at("Raw data"));
     expect(at("<!-- cujo:")).toBeGreaterThan(at("View the full evidence"));
     expect(body()).not.toContain("/cujo confirm");
   });

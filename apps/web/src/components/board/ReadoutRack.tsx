@@ -1,4 +1,4 @@
-import type { RunStatus } from "@/lib/api/types";
+import { type RunStatus, checkLabel } from "@/lib/api/types";
 import type { BoardMetrics, SensorRow } from "@/lib/board/metrics";
 import {
   SEVERITY_ORDER,
@@ -39,25 +39,25 @@ const PAD_SLOTS = Array.from({ length: MIN_ACTIVITY_SLOTS }, (_, index) => `pad-
 export function ReadoutRack({ metrics }: { metrics: BoardMetrics }) {
   const empty = metrics.total === 0;
   return (
-    <section aria-label="Summary of the record" className="border-line border-t">
+    <section aria-label="Summary of runs" className="border-line border-t">
       {/* Five is an awkward number of columns below a very wide viewport, so
           the two-column rung gives the last panel the whole row rather than
           leaving an orphan beside the edge of the grid. */}
       <div className="grid grid-cols-1 divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-5">
-        <Panel title="verdicts" note={empty ? "no runs" : `${metrics.total} runs`}>
+        <Panel title="results" note={empty ? "no runs" : `${metrics.total} runs`}>
           <VerdictRibbon metrics={metrics} />
         </Panel>
         <Panel
           title="checks"
           note={
             empty
-              ? "none folded"
+              ? "no data"
               : metrics.unmeasured > 0
-                ? `${metrics.unmeasured} unmeasured`
-                : "all measured"
+                ? `${metrics.unmeasured} with no data`
+                : "all runs"
           }
         >
-          <Sensors rows={metrics.sensors} empty={empty} />
+          <Sensors rows={metrics.sensors} />
         </Panel>
         <Panel title="findings" note={findingsNote(metrics)}>
           <Findings metrics={metrics} />
@@ -66,8 +66,8 @@ export function ReadoutRack({ metrics }: { metrics: BoardMetrics }) {
           <Activity metrics={metrics} />
         </Panel>
         <Panel
-          title="time to verdict"
-          note={empty ? "none measured" : `${metrics.duration.measured} measured`}
+          title="run time"
+          note={empty ? "no data" : `${metrics.duration.measured} runs`}
           className="md:col-span-2 xl:col-span-1"
         >
           <Durations metrics={metrics} />
@@ -84,7 +84,7 @@ export function ReadoutRack({ metrics }: { metrics: BoardMetrics }) {
  */
 function findingsNote(metrics: BoardMetrics): string {
   const { producing, observed } = metrics.findings;
-  if (observed === 0) return "none folded";
+  if (observed === 0) return "no data";
   return `${producing} of ${observed} runs`;
 }
 
@@ -148,7 +148,6 @@ function VerdictRibbon({ metrics }: { metrics: BoardMetrics }) {
     return (
       <div>
         <div className="h-2 w-full bg-line" aria-hidden="true" />
-        <Waiting>Every run lands here as one of eight verdicts, coloured by what it means.</Waiting>
       </div>
     );
   }
@@ -182,7 +181,7 @@ function VerdictRibbon({ metrics }: { metrics: BoardMetrics }) {
   );
 }
 
-function Sensors({ rows, empty }: { rows: SensorRow[]; empty: boolean }) {
+function Sensors({ rows }: { rows: SensorRow[] }) {
   return (
     <div>
       <ul className="flex flex-col gap-3">
@@ -191,7 +190,7 @@ function Sensors({ rows, empty }: { rows: SensorRow[]; empty: boolean }) {
           return (
             <li key={row.name}>
               <div className="flex items-baseline justify-between gap-3 font-mono text-xs">
-                <span className="text-fg">{row.name}</span>
+                <span className="text-fg">{checkLabel(row.name)}</span>
                 {/* The sample size travels with the median, because the panel
                     note above cannot carry it: that counts runs with no digest
                     at all, and a check can also be present with no duration. A
@@ -237,7 +236,6 @@ function Sensors({ rows, empty }: { rows: SensorRow[]; empty: boolean }) {
           );
         })}
       </ul>
-      {empty ? <Waiting>Four sensors watch every pull request execute.</Waiting> : null}
     </div>
   );
 }
@@ -292,9 +290,7 @@ function Findings({ metrics }: { metrics: BoardMetrics }) {
           </li>
         ))}
       </ul>
-      {observed === 0 ? (
-        <Waiting>A finding is what a check reports back, graded critical, warn or info.</Waiting>
-      ) : total === 0 ? (
+      {observed > 0 && total === 0 ? (
         <Waiting>
           Nothing found across {observed} {observed === 1 ? "run" : "runs"}.
         </Waiting>
@@ -325,9 +321,7 @@ function Activity({ metrics }: { metrics: BoardMetrics }) {
           />
         ))}
       </div>
-      {metrics.activity.length === 0 ? (
-        <Waiting>One slot per hour, coarsening to days as the record grows.</Waiting>
-      ) : (
+      {metrics.activity.length === 0 ? null : (
         <p className="mt-3 font-mono text-xs text-fg-muted">
           peak {peak} {peak === 1 ? "run" : "runs"}
         </p>
@@ -344,10 +338,6 @@ function Durations({ metrics }: { metrics: BoardMetrics }) {
         <div className="h-3" aria-hidden="true">
           <span className="mt-1.5 block h-px w-full bg-line" />
         </div>
-        <Waiting>
-          A run is timed from the first check that starts to the last one that ends — never from
-          when a person was asked.
-        </Waiting>
       </div>
     );
   }

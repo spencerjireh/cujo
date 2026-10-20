@@ -150,10 +150,10 @@ describe("alarms", () => {
     });
     if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
     expect(alarms(parsed.blocks[0], "detonation").map((alarm) => alarm.text)).toEqual([
-      "decoy secret left the sandbox",
-      "decoy secret was read",
-      "egress to an unknown host",
-      "wrote to a sensitive path",
+      "test secret sent out",
+      "test secret read",
+      "contacted unknown host",
+      "wrote to a sensitive file",
     ]);
   });
 
@@ -166,8 +166,8 @@ describe("alarms", () => {
     });
     if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
     expect(alarms(parsed.blocks[0], "tests")).toEqual([
-      { text: "wrote to a sensitive path", severity: "critical" },
-      { text: "wrote outside the workspace", severity: "warn" },
+      { text: "wrote to a sensitive file", severity: "critical" },
+      { text: "wrote outside the project", severity: "warn" },
     ]);
   });
 
@@ -177,10 +177,10 @@ describe("alarms", () => {
     const parsed = parseReport({ derived: { egress_to_unknown_host: true } });
     if (parsed.kind !== "sensor" || !parsed.blocks[0]) throw new Error("expected a sensor block");
     expect(alarms(parsed.blocks[0], "detonation")).toEqual([
-      { text: "egress to an unknown host", severity: "critical" },
+      { text: "contacted unknown host", severity: "critical" },
     ]);
     expect(alarms(parsed.blocks[0], "tests")).toEqual([
-      { text: "egress to an unknown host", severity: "warn" },
+      { text: "contacted unknown host", severity: "warn" },
     ]);
   });
 

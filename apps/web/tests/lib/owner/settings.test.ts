@@ -14,7 +14,7 @@ function view(over: Partial<RepositorySettingsView> = {}): RepositorySettingsVie
 
 describe("describeMode (decision 155)", () => {
   it("names the layer that wins and the one it shadows", () => {
-    expect(describeMode(view())).toContain("uses the default: Full review");
+    expect(describeMode(view())).toBe("Default: Full review.");
     expect(
       describeMode(
         view({
@@ -30,14 +30,14 @@ describe("describeMode (decision 155)", () => {
         effective: { mode: { value: "sandbox", source: "file" }, instructions: null },
       }),
     );
-    expect(shadowed).toContain("Set by .cujo.yml in the repository: Full review");
-    expect(shadowed).toContain("Diff only, is ignored while the file sets it");
+    expect(shadowed).toContain("Set by .cujo.yml: Full review");
+    expect(shadowed).toContain("Diff only here is ignored");
   });
 });
 
 describe("effectiveMode (decision 175)", () => {
   it("names the mode in effect and its source in one line", () => {
-    expect(effectiveMode(view())).toBe("Full review, the default");
+    expect(effectiveMode(view())).toBe("Full review, default");
     expect(
       effectiveMode(
         view({ effective: { mode: { value: "diff", source: "file" }, instructions: null } }),
@@ -73,8 +73,8 @@ describe("describeInstructions (decision 155)", () => {
         },
       }),
     );
-    expect(file).toContain("Set by .cujo/REVIEW.md in the repository");
-    expect(file).toContain("ignored while the file exists");
-    expect(file).toContain("Cut on a line");
+    expect(file).toContain("Set by .cujo/REVIEW.md");
+    expect(file).toContain("The text here is ignored");
+    expect(file).toContain("Cut at 16 KB");
   });
 });

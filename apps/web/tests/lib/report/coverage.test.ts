@@ -29,9 +29,7 @@ describe("coverageLine", () => {
   });
 
   it("states the clean case, which the card used to render as blank", () => {
-    expect(coverageLine(block({ egress: [], sensors: ALL_WATCHING }))).toBe(
-      "Nothing tripped. All four sensors were watching.",
-    );
+    expect(coverageLine(block({ egress: [], sensors: ALL_WATCHING }))).toBe("Nothing flagged.");
   });
 
   it("drops the verdict clause when something did trip", () => {
@@ -39,7 +37,7 @@ describe("coverageLine", () => {
     // be the same fact twice in four centimetres.
     expect(
       coverageLine(block({ sensors: ALL_WATCHING, derived: { egress_to_unknown_host: true } })),
-    ).toBe("All four sensors were watching.");
+    ).toBe("All monitors on.");
   });
 
   it("counts only the sensors that actually reported themselves armed", () => {
@@ -53,7 +51,7 @@ describe("coverageLine", () => {
           sensors: { ...ALL_WATCHING, audit: { armed: false, detail: "no Python process ran" } },
         }),
       ),
-    ).toBe("Nothing tripped. 3 of the four sensors were watching.");
+    ).toBe("Nothing flagged. 3 of 4 monitors on.");
   });
 
   it("names a watched sensor that was down, and what its silence costs", () => {
@@ -64,7 +62,7 @@ describe("coverageLine", () => {
           sensors: { ...ALL_WATCHING, proxy: { armed: false, detail: "no longer running" } },
         }),
       ),
-    ).toBe("Nothing tripped, but the proxy was not running, so nothing outbound was measured.");
+    ).toBe("Nothing flagged. Not monitored: network.");
   });
 
   it("joins two dead sensors and leads with the gap when an alarm also tripped", () => {
@@ -79,9 +77,7 @@ describe("coverageLine", () => {
           derived: { wrote_sensitive: true },
         }),
       ),
-    ).toBe(
-      "The proxy was not running, so nothing outbound was measured and the decoy was not running, so a read of the decoy secret would not have been seen.",
-    );
+    ).toBe("Not monitored: network and secret trap.");
   });
 });
 

@@ -12,9 +12,9 @@ import type { SensorBlock } from "@/lib/api/report";
  */
 const SENSOR_LABELS: Record<string, string> = {
   proxy: "proxy",
-  decoy: "decoy watcher",
-  audit: "python hook",
-  fs_diff: "filesystem",
+  decoy: "secret trap",
+  audit: "file reads",
+  fs_diff: "file changes",
 };
 
 export function SensorStatus({ block }: { block: SensorBlock | undefined }) {
@@ -22,7 +22,7 @@ export function SensorStatus({ block }: { block: SensorBlock | undefined }) {
   if (!sensors) return null;
   return (
     <div className="mt-3">
-      <p className="font-mono text-xs text-fg-muted">How this was measured</p>
+      <p className="font-mono text-xs text-fg-muted">Monitors</p>
       <dl className="mt-1 grid grid-cols-[7rem_1fr] gap-x-3 font-mono text-xs">
         {Object.entries(sensors).map(([name, sensor]) => (
           <div key={name} className="col-span-2 grid grid-cols-subgrid py-0.5">
@@ -30,7 +30,7 @@ export function SensorStatus({ block }: { block: SensorBlock | undefined }) {
               {SENSOR_LABELS[name] ?? name}
             </dt>
             <dd className={sensor.armed === false ? "text-sev-high" : "text-fg-muted"}>
-              {sensor.armed === false ? "off" : sensor.armed === true ? "watching" : "unknown"}
+              {sensor.armed === false ? "off" : sensor.armed === true ? "on" : "unknown"}
               {sensor.detail ? ` · ${sensor.detail}` : ""}
             </dd>
           </div>

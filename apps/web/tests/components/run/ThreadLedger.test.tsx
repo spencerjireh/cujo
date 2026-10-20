@@ -14,7 +14,7 @@ describe("the thread ledger (decision 141)", () => {
   it("splits the parent from the checks, cache reads included", () => {
     render(<ThreadLedger ledger={ledger()} />);
     // main: 9_600 + 73_000; checks: the four rows' input + cache read.
-    const parent = screen.getByText("parent").nextElementSibling;
+    const parent = screen.getByText("main", { selector: "dt" }).nextElementSibling;
     expect(parent?.textContent).toContain("82.6k");
     const checks = screen.getByText("checks").nextElementSibling;
     expect(checks?.textContent).toContain("465.2k");
@@ -48,7 +48,7 @@ describe("the thread ledger (decision 141)", () => {
 
   it("shows a dash where no message reported reasoning tokens", () => {
     render(<ThreadLedger ledger={ledger()} />);
-    const table = screen.getByRole("table", { name: "By thread" });
+    const table = screen.getByRole("table", { name: "By step" });
     const main = within(table).getAllByRole("row")[1];
     expect(main?.textContent).toContain("—");
   });

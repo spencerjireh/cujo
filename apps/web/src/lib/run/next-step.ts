@@ -12,16 +12,13 @@ import type { ReviewMode, RunStatus } from "@/lib/api/types";
  */
 
 const NEXT: Record<RunStatus, string | null> = {
-  running: "Results appear here as each check finishes. Nothing to do yet.",
-  clean: "Nothing to do. The review on the pull request lists what ran.",
-  blocked:
-    "Fix the findings and push a new commit, or a maintainer with write access comments /cujo dismiss on the pull request.",
-  dismissed: "Nothing to do. The findings stay on record.",
-  error:
-    "Cujo failed, not the pull request. Comment /cujo review on the pull request to run it again.",
-  unproven:
-    "No check returned a report, so nothing here was observed. Comment /cujo review on the pull request to run it again.",
-  superseded: "A newer commit has its own run; open it from the pull request.",
+  running: "Results appear as each check finishes.",
+  clean: "Nothing to do.",
+  blocked: "Fix and push, or a maintainer comments /cujo dismiss.",
+  dismissed: "Nothing to do.",
+  error: "Cujo failed. Comment /cujo review to run it again.",
+  unproven: "Comment /cujo review to run it again.",
+  superseded: "Open the newer run from the pull request.",
 };
 
 /** The one-line headline for a run's status. */
@@ -36,13 +33,13 @@ export function headline(status: RunStatus, critical: number, mode?: ReviewMode)
         ? `Blocked by ${critical} critical finding${critical === 1 ? "" : "s"}`
         : "Blocked";
     case "dismissed":
-      return "Block lifted by a maintainer";
+      return "Block lifted";
     case "error":
-      return "The review did not finish";
+      return "Review failed";
     case "unproven":
-      return "Reviewed without evidence";
+      return "No results";
     case "superseded":
-      return "A newer commit replaced this run";
+      return "Outdated";
   }
 }
 

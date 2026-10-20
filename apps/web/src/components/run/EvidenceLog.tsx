@@ -2,7 +2,7 @@
 
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { Chevron } from "@/components/icons/Chevron";
-import type { Finding, Run } from "@/lib/api/types";
+import { type Finding, type Run, checkLabel } from "@/lib/api/types";
 import { SMOKE_STOP_SIGNAL, compactCount, describeExit } from "@/lib/format";
 import { renderMarkdown } from "@/lib/markdown";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -88,7 +88,7 @@ function Entry({
  * the page is a record of a review, and the review is the agent's by default.
  */
 function derivedLabel(source: Finding["source"]): string {
-  if (source === "hard_rule") return "hard rule";
+  if (source === "hard_rule") return "rule";
   if (source === "build_fact") return "build fact";
   return "";
 }
@@ -240,11 +240,11 @@ function StatusLine({ entry }: { entry: CheckEntry }) {
         no report
       </span>,
     );
-  else parts.push(<span key="s">reported</span>);
+  else parts.push(<span key="s">done</span>);
   const wall = duration(entry.wallMs);
   if (wall) parts.push(<span key="w">{wall}</span>);
   const box = duration(entry.sandboxMs);
-  if (box) parts.push(<span key="b">{box} in the sandbox</span>);
+  if (box) parts.push(<span key="b">{box} running code</span>);
   if (entry.tokens) {
     parts.push(
       <span key="t">
@@ -270,7 +270,7 @@ function Evidence({ entry, summoned }: { entry: CheckEntry; summoned: number }) 
     <div className="mt-3">
       <Collapsible.Root open={open} onOpenChange={setOpen}>
         <Collapsible.Trigger className={TRIGGER}>
-          <span>{entry.blocks.length ? "what the sandbox recorded" : "the report"}</span>
+          <span>{entry.blocks.length ? "details" : "raw report"}</span>
           <Chevron open={open} />
         </Collapsible.Trigger>
         <Collapsible.Content>
@@ -327,7 +327,7 @@ function ReviewBody({ run }: { run: Run }) {
     <div className="mt-3">
       <Collapsible.Root open={open} onOpenChange={setOpen}>
         <Collapsible.Trigger className={TRIGGER}>
-          <span>the review as posted</span>
+          <span>posted review</span>
           <Chevron open={open} />
         </Collapsible.Trigger>
         <Collapsible.Content>
@@ -365,10 +365,10 @@ function ReviewEntryBody({ entry, run }: { entry: ReviewEntry; run: Run }) {
   const what = !entry.posted
     ? run.review
       ? "drafted, not posted"
-      : "the run ended without a review"
+      : "no review posted"
     : entry.blocking
-      ? "posted as a request for changes; the cujo/guard check fails on this commit until a maintainer lifts it with /cujo dismiss"
-      : "posted as a comment";
+      ? "posted; the merge is blocked until a fix or /cujo dismiss"
+      : "posted";
   return (
     <>
       <p className="flex flex-wrap items-baseline gap-x-3 font-mono text-xs">
@@ -382,7 +382,7 @@ function ReviewEntryBody({ entry, run }: { entry: ReviewEntry; run: Run }) {
         <span className="text-fg-muted">{what}</span>
         {entry.anchored > 0 ? (
           <span className="text-fg-muted">
-            {entry.anchored} anchored {entry.anchored === 1 ? "comment" : "comments"}
+            {entry.anchored} line {entry.anchored === 1 ? "comment" : "comments"}
           </span>
         ) : null}
       </p>
@@ -394,12 +394,12 @@ function ReviewEntryBody({ entry, run }: { entry: ReviewEntry; run: Run }) {
 }
 
 const END_WORD: Record<string, string> = {
-  clean: "clean: every check ran and nothing tripped",
-  blocked: "blocked until a maintainer lifts it on the pull request",
-  dismissed: "dismissed by a maintainer on the pull request",
-  error: "ended in error",
-  unproven: "unproven: a check that was expected did not report",
-  superseded: "superseded by a run on a newer commit",
+  clean: "clean",
+  blocked: "blocked",
+  dismissed: "dismissed",
+  error: "failed",
+  unproven: "incomplete: a check returned no results",
+  superseded: "outdated",
   approved: "approved",
 };
 
@@ -427,10 +427,6 @@ export function EvidenceLog({
   return (
     <section aria-label="Evidence log">
       {/* The heading is the fold's (`RunFold`, decision 175). */}
-      <p className="mb-4 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-        In the order it happened, from the turn&rsquo;s start. Each check is what it ran, what the
-        sensors saw, and what it concluded; the tables behind each fold.
-      </p>
       <ol ref={listRef} className="flex flex-col">
         {entries.map((entry: LogEntry) => {
           if (entry.kind === "setup") {
@@ -452,7 +448,12 @@ export function EvidenceLog({
           }
           if (entry.kind === "check") {
             return (
-              <Entry key={entry.name} at={entry.at} name={entry.name} id={`log-${entry.name}`}>
+              <Entry
+                key={entry.name}
+                at={entry.at}
+                name={checkLabel(entry.name)}
+                id={`log-${entry.name}`}
+              >
                 <CheckBody
                   entry={entry}
                   summoned={picked && picked.check === entry.name ? picked.nonce : 0}
