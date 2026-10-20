@@ -872,7 +872,7 @@ a later one reversed, superseded, refined or amended.
 
 **Rejected:** Requiring checkout paths under `/work`, because tests would need a container; cloning the fork's repository, because it adds an untrusted host; reviewing whatever the pull ref points at, because `head_sha` would be false; one longer `&&` chain; a YAML parser in `prepare`; reading lock files; a shallow clone, because it lacks the base commit.
 
-**See:** decisions 41, 46, 54, 69 (cited for the `runner.py` tail fix), 134 (extends).
+**See:** decisions 41, 46, 54, 72 (the `runner.py` tail fix), 134 (extends).
 
 ## 72. A length cap is spent on the escaped text, not on the text
 
@@ -884,7 +884,7 @@ a later one reversed, superseded, refined or amended.
 
 **Rejected:** Escape then slice, because it invents text; raising `TAIL_CHARS` to the worst case, because every report grows six-fold; not escaping inside a tail, because the escape is what makes the text safe for a model.
 
-**See:** decisions 26, 68 (cited for `prepare`'s own cap), 70.
+**See:** decisions 26, 70, 71 (`prepare`'s own cap).
 
 ## 73. `detonation` starts during setup, and the install takes the lock so it can
 

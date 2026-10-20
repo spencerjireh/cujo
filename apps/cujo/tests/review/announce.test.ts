@@ -86,7 +86,7 @@ function projection(over: Partial<Projection> = {}): Projection {
 function timedOut(over: Partial<Projection> = {}): Projection {
   return projection({
     status: "error",
-    error: "turn timeout: no terminal event",
+    error: "Timed out before the review finished. Comment /cujo review to retry.",
     checks: [
       check({ title: "tests" }),
       check({ title: "probes" }),

@@ -136,7 +136,7 @@ export const findings: Finding[] = [
     rule: "decoy_read",
     check: "detonation",
     severity: "critical",
-    title: "the seeded decoy secret was read during detonation",
+    title: "a test secret was read while installing a new dependency",
     evidence: "secret_probe.decoy_read = true",
   },
   {
@@ -144,7 +144,7 @@ export const findings: Finding[] = [
     rule: "decoy_in_egress",
     check: "detonation",
     severity: "critical",
-    title: "the seeded decoy secret left the sandbox during detonation",
+    title: "a test secret was sent out while installing a new dependency",
     evidence: "secret_probe.decoy_in_egress = true",
   },
   {
@@ -152,7 +152,7 @@ export const findings: Finding[] = [
     rule: "egress_to_unknown_host",
     check: "detonation",
     severity: "critical",
-    title: "an install contacted a host that is neither a package index nor allowlisted",
+    title: "a new dependency contacted an unknown host",
     evidence: "egress: 185.220.101.4",
   },
   {

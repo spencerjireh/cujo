@@ -593,7 +593,7 @@ describe("Runner, on a turn that timed out", () => {
     expect(createComment).toHaveBeenCalledWith("o/r", 1, expect.stringContaining("`tests` done"));
     // The run is still an error. The comment does not soften that.
     expect(store.runs.getRun(r.id)?.status).toBe("error");
-    expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+    expect(store.runs.getProjection(r.id)?.error).toContain("Timed out");
   });
 
   it("records the comment, so a restart does not post a second one", async () => {
@@ -788,7 +788,7 @@ describe("Runner.consume", () => {
       expect(listTurns).toHaveBeenCalled();
       // The watchdog ended it, so the error names the timeout and not the
       // stream -- and it cancelled the turn it chose to abandon.
-      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+      expect(store.runs.getProjection(r.id)?.error).toContain("Timed out");
       expect(cancelTurn).toHaveBeenCalledWith("s");
     });
 
@@ -806,7 +806,7 @@ describe("Runner.consume", () => {
       );
       await runner.consume(r.id, opening);
       expect(listEvents.mock.calls.length).toBeGreaterThan(1);
-      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+      expect(store.runs.getProjection(r.id)?.error).toContain("Timed out");
     });
 
     it("keeps reading when the replay comes back without the turn's tail", async () => {
@@ -819,7 +819,7 @@ describe("Runner.consume", () => {
       );
       await runner.consume(r.id, opening);
       expect(listEvents.mock.calls.length).toBeGreaterThan(1);
-      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+      expect(store.runs.getProjection(r.id)?.error).toContain("Timed out");
     });
 
     it("keeps the watchdog's verdict when it fires part-way through a replay", async () => {
@@ -839,7 +839,7 @@ describe("Runner.consume", () => {
       // The watchdog's verdict, not the replay's silence -- and specifically
       // not the "could not be followed" backstop, which would mean the
       // synthetic terminal had been lost.
-      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+      expect(store.runs.getProjection(r.id)?.error).toContain("Timed out");
     });
 
     it("ends a run that has no turn to watch, rather than leaving it running", async () => {
@@ -866,7 +866,7 @@ describe("Runner.consume", () => {
       );
       await runner.consume(r.id, opening);
       // Still the watchdog's verdict, never "turn stream lost".
-      expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
+      expect(store.runs.getProjection(r.id)?.error).toContain("Timed out");
     });
   });
 });
@@ -1343,7 +1343,7 @@ describe("usage recovered on a timed-out turn (decision 165)", () => {
     });
     const p = store.runs.getProjection(r.id);
     expect(p?.status).toBe("error");
-    expect(p?.error).toContain("turn timeout");
+    expect(p?.error).toContain("Timed out");
     expect(p?.usage.cacheReadTokens).toBe(900_000);
     expect(p?.ledger.threads[0]).toMatchObject({ title: "main", inputTokens: 1_200_000 });
   });

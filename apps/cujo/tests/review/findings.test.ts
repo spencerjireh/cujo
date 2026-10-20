@@ -158,7 +158,7 @@ describe("hardRuleFindings", () => {
 
   it("trips on a decoy read or leak on any check, at the top level or inside a run", () => {
     const top = hardRuleFindings([check("probes", { secret_probe: { decoy_read: true } })]);
-    expect(top.map((f) => f.title)).toEqual(["the seeded decoy secret was read during probes"]);
+    expect(top.map((f) => f.title)).toEqual(["a test secret was read while testing edge cases"]);
     const nested = hardRuleFindings([
       check("smoke", {
         runs: [
@@ -168,7 +168,7 @@ describe("hardRuleFindings", () => {
       }),
     ]);
     expect(nested.map((f) => f.title)).toEqual([
-      "the seeded decoy secret left the sandbox during smoke",
+      "a test secret was sent out while booting the app",
     ]);
   });
 
@@ -304,7 +304,7 @@ describe("the sensor health block", () => {
       check: "probes",
       severity: "warn",
       rule: "sensor_unarmed",
-      title: "the proxy sensor was not watching during probes",
+      title: "the network monitor was off while testing edge cases",
     });
     expect(found[0]?.evidence).toContain("no longer running");
   });

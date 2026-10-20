@@ -100,6 +100,19 @@ function unarmedSensors(report: unknown): { name: string; detail: string }[] {
   return [...worst].map(([name, detail]) => ({ name, detail }));
 }
 
+/** What a finding title calls each sensor and check, in plain words. */
+const SENSOR_WORDS: Record<string, string> = {
+  proxy: "network monitor",
+  decoy: "secret trap",
+};
+const DURING: Record<string, string> = {
+  tests: "while running the tests",
+  probes: "while testing edge cases",
+  smoke: "while booting the app",
+  detonation: "while installing a new dependency",
+};
+const during = (check: string): string => DURING[check] ?? `during ${check}`;
+
 /**
  * Layer 1. One `critical` finding per rule per check that tripped it. Reads
  * the reports leniently: a missing field is "not observed", never a hit.
@@ -121,7 +134,7 @@ export function hardRuleFindings(checks: readonly CheckState[]): Finding[] {
         check: name,
         severity: "warn",
         rule: "sensor_unarmed",
-        title: `the ${sensor.name} sensor was not watching during ${name}`,
+        title: `the ${SENSOR_WORDS[sensor.name] ?? sensor.name} was off ${during(name)}`,
         evidence: `sensors.${sensor.name}: ${sensor.detail}; anything it would have seen is absent from this report, not absent from the run`,
       });
     }
@@ -149,7 +162,7 @@ export function hardRuleFindings(checks: readonly CheckState[]): Finding[] {
         check: name,
         severity: "critical",
         rule: "decoy_read",
-        title: `the seeded decoy secret was read during ${name}`,
+        title: `a test secret was read ${during(name)}`,
         evidence: "secret_probe.decoy_read = true",
       });
     }
@@ -159,7 +172,7 @@ export function hardRuleFindings(checks: readonly CheckState[]): Finding[] {
         check: name,
         severity: "critical",
         rule: "decoy_in_egress",
-        title: `the seeded decoy secret left the sandbox during ${name}`,
+        title: `a test secret was sent out ${during(name)}`,
         evidence: "secret_probe.decoy_in_egress = true",
       });
     }
@@ -170,7 +183,7 @@ export function hardRuleFindings(checks: readonly CheckState[]): Finding[] {
         check: name,
         severity: "critical",
         rule: "wrote_sensitive",
-        title: `a write landed in a sensitive path during ${name}`,
+        title: `a sensitive file was written ${during(name)}`,
         evidence: paths.length ? paths.join(", ") : "derived.wrote_sensitive = true",
       });
     }
@@ -181,7 +194,7 @@ export function hardRuleFindings(checks: readonly CheckState[]): Finding[] {
         check: name,
         severity: "critical",
         rule: "egress_to_unknown_host",
-        title: "an install contacted a host that is neither a package index nor allowlisted",
+        title: "a new dependency contacted an unknown host",
         evidence: hosts.length
           ? `egress: ${hosts.join(", ")}`
           : "derived.egress_to_unknown_host = true",
