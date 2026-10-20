@@ -34,11 +34,11 @@ export interface Verdict {
  * their severity are one source: the card's, keyed by its text.
  */
 const SHORT: Record<string, string> = {
-  "decoy secret left the sandbox": "decoy leaked",
-  "decoy secret was read": "decoy read",
-  "egress to an unknown host": "unknown egress",
-  "wrote to a sensitive path": "sensitive write",
-  "wrote outside the workspace": "wrote outside",
+  "test secret sent out": "secret sent out",
+  "test secret read": "secret read",
+  "contacted unknown host": "unknown host",
+  "wrote to a sensitive file": "sensitive write",
+  "wrote outside the project": "wrote outside",
 };
 
 const RANK: Record<Alarm["severity"], number> = { critical: 0, warn: 1, info: 2 };

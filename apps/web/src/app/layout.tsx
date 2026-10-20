@@ -29,7 +29,7 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "cujo",
-  description: "Execution-backed pull request review.",
+  description: "PR reviews that run the code.",
   // Belt to robots.ts's braces: a crawler that ignores robots.txt still reads
   // this, and the board is meant to be shared by link, not found by search.
   robots: { index: false, follow: false },
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   // inherits the picture.
   openGraph: {
     title: "cujo",
-    description: "Execution-backed pull request review.",
+    description: "PR reviews that run the code.",
     siteName: "cujo",
     type: "website",
   },
@@ -98,22 +98,19 @@ export function SiteFooter() {
             <span className="font-display text-base font-bold lowercase tracking-tight">cujo</span>
           </div>
           <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
-            An execution-backed pull request reviewer. It clones the head into a disposable sandbox,
-            runs it, and reviews what happened.
+            PR reviews that run the code.
           </p>
         </div>
         <div>
           <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">What this is</h2>
           <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
-            A read-only view of Cujo&rsquo;s reviews of public pull requests. It writes nothing and
-            decides nothing — a block is lifted on the pull request itself.
+            A read-only list of Cujo&rsquo;s reviews.
           </p>
         </div>
         <div>
           <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">Built on</h2>
           <p className="mt-3 max-w-[36ch] font-mono text-xs leading-relaxed text-fg-muted">
-            Its own harness, on the pi coding agent SDK. A container on its own host for the sandbox
-            each pull request is executed in, and thrown away with.
+            The pi coding agent SDK, and one sandbox per pull request.
           </p>
         </div>
         <div>
@@ -138,9 +135,7 @@ export function SiteFooter() {
           columns. All three are about the page rather than about Cujo, which is
           why none of them belongs in a column above. */}
       <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-6">
-        <p className="font-mono text-xs text-fg-muted">
-          A run appears here only while its repository is public.
-        </p>
+        <p className="font-mono text-xs text-fg-muted">Only public repositories show here.</p>
         {/* The manual and the install page, as buttons rather than a text link,
             because a reader who scrolled this far is deciding whether to try
             it and the footer was the one place that decision could be acted on.

@@ -350,13 +350,13 @@ export interface Alarm {
 export function alarms(block: SensorBlock, check: string): Alarm[] {
   const out: Alarm[] = [];
   const add = (text: string, severity: Severity) => out.push({ text, severity });
-  if (block.secret_probe?.decoy_in_egress) add("decoy secret left the sandbox", "critical");
-  if (block.secret_probe?.decoy_read) add("decoy secret was read", "critical");
+  if (block.secret_probe?.decoy_in_egress) add("test secret sent out", "critical");
+  if (block.secret_probe?.decoy_read) add("test secret read", "critical");
   if (block.derived?.egress_to_unknown_host) {
-    add("egress to an unknown host", check === "detonation" ? "critical" : "warn");
+    add("contacted unknown host", check === "detonation" ? "critical" : "warn");
   }
-  if (block.derived?.wrote_sensitive) add("wrote to a sensitive path", "critical");
-  if (block.derived?.wrote_outside_workspace) add("wrote outside the workspace", "warn");
+  if (block.derived?.wrote_sensitive) add("wrote to a sensitive file", "critical");
+  if (block.derived?.wrote_outside_workspace) add("wrote outside the project", "warn");
   // Stable, so within a severity the order above holds.
   return out.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
 }

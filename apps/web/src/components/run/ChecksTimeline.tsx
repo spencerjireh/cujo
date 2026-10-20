@@ -6,6 +6,7 @@ import {
   type CheckState,
   type Finding,
   type SetupTimings,
+  checkLabel,
 } from "@/lib/api/types";
 import { type SetupWindow, setupWindow } from "@/lib/board/setup";
 import { duration, elapsedMs } from "@/lib/format";
@@ -156,7 +157,8 @@ function Row({
       {note}
     </>
   );
-  const grid = "grid grid-cols-[7rem_1fr] items-center gap-3 sm:grid-cols-[7rem_1fr_12rem]";
+  const grid =
+    "grid grid-cols-[8rem_1fr] items-center gap-3 leading-tight sm:grid-cols-[8rem_1fr_12rem]";
 
   if (!onSelect) {
     return <li className={`${grid} py-1`}>{cells}</li>;
@@ -237,13 +239,12 @@ export function ChecksTimeline({
     ...lanes.map((lane) => (lane.offsetMs ?? 0) + (lane.lengthMs ?? 0)),
   );
   const hasTiming = lanes.some((lane) => lane.lengthMs !== null);
-  const hasSplit = lanes.some((lane) => lane.sandboxShare !== null);
 
   return (
     <section aria-label="Checks">
       {/* The heading is the fold's (`RunFold`, decision 175). */}
       <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-        Four sub-agents in one sandbox, on one time axis. Pick a lane to read what it saw.
+        Click a check to see its results.
       </p>
       <ul className="flex flex-col gap-1.5">
         {window === null || origin === null ? null : (
@@ -262,7 +263,7 @@ export function ChecksTimeline({
           return (
             <Row
               key={lane.name}
-              label={lane.name}
+              label={checkLabel(lane.name)}
               onSelect={lane.check && onSelect ? () => onSelect(lane.name) : undefined}
               note={
                 // No `truncate`. It used to end an ellipsis over the one part of
@@ -297,15 +298,7 @@ export function ChecksTimeline({
         })}
       </ul>
       {hasTiming || window !== null ? (
-        <p className="mt-2 font-mono text-xs text-fg-muted">
-          Lanes share one time axis, {span(total)} end to end.
-          {window === null
-            ? ""
-            : " Setup is the window before the first check existed; the solid head of it is the sandbox being provisioned."}
-          {hasSplit
-            ? " The solid part of a check is the sandbox executing the pull request; the rest is the model reading what came back."
-            : ""}
-        </p>
+        <p className="mt-2 font-mono text-xs text-fg-muted">{span(total)} in total.</p>
       ) : null}
       {/* The two strengths, named. The caption above says it in a sentence,
           and a reader who has not read the sentence still sees two shades of
@@ -315,7 +308,7 @@ export function ChecksTimeline({
       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-fg-muted">
         <li className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-4 rounded-sm bg-current" aria-hidden="true" />
-          sandbox executing the code
+          running code
         </li>
         <li className="flex items-center gap-1.5">
           <span
@@ -323,7 +316,7 @@ export function ChecksTimeline({
             style={{ opacity: 0.4 }}
             aria-hidden="true"
           />
-          agent deciding what to run
+          thinking
         </li>
       </ul>
     </section>

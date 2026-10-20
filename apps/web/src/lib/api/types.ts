@@ -20,6 +20,22 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const CHECK_NAMES = ["tests", "probes", "smoke", "detonation"] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
 
+/**
+ * What a check is called on the page. The keys stay the wire names; only the
+ * display text is plain.
+ */
+const CHECK_LABELS: Record<CheckName, string> = {
+  tests: "tests",
+  probes: "edge cases",
+  smoke: "boot",
+  detonation: "dependency install",
+};
+
+/** The display name for a check, or the name itself for one this does not know. */
+export function checkLabel(name: string): string {
+  return (CHECK_LABELS as Record<string, string>)[name] ?? name;
+}
+
 export const SEVERITIES = ["critical", "warn", "info"] as const;
 export type Severity = (typeof SEVERITIES)[number];
 

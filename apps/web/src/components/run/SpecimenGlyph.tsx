@@ -54,7 +54,7 @@ export function SpecimenGlyph({
       aria-hidden="true"
       focusable="false"
     >
-      <title>This run, drawn as a specimen</title>
+      <title>This run, drawn as a star</title>
       {specimen.bars.map((bar, i) => {
         if (bar.length <= 0) return null;
         const radius = RING_MIN_PX + bar.length * (RING_MAX_PX - RING_MIN_PX);

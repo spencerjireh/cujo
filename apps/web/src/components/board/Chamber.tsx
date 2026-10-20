@@ -1,6 +1,6 @@
 "use client";
 
-import type { RunSummary } from "@/lib/api/types";
+import { type RunSummary, checkLabel } from "@/lib/api/types";
 import { CAPACITY } from "@/lib/board/galaxy";
 import { type Specimen, specimensFrom } from "@/lib/board/specimen";
 import { focusStore, setFocusedRun, setSelectedRun, useFocusedRun } from "@/lib/board/store";
@@ -351,7 +351,7 @@ function Callout({ spec }: { spec: Specimen }) {
           : ` · ${duration(new Date(0).toISOString(), new Date(spec.durationMs).toISOString()) ?? ""}`}
       </p>
       {spec.unmeasured ? (
-        <p className="mt-1.5 text-[var(--chamber-fg-muted)]">no checks folded</p>
+        <p className="mt-1.5 text-[var(--chamber-fg-muted)]">no check data</p>
       ) : (
         <>
           {/* One line per ring, in the ring's own colour: the name is drawn
@@ -372,7 +372,7 @@ function Callout({ spec }: { spec: Specimen }) {
               return (
                 <li key={bar.name} className="flex items-baseline gap-2">
                   <span
-                    className="w-[5.5rem] shrink-0"
+                    className="w-[8.5rem] shrink-0"
                     style={{
                       color:
                         bar.outcome === "absent"
@@ -380,9 +380,9 @@ function Callout({ spec }: { spec: Specimen }) {
                           : `var(${TONE_CHAMBER_VAR[bar.tone]})`,
                     }}
                   >
-                    {bar.name}
+                    {checkLabel(bar.name)}
                   </span>
-                  <span>{bar.outcome === "absent" ? "no ring" : rest}</span>
+                  <span>{bar.outcome === "absent" ? "not run" : rest}</span>
                 </li>
               );
             })}

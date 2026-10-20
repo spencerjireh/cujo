@@ -111,7 +111,7 @@ describe("the record's scrollport", () => {
 
     // Forty rows and still no stop: the row count never decided this.
     expect(scrollport().getAttribute("tabindex")).toBeNull();
-    expect(screen.queryByRole("region", { name: "The record, scrollable" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Runs, scrollable" })).toBeNull();
   });
 
   it("is reachable and named once it clips vertically", () => {
@@ -120,7 +120,7 @@ describe("the record's scrollport", () => {
       render(<Record runs={many(6)} />);
 
       // Six rows, well under the ceiling: the 70vh cap is what clipped it.
-      const region = screen.getByRole("region", { name: "The record, scrollable" });
+      const region = screen.getByRole("region", { name: "Runs, scrollable" });
       expect(region.getAttribute("tabindex")).toBe("0");
     } finally {
       restore();
@@ -133,7 +133,7 @@ describe("the record's scrollport", () => {
       render(<Record runs={many(2)} />);
 
       // Two rows and no vertical clipping at all — seven columns on a phone.
-      const region = screen.getByRole("region", { name: "The record, scrollable" });
+      const region = screen.getByRole("region", { name: "Runs, scrollable" });
       expect(region.getAttribute("tabindex")).toBe("0");
     } finally {
       restore();
@@ -165,8 +165,8 @@ describe("the row", () => {
     expect(within(header).queryByText("Found")).toBeNull();
 
     // Four squares, each a reachable control naming its check.
-    expect(screen.getByRole("button", { name: /^tests: reported/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^detonation: reported/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^tests: done/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^dependency install: done/ })).toBeTruthy();
 
     // Closed: one row. Open: a second row carrying the four checks in full.
     expect(screen.getAllByRole("row")).toHaveLength(2);
@@ -193,8 +193,8 @@ describe("the row", () => {
     render(<Record runs={[older, newer]} />);
 
     expect(screen.getByText("latest")).toBeTruthy();
-    expect(screen.getByText("superseded")).toBeTruthy();
-    const dimmed = screen.getByText("superseded").closest("tr");
+    expect(screen.getByText("outdated")).toBeTruthy();
+    const dimmed = screen.getByText("outdated").closest("tr");
     expect(dimmed?.className).toContain("opacity-60");
     expect(screen.getByText("latest").closest("tr")?.className).not.toContain("opacity-60");
   });
@@ -203,7 +203,7 @@ describe("the row", () => {
     render(<Record runs={runs.slice(0, 2)} />);
 
     expect(screen.queryByText("latest")).toBeNull();
-    expect(screen.queryByText("superseded")).toBeNull();
+    expect(screen.queryByText("outdated")).toBeNull();
   });
 });
 
@@ -214,7 +214,7 @@ describe("the empty record", () => {
     const header = screen.getAllByRole("row")[0];
     if (!header) throw new Error("no header row rendered");
     expect(within(header).getByText("Pull request")).toBeTruthy();
-    expect(within(header).getByText("Verdict")).toBeTruthy();
+    expect(within(header).getByText("Result")).toBeTruthy();
   });
 
   it("offers the install, which is the only thing a board with no runs can do", () => {

@@ -91,15 +91,15 @@ describe("running is live", () => {
 });
 
 describe("checkSentence", () => {
-  it("says how a check ended, how long it took, and how much was the sandbox", () => {
+  it("says how a check ended and how long it took", () => {
     expect(checkSentence("tests", { status: "done", ms: 108_000, sandboxMs: 81_000 })).toBe(
-      "tests: reported, 1m 48s, 75% in the sandbox",
+      "tests: done, 1m 48s",
     );
   });
 
   it("leaves out what was not measured", () => {
     expect(checkSentence("tests", { status: "done", ms: 5_000, sandboxMs: null })).toBe(
-      "tests: reported, 5s",
+      "tests: done, 5s",
     );
     expect(checkSentence("tests", { status: "running", ms: null, sandboxMs: null })).toBe(
       "tests: running",

@@ -20,17 +20,14 @@
  * rendered beside the title, so repeating it would read twice.
  */
 const FIELD_TITLES = new Map<string, string>([
-  ["base_pass_head_fail", "a test passes on base and fails on head"],
-  ["tests.base_pass_head_fail", "a test passes on base and fails on head"],
-  ["secret_probe.decoy_read", "the seeded decoy secret was read"],
-  ["secret_probe.decoy_in_egress", "the seeded decoy secret left the sandbox"],
-  ["derived.wrote_sensitive", "a write landed in a sensitive path"],
-  ["derived.wrote_outside_workspace", "a write landed outside the workspace"],
-  ["derived.spawned_subprocess", "the run spawned a subprocess"],
-  [
-    "derived.egress_to_unknown_host",
-    "an install contacted a host that is neither a package index nor allowlisted",
-  ],
+  ["base_pass_head_fail", "a test passes before the change and fails after it"],
+  ["tests.base_pass_head_fail", "a test passes before the change and fails after it"],
+  ["secret_probe.decoy_read", "a test secret was read"],
+  ["secret_probe.decoy_in_egress", "a test secret was sent out"],
+  ["derived.wrote_sensitive", "wrote to a sensitive file"],
+  ["derived.wrote_outside_workspace", "wrote outside the project"],
+  ["derived.spawned_subprocess", "started a process"],
+  ["derived.egress_to_unknown_host", "an install contacted an unknown host"],
 ]);
 
 /**

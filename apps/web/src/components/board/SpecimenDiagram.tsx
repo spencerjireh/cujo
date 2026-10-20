@@ -56,7 +56,7 @@ export function SpecimenDiagram() {
 
   return (
     <svg viewBox="0 0 300 200" className="h-auto w-full" aria-hidden="true" focusable="false">
-      <title>A specimen with its parts named</title>
+      <title>A star with its parts named</title>
       {/* Projected from the same ring planes the scene orients by rather than
           laid out again here, so the diagram cannot drift from the object it
           is a key to. */}
@@ -114,7 +114,7 @@ export function SpecimenDiagram() {
           checks
         </text>
         <text x="206" y={cy + 44}>
-          verdict
+          result
         </text>
       </g>
     </svg>

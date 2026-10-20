@@ -18,13 +18,13 @@ import type { ReviewMode, RunStatus } from "@/lib/api/types";
  * places.
  */
 export const STATUS_LINE: Record<RunStatus, string> = {
-  running: "Review running: tests, probes, a smoke boot, and dependency detonation.",
-  clean: "No critical finding. The advisory review posted.",
-  blocked: "Blocking review posted as REQUEST_CHANGES; the cujo/guard check fails.",
-  dismissed: "The block was lifted by a maintainer. The observation stands.",
-  error: "The run ended in error.",
-  unproven: "The review posted with no evidence: not one check returned a report.",
-  superseded: "Replaced by a newer commit on this PR.",
+  running: "Running tests, edge cases, a boot check, and a dependency install.",
+  clean: "No critical findings. Review posted.",
+  blocked: "Review requested changes. The cujo/guard check fails.",
+  dismissed: "A maintainer lifted the block. The findings stay.",
+  error: "The run failed.",
+  unproven: "Review posted, but no check returned results.",
+  superseded: "A newer commit replaced this run.",
 };
 
 /**
@@ -35,7 +35,7 @@ export const STATUS_LINE: Record<RunStatus, string> = {
  */
 export function statusLine(status: RunStatus, mode: ReviewMode | undefined): string {
   if (status === "running" && mode === "diff") {
-    return "Diff review running: reading the diff against the repository's standards.";
+    return "Reviewing the diff against the repo's standards.";
   }
   return STATUS_LINE[status];
 }

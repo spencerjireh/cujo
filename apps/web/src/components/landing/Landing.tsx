@@ -33,9 +33,8 @@ export function Landing() {
         </p>
         <div className="mt-6 max-w-[68ch]">
           <Lead>
-            It clones the head into a disposable sandbox, runs the tests on base and on head, writes
-            its own probes against the change, boots the app and hits it, and reads what a new
-            dependency does when installed. The review it posts cites what happened.
+            It runs your tests, tries the change, boots the app, and installs new dependencies in a
+            sandbox. Then it posts what happened.
           </Lead>
         </div>
         <nav aria-label="Where to go" className="mt-8 flex flex-wrap items-center gap-3">
@@ -46,49 +45,32 @@ export function Landing() {
         </nav>
       </header>
 
-      <Section id="what-lands" title="What lands on a pull request">
+      <Section id="on-your-pr" title="On your PR">
         <UL>
           <LI>
-            One review from <span className="text-fg">cujo-guard[bot]</span>: what ran, what it
-            found, and inline comments on the lines they are about.
+            One review from <span className="text-fg">cujo-guard[bot]</span>, with comments on the
+            lines.
           </LI>
-          <LI>
-            A check run that holds the merge while a critical finding stands, until a person lifts
-            it with one comment.
-          </LI>
-          <LI>
-            Nothing else. It never posts APPROVE, and it never comments on style, architecture or
-            preference; every finding follows from something a sensor observed.
-          </LI>
+          <LI>A check that blocks the merge on a critical finding.</LI>
+          <LI>No approvals and no style comments.</LI>
         </UL>
       </Section>
 
-      <Section id="limits" title="What it will not do">
+      <Section id="limits" title="Limits">
         <UL>
-          <LI>
-            Hold a credential where the code runs. The sandbox gets a tree and no token; a private
-            repository&rsquo;s trees are fetched outside it and copied in.
-          </LI>
-          <LI>
-            Read what the code sends. Egress is recorded as a host, a port and a byte count, never
-            intercepted.
-          </LI>
-          <LI>
-            Pretend to have seen everything. A process that opens a socket past the proxy is a gap,
-            and the report says which sensors were watching so the gap is legible.
-          </LI>
+          <LI>The sandbox gets no tokens or keys.</LI>
+          <LI>It records which hosts the code contacts, not what it sends.</LI>
+          <LI>It can miss traffic that goes around its proxy.</LI>
         </UL>
       </Section>
 
-      <Section id="evidence" title="Where the evidence is">
+      <Section id="evidence" title="Every run has a page">
         <P>
-          Every run has a page: the commands, the reports, the findings and the review as posted. A
-          public repository&rsquo;s newest runs are on{" "}
+          Public runs are on{" "}
           <Link href="/galaxy" className="text-accent underline underline-offset-4">
             the board
           </Link>
-          , drawn as a galaxy where each star is one run. A private repository&rsquo;s runs are its
-          owner&rsquo;s, signed in.
+          . Private runs are visible to the owner after sign-in.
         </P>
       </Section>
     </article>

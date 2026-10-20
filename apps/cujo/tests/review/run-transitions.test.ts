@@ -621,7 +621,7 @@ describe("run.status.changed carries error_message", () => {
     const changed = logged("run.status.changed");
     const errorLine = changed.find((l) => l.to === "error");
     expect(errorLine).toBeDefined();
-    expect(errorLine?.error_message).toMatch(/without a review/i);
+    expect(errorLine?.error_message).toMatch(/without posting a review/i);
   });
 
   it("omits error_message when the run ends cleanly", async () => {

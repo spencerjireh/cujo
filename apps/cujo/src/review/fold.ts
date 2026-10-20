@@ -566,7 +566,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         const source = call ? messages.get(call.sourceEventId) : undefined;
         const name = source?.toolCalls?.find((c) => c.id === call?.id)?.function.name ?? "a tool";
         p.status = "error";
-        p.error = `approval requested for ${name}; nothing is gated on this spec`;
+        p.error = `${name} asked for approval, which Cujo does not support`;
         break;
       }
       case "tool.response": {
@@ -640,7 +640,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
         }
         if (event.state.status === "cancelled") {
           p.status = "error";
-          p.error = `turn cancelled: ${event.state.reason}`;
+          p.error = `cancelled: ${event.state.reason}`;
           break;
         }
         if (diff) {
@@ -655,18 +655,18 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           const other = p.review?.tool !== "post_advisory_review" ? p.review?.tool : undefined;
           if (other) {
             p.status = "error";
-            p.error = `diff review called ${other}; only post_advisory_review may post`;
+            p.error = `diff review used ${other}; it may only use post_advisory_review`;
           } else if (p.review && p.findings.some((f) => f.severity === "critical")) {
             const titles = p.findings.filter((f) => f.severity === "critical").map((f) => f.title);
             p.status = "error";
-            p.error = `critical finding (${titles.join("; ")}) but the agent posted an advisory review`;
+            p.error = `critical finding (${titles.join("; ")}) but the review did not block`;
           } else if (p.review) {
             // Not `unproven`: a diff run never had evidence to post and says
             // so on its record's `mode`, which is the field a list reads.
             p.status = "clean";
           } else {
             p.status = "error";
-            p.error = postFailure ?? "turn ended without a review";
+            p.error = postFailure ?? "ended without posting a review";
           }
           break;
         }
@@ -688,10 +688,10 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           p.status = "error";
           p.error =
             p.hardRuleHits.length > 0
-              ? `hard rule tripped (${titles(p.hardRuleHits)}) but the agent posted an advisory review`
+              ? `critical rule hit (${titles(p.hardRuleHits)}) but the review did not block`
               : `critical finding (${titles(
                   p.findings.filter((f) => f.severity === "critical"),
-                )}) but the agent posted an advisory review`;
+                )}) but the review did not block`;
         } else if (p.review && !p.checks.some((c) => c.isCheck && c.report !== null)) {
           // Posted a review with no evidence behind it. Above `clean` and below
           // every contradiction rung, so it can never mask one: a run that
@@ -707,7 +707,7 @@ export function fold(events: readonly Event[], options: FoldOptions = {}): Proje
           // that clean would hide a broken github-mcp registration. A turn
           // whose call GitHub refused posted nothing either, and says why.
           p.status = "error";
-          p.error = postFailure ?? "turn ended without a review";
+          p.error = postFailure ?? "ended without posting a review";
         }
         break;
       }

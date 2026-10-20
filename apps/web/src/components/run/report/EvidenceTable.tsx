@@ -163,9 +163,7 @@ export function EvidenceTable<T>({
               gets its sentence, because that one needs explaining. */}
           {state === "blind" ? (
             <p className="py-1.5 font-mono text-xs text-sev-high">
-              The sensor behind this table was not running
-              {detail ? ` — ${detail}` : ""}. What it would have seen is missing from the report,
-              not missing from the run.
+              Not monitored{detail ? ` (${detail})` : ""}.
             </p>
           ) : null}
         </>
@@ -195,7 +193,7 @@ function Heading({ title, count, state }: { title: string; count: number; state:
 function Cuts({ cut, note }: { cut?: boolean; note?: string }) {
   return (
     <>
-      {cut ? <Note>the list below was cut at its cap</Note> : null}
+      {cut ? <Note>list cut short</Note> : null}
       {note ? <Note>{note}</Note> : null}
     </>
   );

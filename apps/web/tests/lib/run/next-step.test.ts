@@ -22,12 +22,12 @@ describe("headline (decision 175)", () => {
 describe("nextStep", () => {
   it("tells a blocked author both ways out", () => {
     const step = nextStep("blocked") ?? "";
-    expect(step).toContain("push a new commit");
+    expect(step).toContain("Fix and push");
     expect(step).toContain("/cujo dismiss");
   });
 
   it("sends an errored run to a re-run, and blames Cujo rather than the pull request", () => {
-    expect(nextStep("error")).toContain("Cujo failed, not the pull request");
+    expect(nextStep("error")).toContain("Cujo failed.");
     expect(nextStep("error")).toContain("/cujo review");
   });
 });

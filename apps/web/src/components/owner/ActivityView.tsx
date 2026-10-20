@@ -91,21 +91,17 @@ export function ActivityView() {
   const shown = (repo ? all.filter((r) => r.repo === repo) : all).slice(0, RECENT);
 
   return (
-    <OwnerPage title="Activity" lead="What Cujo did on your pull requests, and what needs you.">
+    <OwnerPage title="Activity">
       <div className="flex flex-col gap-10">
         {steps ? <SetupChecklist steps={steps} /> : null}
 
         <OwnerSection id="needs-you" title="Needs you">
           {runs.error ? (
-            <p className="text-sm text-sev-critical">
-              The runs could not be loaded. Reload to try again.
-            </p>
+            <p className="text-sm text-sev-critical">Could not load runs. Reload to try again.</p>
           ) : runs.isPending ? (
             <p className="text-sm text-fg-muted">Loading…</p>
           ) : attention.length === 0 && !undelivered ? (
-            <p className="text-sm text-fg-muted">
-              Nothing needs you. No pull request is blocked, and no run failed.
-            </p>
+            <p className="text-sm text-fg-muted">Nothing needs you.</p>
           ) : (
             <ul className="flex flex-col border-b border-line">
               {undelivered ? (
@@ -114,9 +110,9 @@ export function ActivityView() {
                     A GitHub delivery did not reach Cujo
                   </p>
                   <p className="mt-0.5 text-fg-muted">
-                    The {undelivered.event} event <RelativeTime iso={undelivered.deliveredAt} /> got{" "}
-                    {undelivered.statusCode ? `a ${undelivered.statusCode}` : "no answer"}. A pull
-                    request it carried may not have been reviewed.{" "}
+                    {undelivered.event}, <RelativeTime iso={undelivered.deliveredAt} />:{" "}
+                    {undelivered.statusCode ? undelivered.statusCode : "no answer"}. A pull request
+                    may have no review.{" "}
                     <Link
                       href="/settings#deliveries"
                       className="text-accent underline-offset-4 hover:underline"
@@ -136,8 +132,7 @@ export function ActivityView() {
         <OwnerSection id="recent" title="Recent runs">
           {runs.isPending || runs.error ? null : all.length === 0 ? (
             <p className="text-sm text-fg-muted">
-              No runs yet. Open a pull request on a repository with reviews on, and its run appears
-              here.{" "}
+              No runs yet.{" "}
               <Link href="/repos" className="text-accent underline-offset-4 hover:underline">
                 Choose repositories
               </Link>

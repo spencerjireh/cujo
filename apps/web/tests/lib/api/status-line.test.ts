@@ -17,9 +17,7 @@ describe("status lines", () => {
   });
 
   it("swaps only the running sentence for a diff run, since it names four checks", () => {
-    expect(statusLine("running", "diff")).toBe(
-      "Diff review running: reading the diff against the repository's standards.",
-    );
+    expect(statusLine("running", "diff")).toBe("Reviewing the diff against the repo's standards.");
     expect(statusLine("running", "sandbox")).toBe(STATUS_LINE.running);
     expect(statusLine("running", undefined)).toBe(STATUS_LINE.running);
     for (const status of RUN_STATUSES.filter((s) => s !== "running")) {

@@ -143,7 +143,7 @@ export function SettingsView() {
               {health.data.ready ? "Running." : "Not ready."}
             </span>{" "}
             {health.data.ready
-              ? `Cujo can take a run. Up ${Math.round(health.data.uptimeMs / 60_000)} min.`
+              ? `Up ${Math.round(health.data.uptimeMs / 60_000)} min.`
               : describeHealth(health.data)}
           </>
         ) : undefined
@@ -168,7 +168,7 @@ export function SettingsView() {
           {steps ? <SetupChecklist steps={steps} /> : null}
           {settings.error ? (
             <p className="text-sm text-sev-critical">
-              The settings could not be loaded: {settings.error.message}
+              Could not load settings: {settings.error.message}
             </p>
           ) : settings.data ? (
             <Form view={settings.data} />

@@ -97,7 +97,7 @@ export function RunsView() {
     return (
       <div className="px-4 py-16 md:px-6">
         <p className="font-mono text-sm text-sev-critical">
-          The run list could not be loaded. Check that the Cujo API is reachable, then reload.
+          Could not load runs. Reload to try again.
         </p>
       </div>
     );
@@ -115,7 +115,7 @@ export function RunsView() {
           the reader leaves behind. Below `md` there is no chamber and the
           hero is a readout, which has no business being pinned. */}
       <section
-        aria-label="The chamber"
+        aria-label="Run map"
         className={`relative isolate overflow-hidden bg-[var(--chamber)] ${
           pinned ? "z-0 md:sticky md:top-0 md:h-[100svh]" : ""
         }`}

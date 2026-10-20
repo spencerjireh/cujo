@@ -90,7 +90,7 @@ function heldClaims(findings: readonly Finding[]): number {
 
 function evidenceLink(links: UiLinks, run: RunRecord): string {
   const url = runUrl(links, run);
-  return url ? `\n\n[What this run measured](${url})` : "";
+  return url ? `\n\n[Run details](${url})` : "";
 }
 
 function bullet(finding: Finding): string {
@@ -118,25 +118,25 @@ export function timeoutBody(
     // — which check hung, what the others reported — would describe a run
     // that never existed. What there is to say is short.
     const lines = [
-      `**Cujo did not finish this review.** The diff review reached its ${minutes} minute ceiling before a review was posted, so nothing was.`,
-      "Push again, or comment `/cujo review`, to read it from a clean session.",
+      `**Cujo did not finish this review.** The diff review hit its ${minutes} minute limit. Nothing was posted.`,
+      "Push again or comment `/cujo review` to retry.",
     ];
     return lines.join("\n\n") + evidenceLink(links, run);
   }
   const { reported, unfinished } = coverage(projection);
   const lines = [
-    `**Cujo did not finish this review.** The turn reached its ${minutes} minute ceiling`,
+    `**Cujo did not finish this review.** It hit its ${minutes} minute limit`,
     unfinished.length > 0
-      ? `with ${unfinished.map((n) => `\`${n}\``).join(", ")} still running, so no review was posted.`
-      : "before a review was posted.",
+      ? `while ${unfinished.map((n) => `\`${n}\``).join(", ")} ran. Nothing was posted.`
+      : "before it posted. Nothing was posted.",
   ];
   let body = lines.join(" ");
 
   if (reported.length > 0) {
-    body += `\n\nWhat had already been measured, from ${reported.length} of ${CHECK_NAMES.length} checks:\n\n`;
-    body += reported.map((name) => `- \`${name}\` reported`).join("\n");
+    body += `\n\nResults from ${reported.length} of ${CHECK_NAMES.length} checks:\n\n`;
+    body += reported.map((name) => `- \`${name}\` done`).join("\n");
   } else {
-    body += "\n\nNo check reported before the ceiling, so there is nothing to show.";
+    body += "\n\nNo check finished in time.";
   }
 
   const operational = projection.findings.filter(isOperationalRule);
@@ -144,10 +144,10 @@ export function timeoutBody(
     (f) => f.severity === "critical" && !isMaliceClaim(f),
   );
   if (correctness.length > 0) {
-    body += `\n\nFrom the reports that did land:\n\n${correctness.map(bullet).join("\n")}`;
+    body += `\n\nFindings so far:\n\n${correctness.map(bullet).join("\n")}`;
   }
   if (operational.length > 0) {
-    body += `\n\nGaps in the evidence itself, which say nothing about this code:\n\n${operational
+    body += `\n\nGaps in what Cujo could check (not problems in this code):\n\n${operational
       .map(bullet)
       .join("\n")}`;
   }
@@ -155,11 +155,10 @@ export function timeoutBody(
   const held = heldClaims(projection.findings);
   if (held > 0) {
     const subject = held === 1 ? "One finding is" : `${held} findings are`;
-    const why = "because an accusation reaches a pull request only once somebody has allowed it";
-    body += `\n\n${subject} held for a person to see first, and is not named here ${why}.`;
+    body += `\n\n${subject} withheld until a person reviews it.`;
   }
 
-  body += "\n\nPush again to run the review from a clean session.";
+  body += "\n\nPush again to retry.";
   return body + evidenceLink(links, run);
 }
 
@@ -178,7 +177,7 @@ export function evidenceGapBody(
   operational: readonly Finding[],
 ): string {
   const lede =
-    "**The review above ran on thinner evidence than it looks.** These say something about what Cujo could measure, never about this code, and they do not change the verdict:";
+    "**This review had less evidence than it looks.** These are gaps in what Cujo could check, not problems in this code. They do not change the result:";
   const body = `${lede}\n\n${operational.map(bullet).join("\n")}`;
   return body + evidenceLink(links, run);
 }

@@ -468,7 +468,7 @@ describe("fold", () => {
   it("is error, not clean, when the turn ends without any review call", () => {
     const p = fold([turnCreated("t1"), turnDone()]);
     expect(p.status).toBe("error");
-    expect(p.error).toBe("turn ended without a review");
+    expect(p.error).toBe("ended without posting a review");
   });
 
   it("records no review from a call GitHub refused, and ends error naming it (decision 140)", () => {
@@ -518,7 +518,7 @@ describe("fold", () => {
     ]);
     expect(p.review).toBeNull();
     expect(p.status).toBe("error");
-    expect(p.error).toBe("turn ended without a review");
+    expect(p.error).toBe("ended without posting a review");
   });
 
   it("is an error when a tool call is held, since nothing is gated (decision 138)", () => {
@@ -532,9 +532,7 @@ describe("fold", () => {
       turnDone(),
     ]);
     expect(p.status).toBe("error");
-    expect(p.error).toBe(
-      "approval requested for post_blocking_review; nothing is gated on this spec",
-    );
+    expect(p.error).toBe("post_blocking_review asked for approval, which Cujo does not support");
   });
 
   it("is error on a turn error", () => {
@@ -554,7 +552,7 @@ describe("fold", () => {
       turnDone(),
     ]);
     expect(p.status).toBe("error");
-    expect(p.error).toContain("approval requested");
+    expect(p.error).toContain("asked for approval");
   });
 
   it("maps check threads by title and parses the fenced report", () => {
@@ -660,8 +658,8 @@ describe("hard rules in the fold", () => {
       turnDone(),
     ]);
     expect(p.status).toBe("error");
-    expect(p.error).toContain("hard rule tripped");
-    expect(p.error).toContain("advisory review");
+    expect(p.error).toContain("critical rule hit");
+    expect(p.error).toContain("did not block");
     expect(p.findings[0]?.severity).toBe("critical");
   });
 
@@ -729,9 +727,7 @@ describe("hard rules in the fold", () => {
     ]);
     expect(p.status).toBe("error");
     expect(p.hardRuleHits).toEqual([]);
-    expect(p.error).toBe(
-      "critical finding (probe disagrees) but the agent posted an advisory review",
-    );
+    expect(p.error).toBe("critical finding (probe disagrees) but the review did not block");
   });
 
   it("carries the agent's findings on a clean run", () => {
@@ -1179,9 +1175,7 @@ describe("the diff review's ladder (decision 136)", () => {
       diff,
     );
     expect(p.status).toBe("error");
-    expect(p.error).toBe(
-      "critical finding (Breaks the build) but the agent posted an advisory review",
-    );
+    expect(p.error).toBe("critical finding (Breaks the build) but the review did not block");
   });
 
   it("is an error naming the tool when anything but the advisory tool posted", () => {
@@ -1196,14 +1190,14 @@ describe("the diff review's ladder (decision 136)", () => {
     );
     expect(blocking.status).toBe("error");
     expect(blocking.error).toBe(
-      "diff review called post_blocking_review; only post_advisory_review may post",
+      "diff review used post_blocking_review; it may only use post_advisory_review",
     );
   });
 
   it("is an error when the turn ended without a review, and keeps a turn error's message", () => {
     expect(fold([turnCreated("t1"), turnDone()], diff)).toMatchObject({
       status: "error",
-      error: "turn ended without a review",
+      error: "ended without posting a review",
     });
     expect(
       fold(
@@ -1471,12 +1465,12 @@ describe("parseReview agrees with what github-mcp posts", () => {
     const body = parseReview(reviewToolCall("post_blocking_review"))?.composedBody ?? "";
     expect(body).toContain("**Blocked** — 1 critical, 1 warn");
     expect(body).toContain("### Coverage");
-    expect(body).toContain("Egress: 1 known host.");
+    expect(body).toContain("Network: 1 known host.");
   });
 
   it("translates a field-name title exactly as the posted review does", () => {
     const body = parseReview(reviewToolCall("post_blocking_review"))?.composedBody ?? "";
-    expect(body).toContain("**the seeded decoy secret was read**");
+    expect(body).toContain("**a test secret was read**");
     // The raw expression survives, moved to where a field name belongs.
     expect(body).toContain("secret_probe.decoy_read: true; read at 12:04:31");
   });

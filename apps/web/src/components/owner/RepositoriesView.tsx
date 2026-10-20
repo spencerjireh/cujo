@@ -107,15 +107,12 @@ export function RepositoriesView() {
   const last = lastRunPerRepository(all);
 
   const body = list.error ? (
-    <p className="text-sm text-sev-critical">
-      The repositories could not be loaded. Reload to try again.
-    </p>
+    <p className="text-sm text-sev-critical">Could not load repositories. Reload to try again.</p>
   ) : !list.data ? (
     <p className="text-sm text-fg-muted">Loading…</p>
   ) : list.data.length === 0 ? (
     <p className="max-w-[60ch] text-sm text-fg-muted">
-      The App is not installed on any repository yet. Install it on one from GitHub, and it appears
-      here within a minute.
+      The App is not installed on any repository yet.
     </p>
   ) : (
     <div className="overflow-x-auto">
@@ -160,7 +157,7 @@ export function RepositoriesView() {
   return (
     <OwnerPage
       title="Repositories"
-      lead="The repositories the App is installed on. Turn reviews off and Cujo does nothing there: no review, no reply, no check. Open one for its runs and review settings."
+      lead="Turn reviews off and Cujo does nothing in that repository."
     >
       {body}
       {toggle.error ? (

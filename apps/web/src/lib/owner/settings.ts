@@ -14,15 +14,14 @@ export const MODE_LABELS: Record<ReviewMode, string> = {
 
 /** What each mode does, in one line, shown beside the choice. */
 export const MODE_DETAILS: Record<ReviewMode, string> = {
-  sandbox: "Runs the code in a sandbox: install, tests, probes, a boot, and new dependencies.",
+  sandbox: "Runs the code: install, tests, edge cases, boot, and new dependencies.",
   diff: "Reads the diff against your standards. Nothing runs.",
 };
 
 /** The mode in effect and where it comes from, as one short line for a header. */
 export function effectiveMode(view: RepositorySettingsView): string {
   const { value, source } = view.effective.mode;
-  const from =
-    source === "file" ? "set by .cujo.yml" : source === "board" ? "set here" : "the default";
+  const from = source === "file" ? "set by .cujo.yml" : source === "board" ? "set here" : "default";
   return `${MODE_LABELS[value]}, ${from}`;
 }
 
@@ -32,31 +31,25 @@ export function describeMode(view: RepositorySettingsView): string {
   const word = MODE_LABELS[effective.mode.value];
   if (effective.mode.source === "file") {
     const shadowed =
-      board.mode && board.mode !== file.mode
-        ? ` The choice here, ${MODE_LABELS[board.mode]}, is ignored while the file sets it.`
-        : "";
-    return `Set by .cujo.yml in the repository: ${word}.${shadowed}`;
+      board.mode && board.mode !== file.mode ? ` ${MODE_LABELS[board.mode]} here is ignored.` : "";
+    return `Set by .cujo.yml: ${word}.${shadowed}`;
   }
   if (effective.mode.source === "board") {
-    return `Set here: ${word}. The repository's .cujo.yml does not set a mode, so this applies.`;
+    return `Set here: ${word}.`;
   }
-  return `Not set for this repository, so it uses the default: ${word}.`;
+  return `Default: ${word}.`;
 }
 
 /** The sentence under the instructions. */
 export function describeInstructions(view: RepositorySettingsView): string {
   const { effective, file, board } = view;
   if (!effective.instructions) {
-    return "No instructions. Reviews read the repository's standards files only.";
+    return "No instructions.";
   }
-  const cut = effective.instructions.truncated
-    ? " Cut on a line at 16 KB; reviews read what is shown."
-    : "";
+  const cut = effective.instructions.truncated ? " Cut at 16 KB." : "";
   if (effective.instructions.source === "file") {
-    const shadowed = board.instructions?.trim()
-      ? " The text here is ignored while the file exists."
-      : "";
-    return `Set by ${file.path} in the repository, read at each pull request's base.${shadowed}${cut}`;
+    const shadowed = board.instructions?.trim() ? " The text here is ignored." : "";
+    return `Set by ${file.path}.${shadowed}${cut}`;
   }
-  return `Set here. Reviews read this beside the standards files. Adding ${file.path} to the repository replaces it.${cut}`;
+  return `Set here. ${file.path} in the repo overrides it.${cut}`;
 }
