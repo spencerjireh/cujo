@@ -38,12 +38,12 @@ export function setupSteps(input: {
   const permitted = bot ? bot.permissions.every((p) => p.ok) : false;
   const app: SetupStep = {
     id: "app",
-    title: "Install the GitHub App with the permissions it needs",
+    title: "Install the GitHub App",
     done: installed && permitted,
     detail: !bot
-      ? "GitHub did not answer, so the App's state is unknown. Reload to try again."
+      ? "GitHub did not answer. Reload to try again."
       : !installed
-        ? "The App is not installed on any account, or every installation is suspended."
+        ? "The App is not installed, or every installation is suspended."
         : describePermissions(bot.permissions),
     // Not installed: GitHub's install page. Short of a permission: the App's
     // public page, which links its settings for whoever owns it.
@@ -61,20 +61,20 @@ export function setupSteps(input: {
     id: "provider",
     title: "Add a model provider",
     done: providers > 0,
-    detail: "Add Anthropic or an OpenAI-compatible provider with its API key, then test it.",
+    detail: "Add Anthropic or an OpenAI-compatible provider and its API key.",
     href: "/settings#providers",
     action: "Add a provider",
   };
 
   const model: SetupStep = {
     id: "model",
-    title: "Pick the model reviews run on",
+    title: "Pick a model",
     done: Boolean(settings?.model) && Boolean(health?.configured) && Boolean(health?.ready),
     detail: !settings?.model
-      ? "No model is chosen, so pull requests get a neutral check and no review."
+      ? "No model is chosen. Pull requests get no review."
       : health && !health.ready
         ? describeHealth(health)
-        : "The chosen model's provider is not registered. Check the model name against the providers.",
+        : "No provider matches this model. Check the model name.",
     href: "/settings#models",
     action: "Pick a model",
   };
@@ -82,9 +82,9 @@ export function setupSteps(input: {
   const enabled = (repositories ?? []).some((r) => r.enabled && r.removedAt === null);
   const repository: SetupStep = {
     id: "repository",
-    title: "Turn on reviews for a repository",
+    title: "Turn on a repository",
     done: enabled,
-    detail: "Switch on at least one repository the App is installed on.",
+    detail: "Turn on at least one repository.",
     href: "/repos",
     action: "Choose repositories",
   };

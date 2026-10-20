@@ -87,8 +87,8 @@ describe("sections", () => {
       egress: [{ host: "pypi.org", known: true }],
     });
     expect(body.indexOf("### Critical")).toBeLessThan(body.indexOf("### Coverage"));
-    expect(body.indexOf("### Coverage")).toBeLessThan(body.indexOf("Egress:"));
-    expect(body.indexOf("Egress:")).toBeLessThan(body.indexOf("Machine-readable summary"));
+    expect(body.indexOf("### Coverage")).toBeLessThan(body.indexOf("Network:"));
+    expect(body.indexOf("Network:")).toBeLessThan(body.indexOf("Raw data"));
   });
 
   it("omits a section with nothing in it", () => {
@@ -96,7 +96,7 @@ describe("sections", () => {
     expect(body).not.toContain("### Critical");
     expect(body).not.toContain("### Warn");
     expect(body).not.toContain("### Coverage");
-    expect(body).not.toContain("Egress:");
+    expect(body).not.toContain("Network:");
   });
 
   it("folds the info findings, which are the ones nobody needs to read", () => {
@@ -261,7 +261,7 @@ describe("the egress line", () => {
         { host: "github.com", port: 443, known: true },
       ],
     });
-    expect(body).toContain("Egress: 2 known hosts.");
+    expect(body).toContain("Network: 2 known hosts.");
     expect(body).toContain("<summary>Hosts contacted (2)</summary>");
   });
 
@@ -272,7 +272,7 @@ describe("the egress line", () => {
         { host: "185.220.101.4", port: 443, known: false },
       ],
     });
-    expect(body).toContain("Egress: 1 unknown host — 185.220.101.4:443.");
+    expect(body).toContain("Network: 1 unknown host — 185.220.101.4:443.");
     expect(body).toContain("| `185.220.101.4` | 443 | **no** |");
   });
 
@@ -280,7 +280,7 @@ describe("the egress line", () => {
     const body = render({
       egress: [1, 2, 3, 4, 5].map((n) => ({ host: `10.0.0.${n}`, known: false })),
     });
-    expect(body).toContain("Egress: 5 unknown hosts — 10.0.0.1, 10.0.0.2, 10.0.0.3, and 2 more.");
+    expect(body).toContain("Network: 5 unknown hosts — 10.0.0.1, 10.0.0.2, 10.0.0.3, and 2 more.");
   });
 
   it("adds a note column only when a host has a note", () => {
@@ -348,7 +348,7 @@ describe("escaping", () => {
 
   it("keeps its JSON fence closed around a payload full of backticks", () => {
     const body = render({ findings: [finding({ evidence: "```json\nnot really\n```" })] });
-    const fence = body.slice(body.indexOf("<summary>Machine-readable summary"));
+    const fence = body.slice(body.indexOf("<summary>Raw data"));
     expect(fence).toContain("````json");
     expect(JSON.parse(fence.split("````json\n")[1]?.split("\n````")[0] ?? "")).toBeTruthy();
   });
@@ -528,7 +528,7 @@ describe("input a model got wrong", () => {
   it("omits a section built from a value that is not the shape it claims", () => {
     // Rendering one anyway would be a claim nobody made.
     expect(bad({ coverage: "tests ran" })).not.toContain("### Coverage");
-    expect(bad({ egress: {} })).not.toContain("Egress:");
+    expect(bad({ egress: {} })).not.toContain("Network:");
   });
 
   it("survives coverage entries and egress notes that are not the shape they claim", () => {
@@ -608,7 +608,7 @@ Ran:
 Not run:
 - detonation — no dependency manifest changed
 
-Egress: 1 known host.
+Network: 1 known host.
 
 <details>
 <summary>Hosts contacted (1)</summary>
@@ -620,7 +620,7 @@ Egress: 1 known host.
 </details>
 
 <details>
-<summary>Machine-readable summary</summary>
+<summary>Raw data</summary>
 
 \`\`\`json
 {"schema_version":2,"verdict":"advisory","tool":"post_advisory_review","counts":{"critical":0,"warn":0,"info":1},"coverage":{"ran":[{"check":"tests","note":"212 on base and head"},{"check":"smoke"}],"skipped":[{"check":"detonation","reason":"no dependency manifest changed"}]},"egress":[{"host":"pypi.org","port":443,"known":true}],"findings":[{"check":"tests","severity":"info","title":"212 tests pass on base and on head","evidence":"pytest -q: 212 passed on base, 212 passed on head","detail":null,"next":null,"anchored":false,"path":null,"line":null,"side":null,"title_translated":false}],"run_url":"${RUN}"}
@@ -656,7 +656,7 @@ A test that passed on base fails on head, on the rounding path this change rewri
 
 ### Critical
 
-**a test passes on base and fails on head** · \`tests\` · \`app/orders.py:42\`
+**a test passes before the change and fails after it** · \`tests\` · \`app/orders.py:42\`
 
 The change rounds the line total before the discount rather than after.
 
@@ -665,10 +665,10 @@ Next: round after the discount is applied
 > base_pass_head_fail; AssertionError: 10.05 != 10.04
 
 <details>
-<summary>Machine-readable summary</summary>
+<summary>Raw data</summary>
 
 \`\`\`json
-{"schema_version":2,"verdict":"blocked","tool":"post_blocking_review","counts":{"critical":1,"warn":0,"info":0},"coverage":null,"egress":null,"findings":[{"check":"tests","severity":"critical","title":"a test passes on base and fails on head","evidence":"base_pass_head_fail; AssertionError: 10.05 != 10.04","detail":"The change rounds the line total before the discount rather than after.","next":"round after the discount is applied","anchored":true,"path":"app/orders.py","line":42,"side":"RIGHT","title_translated":true}],"run_url":null}
+{"schema_version":2,"verdict":"blocked","tool":"post_blocking_review","counts":{"critical":1,"warn":0,"info":0},"coverage":null,"egress":null,"findings":[{"check":"tests","severity":"critical","title":"a test passes before the change and fails after it","evidence":"base_pass_head_fail; AssertionError: 10.05 != 10.04","detail":"The change rounds the line total before the discount rather than after.","next":"round after the discount is applied","anchored":true,"path":"app/orders.py","line":42,"side":"RIGHT","title_translated":true}],"run_url":null}
 \`\`\`
 
 </details>`,

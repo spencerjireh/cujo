@@ -160,7 +160,7 @@ const columns = helper.columns([
     cell: () => null,
   }),
   helper.accessor("status", {
-    header: "Verdict",
+    header: "Result",
     cell: (cell) => {
       const status = cell.getValue();
       return (
@@ -354,16 +354,11 @@ export function Record({ runs }: { runs: RunSummary[] }) {
             out how much there is, and "the record" alone said nothing. */}
           <div>
             <h2 className="font-mono text-xs uppercase tracking-[0.18em] text-fg">
-              The record{" "}
+              Runs{" "}
               <span className="text-fg-muted">
                 ({runs.length} {runs.length === 1 ? "run" : "runs"})
               </span>
             </h2>
-            {/* The title is the instrument's word and stays; this is the plain
-              one, for a reader who has not learned it yet. */}
-            <p className="mt-1.5 font-mono text-xs text-fg-muted">
-              Every pull request Cujo has reviewed, newest first. Click a row for the run.
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {FILTERS.map((option) => {
@@ -399,7 +394,7 @@ export function Record({ runs }: { runs: RunSummary[] }) {
           // Only a scrollport a keyboard can actually move gets the role and the
           // stop; while nothing is clipped this is a plain wrapper.
           {...(clipped
-            ? { tabIndex: 0, role: "region" as const, "aria-label": "The record, scrollable" }
+            ? { tabIndex: 0, role: "region" as const, "aria-label": "Runs, scrollable" }
             : {})}
         >
           {/* `table-fixed`, so the widths above decide the layout rather than
@@ -532,7 +527,7 @@ export function Record({ runs }: { runs: RunSummary[] }) {
                                     : "border-line text-fg-muted"
                                 }`}
                               >
-                                {isLatest ? "latest" : "superseded"}
+                                {isLatest ? "latest" : "outdated"}
                               </span>
                             </span>
                           ) : (
@@ -624,8 +619,7 @@ function EmptyRecord({ filter, onClear }: { filter: Filter; onClear: () => void 
         {filter === "all" ? (
           <>
             <p className="max-w-[56ch] font-mono text-sm leading-relaxed text-fg-muted">
-              Install Cujo on a repository and open a pull request. The head is cloned into a
-              disposable sandbox, executed, and the run lands here.
+              Install Cujo and open a pull request.
             </p>
             {/* The one action on an empty board, so it takes the accent the
                 filter chips use for their active state. Amber and not filled

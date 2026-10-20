@@ -61,13 +61,11 @@ function CutOutput({ block }: { block: SensorBlock }) {
     <>
       {cut.length > 0 ? (
         <p className="mt-2 font-mono text-xs text-sev-high">
-          {cut.join(" and ")} was cut at the tail limit; the raw report below holds what survived
+          {cut.join(" and ")} cut short; see the raw report
         </p>
       ) : null}
       {block.truncated?.sensor_logs ? (
-        <p className="mt-2 font-mono text-xs text-sev-high">
-          some sensor log lines could not be decoded
-        </p>
+        <p className="mt-2 font-mono text-xs text-sev-high">some log lines could not be read</p>
       ) : null}
     </>
   );
@@ -275,7 +273,7 @@ export function SensorReport({
       <ScriptContent block={block} />
 
       <EvidenceTable
-        title="Egress"
+        title="Network"
         items={block.egress}
         cols={EGRESS}
         heads={[
@@ -337,7 +335,7 @@ export function SensorReport({
       </EvidenceTable>
 
       <EvidenceTable
-        title="Filesystem changes"
+        title="Files changed"
         items={changes.items}
         count={block.fs_changes.length}
         base={changes.base}
@@ -351,7 +349,7 @@ export function SensorReport({
         detail={sensorDetail(block, "fs_diff")}
         cut={block.truncated?.snapshot}
         note={
-          block.truncated?.hashes ? "some files compared by timestamp and size only" : undefined
+          block.truncated?.hashes ? "some large files checked by size and time only" : undefined
         }
         footer={
           <ArtifactsRow
@@ -367,7 +365,7 @@ export function SensorReport({
             <span className={`${PATH} ${pathTone(entry.path, entry.sensitive)}`}>
               {rel}
               {entry.in_workspace === false ? (
-                <span className="text-sev-high sm:hidden"> · outside workspace</span>
+                <span className="text-sev-high sm:hidden"> · outside project</span>
               ) : null}
             </span>
             <span className="text-right text-fg-muted">{entry.type ?? <Blank />}</span>
@@ -377,9 +375,9 @@ export function SensorReport({
               }`}
             >
               {entry.in_workspace === false ? (
-                "outside workspace"
+                "outside project"
               ) : entry.in_workspace === true ? (
-                "in workspace"
+                "in project"
               ) : (
                 <Blank />
               )}
@@ -389,7 +387,7 @@ export function SensorReport({
       </EvidenceTable>
 
       <EvidenceTable
-        title="Subprocesses"
+        title="Processes"
         items={block.subprocesses}
         cols={PROCS}
         heads={[{ label: "command" }, { label: "exit" }]}

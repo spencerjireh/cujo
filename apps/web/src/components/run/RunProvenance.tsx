@@ -79,7 +79,7 @@ export function RunProvenance({ run }: { run: Run }) {
     run.rubric_sha256 ? `rubric ${shortSha(run.rubric_sha256)}` : null,
     run.session_id ? `session ${run.session_id}` : null,
     run.turn_ids && run.turn_ids.length > 0
-      ? `${run.turn_ids.length} ${run.turn_ids.length === 1 ? "turn" : "turns"}`
+      ? `${run.turn_ids.length} ${run.turn_ids.length === 1 ? "pass" : "passes"}`
       : null,
   ]
     .filter(Boolean)
@@ -87,10 +87,6 @@ export function RunProvenance({ run }: { run: Run }) {
 
   return (
     <RunFold title="Run details" summary={summary} open={open} onOpenChange={setOpen}>
-      <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-        What produced this verdict. None of it authorizes anything: the harness these name answers
-        only on its own network, and a block is lifted on the pull request.
-      </p>
       <div className="pb-4">
         {/* Inside the fold with the handles, and above them: the cost is
               the operator's number a reader is likeliest to want, and the
@@ -106,19 +102,19 @@ export function RunProvenance({ run }: { run: Run }) {
           {run.rubric_sha256 ? <Entry label="rubric">{run.rubric_sha256}</Entry> : null}
           {run.session_id ? <Entry label="session">{run.session_id}</Entry> : null}
           {run.turn_ids && run.turn_ids.length > 0 ? (
-            <Entry label={run.turn_ids.length === 1 ? "turn" : "turns"}>
+            <Entry label={run.turn_ids.length === 1 ? "pass" : "passes"}>
               {run.turn_ids.join(", ")}
             </Entry>
           ) : null}
           {run.delivery_id ? <Entry label="delivery">{run.delivery_id}</Entry> : null}
           {setup ? (
             <>
-              <Stamp label="turn created" iso={setup.turnCreatedAt} />
+              <Stamp label="run created" iso={setup.turnCreatedAt} />
               {/* Absent on a re-run, and that absence is the fact: the event
                     is session-scoped, so a second run on the same pull request
                     never sees one because the sandbox was already there. */}
               <Stamp label="sandbox created" iso={setup.sandboxCreatedAt} />
-              <Stamp label="agent started" iso={setup.agentStartedAt} />
+              <Stamp label="model started" iso={setup.agentStartedAt} />
               <Stamp label="first check" iso={setup.firstCheckAt} />
             </>
           ) : null}

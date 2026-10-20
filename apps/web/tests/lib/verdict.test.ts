@@ -45,13 +45,13 @@ describe("reportAlarm", () => {
         },
         "detonation",
       ),
-    ).toBe("decoy read");
+    ).toBe("secret read");
     expect(reportAlarm({ derived: { egress_to_unknown_host: true } }, "detonation")).toBe(
-      "unknown egress",
+      "unknown host",
     );
     expect(
       reportAlarm({ secret_probe: { decoy_read: true, decoy_in_egress: true } }, "detonation"),
-    ).toBe("decoy leaked");
+    ).toBe("secret sent out");
   });
 
   it("names the worst alarm across the blocks, not the first block that tripped", () => {
@@ -70,7 +70,7 @@ describe("reportAlarm", () => {
 
   it("ranks unknown egress by the check it tripped on", () => {
     const report = { derived: { egress_to_unknown_host: true, wrote_sensitive: true } };
-    expect(reportAlarm(report, "detonation")).toBe("unknown egress");
+    expect(reportAlarm(report, "detonation")).toBe("unknown host");
     expect(reportAlarm(report, "tests")).toBe("sensitive write");
   });
 
@@ -83,7 +83,7 @@ describe("reportAlarm", () => {
         },
         "detonation",
       ),
-    ).toBe("decoy read");
+    ).toBe("secret read");
   });
 });
 
@@ -96,10 +96,10 @@ describe("checkVerdict", () => {
   });
 
   it("says running and error before it looks at anything else", () => {
-    expect(checkVerdict(check({ status: "running" }), [finding()], "decoy read").text).toBe(
+    expect(checkVerdict(check({ status: "running" }), [finding()], "secret read").text).toBe(
       "running",
     );
-    expect(checkVerdict(check({ status: "error" }), [finding()], "decoy read")).toEqual({
+    expect(checkVerdict(check({ status: "error" }), [finding()], "secret read")).toEqual({
       text: "error",
       tone: "text-sev-critical",
     });
@@ -127,17 +127,17 @@ describe("checkVerdict", () => {
   });
 
   it("names the sandbox alarm ahead of the count", () => {
-    expect(checkVerdict(check({ title: "detonation" }), [], "decoy read")).toEqual({
-      text: "decoy read",
+    expect(checkVerdict(check({ title: "detonation" }), [], "secret read")).toEqual({
+      text: "secret read",
       tone: "text-sev-high",
     });
     expect(
       checkVerdict(
         check({ title: "detonation" }),
         [finding({ check: "detonation" })],
-        "decoy read",
+        "secret read",
       ),
-    ).toEqual({ text: "decoy read", tone: "text-sev-critical" });
+    ).toEqual({ text: "secret read", tone: "text-sev-critical" });
   });
 
   it("is ok when a check ran clean", () => {

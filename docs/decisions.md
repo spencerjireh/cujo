@@ -187,6 +187,7 @@ a later one reversed, superseded, refined or amended.
 174. [Models are configured on the board; the environment only seeds a dev stack](#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)
 175. [A header, an owner's home, and the run page leads with what to do](#175-a-header-an-owners-home-and-the-run-page-leads-with-what-to-do)
 176. [The images share one package store and take turns installing](#176-the-images-share-one-package-store-and-take-turns-installing)
+177. [The manual is six pages](#177-the-manual-is-six-pages)
 178. [Decisions are short; history is in git and the archive](#178-decisions-are-short-history-is-in-git-and-the-archive)
 
 ## 1. Build on stock TrueForge — no fork
@@ -2086,6 +2087,16 @@ a later one reversed, superseded, refined or amended.
 **Why:** Coolify builds the seven images at once on the deploy box, and seven installs from empty stores dropped registry connections and exhausted the box. Installs in series are slower on an empty cache but finish. The cache lives on the box, so a `docker builder prune` costs one slow deploy.
 
 **Rejected:** Images built in CI and pulled by Coolify, because it needs a registry, credentials on the box and a change to image names in the compose file (rejected for now). A `pnpm fetch` layer keyed on the lockfile, because the cache mount makes it mostly redundant.
+
+## 177. The manual is six pages
+
+**Status:** live
+
+**Decision:** The manual at `/docs` is six pages: what Cujo is, install, configure, reading a review, blocking, and self-hosting. It keeps only what a developer acts on when they decide to install the App, install it, and read its reviews.
+
+**Why:** Twelve pages and about 6,400 words explained sensors, trust zones, the harness and decision numbers to a reader who needs none of them to use Cujo. Two pages also contradicted the product: one said the board has no login while owners sign in, and one named an amber state that waits on a person when no state does. The design of record stays in `docs/`.
+
+**See:** decisions 98, 175.
 
 ## 178. Decisions are short; history is in git and the archive
 

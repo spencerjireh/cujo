@@ -6,7 +6,7 @@ export default function NotFound() {
     <div>
       <h1 className="mb-2 text-2xl">No such page</h1>
       <p className="mb-6 max-w-[60ch] font-mono text-sm text-fg-muted">
-        The manual has no page at this address. Everything it does have is listed beside this.
+        This page does not exist. The list beside this shows every page.
       </p>
       <Link href="/docs" className="font-mono text-sm text-accent underline underline-offset-4">
         Start of the docs

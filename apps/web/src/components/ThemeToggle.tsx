@@ -7,7 +7,7 @@ import { useEffect, useId, useState } from "react";
 
 const CELLS: Record<ThemeChoice, { label: string; Icon: typeof LightIcon }> = {
   light: { label: "Light", Icon: LightIcon },
-  system: { label: "Match system", Icon: SystemIcon },
+  system: { label: "System", Icon: SystemIcon },
   dark: { label: "Dark", Icon: DarkIcon },
 };
 

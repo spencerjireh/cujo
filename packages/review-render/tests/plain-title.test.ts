@@ -30,9 +30,11 @@ const HARD_RULE_TITLES = [
 
 describe("plainTitle", () => {
   it("rewrites a title that is nothing but a field name", () => {
-    expect(plainTitle("secret_probe.decoy_read").title).toBe("the seeded decoy secret was read");
-    expect(plainTitle("derived.wrote_sensitive").title).toBe("a write landed in a sensitive path");
-    expect(plainTitle("base_pass_head_fail").title).toBe("a test passes on base and fails on head");
+    expect(plainTitle("secret_probe.decoy_read").title).toBe("a test secret was read");
+    expect(plainTitle("derived.wrote_sensitive").title).toBe("wrote to a sensitive file");
+    expect(plainTitle("base_pass_head_fail").title).toBe(
+      "a test passes before the change and fails after it",
+    );
   });
 
   it("rewrites the shapes a model actually writes: backticks, colons, booleans", () => {
@@ -44,7 +46,7 @@ describe("plainTitle", () => {
       "secret_probe.decoy_read is true",
       "  secret_probe.decoy_read: true.  ",
     ]) {
-      expect(plainTitle(written).title).toBe("the seeded decoy secret was read");
+      expect(plainTitle(written).title).toBe("a test secret was read");
       expect(plainTitle(written).translated).toBe(true);
     }
   });

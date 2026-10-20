@@ -590,11 +590,7 @@ describe("Runner, on a turn that timed out", () => {
       1,
       expect.stringContaining("did not finish this review"),
     );
-    expect(createComment).toHaveBeenCalledWith(
-      "o/r",
-      1,
-      expect.stringContaining("`tests` reported"),
-    );
+    expect(createComment).toHaveBeenCalledWith("o/r", 1, expect.stringContaining("`tests` done"));
     // The run is still an error. The comment does not soften that.
     expect(store.runs.getRun(r.id)?.status).toBe("error");
     expect(store.runs.getProjection(r.id)?.error).toContain("turn timeout");
@@ -640,7 +636,7 @@ describe("Runner, on a turn that timed out", () => {
     await runner.start(diffRun, "read it");
     await vi.waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
     const body = String((createComment.mock.calls[0] as unknown[])?.[2]);
-    expect(body).toContain("The diff review reached its 0 minute ceiling");
+    expect(body).toContain("The diff review hit its 0 minute limit");
     expect(body).toContain("/cujo review");
     expect(body).not.toContain("checks");
     expect(store.runs.getRun(r.id)?.status).toBe("error");

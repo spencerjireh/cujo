@@ -1,7 +1,7 @@
 "use client";
 
 import { Chevron } from "@/components/icons/Chevron";
-import { CHECK_NAMES, type CheckName, type RunSummary } from "@/lib/api/types";
+import { CHECK_NAMES, type CheckName, type RunSummary, checkLabel } from "@/lib/api/types";
 import {
   type CheckOutcome,
   OUTCOME_TONE,
@@ -50,7 +50,7 @@ const SEGMENT: Record<CheckOutcome, string> = {
 
 /** A check and the sentence its square speaks. */
 function checkLine(run: RunSummary, name: CheckName): string {
-  return checkSentence(name, checksOf(run)[name]);
+  return checkSentence(checkLabel(name), checksOf(run)[name]);
 }
 
 /** The per-severity counts, worst first, zeros left out. */
@@ -80,7 +80,7 @@ export function ResultsCell({
 }) {
   // No digest at all is not four checks that did nothing and nothing found, so
   // it says so rather than drawing four empty squares and a dash.
-  if (!run.digest) return <span className="font-mono text-xs text-fg-muted">not folded</span>;
+  if (!run.digest) return <span className="font-mono text-xs text-fg-muted">no data</span>;
   const counts = run.digest.findings;
   const total = findingTotal(counts);
   const spoken = severityLine(run);
@@ -93,7 +93,7 @@ export function ResultsCell({
       {run.mode === "diff" ? (
         <span
           className="rounded-[1px] border border-line px-1 font-mono text-[10px] leading-4 text-fg-muted"
-          title="A diff review: the diff was read, no check ran."
+          title="Diff review. No checks ran."
         >
           diff
         </span>
@@ -129,7 +129,7 @@ export function ResultsCell({
       )}
 
       {total === 0 ? (
-        <span className="font-mono text-xs text-fg-muted">none found</span>
+        <span className="font-mono text-xs text-fg-muted">no findings</span>
       ) : (
         <span className="flex items-center gap-2" title={spoken}>
           <span className="sr-only">{spoken}</span>
@@ -181,13 +181,14 @@ export function ResultsCell({
 export function ResultsDetail({ run }: { run: RunSummary }) {
   const checks = checksOf(run);
   return (
-    <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-1 font-mono text-xs">
+    <dl className="grid grid-cols-[9rem_1fr] gap-x-4 gap-y-1 font-mono text-xs">
       {CHECK_NAMES.map((name) => {
         const check = checks[name];
         const outcome = checkOutcome(check);
         // The name in the tone its ring is drawn in, so the row and the star
         // read alike; the rest of the line is the sentence the tooltip speaks.
-        const sentence = checkSentence(name, check);
+        const label = checkLabel(name);
+        const sentence = checkSentence(label, check);
         return (
           <div key={name} className="contents">
             <dt className={`flex items-center gap-2 ${TONE_TEXT[OUTCOME_TONE[outcome]]}`}>
@@ -195,9 +196,9 @@ export function ResultsDetail({ run }: { run: RunSummary }) {
                 aria-hidden="true"
                 className={`inline-block h-3 w-2 rounded-[1px] ${SEGMENT[outcome]}`}
               />
-              {name}
+              {label}
             </dt>
-            <dd className="text-fg-muted">{sentence.slice(name.length + 2)}</dd>
+            <dd className="text-fg-muted">{sentence.slice(label.length + 2)}</dd>
           </div>
         );
       })}

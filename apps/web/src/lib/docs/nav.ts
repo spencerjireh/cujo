@@ -7,10 +7,8 @@
  * `components/docs/registry.ts`; a line here with no component is a test
  * failure rather than a 404 nobody notices.
  *
- * The groups are tasks and not topics. A reader arrives either wanting to point
- * Cujo at a repository, wanting to understand what a verdict means, wanting to
- * use it day to day, or wanting to run their own — and those four questions are
- * asked in that order.
+ * Three groups, in the order a reader needs them: start using Cujo, use it
+ * day to day, or run your own.
  */
 
 /**
@@ -44,8 +42,7 @@ export const DOC_OVERVIEW: DocPage = {
   slug: null,
   href: "/docs",
   title: "What Cujo is",
-  summary:
-    "A reviewer that runs the pull request before it says anything about it, and what that does and does not buy you.",
+  summary: "A pull request reviewer that runs the code before it writes the review.",
 };
 
 export const DOC_GROUPS: readonly DocGroup[] = [
@@ -57,54 +54,13 @@ export const DOC_GROUPS: readonly DocGroup[] = [
         slug: "install",
         href: "/docs/install",
         title: "Install it",
-        summary:
-          "Put the GitHub App on a repository, open a pull request, and read what comes back.",
+        summary: "Install the GitHub App, require its check, and open a pull request.",
       },
       {
         slug: "configure",
         href: "/docs/configure",
         title: "Configure a repo",
-        summary:
-          "What .cujo.yml accepts, which branch each key is read from, and why that is not the same branch.",
-      },
-    ],
-  },
-  {
-    label: "Concepts",
-    pages: [
-      {
-        slug: "how-it-works",
-        href: "/docs/how-it-works",
-        title: "How a review runs",
-        summary: "Webhook to sandbox to review, in the order it happens.",
-      },
-      {
-        slug: "checks",
-        href: "/docs/checks",
-        title: "The four checks",
-        summary:
-          "Tests, probes, a smoke boot and dependency detonation, and the four sensors watching all of them.",
-      },
-      {
-        slug: "findings",
-        href: "/docs/findings",
-        title: "Findings and severity",
-        summary:
-          "What critical means, which rules the agent cannot argue with, and why a false reads as not observed.",
-      },
-      {
-        slug: "blocking",
-        href: "/docs/blocking",
-        title: "Blocking and the unlock",
-        summary:
-          "A critical finding blocks the merge at once, through a check run nobody can dismiss. Who may lift it, and how.",
-      },
-      {
-        slug: "sandbox",
-        href: "/docs/sandbox",
-        title: "The sandbox boundary",
-        summary:
-          "Running a pull request means running a stranger's code. Where that happens, and what is allowed across the line.",
+        summary: "The optional .cujo.yml file, and how to send reviews to Discord.",
       },
     ],
   },
@@ -112,25 +68,16 @@ export const DOC_GROUPS: readonly DocGroup[] = [
     label: "Using it",
     pages: [
       {
-        slug: "discord",
-        href: "/docs/discord",
-        title: "Discord notifications",
-        summary:
-          "Optional, bound by two halves that different people prove, and it decides nothing.",
+        slug: "reviews",
+        href: "/docs/reviews",
+        title: "Reading a review",
+        summary: "What Cujo runs, what each severity means, and how to ask it questions.",
       },
       {
-        slug: "conversation",
-        href: "/docs/conversation",
-        title: "Asking questions",
-        summary:
-          "@cujo-guard answers by running the pull request again, not by rewording the review.",
-      },
-      {
-        slug: "board",
-        href: "/docs/board",
-        title: "Reading the board",
-        summary:
-          "What the board at /galaxy shows, what it deliberately does not, and who can see it.",
+        slug: "blocking",
+        href: "/docs/blocking",
+        title: "Blocking and unblocking",
+        summary: "When a review blocks the merge, and how a maintainer lifts the block.",
       },
     ],
   },
@@ -141,8 +88,7 @@ export const DOC_GROUPS: readonly DocGroup[] = [
         slug: "self-host",
         href: "/docs/self-host",
         title: "Self-hosting",
-        summary:
-          "The services, the environment, your own GitHub App, and the two settings that fail confusingly.",
+        summary: "Deploy your own instance with your own GitHub App and model provider.",
       },
     ],
   },

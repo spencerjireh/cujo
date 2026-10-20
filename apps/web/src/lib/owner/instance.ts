@@ -9,11 +9,11 @@ import type { BotState, Health, InstanceSettings } from "@/lib/api/owner-client"
 /** One line for the permissions strip: all held, or which are short. */
 export function describePermissions(permissions: BotState["permissions"]): string {
   const short = permissions.filter((p) => !p.ok);
-  if (short.length === 0) return "The App holds every permission the reviews need.";
+  if (short.length === 0) return "The App has every permission it needs.";
   const names = short.map(
     (p) => `${p.name} (${p.needed}${p.held ? `, holds ${p.held}` : ", holds none"})`,
   );
-  return `Short of what the reviews need: ${names.join("; ")}. Grant it on the App's settings page, then accept it on the installation.`;
+  return `Missing permissions: ${names.join("; ")}. Grant them in the App settings, then accept on the installation.`;
 }
 
 /** A delivery's tone: answered, refused, or never reached. */
@@ -26,10 +26,9 @@ export function deliveryTone(delivery: BotState["deliveries"][number]): "ok" | "
 
 /** One sentence on the process: ready, or what it is waiting on. */
 export function describeHealth(health: Health): string {
-  if (health.ready) return "Ready: the harness has its settings and the store answers.";
-  if (health.store !== "ok")
-    return "Not ready: the store does not answer, so no run can be claimed.";
-  return "Not ready: the harness is still registering its settings, so deliveries are deferred with 503.";
+  if (health.ready) return "Ready.";
+  if (health.store !== "ok") return "Database unreachable.";
+  return "Starting up.";
 }
 
 /** The keys an owner changed from what the environment seeded, in display order. */

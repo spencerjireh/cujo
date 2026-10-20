@@ -38,36 +38,33 @@ import { SpecimenDiagram } from "./SpecimenDiagram";
  */
 export const PARTS = [
   {
-    label: "verdict",
-    text: "The core. Bigger the worse the finding.",
+    label: "result",
+    text: "The core. Bigger means worse.",
   },
   {
     label: "checks",
     // The bright arc is the part of the check that was the sandbox executing
     // the pull request; the rest was the agent deciding what to do next.
-    text: "One ring each, as wide as the check took; bright where the sandbox ran, faint where the agent decided. No ring, no check.",
+    text: "One ring per check. Length is time. Bright: code running. Faint: model thinking.",
   },
   {
     label: "findings",
     // The cap is part of the contract: a key that promises one satellite per
     // finding is wrong on every run that found more than six.
-    text: "One satellite each, worst first, six at most.",
+    text: "One dot per finding, worst first, six at most.",
   },
   {
-    label: "layers",
+    label: "depth",
     // Depth is a measurement and the other two axes are not (decisions 81, 82).
-    text: "Depth is time, newest in front. Where a star sits within its layer means nothing.",
+    text: "Newest in front.",
   },
 ];
 
 export function Legend() {
   return (
-    <section
-      aria-label="How to read the chamber"
-      className="border-line border-t px-4 py-10 md:px-6"
-    >
+    <section aria-label="How to read the board" className="border-line border-t px-4 py-10 md:px-6">
       <h2 className="mb-6 font-mono text-xs uppercase tracking-[0.18em] text-fg">
-        Reading a specimen
+        How to read a star
       </h2>
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,22rem)_1fr_1fr]">
         <div>
@@ -86,7 +83,7 @@ export function Legend() {
 
         <div>
           <h3 className="mb-4 font-mono text-xs uppercase tracking-[0.18em] text-fg-muted">
-            Verdicts
+            Results
           </h3>
           <ul className="flex flex-col gap-2 font-mono text-xs">
             {RUN_STATUSES.map((status) => {
@@ -111,8 +108,7 @@ export function Legend() {
             })}
           </ul>
           <p className="mt-4 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            Red means the pull request is dangerous, never that Cujo fell over. Amber lands on the
-            one verdict waiting on a person.
+            Red means a risky pull request, not a Cujo failure.
           </p>
         </div>
 
@@ -132,7 +128,7 @@ export function Legend() {
             ))}
           </ul>
           <p className="mt-4 max-w-[46ch] font-mono text-xs leading-relaxed text-fg-muted">
-            The amber light walking the stars is the board re-reading the API, oldest run first.
+            The amber light shows the board refreshing.
           </p>
         </div>
       </div>

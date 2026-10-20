@@ -39,11 +39,7 @@ export function RunView({ id, plane = "public" }: { id: string; plane?: Plane })
   const [logOpen, setLogOpen] = useState(false);
 
   if (error) {
-    return (
-      <p className="text-sm text-sev-critical">
-        This run could not be loaded. It may have been removed, or the API is unreachable.
-      </p>
-    );
+    return <p className="text-sm text-sev-critical">Could not load this run.</p>;
   }
   if (!run) return <p className="text-sm text-fg-muted">Loading the run…</p>;
 
@@ -52,7 +48,7 @@ export function RunView({ id, plane = "public" }: { id: string; plane?: Plane })
       <RunHeader run={run} />
       {streamFailed ? (
         <p className="-mt-6 mb-6 text-xs text-fg-muted">
-          Live updates are unavailable right now. Reload to see the latest.
+          Live updates stopped. Reload to see the latest.
         </p>
       ) : null}
       {/* A diff run has no checks to draw (decision 135): the timeline would
@@ -61,13 +57,12 @@ export function RunView({ id, plane = "public" }: { id: string; plane?: Plane })
           from a blank. */}
       {run.mode === "diff" ? (
         <p className="mb-6 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-          A diff review. No check ran; the findings are the model's reading of the diff against the
-          repository's standards, and a finding here is at most a warning.
+          Diff review. No checks ran. Findings here are warnings at most.
         </p>
       ) : (
         <RunFold
-          title="Checks timeline"
-          summary={`${run.checks.filter((c) => c.isCheck).length} checks on one time axis`}
+          title="Timeline"
+          summary={`${run.checks.filter((c) => c.isCheck).length} checks`}
           open={timelineOpen}
           onOpenChange={setTimelineOpen}
         >
@@ -84,7 +79,7 @@ export function RunView({ id, plane = "public" }: { id: string; plane?: Plane })
       )}
       <RunFold
         title="What happened"
-        summary="Each check's commands, what the sensors saw, and the review as posted"
+        summary="Commands, results, and the posted review"
         open={logOpen}
         onOpenChange={setLogOpen}
       >

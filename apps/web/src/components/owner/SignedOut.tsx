@@ -18,17 +18,14 @@ export function SignedOut({
       <div className="max-w-[60ch] text-sm leading-relaxed text-fg-muted">
         {reason === "unconfigured" ? (
           <p>
-            Sign-in is not set up on this instance. Add the GitHub App&rsquo;s OAuth client id and
-            secret to the environment to turn it on.
+            Sign-in is not set up. Add the App&rsquo;s OAuth client id and secret to the
+            environment.
           </p>
         ) : reason === "not_owner" ? (
-          <p>
-            You are signed in, but not as an owner. Sign in with an admin of the account the App is
-            installed on.
-          </p>
+          <p>You are not an owner. Sign in as an admin of the account that installed the App.</p>
         ) : (
           <>
-            <p>Sign in with the GitHub account that installed the App to see this page.</p>
+            <p>Sign in with the account that installed the App.</p>
             <a
               href="/api/auth/login"
               className="mt-5 inline-block rounded-md bg-accent-fill px-3 py-1.5 font-medium text-accent-fg no-underline transition-colors hover:bg-accent"

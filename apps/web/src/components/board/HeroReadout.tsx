@@ -40,7 +40,7 @@ const ONBOARDING = [
   },
   { text: "Open a pull request, or push to one that is open." },
   {
-    text: "Cujo clones the head into a disposable sandbox and runs it. The verdict lands here.",
+    text: "Cujo runs the code in a sandbox. The result shows here.",
   },
 ];
 
@@ -62,23 +62,14 @@ export function HeroLead({ metrics }: { metrics: BoardMetrics }) {
           that is made of runs. */}
       <h1 className="mt-4 text-balance font-display text-4xl leading-[1.05] tracking-[-0.03em] text-[var(--chamber-fg)] sm:text-5xl lg:text-6xl">
         {empty ? (
-          <>Nothing has been executed here yet.</>
+          <>No runs yet.</>
         ) : (
           <>
-            {metrics.pullRequests} {plural(metrics.pullRequests, "pull request", "pull requests")},
-            reviewed by running them.
+            {metrics.pullRequests} {plural(metrics.pullRequests, "pull request", "pull requests")}{" "}
+            reviewed.
           </>
         )}
       </h1>
-      {/* One line, and only while there is nothing to read. With a record on
-          screen the headline says what this is and the drawing says the rest;
-          a paragraph beside a galaxy was read by nobody (decision 83). */}
-      {empty ? (
-        <p className="mt-5 max-w-md font-mono text-sm leading-relaxed text-[var(--chamber-fg-muted)]">
-          The chamber is empty and the instrument is on. Every verdict it draws comes from running
-          the code, not reading it.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -166,8 +157,8 @@ export function HeroStats({
           rides on the same line so the docs are reachable above the fold
           without giving the page a bar back. */}
       <p className="mt-6 max-w-md font-mono text-xs leading-relaxed text-[var(--chamber-fg-muted)]">
-        Each star is one run. Colour is the verdict, rings are checks, dots are findings.
-        {interactive ? " Click one to find its run below." : null}{" "}
+        Each star is one run. Color is the result, rings are checks, dots are findings.
+        {interactive ? " Click a star to find its run." : null}{" "}
         <Link
           href="/docs"
           className="underline decoration-[var(--chamber-line)] underline-offset-4 transition-colors hover:text-[var(--chamber-amber)] hover:decoration-[var(--chamber-amber)]"

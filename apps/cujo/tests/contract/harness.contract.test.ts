@@ -308,7 +308,7 @@ describe.skipIf(!BASE_URL)("harness contract", () => {
     expect(check?.report).toMatchObject({ base_pass_head_fail: ["t_x"] });
     expect(projection?.hardRuleHits).toHaveLength(1);
     expect(store.runs.getRun(run.id)?.status).toBe("error");
-    expect(projection?.error).toBe("turn ended without a review");
+    expect(projection?.error).toBe("ended without posting a review");
     // Durable as it landed: the thread finished before the parent's turn did.
     const turnId = store.runs.getRun(run.id)?.turnIds[0];
     const types = (await harness.listEvents(sessionId))

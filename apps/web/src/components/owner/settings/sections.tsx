@@ -60,18 +60,14 @@ export function ModelsSection({
     (key: keyof SettingsForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       set({ [key]: event.target.value });
   return (
-    <OwnerSection
-      id="models"
-      title="Models"
-      lead="Which model reviews run on, written as provider/model from the providers below. A change applies to the next review."
-    >
+    <OwnerSection id="models" title="Models" lead="Write as provider/model.">
       <datalist id={listId}>
         {modelOptions(served, catalog.data).map((option) => (
           <option key={option} value={option} />
         ))}
       </datalist>
       <div className="grid gap-5 md:grid-cols-2">
-        <Field label="Model for full reviews" hint="Runs the pull request in the sandbox.">
+        <Field label="Model for full reviews">
           <input
             className={INPUT}
             value={form.model}
@@ -98,7 +94,7 @@ export function ModelsSection({
           </select>
         </Field>
         <div />
-        <Field label="Token budget, full review" hint="Billed tokens per run, sub-agents included.">
+        <Field label="Token budget, full review" hint="Tokens per run.">
           <input
             className={INPUT}
             value={form.sandboxBudgetTokens}
@@ -116,17 +112,14 @@ export function ModelsSection({
         </Field>
       </div>
       <Advanced>
-        <Field
-          label="Reasoning effort"
-          hint="Empty for the provider's default. For example: low, medium, high."
-        >
+        <Field label="Reasoning effort" hint="low, medium, or high. Empty for the default.">
           <input
             className={INPUT}
             value={form.modelReasoningEffort}
             onChange={text("modelReasoningEffort")}
           />
         </Field>
-        <Field label="Temperature" hint="Empty for the provider's default.">
+        <Field label="Temperature" hint="Empty for the default.">
           <input
             className={INPUT}
             value={form.modelTemperature}
@@ -134,7 +127,7 @@ export function ModelsSection({
             inputMode="decimal"
           />
         </Field>
-        <Field label="Max output tokens" hint="Empty for the provider's default.">
+        <Field label="Max output tokens" hint="Empty for the default.">
           <input
             className={INPUT}
             value={form.modelMaxTokens}
@@ -195,7 +188,7 @@ function ProviderCard({
       <div className="grid gap-5 md:grid-cols-2">
         {draft.kind === "openai" ? (
           <>
-            <Field label="Name" hint="The part before the slash in a model name.">
+            <Field label="Name" hint="The part before the slash.">
               <input
                 className={INPUT}
                 value={draft.name}
@@ -213,7 +206,7 @@ function ProviderCard({
             </Field>
           </>
         ) : null}
-        <Field label="API key" hint="Shown masked. Type a new one to replace it.">
+        <Field label="API key" hint="Type a new key to replace it.">
           <input
             className={INPUT}
             value={draft.apiKey}
@@ -252,13 +245,11 @@ function ProviderCard({
               checked={draft.reasoning}
               onChange={(reasoning) => onChange({ ...draft, reasoning })}
             >
-              These models take a reasoning effort
+              Supports reasoning effort
             </Check>
           </>
         ) : (
-          <p className="self-end text-sm text-fg-muted">
-            Models, limits and prices come from Anthropic&rsquo;s catalog.
-          </p>
+          <p className="self-end text-sm text-fg-muted">Models and prices come from Anthropic.</p>
         )}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -284,11 +275,7 @@ export function ProvidersSection({ form, set }: { form: SettingsForm; set: Set }
   const hasAnthropic = drafts.some((d) => d.kind === "anthropic");
   const update = (providers: ProviderDraft[]) => set({ providers });
   return (
-    <OwnerSection
-      id="providers"
-      title="Providers"
-      lead="Where the models are served from. Test makes one short call with what is typed, saved or not."
-    >
+    <OwnerSection id="providers" title="Providers" lead="Test makes one short call.">
       <div className="flex flex-col gap-4">
         {drafts.length === 0 ? (
           <p className="text-sm text-fg-muted">No provider yet. Add one to pick a model.</p>
@@ -329,13 +316,9 @@ export function LimitsSection({ form, set }: { form: SettingsForm; set: Set }) {
   const text = (key: keyof SettingsForm) => (event: React.ChangeEvent<HTMLInputElement>) =>
     set({ [key]: event.target.value });
   return (
-    <OwnerSection
-      id="limits"
-      title="Limits"
-      lead="How long a run may take and how much it may do. A change applies to the next run; a run under way keeps its limits."
-    >
+    <OwnerSection id="limits" title="Limits" lead="Changes apply to the next run.">
       <div className="grid gap-5 md:grid-cols-2">
-        <Field label="Time limit, full review" hint="Seconds. The run stops past it.">
+        <Field label="Time limit, full review" hint="Seconds.">
           <input
             className={INPUT}
             value={form.turnTimeoutMs}
@@ -353,7 +336,7 @@ export function LimitsSection({ form, set }: { form: SettingsForm; set: Set }) {
         </Field>
         <Field
           label="Questions per pull request"
-          hint="How many @cujo-guard questions it answers per window. 0 turns replies off."
+          hint="@cujo-guard answers per window. 0 turns replies off."
         >
           <input
             className={INPUT}
@@ -375,16 +358,12 @@ export function LimitsSection({ form, set }: { form: SettingsForm; set: Set }) {
             checked={form.executeDeclared}
             onChange={(executeDeclared) => set({ executeDeclared })}
           >
-            Run the install and tests a repository declares in .cujo.yml before the model reads the
-            results
+            Run the install and tests from .cujo.yml first
           </Check>
         </div>
       </div>
       <Advanced>
-        <Field
-          label="Wait after a push"
-          hint="Seconds. Pushes inside it run once. 0 runs each push."
-        >
+        <Field label="Wait after a push" hint="Seconds. 0 runs each push.">
           <input
             className={INPUT}
             value={form.pushDebounceMs}
@@ -400,7 +379,7 @@ export function LimitsSection({ form, set }: { form: SettingsForm; set: Set }) {
             inputMode="numeric"
           />
         </Field>
-        <Field label="Time limit, one install or test command" hint="Seconds.">
+        <Field label="Time limit, one command" hint="Seconds.">
           <input
             className={INPUT}
             value={form.executeStepTimeoutMs}
@@ -408,7 +387,7 @@ export function LimitsSection({ form, set }: { form: SettingsForm; set: Set }) {
             inputMode="numeric"
           />
         </Field>
-        <Field label="Diff size sent to the reviewer" hint="Bytes.">
+        <Field label="Max diff size" hint="Bytes.">
           <input
             className={INPUT}
             value={form.diffBytes}
@@ -416,7 +395,7 @@ export function LimitsSection({ form, set }: { form: SettingsForm; set: Set }) {
             inputMode="numeric"
           />
         </Field>
-        <Field label="Command report size sent to the reviewer" hint="Bytes per report.">
+        <Field label="Max command output" hint="Bytes per command.">
           <input
             className={INPUT}
             value={form.executedReportBytes}
@@ -426,7 +405,7 @@ export function LimitsSection({ form, set }: { form: SettingsForm; set: Set }) {
         </Field>
         <div className="self-end">
           <Check checked={form.ocrEnabled} onChange={(ocrEnabled) => set({ ocrEnabled })}>
-            Also run the OCR sidecar review on every full review. This doubles the cost.
+            Extra review pass (2x cost)
           </Check>
         </div>
       </Advanced>
@@ -440,11 +419,7 @@ export function AppSection({ bot, failed }: { bot: BotState | undefined; failed:
       id="app"
       title="GitHub App"
       lead={
-        failed
-          ? "GitHub did not answer just now. The settings above still work."
-          : bot
-            ? describePermissions(bot.permissions)
-            : "Loading…"
+        failed ? "GitHub did not answer." : bot ? describePermissions(bot.permissions) : "Loading…"
       }
     >
       {bot ? (
@@ -532,7 +507,7 @@ export function DeliveriesSection({ bot }: { bot: BotState | undefined }) {
     <OwnerSection
       id="deliveries"
       title="Deliveries"
-      lead="The newest webhook events GitHub sent, and how Cujo answered. A 503 is a delivery deferred while Cujo started; GitHub retries it."
+      lead="Recent GitHub events. GitHub retries a 503."
     >
       {bot.deliveries.length === 0 ? (
         <p className="text-sm text-fg-muted">No deliveries yet.</p>

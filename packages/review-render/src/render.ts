@@ -435,7 +435,7 @@ function coverageSection(coverage: Coverage): string {
 
 function egressSection(input: readonly EgressHost[]): string {
   const hosts = list(input).filter((host) => host && typeof host.host === "string");
-  if (hosts.length === 0) return "Egress: no host was contacted.";
+  if (hosts.length === 0) return "Network: no hosts contacted.";
 
   const unknown = hosts.filter((host) => !host.known);
   const named = unknown
@@ -445,8 +445,8 @@ function egressSection(input: readonly EgressHost[]): string {
   const rest = unknown.length - MAX_HOSTS_NAMED;
   const summary =
     unknown.length > 0
-      ? `Egress: ${unknown.length} ${plural(unknown.length, "unknown host", "unknown hosts")} — ${named}${rest > 0 ? `, and ${rest} more` : ""}.`
-      : `Egress: ${hosts.length} known ${plural(hosts.length, "host", "hosts")}.`;
+      ? `Network: ${unknown.length} ${plural(unknown.length, "unknown host", "unknown hosts")} — ${named}${rest > 0 ? `, and ${rest} more` : ""}.`
+      : `Network: ${hosts.length} known ${plural(hosts.length, "host", "hosts")}.`;
 
   // A fourth column only when something fills it, so the common case — every
   // host known, nothing to say about any of them — is three narrow columns.
@@ -518,7 +518,7 @@ function machineBlock(
   // early and spill JSON into the page as prose.
   const longest = Math.max(0, ...[...json.matchAll(/`+/g)].map((m) => m[0].length));
   const fence = "`".repeat(Math.max(3, longest + 1));
-  return fold("Machine-readable summary", `${fence}json\n${json}\n${fence}`);
+  return fold("Raw data", `${fence}json\n${json}\n${fence}`);
 }
 
 /**

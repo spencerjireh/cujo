@@ -9,7 +9,7 @@ import { DocsNav } from "./DocsNav";
 const meta: Meta<typeof DocsNav> = {
   title: "Docs/DocsNav",
   component: DocsNav,
-  parameters: { nextjs: { appDirectory: true, navigation: { pathname: "/docs/checks" } } },
+  parameters: { nextjs: { appDirectory: true, navigation: { pathname: "/docs/reviews" } } },
 };
 export default meta;
 

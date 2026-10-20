@@ -23,14 +23,14 @@ import { type SensorBlock, tripped, unarmed } from "@/lib/api/report";
  * read and subprocesses, the filesystem diff becomes the change list, and the
  * decoy watcher feeds `secret_probe` alone.
  */
-const CONSEQUENCE: Record<string, string> = {
-  proxy: "nothing outbound was measured",
-  decoy: "a read of the decoy secret would not have been seen",
-  audit: "no file read or subprocess was recorded",
-  fs_diff: "the filesystem was not compared",
+const MONITOR: Record<string, string> = {
+  proxy: "network",
+  decoy: "secret trap",
+  audit: "file reads and processes",
+  fs_diff: "file changes",
 };
 
-/** How many sensors a complete report describes, for the "all four" wording. */
+/** How many sensors a complete report describes. */
 const SENSOR_COUNT = 4;
 
 function list(parts: string[]): string {
@@ -58,19 +58,16 @@ export function coverageLine(block: SensorBlock): string | null {
 
   if (down.length === 0) {
     const armed = health.filter((sensor) => sensor.armed === true).length;
-    const watching =
-      armed >= SENSOR_COUNT
-        ? "All four sensors were watching."
-        : `${armed} of the four sensors were watching.`;
-    return quiet ? `Nothing tripped. ${watching}` : watching;
+    const watching = armed >= SENSOR_COUNT ? null : `${armed} of 4 monitors on.`;
+    if (quiet) return watching ? `Nothing flagged. ${watching}` : "Nothing flagged.";
+    return watching ?? "All monitors on.";
   }
 
   // Named one by one, with what each one's silence costs. `unarmed` is the list
   // to follow rather than `sensors`: the audit hook reports itself off on every
   // check that runs no Python, which is ordinary and is not a gap.
-  const cost = list(down.map((name) => `the ${name} was not running, so ${CONSEQUENCE[name]}`));
-  if (quiet) return `Nothing tripped, but ${cost}.`;
-  return `${cost.charAt(0).toUpperCase()}${cost.slice(1)}.`;
+  const off = `Not monitored: ${list(down.map((name) => MONITOR[name] ?? name))}.`;
+  return quiet ? `Nothing flagged. ${off}` : off;
 }
 
 /**

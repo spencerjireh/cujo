@@ -52,7 +52,7 @@ function ModeControl({
     {
       value: null,
       label: `Use the default (${MODE_LABELS[view.instance.mode]})`,
-      detail: "Follows the default set on the Settings page.",
+      detail: "Set on the Settings page.",
     },
     { value: "sandbox", label: MODE_LABELS.sandbox, detail: MODE_DETAILS.sandbox },
     { value: "diff", label: MODE_LABELS.diff, detail: MODE_DETAILS.diff },
@@ -125,7 +125,7 @@ function Instructions({
           {fileWins ? "Set here, used if the file is removed" : "What reviews should weigh"}
         </span>
         <span className="mt-0.5 block text-xs text-fg-muted">
-          For example: what matters in this codebase, what to leave alone, paths not to comment on.
+          For example: what matters, what to skip.
         </span>
         <textarea
           value={draft}
@@ -159,19 +159,10 @@ function Runs({ repo }: { repo: string }) {
   );
   if (list.isPending) return <p className="text-sm text-fg-muted">Loading…</p>;
   if (list.error) {
-    return (
-      <p className="text-sm text-sev-critical">
-        The runs could not be loaded. Reload to try again.
-      </p>
-    );
+    return <p className="text-sm text-sev-critical">Could not load runs. Reload to try again.</p>;
   }
   if (runs.length === 0) {
-    return (
-      <p className="max-w-[60ch] text-sm text-fg-muted">
-        No recent runs. A run starts when a pull request is opened or pushed to while reviews are
-        on.
-      </p>
-    );
+    return <p className="max-w-[60ch] text-sm text-fg-muted">No recent runs.</p>;
   }
   return <RunTable runs={runs.slice(0, 30)} showRepository={false} />;
 }
@@ -225,8 +216,8 @@ export function RepositoryView({ repo }: { repo: string }) {
       <OwnerPage title={repo}>
         <p className={`max-w-[60ch] text-sm ${missing ? "text-fg-muted" : "text-sev-critical"}`}>
           {missing
-            ? "Cujo does not know this repository. Install the App on it, and it appears here."
-            : `The settings could not be loaded: ${settings.error.message}`}
+            ? "Unknown repository. Install the App on it first."
+            : `Could not load settings: ${settings.error.message}`}
         </p>
         <Link href="/repos" className="mt-4 inline-block text-sm text-accent hover:underline">
           All repositories

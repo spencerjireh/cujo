@@ -1,4 +1,4 @@
-import type { LedgerThread, RunLedger } from "@/lib/api/types";
+import { type LedgerThread, type RunLedger, checkLabel } from "@/lib/api/types";
 import { bytes, compactCount } from "@/lib/format";
 
 /**
@@ -35,16 +35,12 @@ export function ThreadLedger({ ledger }: { ledger?: RunLedger | null }) {
   const total = parentBilled + checksBilled;
 
   return (
-    <div aria-label="Where the tokens went" className="mb-4">
-      <h3 className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-fg">Ledger</h3>
-      <p className="mb-3 max-w-[68ch] font-mono text-xs leading-relaxed text-fg-muted">
-        Input tokens by thread, cache reads included. The parent re-reads everything it holds on
-        every message; the checks read only their own.
-      </p>
+    <div aria-label="Token use" className="mb-4">
+      <h3 className="mb-3 font-mono text-xs uppercase tracking-[0.16em] text-fg">Token use</h3>
       {total > 0 ? (
         <dl className="mb-4 grid grid-cols-2 gap-x-6 font-mono text-xs">
           <div>
-            <dt className="text-fg-muted">parent</dt>
+            <dt className="text-fg-muted">main</dt>
             <dd className="mt-1 text-sm text-fg">
               {compactCount(parentBilled)}{" "}
               <span className="text-fg-muted">({Math.round((parentBilled / total) * 100)}%)</span>
@@ -61,11 +57,11 @@ export function ThreadLedger({ ledger }: { ledger?: RunLedger | null }) {
       ) : null}
       <div className="overflow-x-auto">
         <table className="mb-4 w-full border-collapse font-mono text-xs">
-          <caption className="mb-1 text-left text-fg-muted">By thread</caption>
+          <caption className="mb-1 text-left text-fg-muted">By step</caption>
           <thead>
             <tr className="text-left text-fg-muted">
               <th scope="col" className="py-1 pr-3 font-normal">
-                thread
+                step
               </th>
               <th scope="col" className="py-1 pr-3 text-right font-normal">
                 messages
@@ -92,7 +88,7 @@ export function ThreadLedger({ ledger }: { ledger?: RunLedger | null }) {
               // The fold fixes the order, so the index is a stable key.
               <tr key={`${row.title}-${row.attempt}-${index}`} className="border-t border-line">
                 <th scope="row" className="py-1.5 pr-3 text-left font-normal text-fg">
-                  {row.title}
+                  {checkLabel(row.title)}
                   {row.attempt > 1 ? <span className="text-fg-muted"> #{row.attempt}</span> : null}
                 </th>
                 <td className="py-1.5 pr-3 text-right text-fg-muted">{row.messages}</td>
@@ -117,7 +113,7 @@ export function ThreadLedger({ ledger }: { ledger?: RunLedger | null }) {
             {ledger.largestToolResults.map((result, index) => (
               <tr key={`${result.thread}-${result.tool}-${index}`} className="border-t border-line">
                 <th scope="row" className="py-1.5 pr-3 text-left font-normal text-fg-muted">
-                  {result.thread}
+                  {checkLabel(result.thread)}
                 </th>
                 <td className="py-1.5 pr-3 text-fg">{result.tool}</td>
                 <td className="py-1.5 pr-3 text-right text-fg">{bytes(result.bytes)}</td>

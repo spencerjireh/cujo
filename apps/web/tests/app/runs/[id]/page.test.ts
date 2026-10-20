@@ -66,7 +66,7 @@ describe("run page metadata", () => {
     stubFetch(run("r1"));
     const metadata = await generateMetadata(PARAMS("r1"));
     expect(metadata.title).toBe("o/r #7 — Add a thing");
-    expect(metadata.description).toContain("Blocking review posted as REQUEST_CHANGES");
+    expect(metadata.description).toContain("Review requested changes.");
     expect(metadata.description).toContain("2 critical.");
     expect(metadata.openGraph?.title).toBe("o/r #7 — Add a thing");
   });

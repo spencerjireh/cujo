@@ -125,8 +125,8 @@ export const STATUS_LABELS: Record<RunStatus, string> = {
   blocked: "blocked",
   dismissed: "dismissed",
   error: "error",
-  unproven: "unproven",
-  superseded: "superseded",
+  unproven: "incomplete",
+  superseded: "outdated",
 };
 
 /**
@@ -186,15 +186,14 @@ export function checksOf(run: RunSummary): Partial<Record<CheckName, DigestCheck
 
 /** What one square of a results cell, or one ring, says when spoken. */
 const OUTCOME_SPOKEN: Record<CheckOutcome, string> = {
-  done: "reported",
-  error: "errored",
+  done: "done",
+  error: "failed",
   running: "running",
   absent: "did not run",
 };
 
 /**
- * One check, in words: how it ended, how long it took, and how much of that
- * was the sandbox executing the pull request. The same sentence the chamber's
+ * One check, in words: how it ended and how long it took. The same sentence the chamber's
  * callout, the record's tooltip and the record's expanded row all speak, so
  * the three cannot describe one ring three ways. Pure, and given the check
  * rather than the run, so the callout can call it from a specimen's bar.
@@ -210,9 +209,6 @@ export function checkSentence(
   if (check?.ms != null) {
     const took = duration(new Date(0).toISOString(), new Date(check.ms).toISOString());
     if (took) parts.push(took);
-    if (check.sandboxMs != null && check.ms > 0) {
-      parts.push(`${Math.round((check.sandboxMs / check.ms) * 100)}% in the sandbox`);
-    }
   }
   return `${name}: ${parts.join(", ")}`;
 }
