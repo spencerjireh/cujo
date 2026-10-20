@@ -17,13 +17,13 @@ import { plainTitle } from "../src/plain-title";
  * would be replacing a sentence that names its check with one that does not.
  */
 const HARD_RULE_TITLES = [
-  "the decoy sensor was not watching during tests",
+  "the secret trap was off while running the tests",
   "1 test passes on base and fails on head",
   "3 tests pass on base and fail on head",
-  "the seeded decoy secret was read during detonation",
-  "the seeded decoy secret left the sandbox during smoke",
-  "a write landed in a sensitive path during detonation",
-  "an install contacted a host that is neither a package index nor allowlisted",
+  "a test secret was read while installing a new dependency",
+  "a test secret was sent out while booting the app",
+  "a sensitive file was written while installing a new dependency",
+  "a new dependency contacted an unknown host",
   "the tests check returned no report",
   "the probes report does not match the report schema",
 ];

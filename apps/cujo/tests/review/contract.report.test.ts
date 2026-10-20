@@ -67,7 +67,7 @@ describe("the canonical report example", () => {
     );
     expect(unarmed).toHaveLength(1);
     expect(unarmed[0]).toMatchObject({ severity: "warn", rule: "sensor_unarmed" });
-    expect(unarmed[0]?.title).toContain("decoy");
+    expect(unarmed[0]?.title).toContain("secret trap");
     expect(unarmed[0]?.evidence).toContain("no longer running");
     // A sensor being off says the evidence is thin, not that the code did
     // anything, so it never puts a review through the human gate.

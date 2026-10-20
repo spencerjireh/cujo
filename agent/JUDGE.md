@@ -248,7 +248,7 @@ same line. A second check agreeing with the first belongs *inside* that finding'
 Per entry:
 
 - `title` — a short sentence with a subject, under about ten words, and never a sensor
-  field name. Write "the seeded decoy secret was read during detonation", not
+  field name. Write "a test secret was read while installing a new dependency", not
   `secret_probe.decoy_read: true`. The field name belongs in `evidence`.
 - `evidence` — the observation itself: the failing assertion, the host and port, the
   path written, the timing. Numbers, not adjectives. Where two checks saw the same

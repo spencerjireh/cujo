@@ -528,7 +528,10 @@ export class Runner {
     this.state(runId).syntheticTerminal = true;
     this.push(
       runId,
-      errorTurnDone(`cujo-timeout-${Date.now()}`, "turn timeout: no terminal event"),
+      errorTurnDone(
+        `cujo-timeout-${Date.now()}`,
+        "Timed out before the review finished. Comment /cujo review to retry.",
+      ),
     );
     this.refold(runId);
     const run = this.store.getRun(runId);
