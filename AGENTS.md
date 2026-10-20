@@ -14,7 +14,9 @@ detonation, and posts one review as `cujo-guard[bot]`; a repository that
 declares nothing gets the older path, where the agent gathers all of it. `docs/` is the design of record and changes in the same PR as
 the code (or before it). Read `docs/architecture.md` then `docs/spec.md` before
 changing behavior; add an entry to `docs/decisions.md` for any load-bearing
-choice (reverse, do not delete, when one changes).
+choice, in the short template in `CONTRIBUTING.md`. When one changes, mark it
+reversed or amended, never renumber or retitle it; a fully reversed entry moves
+to `docs/decisions-archive.md` (decision 178).
 
 ## Commands
 

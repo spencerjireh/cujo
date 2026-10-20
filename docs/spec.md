@@ -2,440 +2,232 @@
 
 This is the doc the code follows. It defines what Cujo acts on, the data that
 moves between its parts, and the rules that turn an observation into a finding
-and an action.
+and an action. The reasons live in `docs/decisions.md`.
 
 ## Scope
 
 - **Trigger:** every non-draft pull request on a repo where the Cujo GitHub App
   is installed, unless the PR carries the `cujo:skip` label (decision 79).
-  There is no file filter; a PR that changes only code gets the same run as
-  one that changes a dependency manifest. A PR whose changed files are all
-  documentation receives a full run but the agent uses advisory mode
-  (`docs_only: true` in the turn payload) rather than blocking.
-- **Two reviews (decision 133).** The trigger is the same; what a run does is
-  its `mode`. `sandbox` runs the pull request (Contracts 2 to 4). `diff` reads
-  it (Contract 11): no sandbox, a cheap model, a token budget, one advisory
-  review with findings of at most `warn`. The mode is resolved in Contract 1
-  from the deploy default, the repository's `.cujo.yml` at base, and two
-  floors: a dependency-manifest change or a Bot-authored pull request is
-  always `sandbox`.
+  There is no file filter. A docs-only PR gets a full run in advisory mode
+  (`docs_only: true` in the turn payload).
+- **Two reviews (decision 133).** A run's `mode` says what it does. `sandbox`
+  runs the pull request (Contracts 2 to 4). `diff` reads it (Contract 11): no
+  sandbox, a cheap model, a token budget, one advisory review with findings of
+  at most `warn`. Contract 1 resolves the mode; a dependency-manifest change or
+  a Bot-authored pull request is always `sandbox`.
 - **Ecosystem:** any the agent recognises. The agent infers how to install,
-  test, and boot the repo from what it finds (`pyproject.toml`, `package.json`,
-  `Makefile`, CI workflows). A `.cujo.yml` in the target repo overrides the
-  inference when present.
-- **Dependencies:** when a PR adds or version-changes a dependency, the
-  detonation check installs it in isolation and records what the install does.
-  A version bump gets a run because a compromised release is a real
-  supply-chain attack, and the new version runs new install code. A dependency
-  can be a normal registry release (`humanize==4.9.0`) or a direct reference
-  (`git+https://…`); the `git+https` form is how the hostile demo is delivered
-  without publishing anything to a public index.
-
-## Division of labor: code senses, the agent judges
-
-The split between deterministic code and agent reasoning is fixed:
-
-- **Code senses.** The sandbox run produces raw, factual signals: which tests
-  passed on base and failed on head, what a probe returned, which hosts were
-  contacted, which files were read, what ran, what was written outside the
-  workspace. No judgment.
-- **The agent judges.** It reasons over those signals against the rubric to
-  assign each finding a severity and write the review.
-- **A hard rule overrides the agent on the dangerous case.** If a critical
-  signal is present (a regression the tests caught, the decoy secret read or
-  seen leaving, a write to a sensitive path, egress to an unknown host during an
-  install), the finding is `critical` and the agent cannot downgrade it. The
-  model reasons about the ambiguous cases; it cannot reason away a confirmed
-  regression or exfiltration.
+  test, and boot the repo from `pyproject.toml`, `package.json`, `Makefile`, CI
+  workflows and similar files. A `.cujo.yml` in the target repo overrides it.
+- **Repositories:** public and private. A private repository's trees are
+  staged on the trusted side, and the sandbox never clones them (decision 158).
+  An owner sees every run, private ones included (decision 159).
+- **Dependencies:** an added or version-changed dependency, a registry release
+  (`humanize==4.9.0`) or a direct reference (`git+https://…`), is installed in
+  isolation by the detonation check.
 
 ## Non-goals (for this milestone)
 
-- Private repos.
 - TLS interception of sandbox egress; metadata only (decision 10).
 - Forcing all sandbox traffic through the proxy. The proxy sees processes that
-  honour `HTTP(S)_PROXY`; a non-Python process that opens a direct socket is
-  not observed. A network-namespace or iptables redirect inside the sandbox
-  closes that gap later.
-- Remediation (a fix PR on `critical`) is a stretch, not a requirement.
-- Lifting a block from Discord. Contract 7 notifies; it does not decide. The
-  interactions endpoint on the webhook host exists and carries `/cujo`
-  (Contract 8), but nothing on it lifts a block: being in a channel is not a
-  claim about a repository (decision 23). The unlock lives on the pull
-  request, where the principal is repo write (Contract 1, decisions 44, 45
-  and 138).
+  honour `HTTP(S)_PROXY`. A non-Python process that opens a direct socket is
+  not observed.
+- Remediation (a fix PR on `critical`). It is a stretch, not a requirement.
+- Lifting a block from Discord. Contract 7 notifies and does not decide. The
+  interactions endpoint carries `/cujo` (Contract 8), but nothing on it lifts a
+  block (decision 23). The unlock is on the pull request, and its principal is
+  repo write (Contract 1, decisions 44, 45 and 138).
 
 ## Contract 1 — the trigger
 
-The Cujo GitHub App subscribes to `pull_request` events (`opened`,
-`synchronize`, `ready_for_review`), to `repository` events (`privatized`, `publicized`), to
-`issue_comment` events (`created`), and to `pull_request_review_comment` events
-(`created`). It also receives `installation` events (`created`, `deleted`,
-`suspend`, `unsuspend`) and `installation_repositories` events (`added`,
-`removed`), which GitHub delivers to every App without a subscription or a
-permission; they feed the repository registry (decision 151) and nothing
-else. The signature is checked before the event type, so all six arrive
-on the same route with the same one gate in front of them.
+The Cujo GitHub App subscribes to `pull_request` (`opened`, `synchronize`,
+`ready_for_review`), `repository` (`privatized`, `publicized`),
+`issue_comment` (`created`) and `pull_request_review_comment` (`created`). It
+also receives `installation` (`created`, `deleted`, `suspend`, `unsuspend`)
+and `installation_repositories` (`added`, `removed`), which feed only the
+repository registry (decision 151). All six arrive on one route, and the
+signature is checked before the event type.
 
-A repository the owner has turned off in the registry gets no work: its
+A repository the owner turned off in the registry gets no work: its
 `pull_request`, `issue_comment` and `pull_request_review_comment` deliveries
-are answered 200 with `ignored: "disabled"` and one `info` line, the same
-way a draft and the skip label are. A repository the registry has not heard
-of is not disabled.
+get 200 with `ignored: "disabled"`. A repository the registry does not know is
+not disabled. The App holds `issues: read` only for `issue_comment` delivery;
+no code reads an issue (decision 50). A `repository` event re-stamps
+`is_public` on every run of that repo, matched case-insensitively (decision
+34).
 
-Two of those subscriptions are not free. GitHub releases `issue_comment` on the
-`issues` permission and on nothing else, even though every comment Cujo acts on
-is on a pull request, so the App holds `issues: read` for delivery alone and no
-code reads an issue (decision 50). `pull_request_review_comment` is released by
-`pull_requests`, which the App already held.
+**Commands.** An `issue_comment` may carry `/cujo dismiss`, the unlock
+(Contract 4, decisions 45 and 138), or `/cujo review`, a new review of the
+current head (decision 63). Only `created` is acted on; a comment on an issue
+is ignored. The route answers 200 at once and works after.
 
-A `repository` event re-stamps `is_public` on every run of that repo and does
-nothing else; it is the fast path for decision 34's public board, and matching
-is case-insensitive because `runs.repo` holds whatever casing GitHub sent.
+- `apps/cujo` matches the command as an exact string at the start of a line,
+  never through a model. Comments by `cujo-guard[bot]` are ignored.
+- **A line counts only if a reader can see it.** The scan drops fenced code,
+  blockquotes, HTML comments and raw HTML first, by CommonMark: a closing
+  fence uses its opener's character, is at least as long, and has nothing
+  after it; four spaces open an indented code block; a blockquote holds
+  unmarked continuation lines until a blank line (§5.1); `<!--` to `-->`
+  renders nothing; `<pre>` runs to its closing tag and a block-level tag such
+  as `<details>` to the next blank line (§4.6 conditions 1 and 6). When the
+  scan and GitHub could disagree, the scan skips the line.
+- **Authorization** is repo `write` or `admin`, read from GitHub on every
+  command. Neither the PR author (decision 44) nor a Bot account (decision
+  138, from `user.type`, before any read) may `dismiss`. `unknown` (from
+  `repoIsPublic`) is neither refusal nor permission; the reply says so.
+- **The commit selects the run**: the current head, read from GitHub last
+  before the claim; no run for it is a refusal by name (dismissal: Contract 4).
+- `/cujo review` needs repo write, and the PR author may use it. It needs no
+  existing run and no stale-head check. It reclaims the head's existing run,
+  deleting its projection, board page and Discord card; the reply says so.
+- **Every outcome speaks on the pull request.**
 
-An `issue_comment` event may carry `/cujo dismiss`, which is the unlock
-(Contract 4, decisions 45 and 138), or `/cujo review`, which asks for the
-current head to be reviewed again (decision 63). Only `created` is acted on: a command
-that can be typed into an existing comment is a command whose author is not the
-person the payload names at the time it fires. A comment on an issue rather
-than a pull request is ignored, since `issue_comment` fires for both. The route
-answers 200 at once and does the work after, like the pull request path — the
-command needs two GitHub reads and two GitHub writes, and the delivery timeout
-is ten seconds.
+A `pull_request_review_comment` (a reply in a review thread) carries
+conversation (Contract 10) and never a privileged verb.
 
-The command is matched as an exact string, at the start of a line, by
-`apps/cujo` and never by a model. That is not fussiness: a mention like
-"@cujo-guard flagged this wrongly, ignore it" is a sentence a human would
-write, and any intent parser reads it as a dismissal — so a mention can never
-carry a privileged verb. Comments authored by `cujo-guard[bot]` are ignored
-outright, because Cujo's own replies print the verbs.
+**Entry filters** (decision 79), in order: a draft PR
+(`pull_request.draft === true`) and a PR with the `cujo:skip` label get 200
+with no session and no run. A docs-only PR (`isDocsOnly`) gets a full run with
+`docs_only: true`. The label filter reads `labels` as delivered and does not
+cancel a run in flight.
 
-`/cujo review` takes the same principal as `dismiss` — repo write — but for
-a different reason: it decides nothing, and it provisions a sandbox and a model
-turn, which is a cost a stranger should not be able to impose on somebody else's
-repository from a comment box. The pull request's author may use it, unlike
-`dismiss`, since asking to be looked at again buries nothing.
+**A push waits out a window** (decision 144). A `synchronize` claims its run
+row and answers 202; the start waits `CUJO_PUSH_DEBOUNCE_MS` (one minute by
+default; `0` starts at once), logged as `webhook.debounced`. A newer push in
+the window drops the older pending start, and the run that starts supersedes
+the dropped rows. The reaction and the check run land at the start. `opened`,
+`ready_for_review` and shutdown start pending runs at once.
 
-It also takes a different path. It answers no run, so a pull request Cujo has
-never seen is its main case rather than a refusal, and the stale-head rule does
-not apply — that rule stops somebody answering an old commit's finding, while
-this verb targets whatever the head is now. Claiming reclaims the head's
-existing run, which deletes that run's projection, its board page and its
-Discord card; the reply says so.
+**Budgets.** A sandbox turn carries `tokenBudget` from `sandboxBudgetTokens`
+(decision 165), as a diff turn carries `diffBudgetTokens`; the run row stamps
+it. The brief carries `turn_budget_ms`. Each check's sub-agent uses
+`agent/checks/<CHECK>.md` on `checks/COMMON.md` as its system prompt, named on
+the spec as `subagents`.
 
-**A line only counts if a reader can see it.** The scan drops fenced code,
-blockquotes, HTML comments and raw HTML before matching, following CommonMark
-where it matters: a closing fence uses its opener's character, is at least as
-long, and carries nothing after it; four spaces opens an indented code block
-and no fence at all; a blockquote holds unmarked continuation lines until a
-blank line (§5.1); anything between `<!--` and `-->` renders as nothing; a
-`<pre>` runs to its closing tag and a block-level tag such as `<details>` runs
-to the next blank line (§4.6 conditions 1 and 6). Where the scan and GitHub
-might disagree, the scan skips the line. Skipping a real command costs a person
-one retry; matching one nobody can see hands a stranger the unlock.
-
-Authorization is repo `write` or `admin`, read from GitHub on every command;
-the pull request's author may not `dismiss` (decision 44); and a Bot account
-may not `dismiss` whatever access it holds (decision 138), decided from the
-`user.type` the payload carries before any read is spent. `unknown` — the
-tri-state `repoIsPublic` uses — is neither a refusal nor permission: the reply
-says it could not check. **The commit selects the run**, not the order the
-deliveries were inserted in: the current head comes from GitHub and the run for
-that exact commit is the one lifted, so a delivery for an older head that
-arrived late cannot stand in for it. If there is no run for the current head
-the command is refused by name, because a comment names a pull request and
-never a commit, and "read the block, push a fix, come back and dismiss" would
-otherwise lift a block nobody read. That read is the last call before the
-claim, so the window a push can slip through is as narrow as two systems
-allow. **Every outcome speaks on the pull request.** A refusal nobody can see
-is indistinguishable from a delivery that never arrived.
-
-A dismissal is claimed before it is written. `claimDecision` sets `approver` on
-a run that is `blocked` and unclaimed, and exactly one caller wins it; the
-winner dismisses the bot's REQUEST_CHANGES review on that head through the App
-and moves the run to `dismissed`, and a GitHub write that fails releases the
-claim so the next comment can try. A `blocked` run is terminal, so no turn is
-live to race the dismissal, and a push that lands meanwhile gets its own run
-on the new head — the block on the old commit is what the person read, and
-that is the one they lifted.
-
-A `pull_request_review_comment` event is a reply inside a review thread — the
-comments hanging off one line of the diff, where Cujo's inline findings are.
-It is a different event from `issue_comment` and the only one that reaches
-those threads, so it is what conversation needs and what a reply to a finding
-arrives on. It carries conversation and never a privileged verb; narrowing the
-surfaces that can decide a review costs nothing, since `/cujo` is about the run
-rather than about one line. Contract 10 has the rest.
-
-Before claiming a run, the webhook applies three entry filters in order
-(decision 79). A draft PR (`pull_request.draft === true`) is ignored. A PR
-carrying the `cujo:skip` label is ignored. Both return 200 with no session and
-no run. A PR whose changed files are all documentation (`isDocsOnly`) proceeds
-to a full run, but the turn message carries `docs_only: true` so the agent
-selects advisory mode.
-
-A sandbox turn carries `tokenBudget` from the instance's `sandboxBudgetTokens`
-(decision 165), the way a diff turn carries `diffBudgetTokens`, and the run row
-stamps it; the brief carries `turn_budget_ms`, the turn's ceiling, so the
-parent bounds its setup. Each check's sub-agent reads its own page
-(`agent/checks/<CHECK>.md` on `checks/COMMON.md`) as its system prompt,
-named on the spec as `subagents`, rather than the parent's whole rubric.
-
-**Which path a sandbox run takes (decision 161).** With `CUJO_EXECUTE_DECLARED`
-on and a `.cujo.yml` at the base commit that parses and declares `test`, the
-run is a **judge run**: `apps/cujo` provisions the box through `sandbox-mcp`
-itself, runs `sniff.py prepare` and `setup`, the declared `install` and `test`
-on head and, only when head is not clean, on base as well (decision 169), asks
-`sniff.py report` for the
-`tests` envelope, when a manifest changed, `sniff.py detonate`s each added specifier — a cached
-one as a `--cached` stub the fold replaces (decision 163) — and, when the
-policy declares `boot`, runs `sniff.py smoke` on head and, when head did not
-serve every request, on base too for the `smoke` envelope (decision 162); then starts a turn on the judge spec
-(`agent/JUDGE.md`) whose brief carries `sandbox: {id, env}`, `policy`,
-`executed: {tests: {report, truncated}, smoke?: {…}, detonation?: {…}}` and
-a `coverage` prefilled with what ran, plus the `build_facts` every brief
-carries — and neither
-`clone_url` nor `staged`, since the box is prepared. The executor reads the
-declared install's own exit code, which `sniff.py run` reports as a field
-rather than as its status (decision 173): a **head** install that exits
-non-zero ends the run in `error` naming the command and its tail, since
-every check after it would measure the environment; a **base** install that
-exits non-zero skips base's suite, marks the outcome `base_not_installed`,
-and lets the review post on head's own evidence. Each check's extras are
-merged into its envelope **on the trusted side**, under the envelope's own
-keys, so no report's size is bounded by an argument's length. The parent reads the
-evidence, spawns `probes` by default, and posts; `apps/cujo` destroys the box when the turn ends. Any
-other run is a **gather run**, the path below, on `agent/SKILL.md`. Logged as
+**Judge run or gather run (decision 161).** With `CUJO_EXECUTE_DECLARED` on and
+a `.cujo.yml` at base that parses and declares `test`, the run is a **judge
+run**: `apps/cujo` runs `tests`, `smoke` and `detonation` itself with no model
+(Contract 2; decisions 162, 163, 169), then starts a turn on `agent/JUDGE.md`
+with its own session and spec. The brief carries `sandbox: {id, env}`,
+`policy`, `executed: {tests: {report, truncated}, smoke?: {…},
+detonation?: {…}}`, a prefilled `coverage`, and `build_facts`, and neither
+`clone_url` nor `staged`. The declared install's exit code is a field of
+`sniff.py run` (decision 173): a **head** install that exits non-zero ends the
+run in `error`, naming the command and its tail; a **base** one skips base's
+suite and marks `base_not_installed`. Extras merge into each envelope on the
+trusted side, under the envelope's own keys. The parent reads the evidence,
+spawns `probes` by default, and posts; `apps/cujo` destroys the box after.
+Any other run is a **gather run** on `agent/SKILL.md`. The choice is logged as
 `run.path.resolved` with `path_kind` and a reason (`declared`, `undeclared`,
-`disabled`); a file that does not parse logs `policy.invalid` and takes the
-gather path. A judge run has a session and a spec of its own, like a diff run.
+`disabled`); a file that does not parse logs `policy.invalid` and gathers.
 
-A private repository's turn message carries `staged` — a 32-hex ticket — in
-place of `clone_url`, never both (decision 158). The sandbox holds no
-credential, so `apps/cujo` fetches the base and head trees as GitHub's
-archives with the installation token, streams both to `sandbox-mcp`'s
-staging route under the ticket before the turn exists, and the agent's
-`sandbox_create` with the ticket copies them into the box. The ticket is
-single use and swept after thirty minutes; a staging failure fails the run
-before any session is spent. The diff review is unchanged: it reads through
-the API and never needed a clone.
-
-The label filter inspects the `labels` array on the webhook payload as
-delivered. When a PR is created with a label in the same API call (e.g.
-`gh pr create --label`), GitHub may fire the `opened` event before the label
-is applied, so the first delivery may not carry it. The label takes effect on
-subsequent deliveries (`synchronize`, `ready_for_review`). This is by design:
-the label is a filter on future deliveries, not a retroactive cancellation of
-in-flight runs.
-
-**A push waits out a window before its run starts** (decision 144). A
-`synchronize` claims its run row at the delivery like any other event — that
-is what makes a redelivery a no-op — and answers 202 at once, but the start
-is held for `CUJO_PUSH_DEBOUNCE_MS` (one minute by default; `0` starts every
-push at once), logged as `webhook.debounced`. A newer push on the same pull
-request inside the window drops the older pending start, and the run that
-does start supersedes the rows the dropped ones left, so a burst of pushes is
-one run on the last head rather than one run per push, each cancelled by the
-next after it had spent its setup. The reaction and the check run land at the
-start, not the delivery, so a burst shows one eye on its last head. An
-`opened` or `ready_for_review` starts at once. On shutdown, pending starts
-fire at once: a row left `running` with no turn is an error on the next boot,
-and one that got its turn is followed there.
+**Private repositories (decision 158).** The turn message carries `staged`, a
+32-hex ticket, in place of `clone_url`, never both. Before the turn,
+`apps/cujo` fetches base and head as GitHub archives with the installation
+token and streams them to `sandbox-mcp`'s staging route under the ticket;
+`sandbox_create` with the ticket copies them into the box. The ticket is single
+use and swept after thirty minutes. A staging failure fails the run before any
+session is spent.
 
 For a `pull_request` event the `apps/cujo` webhook module:
 
-1. Verifies the `X-Hub-Signature-256` HMAC against the webhook secret. Rejects
-   anything unsigned or mismatched.
-2. Reads the PR metadata and the changed files — paths and, for the diff
-   review, their hunks — with the App installation token (Contents: read,
-   Pull requests: read), and whether GitHub calls the author a Bot.
-3. Resolves the **mode** (decision 135), after the read and before any turn,
-   and logs `run.mode.resolved` with the reason. In order: the instance's review mode
-   (the `reviewMode` setting, seeded from `CUJO_REVIEW_MODE`, decision 152),
-   the instance's answer when nothing else speaks; then the board's setting
-   for the repository (decision 155), what an owner set there; then `mode:` in
-   `.cujo.yml` read at the pull request's **base SHA** — the target branch's
-   policy, never the pull request's (decision 13), and a commit rather than a
-   branch name so a push to the target between the webhook and this read
-   cannot change the answer; then the two floors, which code enforces
-   whatever either said: a changed dependency manifest is `sandbox`, because
-   the install is the one thing the sandbox exists to watch and the pull
-   request that adds a hostile dependency is the one whose owner may have
-   been talked into `diff`; and a Bot author is `sandbox`, because a pull
-   request nobody wrote is one nobody read. `mode:` is matched by the same
-   strict line rule as `discord_guild`, so a malformed value is no
-   declaration and never costs a review. A read that fails ends the run in
-   `error` rather than guessing.
-4. For a **sandbox** run, finds or creates the harness session for this PR
-   (see Contract 5) and starts one turn with a single user message: repo full
-   name, PR number, base SHA, head SHA, the changed-file list, and — only when
-   the repo is public — `run_id`, which the agent passes back to the review
-   tool (Contract 4). An id and not a URL: the payload reaches an agent that
-   is about to read a stranger's pull request, so it names no host. When a
-   manifest changed, also `detonation_cached` (decisions 145, 148): for each
-   exact specifier the manifest hunks add that this instance detonated within
-   seven days, its `dependency`, `source`, `cached_at`, and `run_id` only when
-   that run is public — never the entry itself, which stays on the trusted
-   side. Omitted when there is none. And `instructions` (decision 155), the
-   owner's guidance for the repository as `{source, text, truncated}`, from
-   `.cujo/REVIEW.md` at base or from the board, omitted when there is none.
-   And `build_facts` (decisions 170, 171), how the services this pull request
-   touches are built, read at head before the mode is branched on so that
-   every review carries it — the manifest floor sends the pull request the
-   rule was written for to this path, so a block only the diff review had
-   could not fire on it. The same key and the same shape as Contract 11's,
-   and each hazard is a `warn` finding on the run whatever the review says.
+1. Verifies the `X-Hub-Signature-256` HMAC and rejects anything unsigned or
+   mismatched.
+2. Reads the PR metadata, the changed files (with hunks for the diff review),
+   and whether the author is a Bot, with the installation token (Contents:
+   read, Pull requests: read).
+3. Resolves the **mode** (decision 135) and logs `run.mode.resolved`. In
+   order: the instance's `reviewMode`, seeded from `CUJO_REVIEW_MODE`
+   (decision 152); the board's setting for the repository (decision 155);
+   `mode:` in `.cujo.yml` at the **base SHA** (decision 13); then the floors,
+   enforced whatever the others said: a changed dependency manifest is
+   `sandbox`, and a Bot author is `sandbox`. `mode:` uses the strict line rule
+   of `discord_guild`, so a malformed value is no declaration. A failed read
+   ends the run in `error`.
+4. For a **sandbox** run, finds or creates the PR's session (Contract 5) and
+   starts one turn with one user message: repo full name, PR number, base SHA,
+   head SHA, the changed-file list, `run_id` only for a public repo (never a
+   URL or host), and when present:
+   - `detonation_cached` (decisions 145, 148): for each exact specifier the
+     manifest hunks add that this instance detonated within seven days, its
+     `dependency`, `source`, `cached_at`, and `run_id` only when that run is
+     public. The entry stays on the trusted side.
+   - `instructions` (decision 155): `{source, text, truncated}` from
+     `.cujo/REVIEW.md` at base or from the board.
+   - `build_facts` (decisions 170, 171): read at head before the mode branch;
+     shape as in Contract 11; each hazard is a `warn` finding on the run.
+
    For a **diff** run, creates a fresh session on the diff spec (decision 137),
    prepares the package (Contract 11), stamps the run with the diff spec's
-   model, rubric digest and budget and the new session, and starts one turn
-   with the package as its single message; the pull request's own session
-   row is untouched.
-5. Records a run (see Contract 6) and stays subscribed to the turn's event
-   stream, folding events into that run until `turn.done`.
-6. Reacts on the pull request with an eye, once this run is known to be the
-   one worth starting and before the turn exists (Contract 9). A head the bot
-   already reviewed, and a delayed delivery for a head that is no longer
-   current, are both released before this point and get no reaction — one pull
-   request has one reaction, and neither of those runs will produce a status
-   that could clear it.
+   model, rubric digest, budget and session, and starts one turn with the
+   package. The PR's own session row is untouched.
+5. Records a run (Contract 6) and folds the turn's event stream into it until
+   `turn.done`.
+6. Reacts with `eyes` once the run is worth starting, before the turn exists
+   (Contract 9). A head the bot already reviewed and a late delivery for an old
+   head get no reaction.
 
-The webhook module does not decide what to check. That is the agent's job.
+The webhook module does not decide what to check. The agent does.
 
 ## Contract 2 — the sandbox run
 
-One sandbox per turn. The parent agent sets it up, delegates each
-check to a subagent, and collects one JSON report per check. Only those reports
-cross back out of the sandbox.
+One sandbox per turn. The parent agent sets it up, delegates each check to a
+sub-agent, and collects one JSON report per check. Only those reports leave
+the sandbox.
 
 ### Setup
 
-Two commands, not six. Everything before the sensors are armed has no decision
-in it, so `sniff.py prepare` does all of it at once and hands back the two
-things the next decision needs (decision 71).
+Two commands (decision 71).
 
-1. `sniff.py prepare` clones the repo at the head SHA and adds a worktree at the
-   base SHA — both in the same sandbox, so the comparison is like-for-like — and
-   returns, in the same result:
-   - `cujo_yml`: the text of `.cujo.yml` from the **base** SHA, or null. Policy
-     comes from the branch the PR targets, never from the PR itself, so a PR
-     cannot allowlist its own exfiltration host. If the PR changes `.cujo.yml`,
-     the parent emits a `warn` finding ("`.cujo.yml` changed in this PR; the
-     base version was used") and ignores the head copy for that run.
-   - `files`: the head's human-authored build files, keyed by path relative to
-     the clone — `pyproject.toml`, `package.json`, `go.mod`, `composer.json`,
-     `CMakeLists.txt`, `Makefile`, CI workflows and the like — from which the
-     parent infers whatever `install`, `test` and `boot` the policy did not
-     give. Found up to two directories deep, so a repository of services under
-     `services/<name>/` is covered; `node_modules` and its kin are never
-     descended. Lock files are never read: hundreds of kilobytes that say
-     nothing about how to run anything.
-   - `truncated`, `unreadable` and `omitted`: which files came back capped,
-     which matched but could not be read at all, and how many the file cap
-     dropped entirely. They are answered differently: a capped or omitted file
-     is an ordinary file the parent may open in `/work/head`, while an
-     `unreadable` one was *refused* — usually a symlink out of the checkout —
-     and opening it directly would walk around the containment check that put it
-     there. All three are the parent's cue that `files` is a
-     starting point rather than the whole repository — "no test suite found"
-     skips `tests`, `probes`, and `smoke` but not `detonation` (decision 87),
-     so it must mean the repository has no suite, never that one result did not
-     name one.
+1. `sniff.py prepare` clones the repo at the head SHA and adds a worktree at
+   the base SHA in the same sandbox. It returns:
+   - `cujo_yml`: `.cujo.yml` from the **base** SHA, or null. If the PR changes
+     it, the parent emits a `warn` ("`.cujo.yml` changed in this PR; the base
+     version was used").
+   - `cujo_yml_status`: `read`, `absent`, `too_large` (may be opened in
+     `/work/base`) or `unreadable` (must not be opened; the run stops), with
+     `cujo_yml_error`. The policy is never returned in part, never in
+     `truncated`, and has its own cap, `PREPARE_POLICY_CHARS`.
+   - `files`: the head's build files by path (`pyproject.toml`,
+     `package.json`, `go.mod`, `composer.json`, `CMakeLists.txt`, `Makefile`,
+     CI workflows and similar), two directories deep, each capped at
+     `PREPARE_FILE_CHARS`. `node_modules` and lock files are skipped.
+   - `truncated`, `unreadable`, `omitted`: capped files (may be opened in
+     `/work/head`), refused files (must not be opened), and the count the file
+     cap dropped.
 
-   It parses no YAML. Nothing under `sandbox/` may import a third-party module
-   (decision 46), so the raw text goes back and the parent reads it.
+   `prepare` parses no YAML; `sandbox/` is stdlib-only by default (decision
+   117). Caps bound the read and are spent on escaped text (decision 72). Only
+   regular files inside the clone are read. The head is always fetched as
+   `refs/pull/<n>/head` from the base repository's clone URL; if it moved off
+   `--head-sha`, `prepare` refuses and names both. A path is replaced only when
+   absent or marked by this command. The clone URL must name the host and the
+   `--repo` repository, be `http`/`https`, and carry no credential in userinfo
+   or query. Each git call has a timeout.
 
-   The two texts have different sources and different caps. `files` is head
-   content: written by the pull request, under `PREPARE_FILE_CHARS` each.
-   `cujo_yml` is the target branch's policy, which the pull request cannot
-   write — that is the whole reason it is read from base — and it has its own
-   much larger `PREPARE_POLICY_CHARS`. Both are still escaped on the way out,
-   because "the PR did not write it" is a statement about this commit and not a
-   property of the bytes, and escaping costs nothing on text that needs none.
+   `--staged DIR`, exclusive with `--clone-url` (decision 158), adopts the
+   trees `sandbox_create` unpacked under `/work/stage/base` and
+   `/work/stage/head`, each made a repository of one synthetic commit, and
+   reports `source: "staged"` (else `"clone"`). A missing or symlinked tree is
+   refused before anything moves.
 
-   Every cap bounds the read itself and not only the output, and each is spent
-   on the *escaped* text: escaping expands one character into four or six, so a
-   cap applied before it bounds the wrong quantity. Only real files resolving
-   inside the clone are read — a build file's name is the PR's to choose, and so
-   is whether it is a symlink.
-
-   `.cujo.yml` is **not** one of those capped strings and never appears in
-   `truncated`. It comes from base, it decides `allow_hosts`, and `truncated` is
-   the list the rubric re-reads from `/work/head` — so a policy file long enough
-   to cap would have handed the pull request its own allowlist. It has a much
-   larger budget of its own, and past that it is reported unreadable through
-   `cujo_yml_error` rather than returned in part: half a policy is worse than
-   none, because the missing half may be the hosts.
-
-   The head commit is fetched as `refs/pull/<n>/head` and not assumed to be in
-   the clone. `apps/cujo` sends the base repository's clone URL and no
-   credential, so a pull request opened from a fork has its head in a repository
-   the sandbox never sees; GitHub publishes that commit on the base repository,
-   publicly. The fetch is on the always path, not a fallback, so one code path
-   serves fork and same-repository alike. If the ref has moved off `--head-sha`
-   — somebody pushed between the webhook and the clone — `prepare` refuses and
-   names both, because a review attached to a SHA the run does not claim is
-   worse than a late one, and `supersede` already handles the new push.
-
-   `prepare` never deletes a directory it did not create. `--head` and `--base`
-   arrive on argv, argv is composed by the model, and the model has just read a
-   pull request: a path is replaced only when it is absent or when a marker this
-   command wrote sits beside it. The clone URL is checked against `--repo` for
-   the same reason — it starts at the GitHub API and arrives through a prompt,
-   so it must name the host *and the repository* the run is for.
-
-   `cujo_yml_status` is `read`, `absent`, `too_large` or `unreadable`, and the
-   rubric acts differently on each. `too_large` is a real file the parent may
-   open in `/work/base`; `unreadable` was refused and must not be opened, and
-   the run stops rather than proceeding without a policy it knows exists.
-
-   The clone URL must be `http`/`https` and must carry no credential, in
-   userinfo or in a query string; `prepare` refuses one that does, which is
-   where the trust boundary's "no clone credential may ever reach the sandbox"
-   is now enforced rather than assumed. Each git call has a timeout, so a
-   stalled remote is a diagnosable failed step rather than a hung run.
-
-   On a judge run (decision 161) every command in this step and the next, and
-   the `tests` check's two runs and its `report`, are issued by `apps/cujo`
-   through `sandbox-mcp`'s tools with no model, from the `.cujo.yml` it read
-   at base: a declared line runs as `sh -c <line>` inside the box, the
-   install under `--check setup` and the tests under `--check tests`, on head
-   first and on base only when head is not clean — a clean head being exit 0
-   with no failing test named, which leaves `base_pass_head_fail` empty
-   whatever base would have said (decision 169). The `base`, `head` and
-   `base_pass_head_fail` extras are read off the runs' output on the trusted
-   side (pytest, vitest, jest and go's failure lines; the suite's exit when
-   none is named); when base was not run the extras carry `base_not_run:
-   true`, an empty `base`, and a coverage note that says so, because a
-   comparison nobody made must not read like one that came back clean. The
-   `smoke` extras carry the same marker when head served every declared
-   request and base was never booted. The envelope is the one `sniff.py report` prints, whole, kept in
-   `run_executions` and folded into the projection as a check with no thread
-   (`threadId: executed:tests`); the hard rules read it as they read any
-   report.
-
-   `--staged DIR` is the other source, exclusive with `--clone-url` (decision
-   158): a private repository's trees, unpacked by `sandbox_create` under
-   `/work/stage/base` and `/work/stage/head`. Each is moved into place and
-   made a repository of one synthetic commit, so a build tool that asks git a
-   question finds an answer; the rest of the command is the same, and the
-   report says `source: "staged"` (a clone says `"clone"`). A tree that is
-   missing or a symlink is refused before anything moves. There is no
-   `refs/pull/<n>/head` check to make: the archives were fetched by SHA on
-   the trusted side, which is the same guarantee.
-2. `sniff.py setup` seeds the decoy secret — a fake credential file
-   (`~/.aws/credentials` with a bogus key) placed before anything runs — starts
-   the in-sandbox logging proxy and the inotify watcher on the decoy, and prints
-   the env every later command exports, `HTTP(S)_PROXY` included. Its
-   `--allow-host` list is the `allow_hosts` the parent just read.
+   On a judge run (decision 161), `apps/cujo` issues steps 1 and 2 and the
+   `tests` runs and `report` through `sandbox-mcp`. A declared line runs as
+   `sh -c <line>`: install under `--check setup`, tests under `--check tests`,
+   on head, and on base only when head is not clean (exit 0 with no failing
+   test named; decision 169). The `base`, `head` and `base_pass_head_fail`
+   extras are parsed on the trusted side (pytest, vitest, jest and go failure
+   lines; else the suite's exit). When base was not run they carry
+   `base_not_run: true`, an empty `base`, and a coverage note; `smoke` extras
+   carry the same marker. The envelope is kept in `run_executions` and folded
+   as a check with no thread (`threadId: executed:tests`).
+2. `sniff.py setup` seeds the decoy secret (a fake `~/.aws/credentials` with a
+   bogus key), starts the in-sandbox logging proxy and the inotify watcher, and
+   prints the env every later command exports, `HTTP(S)_PROXY` included. Its
+   `--allow-host` list is the policy's `allow_hosts`.
 3. The parent runs the install once per project root per tree, and delegates.
-   **The project root is where a manifest is, not the repository root** (decision
-   111): `files` is read two directories deep precisely so a repository of
-   services under `services/<name>/` is covered, and a repository with no root
-   manifest has no root install. `--cwd` narrows to the service;
-   `--workspace-root` is passed as the *tree* root, because the sensors' idea of
-   "inside the workspace" moves with it and narrowing both would make an install
-   writing at the tree root look like a write outside the workspace — which feeds
-   `wrote_sensitive`, a rule that accuses. These installs serialise on the sensor
-   lock, so the fan-out below starts later on a repository with many services.
+   **The project root is where a manifest is** (decision 111). `--cwd` narrows
+   to the service; `--workspace-root` is the tree root. Installs serialise on
+   the sensor lock.
 
 `.cujo.yml`'s schema:
 
@@ -451,87 +243,55 @@ things the next decision needs (decision 71).
    discord_guild: "2222…"      # which Discord server may watch it (Contract 8)
    ```
 
-   Any key can be omitted. Missing keys are inferred from the repo; if the
+   Any key can be omitted. Missing keys are inferred from the repo. If the
    agent cannot infer `test`, the run stops as described under `tests`.
 
 ### The checks
 
-Each check runs in its own subagent with fresh context. The subagent has the
-check's instructions and the sandbox tools, nothing else; only its final JSON
-report returns to the parent.
-
-No check reads another's report, and the two facts that decide which checks run
-at all — whether a test command could be inferred, and whether the manifest
-changed — are both settled during setup, before any subagent exists. The sensors
-serialise themselves (decision 41), so the wrapped commands still run one at a
-time whatever the parent does; what runs in parallel is the subagents' own
-reasoning, which is where almost all of a run's wall clock goes.
-
-So each is spawned as early as it can do anything, which is two moments and not
-one (decision 73). `detonation` goes first, during setup, because it needs only
-the two trees and the armed sensors: it installs each added specifier into its
-own fresh environment, so the repository's own install is nothing to it, and the
-manifest diff it reads first is free while that install runs. `tests`, `probes`
-and `smoke` go together once the install finishes, because all three run against
-an installed tree.
+Each check runs in its own sub-agent with fresh context, the check's
+instructions and the sandbox tools. Only its final JSON report returns. No
+check reads another's report. Sensed commands run one at a time (decision 41).
+`detonation` is spawned first, during setup; `tests`, `probes` and `smoke`
+together once the install finishes (decision 73).
 
 **A sub-agent that returns an error instead of a report is respawned once**
-(decision 108), under the same name, after a short wait. The retry is the
-parent's because it has to be: a sub-agent is a thread inside the parent's turn,
-and the trusted side holds only the `thread.done` that says it failed — there is
-no handle with which to restart one. The second thread carries the same check
-name, so `CheckState.attempts` says which attempt a thread was, the digest reads
-the *later* thread for that check's row, and the run's duration spans both. A
-check whose second attempt also failed is still `check_missing`, because that
-rule keys on which titles produced a report. **A report is an answer, whatever
-it says** (decision 143): a sub-agent whose report records a timed-out
-command or a fetch that never finished has answered with a coverage gap, and
-is not respawned — only a sub-agent that returned no report is.
+(decision 108), under the same name, after a short wait.
+`CheckState.attempts` says which attempt a thread was; the digest reads the
+later thread. A second failure is `check_missing`. **A report is an answer,
+whatever it says** (decision 143): one that records a timed-out command is a
+coverage gap and is not respawned.
 
-**The parent's install is wrapped in `sniff.py run --check setup` for the lock,
-not for a report.** The proxy and decoy logs are shared and sliced by offset, so
-an unwrapped install running beside a spawned `detonation` would have its egress
-and any decoy read counted as that check's — feeding `egress_to_unknown_host`
-and `decoy_read`, both hard rules. Wrapping makes it a lock participant, so the
-windows queue rather than overlap. `setup` is not one of the four check names,
-so no report is folded from it and it is never evidence; for that reason a
-`sniff.py run` under any name outside the four prints its outcome and flags
-(`exit`, `duration_s`, the tails, `derived`, `sensors`, `truncated`) and
-`recorded`, the path of the entry file in the box that holds the whole entry,
-and none of the lists (decision 166). The four names print the entry whole.
+**The parent's install is wrapped in `sniff.py run --check setup`** to hold
+the sensor lock; no report is folded from it. Under a name outside the four
+checks, `sniff.py run` prints only `exit`, `duration_s`, the tails, `derived`,
+`sensors`, `truncated` and `recorded`, the entry file's path in the box
+(decision 166). The four check names print the entry whole.
 
-- **`tests`** — run the suite on base and on head (on a judge run, on head
-  alone when head is clean: decision 169). Report per-test status for
-  each tree that ran, and the derived set `base_pass_head_fail`. If no suite is found and
-  `.cujo.yml` names none, the parent emits a single `warn` finding ("no test
-  suite found") and stops: no checks are spawned at all, and no review beyond
-  that finding. That is settled at setup, from the inference, and not from a
-  `tests` report — which is why it does not make `tests` a gate the other checks
-  wait behind. Without a suite the regression tripwire cannot fire, and the
-  missing suite is itself the finding.
-- **`probes`** — the subagent reads the diff, writes small scripts that call the
-  changed functions with inputs it chooses, and runs them against head. Report
-  each probe's script, the expectation the subagent stated before running it,
-  and the outcome. Probes exist to check claims the diff makes that the suite
-  does not cover.
+- **`tests`** — run the suite on base and on head (on a judge run, head alone
+  when head is clean: decision 169). Report per-test status for each tree that
+  ran, and the derived set `base_pass_head_fail`. If no suite is found and
+  `.cujo.yml` names none, the parent emits one `warn` finding ("no test suite
+  found") and stops: no checks are spawned. This skips `tests`, `probes` and
+  `smoke` but not `detonation` (decision 87).
+- **`probes`** — the sub-agent reads the diff, writes small scripts that call
+  the changed functions with inputs it chooses, and runs them against head.
+  Report each probe's script, the expectation stated before the run, and the
+  outcome.
 - **`smoke`** — boot the app with the configured or inferred command, hit the
   configured or inferred endpoints, stop it. Report status codes, response
   tails, and the log tail. On a judge run this is `sniff.py smoke` (decision
-  162), run by `apps/cujo` on head then base with the declared `boot` line and
-  `smoke` requests: the boot runs as one sensed command in its own process
-  group, the requests are made from the sensor process while it listens, and
-  the group is stopped inside the same window; one `runs[]` entry per tree
-  carries `tree`, `port`, `port_source`, `ready`, `requests[]` and the app's
-  sensor block, and `endpoints[]` and `log_tail` are joined from the two on
-  the trusted side.
-- **`detonation`** — runs only when the changed-file list includes a
-  dependency manifest (`requirements*.txt`, `pyproject.toml`, `setup.py`,
-  `setup.cfg`, `Pipfile`, `uv.lock`, `package.json`, `package-lock.json`,
-  `pnpm-lock.yaml`, `yarn.lock`, `Cargo.toml`, `go.mod`, and the like). The
-  subagent diffs the manifest at base and head to the specifiers that are added
-  or version-changed and runs `sniff.py` once per specifier. `sniff.py`
-  installs one dependency in a fresh environment behind the proxy and prints
-  one JSON object:
+  162), run by `apps/cujo` on head then base: the boot is one sensed command in
+  its own process group, the sensor process makes the requests, and the group
+  is stopped inside the same window. One `runs[]` entry per tree carries
+  `tree`, `port`, `port_source`, `ready`, `requests[]` and the app's sensor
+  block. `endpoints[]` and `log_tail` are joined on the trusted side.
+- **`detonation`** — runs only when the changed files include a dependency
+  manifest (`requirements*.txt`, `pyproject.toml`, `setup.py`, `setup.cfg`,
+  `Pipfile`, `uv.lock`, `package.json`, `package-lock.json`, `pnpm-lock.yaml`,
+  `yarn.lock`, `Cargo.toml`, `go.mod`, and similar). The sub-agent diffs the
+  manifest to the added or version-changed specifiers and runs `sniff.py` once
+  per specifier, which installs it in a fresh environment behind the proxy and
+  prints:
 
   ```json
   {
@@ -546,373 +306,166 @@ and none of the lists (decision 166). The four names print the entry whole.
   }
   ```
 
-  On a judge run `apps/cujo` runs this check (decision 163): one `sniff.py
-  detonate` per added specifier from the manifest diff it already reads for
-  the cache, `--cached` for a specifier the cache holds, then `sniff.py
-  report --check detonation`; the fold puts the stored entry in each stub's
-  place before any rule reads it, as it does for a sub-agent's report.
-
-  plus the shared sensor block below, and `resolved` — what the install said
-  the specifier became (`humanize==4.9.0`), read best effort after the sensed
-  window closed and `null` on any doubt or a failed install.
+  plus the sensor block, and `resolved`: what the install said the specifier
+  became, or `null` on any doubt or a failed install. On a judge run
+  `apps/cujo` runs this check (decision 163): `sniff.py detonate` per added
+  specifier, then `sniff.py report --check detonation`.
 
   **One detonation per exact specifier per instance per week** (decision
-  145). A specifier that names one immutable thing — a registry version
-  (`name==X`, `name@X`, `module@vX.Y.Z`, `name:X`) or a git commit
-  (`git+url@<40 hex>`) — is looked up on the trusted side before the turn
-  starts, in a table keyed on `(source, normalised specifier)` with a
-  seven-day TTL enforced on read. A hit reaches the agent in the brief as a
-  key and a date, and the entry itself is kept on the run
-  (`run_detonation_cache`, decision 148). The sub-agent runs
-  `sniff.py detonate --dependency <spec> --source <src> --cached` for a
-  listed specifier, which records a stub — `dependency`, `source`,
-  `cached: true` — and installs nothing; when the fold reads the report it
-  puts the kept entry in the stub's place, marked `cached_from_run` and
-  `cached_at`, before the schema or a rule sees it, matched on the
-  normalised specifier. A stub with no entry to stand in for it stays a
-  stub and the schema says so. The model assembles nothing and carries
-  nothing (decision 112 holds). When a `detonation` check
-  finishes, `apps/cujo` writes back every entry that may serve another run:
-  `install_ok` under an exclusive window, no hard-rule flag (`wrote_sensitive`, `egress_to_unknown_host`) and no decoy
-  read, every egress host on the sensors' own index list (so nothing one
-  repository's allowlist permitted can ride into another), an exact
-  specifier, and not itself a cached copy. Ranges, tags, branches and bare
-  names are never cached.
+  145). An exact specifier (`name==X`, `name@X`, `module@vX.Y.Z`, `name:X`, or
+  `git+url@<40 hex>`) is looked up before the turn in a table keyed on
+  `(source, normalised specifier)` with a seven-day TTL enforced on read. The
+  entry is kept on the run (`run_detonation_cache`, decision 148). For a hit
+  the sub-agent runs `sniff.py detonate --dependency <spec> --source <src>
+  --cached`, which records a stub (`dependency`, `source`, `cached: true`) and
+  installs nothing. The fold replaces the stub with the kept entry, marked
+  `cached_from_run` and `cached_at`, before the schema or a rule sees it. A
+  stub with no entry stays a stub (decision 112). After a `detonation` check,
+  `apps/cujo` caches each entry with `install_ok` under an exclusive window, no
+  hard-rule flag (`wrote_sensitive`, `egress_to_unknown_host`), no decoy read,
+  every egress host on the sensors' index list, an exact specifier, and no
+  cached origin. Ranges, tags, branches and bare names are never cached.
 
 ### The report
 
-**The sub-agent does not assemble the envelope — `sniff.py report --check <name>`
-does** (decision 112). Every `run` and `detonate` records its own entry, and that
-command prints the whole envelope: `check`, `schema_version`, every `runs[]` entry
-in order and whole, and the `derived` / `sensors` / `truncated` roll-up computed
-over them. The sub-agent passes the per-check fields in `--extra` and copies the
-output verbatim. `--extra` is spread *under* the envelope's own keys, so nothing
-the model sends can overwrite the sensors' half. `runs.0.schema_version: Required
-(+31 more)` was what the previous arrangement produced — a model rebuilding each
-entry out of the fields it judged interesting, against a rubric that already said
-not to.
+**`sniff.py report --check <name>` assembles the envelope** (decision 112):
+`check`, `schema_version`, every `runs[]` entry in order and whole, and the
+`derived` / `sensors` / `truncated` roll-up. The sub-agent passes per-check
+fields in `--extra`, which is spread *under* the envelope's own keys, and copies
+the output verbatim.
 
 **[`docs/contracts/report.example.json`](contracts/report.example.json) is the
-shape.** One complete example carrying every field at once, and the normative
-one: this section says what the fields mean and that file says what they are.
-It is there rather than inline because `check.report` is `unknown` in
-`apps/cujo` and in `apps/web`, so a renamed field produces no compile error
-anywhere, only rules that stop firing and tables that empty. A conformance test
-in each of the three consumers loads that file, which is what makes a change on
-one side fail on the others (decision 54).
+shape.** It is one complete, normative example. A conformance test in each of
+the three consumers loads it (decision 54).
 
-**A report is validated on arrival, and validation may only add** (decision 62).
+**Validation may only add** (decision 62).
 `apps/cujo/src/review/report-schema.ts` checks the envelope and every `runs[]`
-entry; a report that does not hold produces one `warn` finding, `report_invalid`,
-in the same family as `check_missing` and `sensor_unarmed`. It costs the run
-nothing else: the status is untouched, and the hard rules still read the same
-report, field by field and as leniently as they always have. A sub-agent that
-gets one roll-up wrong must not be able to turn a `decoy_read` sitting in plain
-sight inside `runs[]` into a warning about formatting.
-
-An unrecognised `schema_version` is still not a rejection, and an unknown field
-anywhere passes through — the sandbox is always newer than the container reading
-it. What the schema requires is what the rubric asks for: `check`, `runs[]` and
-`derived` on the envelope, and each `runs[]` entry whole rather than trimmed.
-
-The envelope a check sub-agent returns:
+entry. A failing report produces one `warn` finding, `report_invalid`; the
+status does not change and the hard rules still read the report. An unknown
+`schema_version` or field passes. The schema requires `check`, `runs[]` and
+`derived` on the envelope, and each `runs[]` entry whole.
 
 | field | |
 |---|---|
-| `schema_version` | The report shape, an integer. Read what you recognise; never reject a report for carrying a version you do not know. |
-| `check` | One of `tests`, `probes`, `smoke`, `detonation`. It must match the sub-agent's own name, which is how a report is attributed to a check. |
+| `schema_version` | The report shape, an integer. Never reject a report for a version you do not know. |
+| `check` | One of `tests`, `probes`, `smoke`, `detonation`. It must match the sub-agent's own name. |
 | `runs[]` | Every `sniff.py run` or `detonate` report, in order, verbatim. |
-| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry, so a roll-up the sub-agent got wrong cannot hide a signal. Validated leniently at this level, each in its own shape: `derived` and `truncated` hold named booleans and every key is optional; each sensor in `sensors` is an object that still owes `armed`. `derived` is required as a block; `sensors` and `truncated` may be absent. |
+| `derived`, `sensors`, `truncated` | The roll-up over every run. The hard rules read the top level *and* each `runs[]` entry. `derived` and `truncated` hold named booleans, every key optional; each sensor in `sensors` must carry `armed`. `derived` is required as a block; `sensors` and `truncated` may be absent. |
 
-plus the per-check fields in the rubric: `base` / `head` / `base_pass_head_fail`
-for `tests`, `probes[]`, `endpoints[]` and `log_tail` for `smoke`.
+plus the per-check fields: `base` / `head` / `base_pass_head_fail` for
+`tests`, `probes[]`, and `endpoints[]` and `log_tail` for `smoke`.
 
-Each entry of `runs[]` is what `sniff.py run` recorded and, for the four
-checks, printed: `schema_version`, `argv`,
-`exit`, `duration_s`, `window_exclusive`, `stdout_tail`, `stderr_tail`, and the
-sensor block below. A `detonate` entry carries `dependency`, `source`,
-`install_ok`, `duration_s` and `resolved` in place of `argv` and `exit`, and,
-when it was copied from an earlier run (decision 145), `cached_from_run` and
-`cached_at`.
+Each `runs[]` entry: `schema_version`, `argv`, `exit`, `duration_s`,
+`window_exclusive`, `stdout_tail`, `stderr_tail`, and the sensor block. A
+`detonate` entry carries `dependency`, `source`, `install_ok`, `duration_s`
+and `resolved` in place of `argv` and `exit`, plus `cached_from_run` and
+`cached_at` when copied (decision 145).
 
-The sensor block itself, the same on every check so the hard rules read one
-shape regardless of which one ran: `egress[]`, `files_read[]`, `fs_changes[]`,
-`subprocesses[]`, `secret_probe`, `sensors`, `truncated`, `derived`.
+The sensor block, the same on every check: `egress[]`, `files_read[]`,
+`fs_changes[]`, `subprocesses[]`, `secret_probe`, `sensors`, `truncated`,
+`derived`. In `sensors`, each entry carries `armed` (required) and `detail`
+(optional in the envelope roll-up). Inside `runs[]` every `derived` and
+`truncated` key is required; at the envelope every key is optional and must be
+a boolean when present. A roll-up that is not an object is refused (decision
+96).
 
-Inside `sensors`, each entry carries `armed` and `detail`. **`armed` is
-required and `detail` is not.** `sniff.py` writes both in every `runs[]` entry,
-and `docs/contracts/report.example.json` shows that maximal shape — but the
-envelope's `sensors` is a roll-up the sub-agent writes by hand, where only
-`armed` carries meaning: it is the half `unarmedSensors` rules on, while
-`detail` is prose for a reader ("port 8899", "793 rows") already quoted
-verbatim in the runs below. The validator accepts a roll-up without it, and the
-rubric says so, because the first production review after the validator shipped
-warned on four sensors that were correct and complete in every way a rule or a
-reader can use.
+**Every string in a report is written by the code under review.** Control
+characters, terminal escapes, and bidirectional and zero-width characters are
+escaped in place as visible `\xNN` and `\uNNNN`, not stripped. A length cap is
+measured on the escaped text and spends whole characters, so no escape is cut
+(decision 72). `truncated` is true when the output or its escaped form was cut.
 
-`derived` and `truncated` are read the same way at the envelope and for the same
-reason. **Inside `runs[]` every key is required; at the envelope every key is
-optional and each one must be a boolean when it is there.** A `runs[]` block is
-copied verbatim from `sniff.py`, so a key missing there means the producer
-moved, which is what the validator exists to catch. The envelope's copy is
-assembled by the sub-agent, and requiring the full shape there warned on every
-production run: fourteen `report_invalid` warns across three models in five
-runs, each a different partial reading of one rubric sentence — an empty object,
-a block short a key, a bare boolean. A roll-up nobody wrote hides no signal,
-because the rules already read both levels, and a roll-up of booleans that are
-all `false` in every run is a value the `any()` over the runs would compute
-anyway. A roll-up that is not an object at all is still refused, because that is
-a wrong shape rather than an absent one (decision 96).
+The sensors:
 
-**Every string in a report is written by the code under review** — what it
-printed, the arguments it ran, the filenames it chose, the hosts it asked for —
-and it is read by the parent agent, quoted into a review, and rendered in a
-browser. Control characters, terminal escapes, and the bidirectional and
-zero-width characters are therefore escaped where they appear, as visible
-`\xNN` and `\uNNNN`. Escaped, not stripped: the record still says what the
-command did, and the escape is its own account of itself, so there is no
-"sanitized" flag to carry.
-
-Because escaping expands — four characters for a control byte, six for a
-bidirectional override — a length cap is measured on the escaped text and never
-on the text (decision 72). Every capped string spends its budget one whole
-character at a time, so no escape is ever cut in half: a truncated `\u202e`
-would read as `\u20`, which is text the command did not print. `truncated` is
-true when either the output or its escaped form was cut.
-
-The sensors, layered from language-agnostic to language-specific:
-
-- **In-sandbox logging proxy.** Records each host, port, and byte count for
-  every process that honours `HTTP(S)_PROXY`, which covers pip, npm, cargo,
-  go, curl, and the common HTTP client libraries. Gives the `egress` list.
-  Payload contents stay encrypted until TLS interception is added. A process
-  that ignores the proxy variables and opens a direct socket is not seen by
-  this sensor; for Python the audit hook below still records it, and for other
-  languages that is a known gap (see non-goals).
-- **Filesystem diff.** A snapshot before and after each check flags anything
+- **Logging proxy.** Records host, port, and byte count for every process that
+  honours `HTTP(S)_PROXY`. Gives `egress`. Payloads are not read.
+- **Filesystem diff.** A snapshot before and after each command flags anything
   created or modified outside the workspace and its install environment
   (`in_workspace: false`), and anything under a sensitive path (`~/.ssh`, a
-  shell rc, cron, a credentials path) as `wrote_sensitive`.
-- **Decoy inotify watcher.** A watcher started at setup subscribes to
-  `IN_OPEN` and `IN_ACCESS` on the decoy file; any event during a check sets
-  `decoy_read`. This works for any language and does not depend on mount
-  options (access-time comparison was rejected because `relatime`, the Linux
-  default, only updates `atime` once per day, and `noatime` never does).
-- **Python audit hook.** When a check runs Python, a `sitecustomize.py` on
-  `PYTHONPATH` calls `sys.addaudithook` and records `open`, `socket.connect`,
-  and `subprocess`/`os.exec` events. It rides into every Python subprocess
-  (including pip running `setup.py`), so it gives the richer `files_read` and
-  `subprocesses` lists and a second, independent source for `decoy_read`.
-  `files_read` omits the reads the interpreter and package managers make on
-  their own account (the interpreter's `lib/` tree, `site-packages`,
-  `__pycache__` and `.pyc`, `.dist-info` metadata, `node_modules`, `/proc`,
-  `/sys`, `/dev`); a sensitive path is listed whatever it looks like, and so
-  is a read of Cujo's own state directory, which holds the real credentials
-  file the decoy displaced. This is
-  a filter on what leaves the sandbox in the JSON report, not on what the
-  hook records, and it exists because a single `pytest` run otherwise ships
-  hundreds of bytecode rows into the agent's context.
+  shell rc, cron, a credentials path) as `wrote_sensitive`. Each `fs_changes`
+  entry carries a `sensitive` flag. A path is sensitive on its lexically
+  normalised or its resolved form.
+- **Decoy inotify watcher.** `IN_OPEN` and `IN_ACCESS` on the decoy file; any
+  event during a check sets `decoy_read`.
+- **Python audit hook.** A `sitecustomize.py` on `PYTHONPATH` calls
+  `sys.addaudithook` and records `open`, `socket.connect`, and
+  `subprocess`/`os.exec` in every Python subprocess. It gives `files_read`,
+  `subprocesses`, and a second source for `decoy_read`. `files_read` omits
+  interpreter and package-manager reads (the interpreter's `lib/` tree,
+  `site-packages`, `__pycache__` and `.pyc`, `.dist-info`, `node_modules`,
+  `/proc`, `/sys`, `/dev`), but always lists a sensitive path and a read of
+  Cujo's state directory.
 
-The block also carries `subprocesses[]` (from the audit hook) and a
-`sensitive` flag on each `fs_changes` entry, so the `derived` booleans can be
-traced to the rows that set them.
+A file is identified by `(mtime_ns, size)`, plus a SHA-256 digest for the
+credential and shell-rc locations and the rest of `/etc` (a symlink by its
+target string; never the decoy, decision 58). A digest wanted and not taken is
+its own value; a digest on one side only is a change; with none on either
+side, metadata decides. Hashed files are opened `O_NOFOLLOW | O_NONBLOCK` and
+checked for type, device and inode. **Known gap:** a file unreadable in both
+snapshots can be edited with size and timestamp restored without detection.
 
-A path is classified sensitive on either its lexically normalised or its fully
-resolved form, so a `..` segment cannot walk into a credentials directory
-unnoticed and a symlink planted inside one is still sensitive.
+`sniff.py run` and `detonate` hold an exclusive lock, one sensed command at a
+time (decision 41); a report is the slice of the shared proxy and watcher logs
+written while its command ran, and the audit hook gets one log per command.
+Only a wrapped command is sensed. Commands: `setup`; `run --check NAME --
+CMD...`; `detonate --dependency SPEC`; `report --check NAME` (decision 112);
+`teardown`, which stops the daemons and restores or removes the decoy. **The
+sensors ship in the sandbox image** at `/opt/cujo`, `sniff.py` beside the
+`cujo_sniff` package (decisions 48, 117). State lives in `CUJO_DIR`, beside the
+code; `setup`'s JSON returns every path the rubric needs.
 
-The filesystem sensor identifies a file by `(mtime_ns, size)`, plus a SHA-256
-digest where a silent edit is the whole attack — the credential and shell-rc
-locations, and the rest of `/etc`, which is walked anyway. Metadata alone is
-defeated by `os.utime`: overwrite a key with another key of the same length, put
-the timestamp back, and two `lstat` calls see no change. Hashing everything
-would make each snapshot a full read of `$HOME`, so it is spent only there. A
-symlink is digested by its target string, so a link repointed with its timestamp
-preserved is still a change.
-
-The seeded decoy is the one sensitive path never digested. A digest means an
-open, the watcher is armed on that inode for exactly that event, and it cannot
-tell the snapshot's read from the read it exists to catch — so hashing it set
-`decoy_read` on every command of every check, base control included, and a hard
-rule reads that field (decision 58). Nothing is lost by the exclusion: the entry
-still carries metadata, `decoy` health follows the inode, and a command that
-overwrites the decoy has to open it, which is the same event by another route.
-It excludes the watched file and not every name that reaches it — a symlink is
-digested by `readlink`, which opens nothing, so a link resolving to the decoy is
-hashed like any other and a retarget with the timestamp restored is still a
-change.
-
-A digest that was wanted and could not be taken is recorded as its own value,
-distinct from one that was never wanted. A file with a digest on one side and
-none on the other has changed — readable before and not now, hashed before and
-swapped since, both are events a command causes while it runs, and both are
-reported. Where *neither* side has one, nothing was compared, so it falls back
-to metadata: much of `/etc` is root-owned and unreadable from one run to the
-next, and calling those files modified would put a non-lowerable critical on
-every check of every repository.
-
-`truncated.hashes` counts the files this walk *could* have compared and did
-not — the ones past `HASH_MAX_BYTES`, and the ones whose identity did not match
-between the `lstat` and the open. It deliberately does not count a file the
-sensors have never been able to read: that is not a gap that opened during the
-run, it is a part of the filesystem outside their reach, the same standing
-condition as a directory the walk cannot descend into and already skips without
-comment. Counting it would raise the flag on every run on every Linux box, and a
-flag that is always true says nothing.
-
-**What that leaves open**, stated rather than implied: a file kept unreadable
-across both snapshots can be edited between them with its size and timestamp
-restored, and the filesystem sensor will not see it. Doing so takes control of
-the file's permissions before the sensed command starts, since `before` is taken
-at the top of the window. Whether such a file's contents changed is not
-observable from inside the sandbox in either direction, and this design would
-rather miss it than accuse every pull request of touching `/etc/shadow`.
-
-The walk opens what it hashes with `O_NOFOLLOW | O_NONBLOCK` and then checks the
-descriptor — that it is still a regular file, and that its device and inode are
-the ones just measured. The command under test owns this tree: a FIFO
-substituted between the `lstat` and the open would block the snapshot for as
-long as nobody writes to it, and a file swapped in only for the duration of the
-open would pair an innocent digest with the metadata of whatever replaced it.
-
-The proxy and the watcher write to logs shared by every check, so a report is
-the slice of those logs written while one command ran. `sniff.py run` and
-`detonate` therefore take an exclusive lock for the duration: one sensed
-command at a time, and a second waits (decision 41). The audit hook instead
-gets one log per sensed command, so which file a row landed in is what
-attributes it. Only a command wrapped in `run` or `detonate` is sensed — a
-command the agent runs with the exported environment but outside a wrapper
-writes to the shared audit log, which no report reads.
-
-`sniff.py` exposes the sensors as four commands the rubric (`agent/SKILL.md`)
-names: `setup` seeds the decoy, starts the proxy and the watcher, and prints
-the environment every later command must carry; `run --check NAME -- CMD...`
-wraps one command and prints its report with the sensor block; `detonate
---dependency SPEC` is the detonation check; `report --check NAME` prints that
-check's whole assembled envelope (decision 112); `teardown` stops the daemons and
-restores or removes the decoy. **The sensors ship in the sandbox image**, at
-`/opt/cujo`, where `sniff.py` and the `cujo_sniff` package sit side by side
-(decision 117, reversing 46's runtime fetch). There is no archive, no
-`CUJO_SNIFF_TARBALL_URL` and no install step to skip. `sniff.py` is the entry
-point and nothing else: every one of those commands is implemented in the
-package, and the script exists so the rubric's spelling stays the same and so
-`sys.path[0]` finds the package with no install (decision 48).
-
-The commands keep their state in `CUJO_DIR`, which defaults *beside* the code
-and never inside it, so logs, pid files, the decoy backup, the sensed lock and
-each check's recorded `runs[]` entries are not mixed in with the modules. The
-original reason was a fetch that replaced the code directory wholesale; the
-reason now is that the code directory is a read-only image layer, which makes
-the same argument more strongly (decisions 48, 117). The rubric
-never names that directory: every path it needs comes back in `setup`'s JSON.
-
-The `derived` block holds the booleans the hard rules read.
-`egress_to_unknown_host` is true when a host is neither a known package index
-nor in `allow_hosts`.
-
-`secret_probe.decoy_in_egress` is `null` on every report, and null is the
-claim: the proxy counts bytes and never reads a payload, so nothing in this
-sandbox can tell whether the decoy's value left the box. It was `false` until
-decision 54, which asserted an observation nobody had made. The hard rule stays
-— it fires on `true` and nothing emits one — so that a later sandbox that can
-measure it needs no change on the trusted side.
+`derived.egress_to_unknown_host` is true when a host is neither a known package
+index nor in `allow_hosts`. `secret_probe.decoy_in_egress` is `null` on every
+report, because the proxy never reads a payload (decision 54); its hard rule
+fires on `true`.
 
 #### `sensors` — what was watching
 
-A tripwire that cannot say it was disarmed is worth less than it looks: `false`
-on every signal is also what a report says when the sensor producing it was not
-running. `sensors` carries one `{armed, detail}` entry per sensor, so "not
-observed" and "not observable" stop reading alike.
+One `{armed, detail}` entry per sensor:
 
 | sensor | armed when | `detail` |
 |---|---|---|
 | `proxy` | the daemon bound its port during `setup` **and** is still alive now | the loopback port |
-| `decoy` | the watcher armed during `setup`, is still alive, **and** the file it armed on is still the file at that path | `inotify` or `atime` — which one matters, because the atime fallback is close to useless under `relatime` |
+| `decoy` | the watcher armed during `setup`, is still alive, **and** the file it armed on is still the file at that path | `inotify` or `atime` |
 | `audit` | the hook wrote its `armed` row into this command's log | the row count, or that no Python process ran |
-| `fs_diff` | the walk reached any file at all | how many paths, and whether the cap cut it |
+| `fs_diff` | the walk reached any file | how many paths, and whether the cap cut it |
 
-Both daemon entries are re-checked per command, not taken from `setup`: a proxy
-that died during the first check used to leave the three that followed with an
-empty `egress` and a clean `egress_to_unknown_host` — a clean bill of health
-from a blind sensor.
+Both daemon entries are re-checked per command. The watcher re-arms on
+`IN_IGNORED` when a file is there; `setup` records the decoy's inode.
+`daemon_alive` checks that the pid's command line is one of ours.
 
-For the watcher, still running is not enough. inotify watches an inode rather
-than a name, so a command that deletes the decoy or renames a file over it moves
-the watch off the path it was asked about while the daemon stays alive and
-blocked. It re-arms on `IN_IGNORED` where a file is there to re-arm on; where
-there is not, the seeded decoy is gone, nothing is left to read, and a quiet
-`decoy_read` means nothing. `setup` records the inode for that comparison.
-
-An unarmed `proxy` or `decoy` is one `warn` in `apps/cujo` (`sensor_unarmed`),
-never a `critical`: it says the evidence is thin, not that the code did
-anything, and it does not gate the review. `audit` and `fs_diff` are reported
-and not ruled on — a check running `npm test` has no Python process to hook,
-and the filesystem sensor is never off, only short.
-
-Nothing in this block may name a host, a path, or a repository. A check report
-crosses to the anonymous public plane verbatim, with no field-level allowlist
-between here and there.
-
-**The block is evidence, not proof, and at the same level as the rows it
-describes.** The command being measured runs as the same user as the sensors: it
-can kill a daemon and write a live pid into its file, and it holds
-`CUJO_AUDIT_LOG` and can append the hook's own `armed` row. It can equally
-rewrite `proxy.jsonl`. Nothing observed from inside a sandbox the author
-controls is unforgeable, and the health block does not change that — what it
-closes is the accident, the daemon that died on its own. Two things bound it:
-`daemon_alive` checks that the pid's command line is one of ours, so the pid
-file alone is not enough; and the lie only runs one way. Forging health hides a
-gap in the evidence. It cannot manufacture a finding against anyone, because
-every rule here fires on a sensor reporting *false*.
+An unarmed `proxy` or `decoy` is one `warn` (`sensor_unarmed`), never a
+`critical`, and does not gate the review. `audit` and `fs_diff` are not ruled
+on. Nothing in this block may name a host, a path, or a repository; a report
+reaches the public plane verbatim. The block is evidence, not proof: forged
+health can hide a gap but cannot create a finding, because every rule fires on
+a sensor reporting *false*.
 
 #### `truncated` — where the evidence was cut
 
-Seven caps bound what a report can cost: `TAIL_CHARS` on each output tail,
-`MAX_FILES_READ` on `files_read` (a sensitive read is never dropped),
-`MAX_FS_CHANGES` on the benign rows of `fs_changes`, on each side of the
-workspace line (a sensitive row is never dropped, and the `derived` flags read
-the full list before the cut, decisions 146 and 166), `MAX_SNAPSHOT_FILES` on each filesystem walk, `HASH_MAX_BYTES` on the file a
-digest will be taken over, and the JSONL parser itself. `truncated` carries one
-boolean per cap, because a list that was cut is not a list that was empty — and
-because a comparison that was never made must not read like one that came back
-clean. The tail flags mean the output *or its escaped form* was cut: escaping
-expands, the cap is charged after it, so a command that printed only bidi
-overrides overflows a budget its raw length fits inside (decision 72).
-`truncated.sensor_logs` is true when any sensor log file contained lines that
-could not be decoded as JSON — typically a torn last line written by a
-daemon killed mid-flush. `truncated.hashes` is the size-limit case: over the
-limit there is no digest on either side, so the file falls back to the
-`(mtime, size)` a restored timestamp defeats. The limit sits well past any real
-credential for exactly that reason.
+Seven caps, one boolean each: `TAIL_CHARS` on each output tail (the output *or
+its escaped form*, decision 72); `MAX_FILES_READ` on `files_read` (a sensitive
+read is never dropped); `MAX_FS_CHANGES` on the benign rows of `fs_changes`,
+each side of the workspace line (a sensitive row is never dropped, and
+`derived` reads the full list, decisions 146 and 166); `MAX_SNAPSHOT_FILES` on
+each walk; `HASH_MAX_BYTES` on a digested file; and the JSONL parser
+(`truncated.sensor_logs`, a log line that did not decode). `truncated.hashes`
+counts files this walk could have compared and did not (past `HASH_MAX_BYTES`,
+or identity changed between `lstat` and open), not files never readable.
 
-A capped walk also changes what the filesystem diff may conclude, and which of
-the two walks was capped decides which half. A `created` row reads the *before*
-walk's silence about a path — a complete walk would have found it already — so
-it needs that walk to have finished; a `deleted` row reads the *after* walk's,
-so it needs the other one. A change to a path both walks hold is always
-reported, because no absence is being read. Getting this wrong in either
-direction invents evidence, and `wrote_sensitive` is a `critical` the agent may
-not lower.
-
-`window_exclusive`, on each run, is the same kind of statement about the lock:
-`false` means another sensed command overlapped this one, so rows in this report
-may belong to it.
+A `created` row needs the *before* walk complete; a `deleted` row needs the
+*after* walk. A change to a path both walks hold is always reported.
+`window_exclusive` on a run is `false` when another sensed command overlapped
+it.
 
 #### `script_content` — what the sensor captured before execution
 
 When `argv[0]` is a known interpreter (`python3`, `node`, `bash`, `sh`, and
 versioned Python names) and the first positional argument is a readable file,
-`run_sensed` reads and scrubs that file before the subprocess starts. The result
-sits beside `argv` on the per-run dict as `script_content`, a string or `null`.
-`null` means the command was not a script invocation — a bare `python3 -m
-pytest` carries no file — not that the capture failed.
-
-This closes a trust gap: the rubric asks the agent to self-report
-`{script, expectation, outcome}` for probes, but that is voluntary and
-unvalidated. `script_content` is written by the sensor from the file as it
-existed at the moment the command was about to run, scrubbed through `scrub()`
-and capped at `MAX_SCRIPT_CHARS` (8 000). `truncated.script_content` is `true`
-when the cap cut the file short (decision 70).
+`run_sensed` reads that file before the subprocess starts, scrubs it through
+`scrub()`, and caps it at `MAX_SCRIPT_CHARS` (8 000). It sits beside `argv` as
+`script_content`, a string or `null`; `null` means not a script invocation.
+`truncated.script_content` is `true` when the cap cut it (decision 70).
 
 ## Contract 3 — findings and the hard rules
 
@@ -932,225 +485,102 @@ The parent turns the check reports into a list of findings. Each finding:
 }
 ```
 
-`severity` is one of `info`, `warn`, `critical`. `detail` is one paragraph of
-judgment, expected on every `critical`; `next` is one imperative clause naming
-the action, required on `critical`, allowed on `warn`, never on `info`, and only
-ever following from something a sensor observed — never style, architecture or
-preference. `path`, `line`, and `side`
-are optional and anchor the finding as an inline comment. `line` is a line in
-the PR diff; `side` is `RIGHT` (the head version, the default) or `LEFT` (a
-line that exists only on base, for a finding about removed code).
+`severity` is `info`, `warn` or `critical`. `detail` is one paragraph of
+judgment, expected on every `critical`. `next` is one imperative clause:
+required on `critical`, allowed on `warn`, never on `info`, and only from
+something a sensor observed. `path`, `line` (a line in the PR diff) and `side`
+(`RIGHT`, head, the default; or `LEFT`, a line only on base) are optional and
+anchor an inline comment.
 
-Two layers decide severity, in order.
-
-**Layer 1 — the hard rules (deterministic, code).** Any of these forces a
-`critical` finding the agent cannot change:
-
-- `tests.base_pass_head_fail` is non-empty — the PR broke a test that passed
-  before it.
-- `secret_probe.decoy_read` or `secret_probe.decoy_in_egress` on any check —
-  something read or leaked the seeded secret.
-- `derived.wrote_sensitive` on any check — a write landed in `~/.ssh`, a shell
-  rc, cron, or a credentials path.
-- `derived.egress_to_unknown_host` on the `detonation` check — an install
-  called a host that is neither a package index nor allowlisted.
-
-**The five rules are not interchangeable, and the axis is not the obvious one.**
-The tempting split is "the author's code versus a third party's", and it is
-wrong: three of the four rules below fire on *any* check, `tests` and `smoke`
-included, and only `egress_to_unknown_host` is scoped to `detonation`. The real
-split is the **claim**:
+**Layer 1 — the hard rules (code).** Any of these forces a `critical` the agent
+cannot change:
 
 | Rule | Claim |
 |------|-------|
-| `tests.base_pass_head_fail` | **correctness** — the pull request broke something |
-| `secret_probe.decoy_read` | **malice** — code read a credential it was not given |
-| `secret_probe.decoy_in_egress` | **malice** — a secret left the box |
-| `derived.wrote_sensitive` | **malice** — code wrote outside the workspace |
-| `derived.egress_to_unknown_host` | **malice** — a dependency phoned home |
+| `tests.base_pass_head_fail` non-empty | **correctness** — the pull request broke something |
+| `secret_probe.decoy_read`, any check | **malice** — code read a credential it was not given |
+| `secret_probe.decoy_in_egress`, any check | **malice** — a secret left the box |
+| `derived.wrote_sensitive`, any check | **malice** — a write in `~/.ssh`, a shell rc, cron, or a credentials path |
+| `derived.egress_to_unknown_host`, `detonation` only | **malice** — a dependency phoned home |
 
-"Your tests fail" is mechanical, verifiable by the author in thirty seconds.
-"This code read a credential" is a claim about what the code did, and the review
-states it as the measurement it is — the path, the host, the time — because a
-human is the one who holds information the sandbox cannot observe: they know
-the host, or the package, or the fixture that touches a fake credentials file on
-purpose, and they say so by lifting the block (Contract 4, decision 138). Both
-kinds block the same way; the split decides what the review says and what the
-log calls the claim. Each rule carries its identity on the finding as `rule`, so
-the split is matched on an id and never on the wording of a title. `github-mcp`'s title
-backstop (decision 74) is that rule pointed the other way: it rewrites a title
-that is *nothing but* a Contract 2 field name into the sentence it means, and
-leaves one that is already prose alone — which is why no hard-rule finding is
-ever rewritten, since those have carried plain titles since they were written.
+Both kinds block the same way. A malice finding states the measurement (the
+path, the host, the time); a person who knows better lifts the block
+(Contract 4, decision 138). Each finding carries its rule as `rule`.
+`github-mcp`'s title backstop (decision 74) rewrites a title that is only a
+Contract 2 field name into a sentence. The rules fire only on positive
+evidence; `false` means "not observed".
 
-The hard rules are tripwires, not proofs of absence. Each fires only on
-positive evidence a sensor recorded, so a sensor gap (a direct socket the
-proxy did not see) can produce a missed `critical`, never a false one. A
-`false` in the sensor block means "not observed," and Layer 2 treats it that
-way.
+The rules run twice (decision 21): in the rubric, and in `apps/cujo` on each
+check's `thread.done`, over the top level and `runs[]`, as one `critical` per
+rule per check with `source: "hard_rule"`. A required check (`tests`, `probes`,
+`smoke`) with no report by `turn.done`, or a spawned `detonation` thread that
+ended without one (decision 146), adds a `warn` ("the tests check returned no
+report"). These head `findings`; the agent's (`source: "agent"`) follow, minus
+repeats of a hard-rule check and title. A `post_advisory_review` while a
+hard-rule finding exists ends the run `error` naming the rule.
 
-The rules run twice. The rubric tells the agent to apply them, and
-`apps/cujo` applies them again on its own side (decision 21): as each check's
-`thread.done` arrives it reads the report (`base_pass_head_fail`, and the
-`secret_probe` and `derived` blocks at the top level and inside `runs[]`) and
-derives one `critical` finding per rule per check, with `source: "hard_rule"`.
-A required check (`tests`, `probes`, `smoke`) whose sub-agent thread has not
-returned a report by `turn.done`, and any other check whose thread was
-spawned and ended without one (`detonation`, decision 146), adds a `warn`
-finding of its own ("the tests check returned no report"): the parent ran it
-inline, skipped it, or the thread failed, and either way the rules had no
-report to read (seen on the first real review, where the model delegated only
-`smoke`, and on every successful install of 2026-09-13, whose report was too
-large for the model to hand back). These findings head the run's
-`findings` list; the agent's own findings,
-passed as `findings[]` on the review tool call with `source: "agent"`, follow,
-minus any that repeats a hard-rule finding's check and title. If the agent
-calls `post_advisory_review` while a hard-rule finding exists, the review has
-already posted (that tool is not gated), so the run ends `error` with a
-message naming the rule instead of `clean`; the operator sees the
-contradiction rather than a green run.
-
-**Layer 1b — the build facts (deterministic, code, no execution).** Every
-review has a third source, `build_fact` (decisions 170, 171). Before the turn,
-`apps/cujo` reads how each service the pull request touches is packaged and
-derives a `warn` finding for each hazard those facts prove — today one rule,
+**Layer 1b — build facts (code, no execution; decisions 170, 171).** Before the
+turn, `apps/cujo` reads how each touched service is packaged and derives a
+`warn` for each proven hazard; today one rule,
 `esm_bundle_without_require_shim`. The findings carry `check: "build"` and
-`source: "build_fact"`, head the list beside the hard rules, and are deduped
-against the agent's own by check and title exactly as a hard rule's are. They
-are stored on the run before the turn starts, so a refold derives the same list
-without reading GitHub again.
+`source: "build_fact"`, head the list beside the hard rules, are deduped like
+them, and are stored before the turn. Always `warn`, never `critical`
+(decisions 136, 168). The rubric reports each hazard verbatim. A `build_fact`
+finding is not held out of `previous_findings`.
 
-`warn` and never `critical`, on every path — including the sandbox one, which
-may otherwise post `critical`: the facts are *read*, and a reader can reproduce
-them, which is the line decision 136 draws for what a review may block on. A
-sandbox run that installs the dependency can say whether a hazard is real, and
-that answer is worth having; it is still not the boot that would prove it
-(decision 168).
-The rubric tells the agent to report each hazard verbatim so it reaches the
-posted review; the trusted-side copy is what puts it on the record when the
-agent does not. Unlike a hard rule, a `build_fact` finding is not held out of
-`previous_findings` — a later diff run reproduces it from the same files.
-
-**Layer 2 — the agent judges the rest** against the rubric carried as its
-instructions (the `SKILL.md`):
+**Layer 2 — the agent judges the rest** against `SKILL.md`:
 
 - **`critical`** — a probe shows the change does not do what the diff claims;
-  a smoke endpoint that worked on base now errors; a suspicious combination the
-  agent judges to cross the line without a Layer 1 signal (for example, egress
-  to an unknown host during `smoke` paired with an unexpected subprocess).
-- **`warn`** — worth a human glance: changed code with no test covering it, a
-  cache write outside the workspace, an unfamiliar but plausibly benign host, a
-  smoke endpoint that is slower or noisier than on base.
-- **`info`** — what ran and what it showed, when nothing is wrong. The
-  execution summary is mostly `info`.
-
-Layer 1 protects the cases that must never be reasoned away; Layer 2 is where
-the agent's judgment does real work.
+  a smoke endpoint that worked on base now errors; a suspicious combination
+  without a Layer 1 signal.
+- **`warn`** — changed code with no test, a cache write outside the
+  workspace, an unfamiliar but plausibly benign host, a smoke endpoint slower
+  or noisier than on base.
+- **`info`** — what ran and what it showed, when nothing is wrong.
 
 ## Contract 4 — reviews, the block and the unlock
 
-Every review posts automatically — that is the product's value. The one human
-decision is the unlock. Two tools on `github-mcp`:
+Every review posts automatically. The one human decision is the unlock. Two
+tools on `github-mcp`:
 
 | Tool | When | GitHub review |
 |------|------|---------------|
 | `post_advisory_review` | no `critical` finding | COMMENT |
 | `post_blocking_review` | any `critical` finding | REQUEST_CHANGES (blocks merge) |
 
-**One call, never two** (decision 138). A malice finding is a `critical` like
-any other: the blocking review states what the sensors recorded — the host,
-the path, the time — and the merge is held at once. Nothing is drafted, held,
-or waited on; a person who knows the host or the fixture lifts the block on
-the pull request, where the evidence is. Which tool a run calls is decided by
-the rubric on the findings and re-derived in `apps/cujo` from the check
-reports (Contract 3): an advisory posted over a `critical` ends the run
-`error`, and a blocking review posted with none does not exist as a case the
-fold can see — the review is already public either way.
+**One call, never two** (decision 138). The rubric picks the tool, and
+`apps/cujo` re-derives the choice (Contract 3): an advisory over a `critical`
+ends the run `error`. Advisory is COMMENT, never APPROVE.
 
-**The review body is composed by `github-mcp`, not written by the agent**
-(decision 74). Both tools take the same input: a one-sentence `body` giving
-the verdict in plain language, a `findings[]` array, and optional `coverage` and
-`egress`. From those the server builds the posted body, in a fixed order: a
-headline carrying the verdict word and the severity counts, the lede, the
-findings by severity, the coverage caveat, the egress line and its host table,
-and a collapsed machine-readable block (`schema_version` 2 since decision 138:
-the `held` keys left with the gate, and a removed key is the one change that
-version exists to mark). An empty section is omitted. **The verdict word comes
-from the tool**, so a model cannot write "blocked" onto an advisory review — the
-word is not a thing it supplies.
+**`github-mcp` composes the body** (decision 74) from a one-sentence `body`,
+`findings[]`, and optional `coverage` and `egress`: a headline with the verdict
+word (from the tool, not the model) and severity counts, the lede, findings by
+severity, the coverage caveat (one line per check), the egress line and host
+table, and a collapsed machine-readable block (`schema_version` 2, decision
+138). Empty sections are omitted. A finding renders title, `detail`, `next`,
+then quoted `evidence` (decision 97); one with neither `detail` nor `next` and
+one-line evidence renders as `**title** · meta — evidence`, except a
+`critical`. Check names, titles and coverage notes are flattened to one line.
+An inline comment puts evidence first.
 
-Inside one finding the order is title, `detail`, `next`, then the quoted
-`evidence` — the proof below the sentence that explains it, so a reader who
-trusts the sentence never pays to parse the instrument output (decision 97). A
-finding carrying neither `detail` nor `next`, with evidence that fits on a line,
-renders as a single line instead: `**title** · meta — evidence`. The condition
-is the fields and not the severity, so a `warn` making an argument keeps the
-full block — with one floor: a `critical` never collapses, because the rubric
-requires both fields there while the schema leaves them optional, and a
-`critical` arriving with neither must not read as the review's smallest thing.
-A check name, a finding title and every coverage note are flattened to one line
-before they are rendered, so a newline in a model-supplied value cannot end a
-list item and leave the rest reading as another entry. The
-inline comment on a diff line keeps its own order, evidence first, because it
-arrives with no headline above it and the evidence is why it is on that line.
-Coverage prints one line per check, name then note, rather than stacking the
-notes into one sentence of parentheticals.
+**`comments[]` is deprecated.** A finding with `path`, `line` and `side`
+becomes an inline comment; a call that still sends `comments[]` posts those
+(decision 16). Anchors are validated against the diff; a finding whose anchor
+is not in it is marked `(not in this diff)`, and the rejection
+(`file_not_in_diff`, `line_not_in_hunk` or `bad_line`) is logged (decision 37).
+A prose body from an older rubric renders under `### Notes` (decision 16). A
+non-2xx GitHub call raises a `GitHubError` with `status`, `path` and `method`
+fields; only GitHub's `message` is read, capped.
 
-**`comments[]` is deprecated.** A finding carrying a `path`, a `line` and a
-`side` becomes an inline review comment on that diff line, derived from the
-finding rather than sent beside it. The parameter survives only for the
-migration: a session pins its rubric at creation (decision 16), so an in-flight
-pull request goes on sending one, and a call that does still posts exactly
-those comments rather than derived ones. Remove it once no session predating
-decision 74 can be running. `github-mcp` validates each derived anchor against the PR
-diff before posting, and a finding whose anchor is not in the diff is marked in
-place in the body — `(not in this diff)` — rather than moved to a section of its
-own, because the body already carries every finding. Which of the three
-rejections it was — `file_not_in_diff`, `line_not_in_hunk` or `bad_line` — is
-recorded per comment and logged, because an agent citing a file the PR does not
-touch and one citing a real file outside the hunk are different mistakes
-(decision 37).
+Both tools take an optional `run_id`, validated as a UUID. `github-mcp` builds
+the link from `CUJO_PUBLIC_BASE_URL` and appends a footer: a rule, then a bold
+link *View the full evidence* (decision 36); the same URL is `run_url` in the
+machine-readable block. No footer when `run_id` is absent (a private
+repository) or `CUJO_PUBLIC_BASE_URL` is unset.
 
-**A body written against an older rubric still renders.** A session pins its
-rubric at creation (decision 16) while `github-mcp` is stateless, so both shapes
-arrive on the same deploy: prose is detected, its headings demoted, and it is
-kept under a `### Notes` section with the headline and findings composed around
-it as usual. Nothing about an in-flight pull request degrades.
-
-A GitHub call that does not return 2xx raises a `GitHubError` carrying `status`,
-`path` and `method` as fields rather than interpolated into a message, so a
-caller can tell an expected `404` from an outage without parsing prose. The
-response body is not forwarded into the message: only GitHub's own `message`
-field is read from its error envelope, and capped — an upstream body can echo
-a request header back, and that is how one reaches a log line.
-
-Both also take an optional `run_id`, which the agent copies verbatim from the
-turn payload and never writes into the body itself. `github-mcp` validates it
-as a UUID, builds the link from its own `CUJO_PUBLIC_BASE_URL`, and appends the
-footer — a rule, then a bold link reading *View the full evidence* whose target
-is that URL — after the composed body, so the link is always last, always the
-same shape, and always on Cujo's own host
-(decision 36). The agent supplies neither the format nor the destination. The
-same URL is built once and appears twice, in the footer and as `run_url` inside
-the machine-readable block, so the visible link and the parseable one cannot
-disagree.
-
-Two independent conditions gate the footer, and each side owns the one it can
-answer: `apps/cujo` omits `run_id` from the turn payload for a private
-repository, which has no page a reader of the pull request could open; and
-`github-mcp` appends nothing when it has no `CUJO_PUBLIC_BASE_URL`. Either
-missing means the review body is exactly what it would have been without this
-feature.
-
-Advisory results post as a COMMENT review, not an APPROVE: the bot never formally
-approves, so it can never satisfy branch protection and wave a bad merge through.
-
-**The lock is a check run** (decision 138). A REQUEST_CHANGES review can be
-dismissed by anyone with write access, a coding agent with write access
-included; a check run cannot be dismissed at all, only completed by the App
-that owns it. So `apps/cujo` writes a check run named `cujo/guard` on every
-commit it reviews and moves it with the run's status, a projector beside the
-reaction (Contract 9) and driven by the same status changes:
+**The lock is a check run** (decision 138). `apps/cujo` writes `cujo/guard` on
+every commit it reviews and moves it with the run's status, beside the
+reaction (Contract 9):
 
 | Status | Check run |
 |--------|-----------|
@@ -1160,105 +590,61 @@ reaction (Contract 9) and driven by the same status changes:
 | `blocked` | `completed` / `failure` |
 | `dismissed` | `completed` / `neutral`, titled *Dismissed by @login* |
 | `error` | `completed` / `neutral` |
-| `superseded` | `completed` / `skipped`, only while this run is still the latest for its head; on `/cujo review` the replacement owns the commit and writes its own |
+| `superseded` | `completed` / `skipped`, only while this run is still the latest for its head; on `/cujo review` the replacement writes its own |
 
-The title is the status sentence the Discord card carries; the summary is the
-severity counts; `details_url` is the run page for a public run and absent for
-a private one; `external_id` is the run id. The write is idempotent by lookup:
-the check is found by name and App on the commit and PATCHed, or POSTed when
-there is none, and the id is cached per run. It needs `checks: write` on the
-App, which every installation approves once; until it has, the write fails
-with 403 and nothing else is affected. `CUJO_PR_CHECKS=0` turns it off. A
-merge is held only where branch protection **requires** `cujo/guard`; without
-that, a block is a review and a failed check, both visible and neither holding.
+The title is the Discord card's status sentence; the summary is the severity
+counts; `details_url` is the run page (decision 159); `external_id` is the run
+id. The check is found by name and App on the commit and PATCHed, or POSTed;
+the id is cached per run. It needs `checks: write`; without it the write fails
+with 403 and nothing else changes. `CUJO_PR_CHECKS=0` turns it off. A merge is
+held only where branch protection **requires** `cujo/guard`.
 
-**The unlock is `/cujo dismiss`** (Contract 1, decisions 44, 45, 138). It runs
-on the trusted side, for the run on the pull request's current head, and only
-when that run is `blocked`. In order: the dismissal is claimed in the store
-(`claimDecision`, one winner); the bot's own `CHANGES_REQUESTED` reviews on that
-commit are dismissed through the App with the message *Dismissed by @login with
-/cujo dismiss.*; the run moves to `dismissed` with `approver = github:<login>`
-and the change is emitted, so the reaction, the card and the check run follow.
-A GitHub write that fails releases the claim; zero matching reviews is not a
-failure, since somebody may have dismissed by hand first. The findings stay on
-the pull request: only the block is lifted.
+**The unlock is `/cujo dismiss`** (Contract 1, decisions 44, 45, 138), for the
+run on the current head, only when `blocked`. In order: claim
+(`claimDecision`, one winner); dismiss the bot's `CHANGES_REQUESTED` reviews
+on that commit with *Dismissed by @login with /cujo dismiss.*; move the run to
+`dismissed` with `approver = github:<login>` and emit. A failed GitHub write
+releases the claim; zero matching reviews is not a failure. The findings stay.
 
-**Stale review dismissal (decision 52).** A `REQUEST_CHANGES` review from an
-older commit stays on the pull request when a newer head replaces it. When a new
-run on the same PR completes `clean`, `apps/cujo` lists the bot's own reviews,
-finds any whose `commit_id` differs from the current head and whose state is
-`CHANGES_REQUESTED`, and dismisses them with a fixed message naming the new
-head. The trigger is the `clean` status — by definition, zero critical findings
-remain — and no other terminal status fires it. A run that ends `blocked` or
-`error` leaves stale reviews standing, since the original condition may not be
-resolved. Before listing reviews, the dismissal reads the PR's current head
-from GitHub; if the head has moved past this run's commit, the operation is
-skipped entirely to prevent dismissing a newer run's valid blocking review.
-The dismissal is a service-level action in `apps/cujo`, not a tool the agent
-calls, and `github-mcp` is unaffected.
-
-A block holds a merge only where the target branch's protection requires the
-`cujo/guard` status check. Requiring PR review alone is not enough: a review can
-be dismissed by anyone with write access, which is the case the check exists
-for.
+**Stale review dismissal (decision 52).** Only when a run completes `clean`,
+`apps/cujo` dismisses the bot's `CHANGES_REQUESTED` reviews on other commits,
+with a fixed message naming the new head, unless a fresh read shows the head
+moved past this run's commit. It is a service action, not an agent tool.
 
 ## Contract 5 — one session per PR, no double-posting
 
-- A PR maps to one Cujo session, keyed by repo and PR number. **A diff run is
-  the exception** (decision 137): each gets a fresh session on the diff spec,
-  because a session is pinned to the spec it was created with and the diff
-  spec has no sandbox; its memory of the pull request is the previous
-  review's findings in the package (Contract 11), not the transcript. The
-  per-PR session row is still claimed for the pull request and stays idle
-  on a repository that only ever reads.
-- On `synchronize` (new commits), the session runs a fresh turn against the new
-  head SHA rather than opening a new session. The earlier turns stay in the
-  session, so the agent can see what it said before.
-- **`/cujo reset` from Discord forgets a pull request's sessions** (decision
-  123), the review one and the conversation one, so the next push or `/cujo
-  review` creates fresh ones on the current rubric and model. A session is
-  pinned to the spec it was created with (decision 16), and before this the
-  only way to reach a pull request already under review with a changed rubric
-  was a new pull request. It is refused while a run on the pull request is
-  unfinished, because that run's turn is live on the session, and it needs the
-  same authorization as `/cujo watch`: the server the repo names is the one
-  that may restart its reviews.
-- The idempotency check lives in **`apps/cujo`**, not the agent or `github-mcp`.
-  Before starting a turn, it lists the PR's existing reviews with the
-  installation token and skips the turn if `cujo-guard[bot]` has already
-  reviewed the current head SHA. So a retried webhook or a re-run never
-  produces a duplicate review, and `github-mcp` stays write-only (it posts; it
-  does not read PR state).
-- **`/cujo review` supersedes instead of deleting (decision 104).** When a
-  maintainer asks for a re-review of the same head, the old run is marked
-  `superseded` instead of deleted, so the review it already posted keeps its
-  evidence footer reachable. The `runs_head` unique index is partial — it only
-  covers non-terminal statuses — so the superseded row does not block the
-  replacement's insert.
-- **One turn posts one review.** Since decision 138 there is no second call
-  and no held half: a head SHA gets one *run*, one review and one verdict, and
-  double-posting means two runs reviewing the same commit, which the
-  idempotency check above still prevents.
+- A PR maps to one session, keyed by repo and PR number. **A diff run is the
+  exception** (decision 137): a fresh session on the diff spec each time, with
+  the previous review's findings as its memory (Contract 11). The per-PR
+  session row is still claimed.
+- On `synchronize`, the session runs a new turn on the new head SHA.
+- **`/cujo reset` from Discord forgets a PR's sessions** (decision 123), review
+  and conversation, so the next push or `/cujo review` starts fresh ones on the
+  current rubric and model (decision 16). It is refused while a run on the PR
+  is unfinished, and needs the same authorization as `/cujo watch`.
+- **The idempotency check lives in `apps/cujo`.** Before a turn, it lists the
+  PR's reviews and skips if `cujo-guard[bot]` already reviewed the head SHA.
+  `github-mcp` only posts.
+- **`/cujo review` supersedes instead of deleting (decision 104).** The old
+  run is marked `superseded`, so its review's footer still resolves. The
+  `runs_head` unique index covers non-terminal statuses only.
+- **One turn posts one review** (decision 138): one run, review and verdict per
+  head SHA.
 
-## Contract 6 — the run record and the operator API
+## Contract 6 — the run record and the read API
 
-`apps/cujo` keeps one record per PR event it acted on, called a run. It is a
-projection of the harness session (decision 18): the fields below are all
-`apps/cujo` stores, and everything else the UI shows is rebuilt from the
-session's event log on demand, which `listEvents` returns whole (decision 123).
+`apps/cujo` keeps one record per PR event it acted on, a run: a projection of
+the harness session (decision 18). The fields below are all it stores; the UI
+rebuilds the rest from the session's event log (`listEvents`, decision 123).
 
-Events from the harness are validated at the boundary before they enter the
-fold (decision 105), against the contract's own schemas
-(`packages/harness-contract`): `safeParse` with a `run.event.invalid` warning
-on mismatch, never a rejection, and a type the contract does not name is
-checked for an id and a timestamp only.
+Harness events are validated against `packages/harness-contract` (decision
+105): `safeParse`, a `run.event.invalid` warning on mismatch, never a
+rejection. An unnamed type is checked for an id and a timestamp only.
 
-A run may span more than one harness turn: a turn that ended in error with
-nothing posted is retried once (decision 130), and the retry's `turn.created`
-carries `previousTurnId`. So a run holds an ordered list of turn ids,
-appended on every `turn.created` `apps/cujo` sees for the session, whether it
-started that turn or not, and rehydration replays every turn in the list in
-order.
+A turn that ended in error with nothing posted is retried once (decision 130);
+the retry's `turn.created` carries `previousTurnId`. A run holds an ordered
+list of turn ids, appended on every `turn.created` for the session, and
+rehydration replays them in order.
 
 | Field | Meaning |
 |-------|---------|
@@ -1267,884 +653,448 @@ order.
 | `session_id` | The harness session (one per PR, Contract 5). |
 | `turn_ids` | Ordered list: the turn started for this head SHA, then a retry if there was one. |
 | `status` | One of the seven states below. |
-| `approver`, `decided_at` | Who lifted a block and when: `github:<login>` of the person whose `/cujo dismiss` moved the run to `dismissed` (decisions 44, 138), set by the claim that makes a dismissal one person's. Both unset on every other run. Never served on the public plane. |
-| `is_public` | Whether the repo was public when the run was claimed, from the webhook's `repository.private`. Corrected by the `repository` event and by a periodic re-check; unset reads as private (decision 34). |
-| `delivery_id` | The `X-GitHub-Delivery` of the webhook that claimed the run, or unset for a run claimed before the column existed. It is the correlation id every log line for this run carries, which is what survives the request ending while the run does not (decision 37). A GitHub-side handle, so never served on the public plane. |
-| `pr_title`, `pr_author_login`, `pr_author_id` | What the pull request says about itself, read once when the run is claimed (decision 55). A card and a run page name the pull request and the person who opened it with them. All unset for a run claimed before they were stored or one whose PR read never completed; the two author fields are also unset for a deleted account. The id is what an avatar URL is built from, never the login. Served on both planes: for a public repo, GitHub already shows both to anyone. |
-| `model`, `rubric_sha256` | What produced this verdict: the configured model, and a SHA-256 of the instructions a session would be given — `agent/SKILL.md` after the tarball URL is substituted, so two deploys pointing at different sensor code hash differently. **Both describe the process that claimed the run, not necessarily the session that reviewed it**: the spec is built once at boot and a session is created once per pull request and then kept (decision 16), so a run claimed on an older session carries today's values. A diff run is stamped with the diff spec's pair once its mode resolves, and its session is fresh, so for it the two do describe the session. Unset for a run claimed before the columns existed. Served on both planes: a model name and a digest of a public rubric name no person and authorize nothing. |
-| `mode` | Which review this run is (decision 135): `sandbox` or `diff`. Written by `startRun` once the pull request has been read; a claimed row reads `sandbox` until then, and so does a row from before the column existed, which is the only review there was. Served on both planes, the list included: a `clean` that read the diff and a `clean` that ran it are different claims and a list row shows only the status. |
-| `budget_tokens` | The turn's token budget as stamped at start (decision 132), or unset for a sandbox run and for a run from before the column. Read beside `usage` on the run page. Served on the detail only, with the rest of the cost. |
-| `usage` | What the run cost, summed over every `turn.done` on it, from the harness's `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus its estimated cost in USD when the harness reports one above zero. Cujo keeps no price table — the number is the harness's, or it is absent. Each check carries its own token total beside it, summed from its thread's messages, which is the only way to attribute anything per check. **The key is always present**, and is `null` for a run whose projection was stored before the field existed — null and not zeros, because such a run did not cost nothing, it has no record. The per-check `usage` and `timings` are null on the same terms. `messages` on the run total is every `model.message` on every thread, counted by the fold as they arrive (decision 141), since turn metrics carry no count; the per-check figure carries reasoning tokens when a message reports them. |
-| `ledger` | Where the tokens went (decision 141): `threads[]`, one row per thread in the order they appeared — the parent first, titled `main`, then each sub-agent thread by its title with its `attempt` number — each summed from the `usage` on that thread's own `model.message` events (`messages`, input, output, cache read, cache write, `reasoningTokens` null until a message reports one) plus `toolResultBytes`, the size of every tool result the thread received; and `largestToolResults[]`, the ten largest tool results on the run by bytes, largest first, each as the receiving thread's title, the tool name, the byte count and whether it was an error. Bytes and not tokens, because the harness has no per-call token count and a result's size is what the next message's input carries. Never a thread id and never a result's content: the fold keys its rows by id in a map it does not store, and measures a result rather than copying it. **The key is always present**, `null` for a projection stored before the field existed, on the same terms as `usage`. |
-| `setup` | Where the run went before the first check existed: `turnCreatedAt` (the run's first `turn.created`), `sandboxCreatedAt` (always null since decision 115; `sandboxProvisionedMs` beside it is what the sandbox's own answer reports), `agentStartedAt` (the parent's first `model.message` on `main`), `firstCheckAt` (the first `thread.created` titled for a check), `messages` (the parent's own messages before it, which is the round-trip count setup cost), and `ms`, the span from `agentStartedAt` to `firstCheckAt`. Four stamps and not one duration, because two of the useful spans end outside this object — the claim is `created_at`, and a reader subtracts. `sandboxCreatedAt` is null on a second run for one pull request: the event is session-scoped and a fold sees only its own run's turns, so null says the sandbox was already there, which is why a re-run is faster. `ms` is omitted while either end is missing. **The key is always present**, `null` for a projection stored before the field existed, on the same terms as `usage`. |
+| `approver`, `decided_at` | Who lifted a block and when: `github:<login>` of the person whose `/cujo dismiss` moved the run to `dismissed` (decisions 44, 138). Unset otherwise. Never on the public plane. |
+| `is_public` | Whether the repo was public at claim, from `repository.private`. Corrected by the `repository` event and a periodic re-check. Unset reads as private (decision 34). |
+| `delivery_id` | The claiming webhook's `X-GitHub-Delivery`, or unset for an older run. The correlation id on every log line for the run (decision 37). Never on the public plane. |
+| `pr_title`, `pr_author_login`, `pr_author_id` | Read once at claim (decision 55). Unset for an older run or a failed PR read; author fields also unset for a deleted account. The avatar URL is built from the id. Served on both planes. |
+| `model`, `rubric_sha256` | The configured model and a SHA-256 of the instructions a session would be given. **Both describe the process that claimed the run**, not necessarily the session that reviewed it (decision 16). A diff run is stamped with the diff spec's pair. Unset for an older run. Served on both planes. |
+| `mode` | `sandbox` or `diff` (decision 135). Written by `startRun` once the PR is read; reads `sandbox` before that and for older rows. Served on both planes, the list included. |
+| `budget_tokens` | The turn's token budget as stamped at start (decision 132), or unset. Detail only. |
+| `usage` | Summed over every `turn.done` from the harness's `TurnMetrics`: input, output, cache-read, cache-write and reasoning tokens, plus estimated USD cost when the harness reports one above zero. No price table. Each check carries its own token total from its thread's messages. **Always present**, `null` for a projection stored before the field existed; per-check `usage` and `timings` likewise. `messages` counts every `model.message` on every thread (decision 141). |
+| `ledger` | (decision 141) `threads[]`, one row per thread in order (the parent first, titled `main`, then each sub-agent by title with its `attempt`), each summed from its own `model.message` usage (`messages`, input, output, cache read, cache write, `reasoningTokens` null until reported) plus `toolResultBytes`; and `largestToolResults[]`, the ten largest tool results by bytes, largest first, as thread title, tool name, byte count and whether it was an error. Never a thread id or result content. **Always present**, `null` as for `usage`. |
+| `setup` | `turnCreatedAt` (first `turn.created`), `sandboxCreatedAt` (always null since decision 115; `sandboxProvisionedMs` beside it), `agentStartedAt` (the parent's first `model.message` on `main`), `firstCheckAt` (the first `thread.created` titled for a check), `messages` (the parent's messages before it), and `ms`, from `agentStartedAt` to `firstCheckAt`, omitted while either end is missing. **Always present**, `null` as for `usage`. |
 | `created_at`, `updated_at` | Timestamps. |
 
-Status moves on events from the session's turn streams, with one exception
-(`superseded`, set by the webhook):
+Status moves on turn events, except `superseded`, which the webhook sets:
 
 | Status | Set when |
 |--------|----------|
 | `running` | The run was claimed; the first turn is being started. |
-| `clean` | `turn.done` on a posted advisory review, with at least one check having returned a report. On a diff run: the advisory review posted, full stop — it never had a check, and the run's `mode` is what says so. |
-| `unproven` | `turn.done` on a posted review with **no check report at all** (decision 107). The review is real and the evidence behind it is absent, which `clean` claimed the opposite of. Not `error`: Cujo ran and posted, it just had nothing to show. Terminal, so `TERMINAL_STATUSES_SQL` names it and the partial index excludes it. The one exception is decision 87's: when no suite was inferred and `detonation` reported alone, that is `clean`. |
-| `blocked` | `turn.done` on a `post_blocking_review`: REQUEST_CHANGES is on the pull request and the `cujo/guard` check fails on the head (decision 138). Terminal — nothing is followed — and the one status a person moves. `approver` is null until they do. |
-| `dismissed` | A person lifted the block with `/cujo dismiss` (Contract 1): the bot's review is dismissed, the check is neutral, `approver` names them. Set by `Runner.dismiss` from outside the fold, since no event says a block was lifted. Terminal. |
-| `error` | `turn.done` with an error state — including `token budget exhausted: N of B` from the harness (decision 132), which is never retried because the same brief would spend the same tokens — the stream was lost and the replayed turns show no terminal event after the turn timeout, the run could not be prepared (a GitHub read, the mode read, or the turn start failed) and so never had a turn, the turn ended on an advisory review while a `critical` stood (Contract 3), a diff run called `post_blocking_review` (Contract 11), the harness held a tool call — `approval requested for <tool>; nothing is gated on this spec` — which only a session pinned to a spec from before decision 138 can produce, and which is not retried, or GitHub refused the review — `review post failed: <tool> — <reason>` (decision 140) — which the same head would refuse again and so is not retried either. **Losing the stream is not itself an error** (decision 69): when every resubscribe is spent the run keeps watching the turn through `listTurns` and folds the verdict it really reached, so only the turn timeout ends a run Cujo can no longer see — and that timeout cancels the turn it ends. The timeout bounds the *run*, not the current process: on restart, `rehydrate` computes the remaining budget from the active turn's start time so a redeploy does not grant a fresh window (decision 99). |
-| `superseded` | A newer head arrived on the same PR, or `/cujo review` asked for this head again. A `running` run stops following its turn, which is cancelled; a finished run — `blocked` included — is moved in the store and emitted, so its ping, its reaction and its check run hear that a newer run owns the commit. |
+| `clean` | `turn.done` on a posted advisory review with at least one check report. On a diff run: the advisory review posted. |
+| `unproven` | `turn.done` on a posted review with **no check report** (decision 107). Terminal: `TERMINAL_STATUSES_SQL` names it and the partial index excludes it. Exception (decision 87): no suite inferred and `detonation` reported alone is `clean`. |
+| `blocked` | `turn.done` on a `post_blocking_review`; `cujo/guard` fails on the head (decision 138). Terminal; only a person moves it. `approver` null until then. |
+| `dismissed` | `/cujo dismiss` lifted the block (Contract 1). Set by `Runner.dismiss` outside the fold. Terminal. |
+| `error` | `turn.done` with an error state, including `token budget exhausted: N of B` (decision 132, not retried); stream lost and no terminal event after the turn timeout; the run could not be prepared (a GitHub read, the mode read, or the turn start failed); an advisory while a `critical` stood (Contract 3); a diff run called `post_blocking_review` (Contract 11); a held tool call, `approval requested for <tool>; nothing is gated on this spec` (not retried); GitHub refused the review, `review post failed: <tool> — <reason>` (decision 140, not retried). **A lost stream is not itself an error** (decision 69): the run watches through `listTurns` until the turn timeout, which cancels the turn. The timeout bounds the run, not the process; `rehydrate` computes the remaining budget from the active turn's start (decision 99). |
+| `superseded` | A newer head on the same PR, or `/cujo review` for this head. A `running` run stops following its turn, which is cancelled. A finished run, `blocked` included, is moved and emitted, so its ping, reaction and check run follow. |
 
-`unproven` is never reached by a diff run: the fold folds a diff run under its
-own ladder (Contract 11), which has no rung for missing evidence because none
-was expected. The watchdog window is the mode's: `CUJO_TURN_TIMEOUT_MS` for a
-sandbox run, `CUJO_DIFF_TIMEOUT_MS` for a diff run, in every place the window
-is named.
+A diff run folds under its own ladder (Contract 11) and never reaches
+`unproven`. The watchdog is `CUJO_TURN_TIMEOUT_MS` for a sandbox run and
+`CUJO_DIFF_TIMEOUT_MS` for a diff run.
 
-**A timed-out run says what it measured** (decision 109). The watchdog's
-synthetic terminal leaves `status: "error"`, and the reports that did land are
-read back from the session, folded without touching the run's own events, and
-posted to the pull request as one plain issue comment — never a review, because
-`apps/cujo` holds no review write at all. It names the check that hung, the
-checks that reported, any correctness critical among the findings, and the
-*number* of malice claims without naming one: a claim about what code did
-belongs in a review with its evidence, not in a comment about a run that did
-not finish. Nothing is posted if the read back turns up a review the stream
-had not yet delivered.
+**A timed-out run says what it measured** (decision 109). It stays `error`;
+the reports that landed are folded and posted as one plain issue comment,
+never a review: the check that hung, the checks that reported, any correctness
+critical, and the *number* of malice claims, none named. Nothing is posted if
+the read back finds an undelivered review. Operational hard rules
+(`check_missing`, `sensor_unarmed`, `report_invalid`) reach the author as a
+second kind of that comment (decision 110). One comment per run at most,
+recorded in `run_announcements`.
 
-**An operational hard rule reaches the author too** (decision 110), as a second
-kind of the same comment: `check_missing`, `sensor_unarmed` and `report_invalid`
-say the evidence was thin rather than anything about the code, and the posted
-review cannot carry them — `github-mcp` composes that body from the agent's own
-arguments, and Cujo re-derives the rules afterwards. A run gets **one** comment
-at most, recorded in `run_announcements`, because a comment is not the idempotent
-POST a reaction is and `rehydrate` re-folds every run on restart.
+A run records each turn id it creates (`startTurn` or `resume`, then
+`subscribe`) before the first event and never adopts another run's turn. A run
+with no recorded turn after a restart ends in `error` and does not hold its
+head. The fold reads persisted events: at each decision point
+(`tool.approval_required`, `turn.done`) `apps/cujo` re-reads them with
+`listEvents` and replaces the stream's copies (stored events plus
+`model.message.delta` frames) by id. The review tool call is recognised by tool
+name on the `model.message` (decision 128) and *recorded* only from a
+non-error `tool.response` (decision 140); a refused post leaves `review` null
+and ends the turn `error` unless a later call in the turn is accepted.
 
-One run, one turn chain. Every run on a PR shares the PR's session, so a run
-records the id of each turn it creates (`startTurn` or `resume`, then
-`subscribe`) before the first event arrives, and never adopts a turn another run on the
-session recorded. A run that has no recorded turn after a restart was lost
-between the claim and the turn; it ends in `error`, and because an errored run
-with no turn does not hold its head, a redelivery of the webhook claims the
-head again and reviews it.
+**A check's report is the result of `sniff.py report`** (decision 147): the
+last `sandbox_exec` result on the thread with exit code 0 whose stdout is one
+JSON object with `check` naming the thread's title and a `runs` array; else
+the first fenced JSON block of `thread.done.state.output`, parsed leniently.
+`sandbox-mcp` returns such a stream whole under 512 KB (decisions 142, 166).
+Checks match threads by exact title (`tests`, `probes`, `smoke`,
+`detonation`). A `thread.done` with `status: error` marks the check failed. A
+`tool.approval_required` on any thread ends the run `error` naming the call,
+not retried: no spec gates a tool (decision 138).
 
-The fold reads persisted events. The turn stream carries every stored event
-with its content, plus `model.message.delta` frames for text as it is
-produced; at each decision point (`tool.approval_required`, `turn.done`)
-`apps/cujo` still re-reads the session's events with `listEvents` and replaces
-the stream's copies by id before folding, so a stream that dropped a frame
-cannot cost a verdict. The review tool call is recognised by the tool's own
-name on the `model.message`: the harness exposes MCP tools to the model by
-name and there is no meta-tool (decision 128). It is *recorded* only from
-that call's `tool.response`, and only when the response is not an error
-(decision 140): the call says what the model meant to post, the response says
-what the pull request carries, and the run describes the second. A refused
-post leaves `review` null and ends the turn `error` naming the refusal; a
-later call in the same turn that GitHub accepts is the review.
-
-**A check's report is the result of `sniff.py report`, not the model's copy of
-it** (decision 147). The sub-agent runs that command last, and the fold reads
-the envelope off the `sandbox_exec` result that carried it: a result with exit
-code 0 whose stdout is one JSON object with `check` naming the thread's title
-and a `runs` array. The last such result on the thread is the report; the
-final message's fenced JSON is read only when no such result exists, which is
-what a session on an older rubric produces. `sandbox-mcp` hands back a stream
-that is one JSON object under 512 KB whole, so the envelope crosses uncut
-(decision 142's bound applies to everything else, and to a JSON object over
-that ceiling, which no report is: decision 166).
-
-The four checks are matched to subagent threads by title. The parent titles
-each spawned thread exactly `tests`, `probes`, `smoke`, or `detonation`; a
-thread with any other title is shown but not treated as a check. A check's
-report is the JSON in `thread.done.state.output` — the first fenced JSON block
-in the message, parsed leniently, because the output is a model message and not
-a structured field. A `thread.done` with `status: error` marks the check
-failed and the parent decides what that means for the findings.
-
-`apps/cujo` serves one read plane, under `/public`, on the internal service
-name in `CUJO_INTERNAL_HOST`. No gate stands in front of it. Beside it, on
-the same name and only when the App's OAuth client is configured, the owner
-plane under `/auth` and `/owner` (decision 153) — the first credentialed
-routes since the operator API was deleted with its hostname (decision 57):
+The read API is the `/public` group on the internal name in
+`CUJO_INTERNAL_HOST`, with no gate (decision 57):
 
 | Route | Returns or does |
 |-------|-----------------|
-| `GET /public/runs` | Public runs only, newest first, capped at 100. Filtered on `is_public = 1` in SQL, not by the route. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at`, `updated_at`, `pr_title`, and `digest` — and nothing else. Never the author, which belongs to the page about one run. |
-| `digest` on a list row | The run's checks and findings reduced to what a row can hold (decision 65): `checks` keyed by check name, each `{ status, ms, sandboxMs }`; `findings` as `{ critical, warn, info }` counts; and `durationMs`, the envelope from the first `startedAt` to the last `endedAt`. Nested keys stay camelCase, like every other nested object on this wire. A check name absent from `checks` never appeared, which is not the same fact as one that failed. `ms` and `durationMs` are null while a check is still running and on a run recorded before those stamps existed. `sandboxMs` is how much of `ms` was the sandbox executing the pull request, read off the check's own `timings` (Contract 6, decision 70) — the rest was the sub-agent deciding what to do next. It is null on the same terms plus a third: a check whose report carried no `runs[]` measured no sandbox time rather than zero, and a digest stored before the field existed never regains it, because `backfillDigest` re-derives a *missing* digest and not a stale one. Every one of these is emitted as `null` and never omitted; `durationMs` is deliberately not `updated_at − created_at`, which on a dismissed run counts the hours until a person lifted it. The whole field is null for a run claimed but never folded. Derived once per fold and stored in `run_digests`; a run folded before that table existed is derived on read and backfilled. |
-| `GET /public/runs/:id` | The run, its checks (status, report, the `startedAt` / `endedAt` taken from each thread event's own `createdAt`, without the thread id, and each check's own `attempts`, `usage` and `timings`), `findings` (Contract 3, critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model` and `rubric_sha256`, and `session_id`, `turn_ids` and `delivery_id` (decision 57) — but never `approver`, `decided_at` or `is_public`. 404 when the run does not exist **or** its repo is not public — the same answer either way, so the plane does not confirm that a private repo has runs. |
-| `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` when the process is already holding `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private while it is open. |
+| `GET /public/runs` | Public runs only, newest first, capped at 100, filtered on `is_public = 1` in SQL. Carries `id`, `repo`, `pr_number`, `head_sha`, `status`, `created_at`, `updated_at`, `pr_title`, and `digest`, and nothing else. Never the author. |
+| `digest` on a list row | (decision 65) `checks` keyed by check name, each `{ status, ms, sandboxMs }`; `findings` as `{ critical, warn, info }` counts; `durationMs`, first `startedAt` to last `endedAt`. Nested keys are camelCase. A check absent from `checks` never appeared. `ms` and `durationMs` are null while a check runs and on older runs. `sandboxMs` is the part of `ms` the sandbox spent executing, from the check's `timings` (decision 70); also null when the report had no `runs[]` and on a digest stored before the field (`backfillDigest` re-derives only a *missing* digest). Always emitted as `null`, never omitted. The whole field is null for a run never folded. Stored in `run_digests`; an older run is derived on read and backfilled. |
+| `GET /public/runs/:id` | The run, its checks (status, report, `startedAt` / `endedAt` from each thread event's `createdAt`, no thread id, each check's `attempts`, `usage` and `timings`), `findings` (critical first, each with `source`), `hard_rule_hits`, the posted review, `usage`, `setup`, `model`, `rubric_sha256`, `session_id`, `turn_ids` and `delivery_id` (decision 57). Never `approver`, `decided_at` or `is_public`. 404 when the run does not exist **or** its repo is not public, the same answer either way. |
+| `GET /public/runs/:id/events` | The same stream, in the same shape. 503 with `Retry-After` past `CUJO_PUBLIC_STREAM_LIMIT` streams. Closes if the repo goes private. |
 
-The `/discord/*` routes that were Contract 7's admin surface are gone: a
-channel is bound with `/cujo watch` (Contract 8). The only write routes are
-on the owner plane:
+The response is built by an allowlist, field by field
+(`http/public/serialize.ts`), never by removing fields from a wider shape.
+
+On the same name, only when the App's OAuth client is configured, the owner
+plane serves `/auth` and `/owner` (decision 153), the only write routes:
 
 | Route | Returns or does |
 |-------|-----------------|
-| `POST /auth/login` | Starts a sign-in: a `state` this process remembers for ten minutes, and the GitHub authorize URL carrying it. Called by `apps/web`, which redirects the browser. |
-| `POST /auth/callback` | `{ code, state }` from GitHub's redirect, via `apps/web`. Consumes the state, trades the code for a user token, decides the owner verdict, and answers the session id, the login and `is_owner`. 400 for a state it did not issue or one already used; 502 when GitHub did not complete the sign-in. |
+| `POST /auth/login` | Starts a sign-in: a `state` remembered for ten minutes, and the GitHub authorize URL carrying it. Called by `apps/web`. |
+| `POST /auth/callback` | `{ code, state }` from GitHub's redirect, via `apps/web`. Consumes the state, trades the code for a user token, decides the owner verdict, and answers the session id, the login and `is_owner`. 400 for a state not issued or already used; 502 when GitHub did not complete the sign-in. |
 | `POST /auth/logout` | Ends the session the bearer names. |
 | `GET /owner/me` | The signed-in login, `is_owner`, and the session's expiry. |
-| `GET /owner/settings` | Every key `settings.ts` lists — the models and the providers (decisions 152, 174), the limits and switches (decision 164) — with every provider key masked to its last four characters, where each value came from (`seed` or `owner`), and `groups`, which form each key is drawn on. `model` is null on an instance not configured yet; `diffModel` null means the diff review runs on `model`. `modelProviders` is a list of `{ kind: "anthropic", name: "anthropic", apiKey }` and `{ kind: "openai", name, baseUrl, apiKey, models[{ name, modelId }], contextWindow, maxTokens, reasoning }`, names unique. |
-| `PATCH /owner/settings` | Any of those keys. Validated as a whole before anything is written, the result included: a `model` or `diffModel` naming a provider the list does not hold is a 400. A masked key sent back keeps the stored key of the provider of that name; one that matches no provider by name is a 400 rather than a key. A limit is read at its next use — the next run's ceiling, the next push's window, the next question — and a run under way keeps what it started with. |
-| `POST /owner/settings/providers/models` | `{ provider }`, saved or not, a masked key read back as on the PATCH. The models it serves, from the harness: Anthropic's catalog with limits and whether a price is on file, or an OpenAI-compatible host's `/models`. 502 when the host does not list them. |
-| `POST /owner/settings/providers/test` | `{ provider, model }`, the same way. One short call through the harness on a runtime of its own, nothing registered: `{ ok, latencyMs, error? }`. A refused key or an unknown model is `ok: false`, not an error. |
-| `GET /owner/bot` | The App as GitHub sees it (decision 157): the App, its permissions against the five the reviews need with a verdict each, its installations with the registry's count of repositories under each, and its last twenty webhook deliveries with the status this process answered. 502 when GitHub does not answer. |
-| `GET /owner/health` | The same answer `/readyz` gives — harness, store, uptime — for a signed-in owner, and `configured`: whether a model is chosen and its provider registered (decision 174). While it is false, every pull request gets a neutral `cujo/guard` check, "Cujo is not configured", and no run. |
+| `GET /owner/settings` | Every key `settings.ts` lists (models and providers, decisions 152, 174; limits and switches, decision 164), provider keys masked to their last four characters, each value's origin (`seed` or `owner`), and `groups`. `model` is null when unconfigured; `diffModel` null means the diff review runs on `model`. `modelProviders` is a list of `{ kind: "anthropic", name: "anthropic", apiKey }` and `{ kind: "openai", name, baseUrl, apiKey, models[{ name, modelId }], contextWindow, maxTokens, reasoning }`, names unique. |
+| `PATCH /owner/settings` | Any of those keys, validated as a whole before any write. A `model` or `diffModel` naming a provider not in the list is a 400. A masked key sent back keeps the stored key of the provider of that name; one matching no provider is a 400. A limit is read at its next use; a run under way keeps its own. |
+| `POST /owner/settings/providers/models` | `{ provider }`, a masked key read back as on the PATCH. The models it serves, from the harness: Anthropic's catalog with limits and whether a price is on file, or an OpenAI-compatible host's `/models`. 502 when the host does not list them. |
+| `POST /owner/settings/providers/test` | `{ provider, model }`, the same way. One short call through the harness on its own runtime: `{ ok, latencyMs, error? }`. A refused key or unknown model is `ok: false`. |
+| `GET /owner/bot` | The App as GitHub sees it (decision 157): its permissions against the five the reviews need with a verdict each, its installations with the registry's repository count under each, and its last twenty webhook deliveries with the status this process answered. 502 when GitHub does not answer. |
+| `GET /owner/health` | The `/readyz` answer (harness, store, uptime), and `configured`: whether a model is chosen and its provider registered (decision 174). While false, every PR gets a neutral `cujo/guard` check, "Cujo is not configured", and no run. |
 | `GET /owner/repositories` | The registry (decision 151), removed rows included. |
-| `GET /owner/runs` | Every run, private ones included (decision 159), in the public list's shape and through the public serializer: nothing an owner reads here is a field the anonymous board could not, only runs it could not. |
+| `GET /owner/runs` | Every run, private ones included (decision 159), in the public list's shape through the public serializer. |
 | `GET /owner/runs/:id` | One run, public or private, in the public detail's shape. 404 only for a run that does not exist. |
-| `GET /owner/runs/:id/events` | The run's live stream, the public stream's twin on the same code; its own limit of twenty concurrent streams, sized for one person's tabs. 503 past it. |
-| `PATCH /owner/repositories/:owner/:name` | `{ enabled }`. 404 for a repository the registry has not heard of. |
+| `GET /owner/runs/:id/events` | The run's live stream, on the public stream's code; its own limit of twenty concurrent streams. 503 past it. |
+| `PATCH /owner/repositories/:owner/:name` | `{ enabled }`. 404 for a repository the registry does not know. |
 
-Every `/owner` route wants `Authorization: Bearer <session>` and answers 401
-without one and 403 to a signed-in non-owner. The session id is the value of
-the `cujo_session` cookie `apps/web` sets, and only `apps/web` turns one into
-the other.
+Every `/owner` route wants `Authorization: Bearer <session>`: 401 without one,
+403 for a signed-in non-owner. The session id is the `cujo_session` cookie
+`apps/web` sets; only `apps/web` turns one into the other.
 
-The response is built by an allowlist, field by field, and never by removing
-fields from a wider shape: the difference is what happens when a field is added
-to the projection later, and only the allowlist keeps that field private until
-somebody says otherwise.
-
-Two probes answer on each host this process already serves — the webhook host
-and the internal name in `CUJO_INTERNAL_HOST` — plus `/healthz` on
-`127.0.0.1` and `localhost` for the container healthcheck. They widen no host
-boundary: an unrecognised `Host` still gets 404, exactly as below. No gate
-stands in front of either:
+Two probes, no gate, on the webhook host and the internal name, plus
+`/healthz` on `127.0.0.1` and `localhost` for the container healthcheck:
 
 | Route | Returns or does |
 |-------|-----------------|
-| `GET /healthz` | Liveness. `{ok: true, service: 'cujo'}` for as long as the process is up. This is the container healthcheck, so it reads nothing and can fail for one reason only. |
-| `GET /readyz` | Readiness. `200` when the process can accept work, carrying the harness flag the webhook itself gates on, a store ping, the public stream count, the process uptime, and a count of log lines the process could not write. `503` when **either** the harness has not finished bootstrapping **or** the store ping fails, with the same body and the failing check named — a webhook delivery calls `getSession`, `putSession` and `createRun` synchronously, so an unreachable store means no run can be claimed and readiness is false whatever the harness says. Deliberately *not* the healthcheck: a readiness failure there would restart the container while `bootstrapUntilReady` is backing off on purpose, and would take `web` down with it (decision 37). |
+| `GET /healthz` | Liveness. `{ok: true, service: 'cujo'}` while the process is up. The container healthcheck; it reads nothing. |
+| `GET /readyz` | Readiness. `200` with the harness flag the webhook gates on, a store ping, the public stream count, the process uptime, and a count of unwritten log lines. `503` when the harness has not finished bootstrapping **or** the store ping fails, same body, failing check named. Not the healthcheck (decision 37). |
 
-Neither is gated because neither says anything an anonymous reader could not
-already infer: the body is booleans and counts, names no repo and no person, and
-the webhook's own `503` already announces that the harness is not ready.
+The host split is enforced in the process:
 
-One process serves two hostnames and two planes, so both splits are enforced in
-the process, not only at the edge:
-
-- Every request is dispatched on the `Host` header. On
-  `cujo-ingress.spencerjireh.com` the process serves `POST /webhook`,
-  `POST /discord/interactions`, `GET /healthz` and `GET /readyz`, and answers
-  404 to everything else, including `/public/runs`. On the internal service name
-  in `CUJO_INTERNAL_HOST` (default `cujo`), it serves `/public/*` and the two
-  probes, and answers 404 to everything else — `/webhook` and
-  `/discord/interactions` included. A request with any other `Host` gets 404.
-  The internal name is the only one the read plane answers on, because the UI
-  reaches this process over the compose network and Node's `fetch` always sends
-  the target's own authority as `Host`, so a published name could never arrive
-  here anyway (decision 57).
-- **404, not 401, outside `/public`, `/auth` and `/owner`.** There is no
-  credential to present anywhere else, so "not the board" cannot mean "behind
-  the check" — it means not served. A request carrying an `Authorization:
-  Bearer` or a `Cf-Access-Jwt-Assertion` to any other path is answered exactly
-  as one carrying neither. On `/owner` there is a credential by design
-  (decision 153), so a missing or expired session is 401 and a non-owner is
-  403; with no OAuth client configured the two prefixes are 404 like the rest.
-- `/public` is mounted on its own router, which is what it was moved to when
-  there was a gate that might otherwise have matched it (decision 34). It stays
-  that way: the mount is matched exactly, so `/publicity` is a 404 and not the
-  board.
-- The UI itself is `apps/web`, a separate service on `cujo.spencerjireh.com`.
-  It proxies `/api/cujo/*` and the run stream to this process, forwarding
-  `/public/*` with no credential and `/owner/*` with the session cookie turned
-  into a bearer (decision 153), so the API is same-origin with the page and
-  needs no published route of its own (decision 27). The board reads only;
-  the write verbs pass on the owner prefix alone. Sign-in is three routes of
-  its own on `apps/web`, `/api/auth/login`, `/api/auth/callback` and
-  `/api/auth/logout`, which call this process's `/auth/*`.
-  When this process is unreachable the proxy answers `502` with
-  `{ok: false, error: "cujo is unreachable"}`, rather than letting the failed
-  fetch surface as an unhandled `500` that says nothing (decision 37). It also
-  forwards `Cf-Ray`, so a line from the UI and a line from this process share
-  one correlation id. The run page serves `generateMetadata` from the same
-  anonymous read, so a run link pasted anywhere unfurls as that run rather
-  than as the site's front page — disclosing nothing the same caller cannot
-  already read from the same URL (decision 86, on 65's argument). A private
-  run 404s and inherits the site default, and the page stays `noindex`.
-- A path the board does not serve renders the board's own 404 and not the
-  framework's, so a link left over from the deleted operator plane — `/login`
-  before any other — lands on a Cujo page with a way back rather than on a
-  page that names nothing (decision 57). It is a real 404 and not a soft one:
-  the status is what tells a crawler, a `curl` or a proxy that the page is
-  gone, and markup alone cannot say it. The copy names no removed operator
-  area, because what a reader arriving on a dead link needs is what *is*
-  served. A run id that is not in the store keeps its own narrower answer,
-  which is the nearer boundary and wins for that segment.
-- The webhook route on `cujo-ingress.spencerjireh.com` accepts only a request
-  whose HMAC verifies (Contract 1), and `/discord/interactions` only one whose
-  Ed25519 signature does (Contract 8). Those two signatures are the only
-  credentials anywhere in this process.
-
-Tripwire: a `tool.approval_required` on any thread means a spec still gates a
-tool, which nothing has since decision 138. `apps/cujo` marks the run `error`
-naming the call; no `/cujo` command can decide it, and it is not retried.
+- On `cujo-ingress.spencerjireh.com` the process serves `POST /webhook`,
+  `POST /discord/interactions`, `GET /healthz` and `GET /readyz`, and 404 to
+  all else, `/public/runs` included. On the internal name (default `cujo`) it
+  serves `/public/*`, `/auth/*`, `/owner/*` and the probes, and 404 to all
+  else, `/webhook` and `/discord/interactions` included. Any other `Host` gets
+  404 (decision 57).
+- **404, not 401, outside `/public`, `/auth` and `/owner`**; a credential header
+  changes nothing. Without an OAuth client, `/auth` and `/owner` are 404 too.
+  `/public` is its own router, matched exactly (decision 34).
+- The UI is `apps/web` on `cujo.spencerjireh.com`. It proxies `/api/cujo/*` and
+  the run stream: `/public/*` with no credential, `/owner/*` with the session
+  cookie as a bearer (decisions 27, 153). The board only reads. Sign-in is
+  `/api/auth/login`, `/api/auth/callback` and `/api/auth/logout`, which call
+  `/auth/*`. When this process is unreachable the proxy answers `502` with
+  `{ok: false, error: "cujo is unreachable"}` (decision 37). It forwards
+  `Cf-Ray` as a correlation id.
+- A run page asks the public plane first; on a 404 an owner's session goes to
+  the owner plane (decision 159), and anyone else gets the same 404.
+  `generateMetadata` uses the same anonymous read (decision 86); a private run
+  gets the site default, and the page is `noindex`. An unknown path renders the
+  board's own 404 page with a 404 status (decision 57).
+- The webhook route accepts only a verified HMAC (Contract 1), and
+  `/discord/interactions` only a verified Ed25519 signature (Contract 8).
 
 ### Run lifecycle log events
 
-Every run emits structured events to stdout through `@cujo/log` (decision 37).
-The events below are the run-level subset; service-level events
-(`webhook.accepted`, `webhook.skipped`, etc.) are documented beside their
-emitters.
+Runs emit structured events to stdout through `@cujo/log` (decision 37).
+Service-level events (`webhook.accepted`, `webhook.skipped`, etc.) are
+documented beside their emitters.
 
 | Event | Level | Fields | When |
 |-------|-------|--------|------|
-| `run.mode.resolved` | info | `mode`, `reason` | Once per run, after the pull request is read and before its turn starts. `reason` is `declared`, `deploy_default`, `manifest_floor` or `bot_floor` (Contract 1). |
-| `run.status.changed` | info | `from`, `to`, `error_message`? | Each status transition. `error_message` is present only when `to` is `error` and the projection carries an error string; omitted on clean endings. |
+| `run.mode.resolved` | info | `mode`, `reason` | Once per run, after the PR is read and before its turn starts. `reason` is `declared`, `deploy_default`, `manifest_floor` or `bot_floor` (Contract 1). |
+| `run.status.changed` | info | `from`, `to`, `error_message`? | Each status transition. `error_message` only when `to` is `error` and the projection carries an error string. |
 | `check.started` | info | `check`, `thread_id` | A sub-agent thread whose title matches a check name moves to running. |
 | `check.finished` | info | `check`, `thread_id`, `status`, `duration_ms`? | A check thread reaches a terminal state. |
-| `run.setup.completed` | info | `session_id` | Fires once, on the first `check.started`, confirming sandbox setup succeeded and sensors are armed. `session_id` is the harness session, not a turn id. Seeded from the stored projection on rehydrate so a restart does not re-emit. |
-| `check.hard_rule.tripped` | warn | `rule`, `check`, `severity`, `claim` | One line per rule per check. `claim` is `"malice"` for the four supply-chain rules (decision 21), `"correctness"` for `tests_failed`, or `"operational"` for `check_missing` and `sensor_unarmed` (evidence-quality warnings, not code defects). Deduplicated by `rule:check` and seeded from the stored projection, so a restart does not re-announce. |
+| `run.setup.completed` | info | `session_id` | Once, on the first `check.started`. `session_id` is the harness session. Seeded from the stored projection on rehydrate. |
+| `check.hard_rule.tripped` | warn | `rule`, `check`, `severity`, `claim` | One line per rule per check. `claim` is `"malice"` for the four supply-chain rules (decision 21), `"correctness"` for `tests_failed`, or `"operational"` for `check_missing` and `sensor_unarmed`. Deduplicated by `rule:check` and seeded from the stored projection. |
 
 ## Contract 7 — Discord notifications
 
-A review that blocks a pull request is only useful if someone finds out. Cujo
-posts to a Discord channel as a bot, so a team sees a run start, sees it land,
-and is told once — loudly — when a run is waiting on a human.
+Cujo posts run status to a Discord channel as a bot. It is optional and off by
+default: without `DISCORD_BOT_TOKEN` nothing is posted.
 
-The feature is optional and off by default. Without `DISCORD_BOT_TOKEN` the
-service runs exactly as before and posts nothing.
+The bot token is a secret in the environment. The repo-to-channel binding is
+data in the run store (decision 24), made and removed with `/cujo watch` and
+`/cujo unwatch` (Contract 8); there is no HTTP admin surface (decision 57). One
+repo binds to at most one channel, with an optional `notify_role_id`. A repo
+with no binding is never notified. Repos are stored lower-cased.
 
-**What is configuration and what is data.** The bot token is a secret and lives
-in the environment. The repo-to-channel binding is operator data and lives in
-the run store behind the API, so adding a repo needs no redeploy and the write
-can be validated against Discord (decision 24). One repo binds to at most one
-channel, with an optional `notify_role_id` the ping mentions. A repo with no
-binding is never notified.
-
-**One card per run, edited in place.** Every run gets one message, posted when
-the run first reaches a status worth showing and rewritten on each later status
-change. A push to the pull request starts a new run (Contract 5), so it gets
-its own card and the earlier run's card is rewritten to say it was superseded.
+**One card per run, edited in place** on each status change. A push starts a
+new run with its own card (Contract 5); the earlier card says superseded.
 
 | Status | Colour | The card says | Fields |
 |--------|--------|---------------|--------|
-| `running` | amber (`--sev-medium`) | Review running. | `Head`, `Pull request`. Nothing that changes while the checks run: the card is rewritten only on a status change, so a progress count would freeze and then lie. |
+| `running` | amber (`--sev-medium`) | Review running. | `Head`, `Pull request`. Nothing that changes while the checks run. |
 | `clean` | grey (`--fg-muted`) | No critical finding; the advisory review posted. | Identity row, `Checks`, `Summary`. |
-| `blocked` | red (`--sev-critical`) | The blocking review posted and the `cujo/guard` check fails; a maintainer lifts it with `/cujo dismiss`. Also posts the ping below. | Identity row with `Findings`, then up to three *distinct* critical findings — grouped by title and evidence, naming the checks that saw it — then `Checks`. |
-| `dismissed` | grey (`--sev-low`) | The block was lifted, and by whom, as a login. The observation stands. | Grouped critical findings, `Checks`. |
-| `error` | blue (`--sev-info`) | The run ended in error. | `Error`. Red, never: red means the pull request is dangerous, and an infrastructure failure is a status, not a verdict. |
-| `unproven` | blue (`--sev-info`) | The review posted with no evidence: not one check returned a report. | `Checks`, `Summary`. The same blue as `error` for the same reason — both describe Cujo rather than the pull request — and the words tell them apart. |
-| `superseded` | near-black (`--line`) | Replaced by a newer commit. | `Head` and `Pull request` only. No findings: they describe a commit nobody is looking at, and showing them invites acting on a stale review. |
+| `blocked` | red (`--sev-critical`) | The blocking review posted and the `cujo/guard` check fails; a maintainer lifts it with `/cujo dismiss`. Also posts the ping below. | Identity row with `Findings`, then up to three *distinct* critical findings (grouped by title and evidence, naming the checks that saw it), then `Checks`. |
+| `dismissed` | grey (`--sev-low`) | The block was lifted, and by whom, as a login. | Grouped critical findings, `Checks`. |
+| `error` | blue (`--sev-info`) | The run ended in error. | `Error`. Never red. |
+| `unproven` | blue (`--sev-info`) | The review posted with no evidence: not one check returned a report. | `Checks`, `Summary`. |
+| `superseded` | near-black (`--line`) | Replaced by a newer commit. | `Head` and `Pull request` only. No findings. |
 
-The colour column is the brand severity ramp, dark values (decision 36); an
-embed carries one colour and is read on a dark client.
+The colours are the brand severity ramp, dark values (decision 36).
 
-**Cujo leads, the opener closes** (decision 100, reversing 86's allocation of
-the two lines). Cujo takes the author line — a fixed name and its own mark,
-the first thing a channel reads on every card. The person who opened the pull
-request takes the footer, the embed's last line, where an icon renders to the
-left of its text: their avatar, then `@login · run <id> · <sha>`. Footer text
-renders no markdown at all — not a link, not even emphasis — so the profile
-link 55's field carried cannot live there and is dropped rather than drawn as
-literal `[@login](url)` syntax, and the login is cleaned by stripping alone,
-because an escape backslash in a no-markdown slot is litter rather than
-defusal. The avatar is still built from the numeric account id, and the run's
-own handles pass the same strip. `Head` shares its inline row with `Pull
-request` (the card's link to `https://github.com/<repo>/pull/<n>`, structural,
-shape-checked in code, and a private run's only live link) and the `Findings`
-counts. Both identities are on every status, including `running` and
-`superseded`: who opened a pull request cannot change under the card, so the
-rule that keeps those two sparse does not reach them — and because the clamp
-only drops fields, neither the author line nor the footer is anything the
-6000-character budget can take. A run recorded before the author was stored,
-or one whose account has since been deleted, shows the handles alone in the
-footer, with no icon.
+**Layout** (decision 100). The author line is Cujo's name and mark. The footer
+is the PR opener: avatar icon (from the numeric account id), then
+`@login · run <id> · <sha>`, stripped, no link; handles alone with no stored
+author. `Head` shares an inline row with `Pull request` (a link to
+`https://github.com/<repo>/pull/<n>`) and the `Findings` counts. A blank row (a
+field of one zero-width space, a Cujo literal outside rule 4) separates
+surviving field groups; it is budgeted in the clamp and inserted after it.
+`Checks` (decision 86) reads `tests done, 1 critical, 41s` per check, with
+`0 critical` written out; criticals group by title and evidence for display.
+No card for a run whose repo has no binding, or an `error` run with no turn.
 
-**The sections breathe** (decision 100). Between surviving field groups the
-card carries a blank row: a field whose name and value are a single zero-width
-space, which renders as nothing but the row it occupies. It is Cujo's own
-literal and not a derived string, so rule 4's removal of zero-width
-characters — a rule about untrusted text — does not reach it. Spacers are
-budgeted in the clamp and inserted after it, so a section the clamp drops
-takes its blank rows with it and no blank row is ever left dangling; and the
-budget is searched from loose to tight, taking the first layout where the
-surviving content plus the blank rows those very survivors need fits the
-total, so no field is dropped for blank-row budget a dropped section left
-unused. The gap between the description and the fields is fixed by Discord
-and cannot breathe.
+**The ping.** On `blocked` Cujo posts a second message mentioning
+`notify_role_id` in `content` (none with no role), with a slim red embed
+(decision 86) titled `repo #n — <pr title>`, linking the run when it has a
+page, with the critical count, that the merge is held, and no fields. Cujo's
+link is in angle brackets. When the run leaves `blocked`, the same message is
+edited: recoloured, content says resolved. The ping is sent once per run, keyed
+on its message id; the resolving edit is keyed on its own flag and retried. The
+role is mentioned only while the repo is bound to the card's channel.
 
-**A check says what it measured, not a tick** (decision 86, on 65's precedent
-for the list row). The `Checks` field carries, per check, its terminal state
-in words, the criticals attributed to it, and how long it watched —
-`tests done, 1 critical, 41s` — with `0 critical` written out rather than
-implied by an absence, because an absent count next to a `done` would read as
-a pass again. Critical findings group by title and evidence for display, so
-one fact reported by three checks costs one line naming all three; the fold
-still records each finding, and the heading keeps the raw count.
+**Every string in a payload is attacker-controlled** (decision 26):
 
-Two runs get no card at all: a run whose repo has no binding, and an `error`
-run with no turn. The second is the "lost before its turn started" case, which
-a webhook redelivery re-claims under a fresh run id (Contract 6) — a card for
-it would sit in the channel beside the real one.
-
-**The ping.** A Discord edit notifies nobody, so the one outcome a maintainer
-must look at cannot be an edit. On `blocked` Cujo posts a second message that
-mentions `notify_role_id`, and that message carries its own card (decision
-86): a slim red embed titled `repo #n — <pr title>` — linking the run when it
-has a page — saying the critical count and that the merge is held, with no
-fields, because it sits directly under the run card and anything it repeated
-from the card above it would be noise. The mention stays
-in `content`, because a mention only pings from there, and Cujo's own link is
-wrapped in angle brackets so Discord does not unfurl the site beneath the
-embed Cujo just built. With no role configured it still posts, without a
-mention: a new message is what raises the channel's unread mark, which is the
-entire point. Once the run leaves `blocked` — dismissed, or superseded by a
-newer commit — that same message is edited in place: the embed is recoloured
-to the outcome and the content says resolved.
-
-Both ping steps are deduped on their own durable marker rather than on the
-run's status, because the card is written first and a matching status would
-otherwise hide outstanding work. The ping is sent at most once per run, keyed
-on its message id, so a crash between the card and the ping still sends it. The
-resolving edit is keyed on its own flag, so a failed edit is retried on the
-next event and after a restart — otherwise a channel could keep showing an
-actionable "needs a human" alert for a run nobody can decide any more. The role
-a ping mentions is only used when the repo is still bound to the channel the
-run's card lives in; a repo re-bound to another server mid-run gets a ping with
-no mention rather than one naming a role that server never had.
-
-**Every string in a payload is attacker-controlled** (decision 26). The PR
-title comes from GitHub, and finding titles, evidence, the summary and the
-error were written by a model that had just read the code in a stranger's pull
-request. So, without exception:
-
-1. Every payload carries `allowed_mentions: {"parse": []}`. Without it a pull
-   request titled `@everyone` pings the server. The ping's own mention is the
-   one exception, and it is an explicit `roles: [id]` for the configured role,
-   never a parsed one.
-2. Derived text is markdown-escaped (`` \ ` * _ ~ | [ ] ( ) ``), so nothing
-   renders as formatting and no `[label](url)` becomes a live link.
-3. Escaping the link syntax is not enough, because Discord also linkifies a
-   bare web address and an `<https://…>` autolink and a backslash stops
-   neither. So the scheme and the bare `www.` form are defanged —
-   `http[:]//example.com` — before the escape pass, which keeps the address
-   readable as evidence and unclickable. The only real URLs on a card are the
-   run's own link and the pull request's, both structural (rule 8's argument:
-   the repo was validated when the channel was bound, and the number is a
-   number) — and the pull request's is shape-checked `owner/name` in code
-   before it is built, with the field omitted when the check fails, for the
-   same reason rule 7's login check exists: enforced, not assumed.
-4. Control characters and the zero-width and bidi ranges are **removed**, not
-   escaped. A bidi override can render "not critical" as "critical"; escaping
-   does not stop that, only deletion does.
-5. Every string is truncated by code point, not UTF-16 unit, so a clipped emoji
-   cannot leave a lone surrogate. Limits: content 2000, embed title 256,
+1. Every payload carries `allowed_mentions: {"parse": []}`. The ping's mention
+   is an explicit `roles: [id]`.
+2. Derived text is markdown-escaped (`` \ ` * _ ~ | [ ] ( ) ``).
+3. The scheme and bare `www.` form are defanged (`http[:]//example.com`) before
+   escaping. The only real URLs are the run's link and the PR's; the PR link is
+   built only from a repo that passes the `owner/name` shape check, else the
+   field is omitted.
+4. Control characters and the zero-width and bidi ranges are **removed**.
+5. Strings are truncated by code point. Limits: content 2000, embed title 256,
    description 4096, field value 1024, footer 2048, 25 fields.
-6. The 6000-character total across an embed is a hard clamp, not a hope. Fields
-   are dropped in reverse priority until the payload fits. Exceeding it is a
-   400 that loses the card for the whole run, since every later edit then has
-   no message id to edit. The spacer rows are reserved in this budget before
-   the clamp runs and inserted after it, so what survives always fits with
-   its blank rows (decision 100).
-7. No derived string reaches an embed URL field unless it passed a strict
-   allowlist first (decision 55). Since decision 100 there is exactly one: the
-   pull request author's avatar, built from the numeric account id and placed
-   in the footer icon. GitHub issues no account id but a number, so the check
-   should never fire; it is there so the rule is enforced by code rather than
-   assumed. The second allowlist 55 and 86 kept — a profile link for a login
-   matching `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$` — retired with the footer
-   placement, because footer text renders no markdown and there is no longer
-   any slot a login-built URL could occupy.
-8. The ping's `content` is structural only — the repo (validated when the
-   channel was bound), the PR number, and Cujo's own link, wrapped in angle
-   brackets so Discord does not unfurl it beside the embed. The ping's embed
-   is not structural: its title carries the pull request's title, which is
-   stranger-authored text on this payload for the first time, so it passes
-   through the same escaping, truncation and clamping as any card string
-   (amended by decision 86; before it, the whole ping was plain text).
+6. The 6000-character embed total is a hard clamp: fields drop in reverse
+   priority until it fits, with spacer rows reserved first (decision 100).
+7. No derived string reaches an embed URL field without a strict allowlist
+   (decision 55). There is one: the author's avatar from the numeric account
+   id, in the footer icon (decision 100).
+8. The ping's `content` is structural only: repo, PR number, and Cujo's link in
+   angle brackets. Its embed title carries the PR title through the same
+   escaping, truncation and clamping (decision 86).
 
-**Delivery is at-least-once, and never blocks a run.** A failed send is logged
-and dropped; nothing about a run's status, review, or dismissal depends on
-Discord. Sends run on one serial queue, so an edit cannot overtake the create
-it depends on and a fan-out across many pull requests cannot exceed Discord's
-global rate. A 429 is retried once against `retry_after`. A `PATCH` answered
-`10008` (Unknown Message) means the card was deleted, and a fresh one is
-posted. A crash between Discord's 200 and the store write costs a duplicate
-card rather than a missed one; Discord has no idempotency key, and that is the
-safe direction. The channel is pinned to the run when its card is created, so
-re-pointing a repo mid-run cannot edit a message into a channel that never held
-it.
+**Delivery is at-least-once and never blocks a run**: a failed send is logged
+and dropped; one serial queue; a 429 is retried once against `retry_after`; a
+`PATCH` answered `10008` (Unknown Message) posts a fresh card. The channel is
+pinned to the run at card creation.
 
-**There is no HTTP admin surface.** `apps/cujo` served a `/discord/*` API on
-the operator hostname until decision 57 deleted both. A binding is created and
-removed with `/cujo watch` and `/cujo unwatch` (Contract 8), which is a better
-gate than the shared token ever was: the invoking member needs Manage Server in
-that Discord server, and the repo has to name that server in its `.cujo.yml`.
+**Binding validation** (at `/cujo watch`). `channel_id` must be a Discord id of
+a guild text or announcement channel the bot can read. A channel the bot cannot
+read and one that does not exist give the **same** answer; the real status is
+logged. `notify_role_id` must be a role in the server. The bot's effective
+permissions are resolved (its roles, then the channel's overwrites with
+`@everyone` first, then its role overwrites, then its own; `Administrator`
+short-circuits), and View Channel, Send Messages and Embed Links must survive.
 
-A repo is stored lower-cased: GitHub repo names are case-insensitive and
-`repository.full_name` carries whatever casing the owner typed, so a binding
-typed by hand would otherwise silently never match.
-
-The write is validated because a wrong id would otherwise fail silently at the
-first blocked run: `channel_id` must be a Discord id, the bot must be able to
-read the channel, and the channel must be a guild text or announcement channel
-in a server. A channel the bot cannot read and a channel that does not exist
-give the **same** answer on purpose — the difference would let a caller probe
-channels across all of Discord — and the real status is logged instead.
-A `notify_role_id` is checked against the server's roles, so "the ping mentions
-nobody" becomes an error at bind time.
-
-Reading a channel is not permission to post an embed in it, so the write also
-resolves the bot's effective permissions there — its roles, then the channel's
-overwrites applied `@everyone` first, then the union of the bot's role
-overwrites, then its own, with `Administrator` short-circuiting — and refuses
-the binding unless View Channel, Send Messages and Embed Links all survive. A
-channel-level deny would otherwise bind cleanly and then fail on every run,
-which is exactly the silent failure this route exists to prevent.
-
-The three routes that call Discord answer 503 with no token configured; the two
-that only read and write the store still work.
-
-**The token stays on the server.** `DISCORD_BOT_TOKEN` is held by `apps/cujo`
-alone. It is not in the agent spec, not in the turn message, not in any command
-that reaches the sandbox, and it never appears in an error message or a log
-line. Nothing on the notification path touches the sandbox at all.
+**The token stays on the server.** Only `apps/cujo` holds `DISCORD_BOT_TOKEN`;
+it is never in a spec, a turn, the sandbox, an error or a log line.
 
 ## Contract 8 — the `/cujo` slash command
 
-Contract 7 routes notifications. This contract decides where they go: the
-choice of channel and role is made in Discord, and the decision of which server
-may see a repo at all stays with the repo (decisions 28 and 31).
-
-**Two halves** (decisions 28 and 31). They answer different questions and are
-proved by different people. Neither alone does anything:
+Contract 7 routes notifications; this contract decides where they go
+(decisions 28 and 31). Neither half alone does anything:
 
 | Half | Question | Proved by | Where |
 |------|----------|-----------|-------|
 | Declaration | Which Discord server may have this repo's reviews? | Whoever can merge to the repo's default branch | `discord_guild` in `.cujo.yml` |
 | Binding | Which channel, and which role gets pinged? | A member with Manage Server | `/cujo watch` in that server |
 
-Without the repo's half, anyone could point a repo they do not own at their own
-channel. Without the server's half, anyone could send a repo's reviews into a
-server they do not belong to. A binding records who made it: `operator`, or
-`discord:<user id>`. On a deploy that serves one server, the declaration half
-can be answered once in the environment instead of once per repo — see **The
-deploy's own server** below; the server's half is never skipped.
+A binding records its maker as `discord:<user id>`.
 
 ```yaml
 # .cujo.yml on the default branch
 discord_guild: "222222222222222222"
 ```
 
-Cujo reads that file through the GitHub App, from the **default branch**, and
-never from the sandbox's copy — the sandbox holds the pull request's code, and
-code that declares its own authorization is not an authorization. Reading the
-default branch rather than the pull request's is also what makes the
-declaration proof: it has to be merged.
+Cujo reads that file through the GitHub App from the **default branch**, never
+from the sandbox. The key is extracted, not parsed as YAML: a Discord snowflake
+at the top level, or the repo counts as undeclared.
 
-The key is extracted, not parsed as YAML. It has one shape — a Discord
-snowflake at the top level — so anything else simply does not match and the
-repo counts as undeclared, which is the silent-but-visible behaviour below.
+**The deploy's own server.** `CUJO_DEFAULT_DISCORD_GUILD` names one server
+(never a list), and a repo that declares nothing belongs to it (decision 40).
+It applies only when the declaration is read and absent, and it is checked on
+the delivery path too, so unsetting it drops the bindings it allowed. An
+unreadable `.cujo.yml` stays `unknown`, and the default does not apply.
 
-**The deploy's own server.** `CUJO_DEFAULT_DISCORD_GUILD` names one Discord
-server, and a repo that declares nothing belongs to it (decision 40). A deploy
-serving a single server then needs no per-repo commit: set the variable once
-and run `/cujo watch`. Unset, every repo must declare, which is the rule above.
+**There is no override** (decisions 31, 57); the declaration is the whole
+authority. A malformed value, a server the bot is not in, or a missing file
+means "not declared", and reviews are unaffected. `/cujo watch` says what to
+add; `/cujo status` ends with the line to paste. `discord_guild` is checked
+before every card: a definite "no" drops the binding silently; an unreadable
+declaration keeps it and logs, and a command in that state asks for a retry.
 
-It is one id and never a list, so it answers "is this the deploy's own
-server?" — every other server is refused exactly as it is today, including one
-that invited the bot itself. It is consulted only after the declaration is read
-and found absent, so a repo that named a different server still wins. It is
-checked on the delivery path too, so unsetting it drops a binding it created,
-the same way reverting a commit drops a declared one. An unreadable
-`.cujo.yml` stays `unknown` and the default does not rescue it.
-
-**There is no override.** A table on the operator plane used to allow a pair
-directly, for moving a repo between servers or for a repo whose `.cujo.yml`
-cannot be changed. It went with the plane (decision 57), and the table is
-dropped by a migration rather than left unread. The declaration is the whole
-authority: repo write access, auditable in git history, revoked by a commit
-(decision 31).
-
-**When a declaration is wrong**, nothing fails: a malformed value, a server the
-bot is not in, or a missing file all mean "not declared". Reviews are
-unaffected — a config typo must not cost a review. `/cujo watch` says exactly
-what to add and where, and `/cujo status` closes with the line to paste, since
-listing every repo that named a server would mean reading each installed
-repo's `.cujo.yml` on every command.
-
-**Revoking is a commit, and it stops delivery.** Removing or changing
-`discord_guild` is checked before every card, not only when a channel is bound:
-a binding written before the edit would otherwise keep delivering forever,
-since nothing else on that path consults the declaration. On a definite "no"
-the binding is dropped and the run says nothing.
-
-"Definite" is doing work there. A repo that declares nothing and a repo whose
-`.cujo.yml` could not be read are different facts, and only the first stops
-delivery. Treating an unreachable GitHub as a revocation would let a hiccup
-silence a team's reviews, so an unreadable declaration keeps a binding that was
-legitimately created and logs. A command in the same position refuses and asks
-for a retry, because a command has someone waiting who can try again.
-
-`/cujo unwatch` is checked **before** the declaration and before the
-installed-repo list. A server must always be able to stop receiving: the very
-commit that revokes a declaration is what makes a binding stale, and removing
-the App from a repo is another, so gating cleanup behind either would strand
-the channel with reviews it can neither justify nor stop.
-
-Revoking an authorization also drops the binding it permitted. Leaving the
-channel bound would keep a server receiving reviews it may no longer see.
-
-**The command.** One `/cujo` with four subcommands, so a server gets one entry
-in the picker. `channel:` and `role:` are Discord's own option types, which
-render as native pickers; `repo:` is completed from every repo the Cujo App is
-installed on. It is deliberately not narrowed to the ones this server may
-watch: that would mean reading each repo's `.cujo.yml` on every keystroke,
-against a three-second budget. `watch` does one targeted read for the repo that
-was picked, and says exactly what to add if it has not named this server.
+**The command.** One `/cujo` with subcommands. `channel:` and `role:` are
+Discord's option types. `repo:` autocompletes from every repo the App is
+installed on. Every reply is ephemeral.
 
 | Subcommand | Does |
 |------------|------|
 | `/cujo watch repo channel [role]` | Sends that repo's cards to that channel, pinging that role when a review blocks. |
 | `/cujo unwatch repo` | Stops sending them. |
-| `/cujo status` | Where each repo watched here currently goes, and the line to add to a repo to allow another. There is no "allowed but not sent" state to report since decision 57: a declaration alone is not a binding. |
-| `/cujo test repo` | Posts a sample card to the bound channel. It exercises the token, the channel permissions and the rendering at once, which nothing else can do without waiting for a real pull request. |
+| `/cujo status` | Where each repo watched here goes, and the line to add to a repo to allow another. A declaration alone is not a binding (decision 57). |
+| `/cujo test repo` | Posts a sample card to the bound channel. |
+| `/cujo reset repo pr` | Forgets the pull request's sessions (Contract 5, decision 123). |
 
-Every reply is ephemeral, so configuring makes no noise in the channel.
+**The gates, in order.** The reply names the gate that failed:
 
-**The gates, in order.** A command is refused unless all of these hold, and the
-reply says which one failed:
-
-0. `/cujo unwatch` passes everything below except the Manage Server check and
-   the rule that a server may only remove its own binding. Stopping is never
-   gated.
+0. `/cujo unwatch` skips every gate below except Manage Server and the rule
+   that a server removes only its own binding.
 1. It came from a server, not a direct message.
-2. The invoker has Manage Server. Discord enforces this itself through
-   `default_member_permissions`, which hides the command from everyone below
-   the bar — but a server admin can change that default, so the handler checks
-   the interaction's own `member.permissions` as well. A permission check that
-   lives only on the client is not a permission check.
-3. The repo is one the Cujo App is installed on. A repo it is not can be bound
-   and then never notified, which is the silent failure the rest of these
-   checks exist to prevent. Only a list Cujo managed to read can refuse a bind:
-   GitHub being unreachable is not a reason to block one. The authorization
-   route applies the same check when a pair is allowed by hand. This comes
-   before the next check on purpose: a repo the App cannot see has no readable
-   `.cujo.yml` either, and "it has not named this server" would send someone to
-   edit a file Cujo could not have read.
-4. The repo names this server in `.cujo.yml`, or this is the deploy's own
-   server and the repo declares nothing (decision 40). `watch` checks this again
-   immediately before it writes: the Discord round trips in between are awaits,
-   and a declaration reverted during them must not end with a binding for a
-   server that may no longer see the repo.
-5. For `unwatch`: no **other** server already holds this repo. One repo
-   notifies one channel (Contract 7), and `unwatch` is reachable without
-   authorization on purpose, so without this one server could silence
-   another's reviews.
+2. The invoker has Manage Server (`default_member_permissions`, and the
+   handler checks `member.permissions`).
+3. The App is installed on the repo. Only a list Cujo read can refuse.
+4. The repo names this server, or this is the deploy's own server and the repo
+   declares nothing (decision 40). `watch` re-checks just before it writes.
+5. For `unwatch`: no **other** server holds this repo. For `watch`: another
+   server's binding is refused **unless that claim is stale** (its
+   authorization re-read `fresh` and no longer named; a failed read refuses;
+   decision 57). To move a repo, change `discord_guild`, then `/cujo watch` in
+   the new server.
+6. For `watch`: the channel is in **this** server and passes Contract 7's
+   binding validation; a role, if given, is in this server.
 
-   For `watch` the rule is narrower, because this is also how a repo moves
-   between servers now that the operator override is gone (decision 57). An
-   existing binding held by another server is refused **unless that server's
-   claim has gone stale** — the holder's authorization is re-read `fresh`, and
-   only a holder the declaration no longer names loses the binding. A holder
-   that is still authorized keeps it, and a read that fails is refused rather
-   than guessed: taking a binding from another server on a guess is the one
-   mistake here that does not correct itself. So moving a repo is two steps
-   its own maintainers control — change `discord_guild` on the default branch,
-   then run `/cujo watch` in the new server.
-6. For `watch`: the channel is in **this** server, is a text or announcement
-   channel, and the bot has View Channel, Send Messages and Embed Links there,
-   resolved through the overwrites exactly as Contract 7's bind route does. The
-   channel option comes from this server's own picker, but a request is a
-   request; nothing stops a crafted one naming a channel somewhere else.
-7. For `watch` with a role: the role is in this server.
+A `status` reply is cut with a count below 2000 characters. A repo name over
+Discord's 100-character choice limit is not autocompleted but can be typed.
 
-**Discord's limits are enforced, not hoped for.** A `status` reply is cut with
-a count rather than sent over the 2000-character message cap, since a deferred
-reply that fails leaves the invoker staring at "thinking" forever. A repo name
-longer than Discord's 100-character choice limit is not offered by autocomplete
-— it can still be typed, and the bind accepts it.
+**Transport.** `POST /discord/interactions` on `cujo-ingress.spencerjireh.com`
+(decision 7); the read host answers 404 for it. Ed25519 over
+`timestamp + rawBody`, from `X-Signature-Ed25519` and `X-Signature-Timestamp`,
+against `DISCORD_PUBLIC_KEY`, before parsing; an invalid signature is **401**;
+a `PING` gets a `PONG`. A command gets a deferred ephemeral reply at once
+(three-second limit). Autocomplete uses a cached repo list (with its in-flight
+scan) and falls back to known repos. Commands are registered per server at
+startup with a full replace (decision 28).
 
-**Transport.** `POST /discord/interactions` on `cujo-ingress.spencerjireh.com`,
-the same host as the GitHub webhook and for the same reason (decision 7):
-Discord can answer no login challenge, so
-a gated host could never receive it. It is signature-gated
-ingress, so the read host answers 404 for it, in the process and not only at the
-edge.
-
-Each request is verified with Ed25519 over `timestamp + rawBody`, from
-`X-Signature-Ed25519` and `X-Signature-Timestamp`, against the application's
-public key in `DISCORD_PUBLIC_KEY`. That is a different value from the bot
-token, and it is checked on the raw body before anything is parsed. An invalid
-signature is **401** — Discord probes the endpoint with a deliberately bad
-signature when the URL is saved and refuses it unless it answers exactly that.
-A `PING` is answered with a `PONG`.
-
-Discord allows three seconds to respond and a bind needs several Discord round
-trips, so a command is answered immediately with a deferred ephemeral reply and
-filled in when the work is done. Autocomplete cannot be deferred, so the repo
-list is cached and a slow or failing GitHub read falls back to the repos Cujo
-already knows about rather than showing an empty picker. The cache holds the
-in-flight scan, not only its result, so a burst of keystrokes against a cold
-cache makes one pass over GitHub rather than one per keystroke.
-
-Commands are registered per server at startup, with a full replace, so a
-definition cannot drift from the code across deploys and a change is visible at
-once (decision 28). A server the bot joins later gets its commands at the next
-start.
-
-**What this endpoint may not do.** It routes notifications. It cannot lift a
-block, and it must not be extended to, because that would swap the principal
-for Discord channel membership on the one human decision the product has.
-Being in a channel is not a claim about a repository.
-
-That prohibition is about the *principal*, not about the plane. The unlock
-lives on the signature-gated ingress route, as `/cujo dismiss` on the pull
-request (Contract 1, decisions 45 and 138) — same host, same HMAC, and a
-principal that does correspond to the repository: write access, checked
-against GitHub, minus the author and minus every bot account.
-Decision 43 argues that swap; decision 23 still owns this one, and it is
-unchanged.
+**What this endpoint may not do.** It cannot lift a block, and must not be
+extended to (decision 23). The unlock is `/cujo dismiss` on the pull request
+(Contract 1, decisions 43, 45 and 138).
 
 ## Contract 9 — the pull request's own reaction
 
-Everything Cujo says about a run it says somewhere else: a review at the end, a
-Discord card, a page on the board. Between the push and the review the pull
-request itself is silent, which costs a reader an acknowledgement and costs an
-operator the one cheap signal that would say *where* a silent run stopped.
+`apps/cujo` reacts on the PR description as `cujo-guard[bot]` and moves the
+reaction with the run's status. `eyes` lands within a second of the delivery,
+which proves the ingress, the signature, the session and the claim.
 
-`apps/cujo` therefore reacts on the pull request description as
-`cujo-guard[bot]`, and moves that reaction as the run's status moves. The eye
-lands within a second of the delivery, before the agent has done anything, so
-its presence proves the ingress, the signature, the session and the claim; its
-absence localises a failure to the front half of the pipeline without opening a
-log.
+| Run state | Reaction | Meaning |
+|-----------|----------|---------|
+| Claimed, before any turn | `eyes` | Cujo has the pull request. |
+| `running` | `eyes` | Still reading. |
+| `clean` | `hooray` | No critical finding. |
+| `blocked` | `-1` | The blocking review posted, and the `cujo/guard` check fails. |
+| `dismissed` | `+1` | A human lifted the block. |
+| `error` | `confused` | Cujo failed. |
+| `unproven` | `confused` | The review posted and no check reported. Shared with `error` only. |
+| `superseded` | *nothing* | A newer run owns the pull request. |
 
-| Run state | Reaction | Why |
-|-----------|----------|-----|
-| Claimed, before any turn | 👀 | Cujo has the pull request. |
-| `running` | 👀 | Still reading. |
-| `clean` | 🎉 | No critical finding. |
-| `blocked` | 👎 | The blocking review posted, and the `cujo/guard` check fails. |
-| `dismissed` | 👍 | A human lifted the block; the pull request may proceed. |
-| `error` | 😕 | Cujo broke. |
-| `unproven` | 😕 | The review posted and no check reported. Shared with `error` on purpose, and with nothing else: on the pull request this pair means "do not read a verdict into this", and which of the two it was is on the board. |
-| `superseded` | *nothing* | Not this run's pull request to describe any more. |
+A `/cujo` command gets `+1` (applied) or `confused` (refused) on the command
+comment, through a separate add-only method; the PR's set is reconciled
+(decision 43). GitHub's set is `+1 -1 laugh confused heart hooray rocket eyes`.
 
-A `/cujo` command gets its own acknowledgement, on the command comment and not
-on the pull request: 👍 when it was applied, 😕 when it was refused. That write
-goes through a separate add-only method for a reason worth stating — the pull
-request's reaction set is *reconciled*, so anything that cleared a reaction
-through that path would take the run's status reaction with it and never put it
-back (decision 43). A comment does not change state, so there is nothing to
-reconcile and "seen" is said once.
-
-The reactions describe **what happened to the pull request**, not what Cujo
-concluded, which is why `dismissed` is a thumbs up even though the finding stands.
-GitHub's reaction set is closed — `+1 -1 laugh confused heart hooray rocket
-eyes` — so there is no check mark and no cross to spend, and this is the whole
-vocabulary available.
-
-**One pull request has one reaction, and a pull request may have had several
-runs.** Only a run that is current may write, and that rule is enforced at both
-ends. The eye is placed only after `review/start-run.ts` has confirmed with
-GitHub that this run's head is the pull request's head, so a delayed delivery
-for an older SHA never touches it; and `superseded` writes nothing at all,
-because the run that replaced it is about to say what the pull request should
-show. Without both, a stale delivery would overwrite a finished verdict with 👀
-and nothing would restore it.
-
-Four properties, the first three the same ones Contract 7 holds:
-
-- **A run never fails because GitHub did.** The call is queued, never awaited on
-  the fold path, and every failure is caught and logged.
-- **Calls are totally ordered**, so a later status cannot be overtaken by an
-  earlier one and leave the pull request showing a state the run has left.
-- **Nothing is remembered.** `POST .../reactions` is idempotent — the same
-  content twice answers 200 and leaves one reaction — so a restart re-applies
-  the current status and converges. This contract adds no table and no
-  migration. What is held in memory to collapse the per-event storm is bounded
-  and evicts the least recently seen run.
-- **A failed call is retried with backoff.** A terminal status is the last event
-  a run produces, so there is no later change to recover on: one transient
-  failure would otherwise leave the pull request wearing the previous status
-  indefinitely. A retry is abandoned as soon as a newer status is queued behind
-  it, which is the ordering property doing its job.
-
-`CUJO_PR_REACTIONS=0` turns the whole thing off. It is the only thing
-`apps/cujo` writes to a repository, so it gets a switch (decision 38).
+Only a current run writes: `eyes` goes on after `review/start-run.ts` confirms
+this run's head is the PR's head, and `superseded` writes nothing. Calls are
+queued in total order, never awaited on the fold path, and failures are
+logged. `POST .../reactions` is idempotent, so a restart re-applies the
+current status; no table, and the in-memory state is bounded (LRU). A failed
+call is retried with backoff until a newer status queues behind it.
+`CUJO_PR_REACTIONS=0` turns it off (decision 38).
 
 ## Contract 10 — conversation
 
-`@cujo-guard <anything>` on a pull request asks Cujo a question about a review it
-already posted. It is neither a review nor a notification: nothing it does
-changes a verdict, and the answer goes only to the person who asked.
+`@cujo-guard <anything>` on a pull request asks Cujo about a review it posted.
+Nothing it does changes a verdict, and the answer goes only to the asker. Its
+main verb is re-execution: a new measurement in the sandbox.
 
-The verb it exists for is **re-execution**. Every other review bot can re-read a
-diff; Cujo still has the sandbox recipe, so when a maintainer says "that route
-needs orders to exist, seed the database first", the answer is a new measurement
-rather than a rephrasing of the old one.
-
-**Its own harness session, always.** Keyed `(repo, pr_number)` in
-`conversation_sessions`, which is a second table rather than a column because
-`sessions` is keyed by the pull request and already holds the review's. Sharing
-the review's session fails two ways, each independently fatal:
-
-- it **cancels a live review** — creating a turn while one runs ends the old
-  one as `cancelled-for-next-turn`. Ungated, that is a one-comment denial of
-  review.
-- it **corrupts the projection**: `fold` dedupes checks by thread id, so a
-  re-run emits every hard-rule critical twice and can never clear the finding it
-  was meant to correct.
-
-**Two events carry it.** `issue_comment` is the pull request's own thread, and
-`pull_request_review_comment` is a reply inside a review thread — where Cujo's
-inline findings are, and where "prove it" is actually asked. The reply goes back
-to whichever surface the question came from, so an answer lands under the
-finding it is about. Only conversation is dispatched from the review-thread
-event; a `/cujo` verb stays on the pull request's own thread.
-
-**The agent holds no write authority.** Its spec names `sandbox-mcp` and no
-other server, so it has no review tool and no way to reach GitHub at all; `apps/cujo` reads the
-turn's final assistant message — the last one on `main` with text and no tool
-call — and posts it. That is what bounds a prompt injection through a stranger's
-comment to "wastes a sandbox", and it is why a turn that errors or times out
-still answers the person, which a reply tool structurally could not.
-
-**What the agent is given** is a curated brief, not the review session's
-history: the run's check reports, its findings, the posted review body, the head
-SHA, plus the question. Everything in it is already in the projection, and a
-payload a person can review is worth more than one that is merely complete. The
-rubric is `agent/CONVERSE.md`, and it states that the question is untrusted
-data — `SKILL.md` scoped that rule to the repository, and this contract
-publishes a second channel to the internet.
-
-`clone_url` is included **only for a public repository**, omitted rather than
-blanked, the same rule `run_id` follows (decision 36). The sandbox holds no
-credential and never will, so a private repo has no URL it could clone; the
-rubric says to answer from the brief and say so when the key is absent. The
-review itself runs a private repository on staged trees (decision 158); a
-conversation has no sandbox to stage into and answers from the brief.
-
-**Which run a question is about** is decided by the commit GitHub reports, not
-by the order deliveries were inserted in — the same hazard `/cujo` has. Unlike a
-command, a question about a review the pull request has since been pushed past
-is still answered from the newest run rather than refused: the evidence was real
-when it was collected, and a question changes nothing.
-
-**One comment is answered once.** GitHub redelivers, and a redelivery is not a
-second question; without a claim on the comment id it would start a second
-sandbox, post a second reply, and spend a second slot, none of which the
-in-flight flag covers. The claim is in memory like the ceiling, because what it
-protects is provisioned by this process.
-
-**The deadline is raced against the stream, not set beside it.** Cancelling is
-what closes the stream, so a `cancelTurn` that fails would leave the consumer
-blocked forever and `CUJO_CONVERSE_TIMEOUT_MS` would bound nothing. A stream
-that ends without `turn.done` is a drop rather than a completion — the turn may
-still be running — so it is resubscribed once and then answered honestly rather
-than by posting whatever happens to be persisted.
-
-**Authorization is repo `write` or `admin`**, the same check `/cujo` uses, and
-checked before the rate limit so a stranger cannot spend a maintainer's budget.
-A sandbox is not free speech. The refusal says every finding is readable by
-anyone, because it is.
-
-**A ceiling, in memory, per pull request.** At most `CUJO_CONVERSE_LIMIT`
-questions per `CUJO_CONVERSE_WINDOW_MS` (3 an hour by default) and one at a
-time; a second question while one is running is refused rather than queued,
-since two sandboxes for one pull request is the thing the limit prevents. The
-count lives in the process because the resource does: a restart already means no
-turn is in flight. `CUJO_CONVERSE_LIMIT=0` turns conversation off and deliveries
-are still answered 200.
-
-**Every outcome speaks**, as with `/cujo`: a refusal nobody can see is
-indistinguishable from a delivery that never arrived. The one exception is a
-comment that does not mention Cujo at all, which is silence by design.
+- **Its own harness session, always**, keyed `(repo, pr_number)` in
+  `conversation_sessions`, never the review's.
+- **Two events:** `issue_comment` and `pull_request_review_comment`. The reply
+  goes back to the surface the question came from. A `/cujo` verb is
+  dispatched only from `issue_comment`.
+- **No write authority.** Its spec names `sandbox-mcp` and no other server.
+  `apps/cujo` posts the turn's final assistant message (the last on `main` with
+  text and no tool call), also when the turn errors or times out.
+- **The brief:** the run's check reports, findings, posted review body, head
+  SHA, and the question. The rubric is `agent/CONVERSE.md`, which treats the
+  question as untrusted data. `clone_url` is included **only for a public
+  repository**, omitted otherwise (decision 36); a private repository is
+  answered from the brief (decision 158).
+- **Which run:** the newest, by the commit GitHub reports. **One comment is
+  answered once:** an in-memory claim on the comment id.
+- **The deadline is raced against the stream:** `CUJO_CONVERSE_TIMEOUT_MS`
+  holds even when `cancelTurn` fails; a stream that ends without `turn.done` is
+  resubscribed once, then answered.
+- **Authorization** is repo `write` or `admin`, before the rate limit.
+- **A ceiling, in memory, per pull request:** at most `CUJO_CONVERSE_LIMIT`
+  questions per `CUJO_CONVERSE_WINDOW_MS` (3 an hour by default), one at a
+  time; a second concurrent question is refused, not queued.
+  `CUJO_CONVERSE_LIMIT=0` turns it off; deliveries still get 200.
+- **Every outcome speaks**, except a comment that does not mention Cujo.
 
 ## Contract 11 — the diff review
 
-The review that reads (decision 133). Everything the model sees is gathered by
-code on the trusted side before the turn starts (decision 134), so the cost of
-a review is a number rather than a guess and the model never lists files,
-fetches a patch or opens a standards file itself.
+The review that reads (decision 133). Code gathers everything on the trusted
+side before the turn (decision 134); the model lists no files, fetches no
+patch and opens no standards file.
 
-**The package** is the turn's single user message, under the same fence and the
-same `run_id` rule as Contract 1's:
+**The package** is the turn's single user message, under the same fence and
+`run_id` rule as Contract 1:
 
 | Key | What it is |
 |-----|------------|
-| `repo`, `pr_number`, `pr_title`, `pr_body`, `base_sha`, `head_sha`, `manifest_changed`, `docs_only`?, `run_id`? | As in Contract 1. No `clone_url`: the session has nothing to clone with, and the URL would be the one host name in the brief. No author: a login in the brief is a person for the model to address. |
-| `standards[]` | The repository's own instruction files at the **base** commit, in this order: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/copilot-instructions.md`. Each is `{path, text, truncated}`, cut on a line at 16 KB, and the set is cut at 48 KB (a file past the line is dropped whole). Base and not head for the reason `.cujo.yml` is (decision 13): a pull request that rewrites CONTRIBUTING.md to permit itself has changed nothing until it is merged. A missing file is skipped; a read that failed ends the run in `error`, because "the repo has no standards" and "GitHub did not answer" are different facts. |
-| `diff` | `{files, omitted, bytes, cap}`. `files` is every changed file whose hunks fit under `CUJO_DIFF_BYTES`, as `{path, status, additions, deletions, patch}`, kept **whole** — a hunk cut mid-line is a line the model will anchor a finding to and `github-mcp` will refuse. Order is rank, then GitHub's order: source, then prose (`isDocsPath`), then generated and vendored paths, then lockfiles. `omitted` lists every file not given, with its counts and a `reason`: `no_patch` (a binary, a rename, or a file GitHub would not diff) or `over_cap`. The model is told what it did not read, the way a sensor report says what it could not observe (decision 54). |
-| `instructions`? | The owner's guidance for this repository (decision 155), as `{source, text, truncated}`: `.cujo/REVIEW.md` at the **base** commit when the repository carries one (`source: "file"`), else what the owner set on the board (`source: "board"`), else the key is absent. Cut on a line at 16 KB. The same key rides in the sandbox brief (Contract 1). It may narrow and weigh what the review says; it cannot switch a hard rule off or move a severity the evidence does not support. |
-| `build_facts` | How the services this pull request touches are built (decisions 170, 171), read at **head** and never executed: `services[]` of `{path, name, module_type, bundler, format, bundles, require_shim, start, runtime_installs, python}`, and `hazards[]` of `{rule, service, path, title, evidence}`. Head and not base, unlike every other read on this path, because these describe what the change *produces* rather than what it is held to; the one base read is a touched service's `package.json`, to tell an added dependency from a bumped one. Scoped to the services the change lands in (the nearest ancestor of each changed file holding a `package.json` or `pyproject.toml`), at most eight. `tree_truncated` says GitHub cut the listing; `unavailable` says the read failed, which is a flag and a log line and never the end of a run. Each hazard is also a `build_fact` finding on the run (Contract 3), whatever the agent does with it. The same key rides in the sandbox and judge briefs (Contract 1), read once per run above the mode branch. |
-| `previous_findings[]` | The agent findings of the newest earlier run on this pull request whose review posted, as `{severity, title, path?, line?}`; hard-rule findings are left out, since a diff run cannot reproduce them. A diff run has a fresh session (decision 137), so this is its whole memory, and the rubric tells it not to say the same thing twice. |
+| `repo`, `pr_number`, `pr_title`, `pr_body`, `base_sha`, `head_sha`, `manifest_changed`, `docs_only`?, `run_id`? | As in Contract 1. No `clone_url` and no author. |
+| `standards[]` | The repository's instruction files at the **base** commit, in order: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/copilot-instructions.md`. Each `{path, text, truncated}`, cut on a line at 16 KB; the set is cut at 48 KB (a file past the line is dropped whole). Base, as for `.cujo.yml` (decision 13). A missing file is skipped; a failed read ends the run in `error`. |
+| `diff` | `{files, omitted, bytes, cap}`. `files` is every changed file whose hunks fit under `CUJO_DIFF_BYTES`, as `{path, status, additions, deletions, patch}`, kept **whole**. Order is rank, then GitHub's order: source, then prose (`isDocsPath`), then generated and vendored paths, then lockfiles. `omitted` lists every file not given, with its counts and a `reason`: `no_patch` (a binary, a rename, or a file GitHub would not diff) or `over_cap` (decision 54). |
+| `instructions`? | The owner's guidance (decision 155), `{source, text, truncated}`: `.cujo/REVIEW.md` at the **base** commit (`source: "file"`), else the board's (`source: "board"`), else absent. Cut on a line at 16 KB. Also in the sandbox brief. It may narrow and weigh the review; it cannot switch off a hard rule or move a severity the evidence does not support. |
+| `build_facts` | How the touched services are built (decisions 170, 171), read at **head**, never executed: `services[]` of `{path, name, module_type, bundler, format, bundles, require_shim, start, runtime_installs, python}`, and `hazards[]` of `{rule, service, path, title, evidence}`. The one base read is a touched service's `package.json`, to tell an added dependency from a bumped one. Scoped to the services the change lands in (nearest ancestor of each changed file holding a `package.json` or `pyproject.toml`), at most eight. `tree_truncated`: GitHub cut the listing; `unavailable`: the read failed, a flag and a log line, never the end of a run. Each hazard is also a `build_fact` finding (Contract 3). Also in the sandbox and judge briefs. |
+| `previous_findings[]` | The agent findings of the newest earlier run on this PR whose review posted, as `{severity, title, path?, line?}`. Hard-rule findings are left out. A diff run's whole memory (decision 137). |
 
-**The session** is the diff spec (`buildDiffSpec`): `agent/DIFF.md` as its
-instructions, `github-mcp` as its only MCP server and ungated, no compaction, an
-iteration limit of 12, and `config.tokenBudget` set to `CUJO_DIFF_BUDGET_TOKENS`
-(decision 132). The model is the board's diff model, falling back to the
-sandbox review's model (decision 174); when it differs, no sampling params go
-with it, since the three were tuned for the other model.
+**The session** is the diff spec (`buildDiffSpec`): `agent/DIFF.md`,
+`github-mcp` as the only MCP server, no compaction, an iteration limit of 12,
+and `config.tokenBudget` from `CUJO_DIFF_BUDGET_TOKENS` (decision 132). The
+model is the board's diff model, else the sandbox review's (decision 174); when
+it differs, no sampling params go with it.
 
-**What it may say.** Findings carry `check: "diff"` — or `check: "build"` for a
-hazard handed to it in `build_facts` — and a severity of `info` or
-`warn`; `critical` is not available, because a block needs evidence a reader
-cannot produce, and the sandbox review is what produces it (decision 136). A
-`critical` on the advisory is a contradiction: the review is already on the pull
-request, so the run ends `error` naming it, exactly as a sandbox run does for the
-same mistake (Contract 3) — not clamped, because the board must not describe a
-finding differently from the pull request (decision 74). Anchors must be lines
-in the patches given; `github-mcp` validates them as it does for any review. The
-only tool is `post_advisory_review`, called once, with `coverage.ran` empty,
-`coverage.skipped` naming all four checks with the reason `diff review; no
-execution` plus one entry per omitted-file group, `egress: []`, and `run_id`
-passed through. A call to either other review tool ends the run `error` naming
-the tool.
+**What it may say.** Findings carry `check: "diff"` (or `check: "build"` for a
+`build_facts` hazard) and `info` or `warn` (decision 136). A `critical` ends the
+run `error`, not clamped (decision 74). Anchors must be lines in the given
+patches. The only tool is `post_advisory_review`, called once, with
+`coverage.ran` empty, `coverage.skipped` naming all four checks with the reason
+`diff review; no execution` plus one entry per omitted-file group,
+`egress: []`, and `run_id` passed through. Another review tool ends the run
+`error` naming it.
 
-**The fold** reads a diff run under its own ladder, selected by the run's
-`mode`: no `check_missing` findings, no `unproven`, and `clean` on a posted
-advisory. The rungs above it — a turn error, a cancel — are the shared ones.
+**The fold** uses the diff ladder, selected by `mode`: no `check_missing`, no
+`unproven`, `clean` on a posted advisory; turn-error and cancel rungs are
+shared.
 
-**Bounds.** The token budget is billed tokens summed over the turn, context
-re-read counted on every message; the harness checks after each assistant
-message, so one message can overrun it and none can follow. A run that
-exhausts it ends `error` with the count, keeps its `usage`, and is not
-retried. The watchdog window is `CUJO_DIFF_TIMEOUT_MS`, and a diff run that
-reaches it posts the timeout comment in diff words: no checks to name, push
-again or `/cujo review`.
+**Bounds.** The budget is billed tokens summed over the turn, context re-read
+counted on every message, checked after each assistant message, so one message
+can overrun it and none can follow. Exhaustion ends the run `error` with the
+count, keeps `usage`, and is not retried. At `CUJO_DIFF_TIMEOUT_MS` a diff run
+posts the timeout comment in diff words: no checks to name, push again or
+`/cujo review`.
 
 ## Contract 12 — the map
 
 The repository map (decision 172), served by `apps/mapper` on the compose
-network. Nothing in `apps/cujo` calls it yet; this contract is what it will
-call, and what the service already answers.
-
-**The doors.**
+network. Nothing in `apps/cujo` calls it yet.
 
 | Route | What it does |
 |-------|--------------|
-| `PUT /ingest/<key>/<base\|head>` | One tree, as a gzipped tar, streamed. `key` is 32 hex characters minted by the caller and never a repository's name. Bounded as it is written by `CUJO_MAPPER_TREE_BYTES`: `201 {ok, bytes}`, `413` over the cap, `409` for a tree already staged, `400` for a bad key or a tree that is not `base` or `head`. A refused write leaves nothing behind. |
-| `POST /ingest/<key>/index` | Makes a git repository of the two trees and indexes it. `200 {ok, project, base, head, nodes, edges, status, parse_partial, evicted}`; `404` when a tree was never staged. The tarballs are dropped afterwards — the graph and the worktree are what queries read. |
+| `PUT /ingest/<key>/<base\|head>` | One tree, as a gzipped tar, streamed. `key` is 32 hex characters minted by the caller, never a repository's name. Bounded by `CUJO_MAPPER_TREE_BYTES`: `201 {ok, bytes}`, `413` over the cap, `409` for a tree already staged, `400` for a bad key or a tree that is not `base` or `head`. A refused write leaves nothing behind. |
+| `POST /ingest/<key>/index` | Makes a git repository of the two trees and indexes it. `200 {ok, project, base, head, nodes, edges, status, parse_partial, evicted}`; `404` when a tree was never staged. The tarballs are dropped afterwards. |
 | `POST /slice` | `{project, base, depth?}` in, and the slice out: `{changed_files[], impacted[], impacted_total, truncated}`, each impacted symbol `{qn, label, file, hop}`. Paged until the engine says there is no more, bounded by a symbol cap and a page cap. |
 | `GET /healthz`, `GET /readyz` | `{ok: true, service: "mapper"}`. |
-| `POST /mcp` | The engine's own tools over streamable HTTP, **only** when `CUJO_MAPPER_MCP` is set. Absent otherwise, as a 404. |
+| `POST /mcp` | The engine's own tools over streamable HTTP, **only** when `CUJO_MAPPER_MCP` is set. Otherwise 404. |
 
-**The repository the trees become.** Base is extracted and committed, the
-head tree *replaces* the working tree and is committed on top, both under a
-fixed identity and a fixed clock. So a deletion in the pull request is a
-deletion in the diff the engine reads, and the same two trees always produce
-the same two commit ids. `base` and `head` in the index answer are those
-ids, and `base` is what `/slice` takes.
-
-**What may cross.** Tarball bytes and a changed-file list, and nothing else:
-no token, no clone URL, no hostname (`docs/architecture.md`, the crossings
-table). The engine is confined to the trees directory by `CBM_ALLOWED_ROOT`.
-
-**Bounds.** `CUJO_MAPPER_DISK_MB` caps the volume; whole repositories are
-evicted least-recently-used first before an ingest that would cross it, and
-never the one being written. A repository is indexed or absent, never half of
-either. `CUJO_MAPPER_TIMEOUT_MS` bounds one engine call, and a call that
-reaches it is answered as a timeout rather than waited on — the engine starts
-index workers that inherit its pipes, so waiting for the child to close is
-not a bound.
+Base is extracted and committed; the head tree *replaces* the working tree and
+is committed on top, with a fixed identity and clock, so the same trees give
+the same commit ids. `base` and `head` in the index answer are those ids;
+`/slice` takes `base`. Only tarball bytes and a changed-file list cross: no
+token, no clone URL, no hostname (`docs/architecture.md`, the crossings
+table). `CBM_ALLOWED_ROOT` confines the engine to the trees directory.
+`CUJO_MAPPER_DISK_MB` caps the volume; whole repositories are evicted
+least-recently-used first before an ingest would cross it, never the one being
+written. A repository is indexed or absent. `CUJO_MAPPER_TIMEOUT_MS` bounds one
+engine call; a call that reaches it is answered as a timeout.
 
 ## Stretch — remediation
 
-A fourth gated tool `open_remediation_pr`: on a `critical` finding with an
-obvious fix (a broken test the agent can repair, a dependency to remove or pin),
-the agent opens a fix PR and a human approves opening it. Not built. It needs
-`contents: write`, which every installation would have to re-approve, and it
-must be reconciled with the teaching flow in
+A tool `open_remediation_pr`: on a `critical` finding with an obvious fix (a
+broken test the agent can repair, a dependency to remove or pin), the agent
+opens a fix PR. Not built. It needs `contents: write`, which every
+installation would have to re-approve, and it must be reconciled with the
+teaching flow in
 [issue #56](https://github.com/spencerjireh/cujo/issues/56), which writes to the
 same file through the same mechanism.

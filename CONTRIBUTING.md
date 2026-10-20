@@ -6,11 +6,32 @@
 before it — code that contradicts the spec is a bug in one of the two, so say
 which in the PR.
 
-- [docs/architecture.md](docs/architecture.md) — the model and where each piece
-  runs.
-- [docs/spec.md](docs/spec.md) — the contracts the code follows.
+- [docs/architecture.md](docs/architecture.md) — the components, the trust
+  boundary, and where each piece runs.
+- [docs/spec.md](docs/spec.md) — the contracts the code follows, current rules
+  only, each citing its decisions.
 - [docs/decisions.md](docs/decisions.md) — load-bearing choices; add an entry when
-  you make one, reverse rather than delete when one changes.
+  you make one. When one changes, mark it reversed or amended and name the new
+  entry; never renumber or retitle one. A fully reversed entry moves verbatim to
+  [docs/decisions-archive.md](docs/decisions-archive.md) and leaves its heading
+  and status behind (decision 178).
+
+A new entry takes the next number, a line in the index, and this template. Each
+field is one line; the history stays in the commit log, not in the entry.
+
+```markdown
+## N. Title in plain words
+
+**Status:** live
+
+**Decision:** one or two sentences.
+
+**Why:** two to four sentences.
+
+**Rejected:** an option, and why. One line each, only if load-bearing.
+
+**See:** Contract K; decisions A, B.
+```
 
 ## Every change is a pull request
 
@@ -90,8 +111,7 @@ mirror that a review bot read went with the bot (decision 119).
   entirely, tests included, so the tripwire stays a tripwire.
 - A Discord server may receive a repo's reviews when the repo names it in
   `discord_guild` on its default branch, when the repo declares nothing and the
-  server is `CUJO_DEFAULT_DISCORD_GUILD`, or when an operator allowed the pair
-  over the Access-gated API. The repo's declaration is the normal path and is
+  server is `CUJO_DEFAULT_DISCORD_GUILD`. The repo's declaration is the normal path and is
   not a bypass: repo write access is the authority
   ([docs/decisions.md](docs/decisions.md) 31). Read it trusted-side through the
   GitHub App, never from the sandbox's copy. The default is one id and never a

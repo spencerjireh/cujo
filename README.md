@@ -6,21 +6,15 @@
 </p>
 
 <p align="center">
-  A pull request reviewer that reads the diff and runs the code when reading is not enough.<br>
+  A pull request reviewer that runs the code when reading is not enough.<br>
   <a href="https://cujo.spencerjireh.com/galaxy">Live board</a> &middot;
   <a href="https://cujo.spencerjireh.com/docs">Manual</a> &middot;
   <a href="docs/architecture.md">Architecture</a>
 </p>
 
-A diff shows what changed, not what happens. Cujo reads the pull request by
-default, on a cheap model with a token budget, and posts one advisory
-review. When the repository asks for it in `.cujo.yml`, or when a dependency
-manifest changed or a bot opened the pull request, it runs the pull request
-in a throwaway sandbox instead: tests on base and head, probes against the
-changed code, a smoke boot, and each new dependency installed in isolation
-behind a logging proxy. A `critical` blocks the merge through a `cujo/guard`
-check run nobody can dismiss; a maintainer lifts it with `/cujo dismiss` on
-the pull request. Only a measurement blocks (decisions 133, 138).
+A diff shows what changed, not what happens. Cujo reads each pull request and
+posts one review. When a repository asks for it, it also runs the code in a
+disposable sandbox and cites what the code did.
 
 <p align="center">
   <img alt="The board. Each star is one run, colour is the verdict, rings are checks, dots are findings." src="brand/readme/screenshot-board.jpg" width="800">
@@ -28,109 +22,46 @@ the pull request. Only a measurement blocks (decisions 133, 138).
 
 ## How it works
 
-1. The GitHub App gets the `pull_request` webhook; `apps/cujo` verifies the
-   signature, resolves the mode, writes `cujo/guard` as *in progress* on the
-   commit, and starts one agent turn.
-2. A diff run reads the diff and the repository's standards files
-   (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`,
-   `.github/copilot-instructions.md`) at the base commit and posts findings
-   of at most `warn`, because a block needs evidence only execution gives.
-3. A sandbox run: when `.cujo.yml` at the base commit declares `test`,
-   `apps/cujo` prepares the sandbox and, with no model, runs the declared
-   install and tests on both trees, boots the app and hits the declared
-   endpoints when `boot` is declared, and detonates each dependency a
-   changed manifest adds — installing it through `sniff.py` and recording
-   the hosts, files and processes it touches — then hands the reports to
-   the agent, which spawns one subagent for `probes` and judges. When nothing
-   is declared, the agent infers the commands and spawns one subagent per
-   check. Each check ends in a JSON report.
-4. The agent folds the reports into `info`, `warn` and `critical` findings.
-   Hard rules force `critical` on a regression, a decoy-secret read, a
-   sensitive write, or unknown egress during an install, and `apps/cujo`
-   re-derives them so the agent cannot downgrade one.
-5. With no `critical` the review posts as a comment from `cujo-guard[bot]`
-   and the check succeeds. Any `critical` requests changes and fails the
-   check, which holds the merge under branch protection until a maintainer
-   with write access dismisses it; the author and any bot account are
-   refused.
+1. A pull request opens; the GitHub App sends the webhook to Cujo.
+2. A diff run reads the diff and the repository's standards files and posts findings of at most `warn`.
+3. A sandbox run runs the tests on base and head, probes the changed code, boots the app, and installs each new dependency under sensors.
+4. Hard rules force `critical` on a regression, a test-secret read, a sensitive write, or unknown network access during an install.
+5. A `critical` fails the `cujo/guard` check; a maintainer lifts it with `/cujo dismiss` on the pull request.
 
-<p align="center">
-  <img alt="A run page. Four checks on one time axis, then the findings, worst first." src="brand/readme/screenshot-run.jpg" width="800">
-</p>
+The agent runs on Cujo's own harness, `apps/harness`, built on the
+[pi coding agent SDK](https://github.com/badlogic/pi-mono)
+([decision 123](docs/decisions.md#123-the-harness-is-ours-built-on-pi-and-the-contract-is-a-package)).
+No secret enters the sandbox. The design is in [docs/](docs/README.md).
 
-No secret enters the sandbox: PR code and dependency names go in, JSON
-reports come out. The agent runs on Cujo's own harness, `apps/harness`,
-built on the [pi coding agent SDK](https://github.com/badlogic/pi-mono)
-([decision 123](docs/decisions.md#123-the-harness-is-ours-built-on-pi-and-the-contract-is-a-package));
-`apps/cujo` is its only client and the board in `apps/web` reads that
-service. The design lives in [docs/architecture.md](docs/architecture.md)
-and [docs/spec.md](docs/spec.md), and changes there first.
+## Install
 
-## Use it on your repository
+1. Install the App at <https://github.com/apps/cujo-guard>.
+2. Open a pull request. Within seconds it gets a reaction and a `cujo/guard` check; a few minutes later, one review.
+3. To make a block hold, require the `cujo/guard` status check on the target branch.
 
-1. Install the App on a public repository at
-   <https://github.com/apps/cujo-guard>. Nothing in Cujo holds a clone
-   credential, so the repository stays public.
-2. Open a pull request. Within seconds it wears an eye reaction and a
-   `cujo/guard` check in progress; a few minutes later, one review. On
-   2026-09-13, [orders-api#43](https://github.com/spencerjireh/orders-api/pull/43)
-   with a planted regression: check in progress at 5 s, `REQUEST_CHANGES` at
-   5 m 10 s, check failed at 5 m 18 s, the author's `/cujo dismiss` refused.
-3. Require the `cujo/guard` status check on the target branch if a block
-   should hold. A review can be dismissed by anyone with write access; the
-   check cannot.
-
-Cujo infers install, test and boot commands from the repository's build
-files; `.cujo.yml` overrides what it got wrong, and a `cujo:skip` label or a
-draft stops a run. The rest is in the
-[manual](https://cujo.spencerjireh.com/docs/install).
+`.cujo.yml` sets the mode and the commands; the [manual](https://cujo.spencerjireh.com/docs/install) has the details.
 
 ## Run your own
 
 ```bash
 cp .env.example .env   # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET
-make up-local          # docker compose up with the local overlay
+make up-local          # the board on :3000
 ```
 
-Models are configured on the board, not in the environment
-([decision 174](docs/decisions.md#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)):
-sign in, open Settings, add a provider (an Anthropic key, or any
-OpenAI-compatible host), and choose a model. Until then every pull request
-gets a neutral `cujo/guard` check. `CUJO_MODEL` with `ANTHROPIC_API_KEY` or
-the `MODEL_PROVIDER_*` block seeds a local stack's first boot instead.
-
-The overlay publishes the board on 3000, the harness on 8790, `cujo` on
-8080, `github-mcp` on 8081 and `sandbox-mcp` on 8082, all on `127.0.0.1`
-(Docker Engine `>= 28.0` on Linux). `cujo` dispatches on `Host`:
-`cujo-ingress.localhost:8080/webhook` receives the webhook, and the read API
-answers on the internal name with nothing behind a credential
-([decision 57](docs/decisions.md#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)):
-
-```bash
-curl -s -H 'Host: cujo' http://localhost:8080/public/runs
-```
-
-You need your own GitHub App: Contents read, Metadata read, Pull requests
-write, Checks write, Issues read; events `pull_request`, `issue_comment`,
-`pull_request_review_comment`, `repository` (the `installation` events arrive
-on their own); webhook to `/webhook` with
-`GITHUB_WEBHOOK_SECRET`. For the board's sign-in, the App's own OAuth: set
-its callback URL to `<board origin>/api/auth/callback`, generate a client
-secret, and pass the client id and secret as `GITHUB_OAUTH_CLIENT_ID` and
-`GITHUB_OAUTH_CLIENT_SECRET`; without them the board is read-only. On a laptop, `cloudflared tunnel --url
-http://localhost:8080` is enough. A repository may carry `.cujo/REVIEW.md`, the owner's guidance
-for reviewing it, read beside the standards files (decision 155).
-`.env.example` documents the seeds,
-Discord and the rest; the
-[self-host page](https://cujo.spencerjireh.com/docs/self-host) has the rest.
+Models are set on the board, not in the environment
+([decision 174](docs/decisions.md#174-models-are-configured-on-the-board-the-environment-only-seeds-a-dev-stack)).
+The read API has no credential
+([decision 57](docs/decisions.md#57-the-operator-plane-is-deleted-every-route-is-signature-gated-or-anonymous)).
+The [self-host page](https://cujo.spencerjireh.com/docs/self-host) has the App
+permissions, OAuth sign-in and the rest.
 
 ## Tests
 
 ```bash
 corepack enable && pnpm install
-pnpm lint && pnpm typecheck && pnpm test   # every external boundary is faked
-uv sync && uv run pytest                   # the sensor tests
-make test-int                              # apps/cujo against a real harness
+pnpm lint && pnpm typecheck && pnpm test
+uv sync && uv run pytest
+make test-int   # apps/cujo against a real harness
 ```
 
 ## License
