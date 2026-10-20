@@ -1,168 +1,121 @@
-import {
-  C,
-  Cell,
-  LI,
-  Lead,
-  Note,
-  P,
-  Row,
-  Section,
-  Step,
-  Steps,
-  Table,
-  UL,
-} from "@/components/docs/Prose";
+import { C, Cell, LI, P, Row, Section, Step, Steps, Table, UL } from "@/components/docs/Prose";
 import { INSTALL_URL } from "@/lib/install-url";
 import Link from "next/link";
 
+const LINK = "text-accent underline underline-offset-4";
+
 /**
- * The page a reader lands on when they have decided to try it.
- *
- * Requirements come before the steps. Both of them — the App on the repository,
- * and branch protection — are things that make Cujo look broken rather than
- * unsupported if you find them out afterwards: a repository the App is not
- * installed on gets nothing at all, and a block on an unprotected branch posts
- * and holds nothing.
+ * The page for a reader who has decided to try it. Branch protection comes
+ * first: without it a block posts and holds nothing, which looks like a bug.
  */
 export function Install() {
   return (
     <>
-      <Section id="requirements" title="Two things the repository needs">
-        <UL>
-          <LI>
-            <strong className="font-medium text-fg">The App installed on it.</strong> Public or
-            private: a private repository&rsquo;s trees reach the sandbox through the App&rsquo;s
-            own access, fetched outside the box and copied in, so the box still holds no credential.
-            Its runs are visible on this board only to an owner of the installation, signed in.
-          </LI>
-          <LI>
-            <strong className="font-medium text-fg">
-              Branch protection, if you want a block to actually hold.
-            </strong>{" "}
-            Require the <C>cujo/guard</C> status check on the target branch. Without it a block is a
-            REQUEST_CHANGES review and a failed check on the commit, both visible and neither
-            holding the merge; a review alone can be dismissed by anyone with write access, which is
-            why the check exists.
-          </LI>
-        </UL>
-      </Section>
-
-      <Section id="steps" title="Installing it">
+      <Section id="steps" title="Install it">
         <Steps>
           <Step n={1} title="Install the App on the repository.">
             <P>
-              <a
-                href={INSTALL_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="text-accent underline underline-offset-4"
-              >
+              <a href={INSTALL_URL} target="_blank" rel="noreferrer" className={LINK}>
                 github.com/apps/cujo-guard
               </a>
-              . Running your own instance means creating your own App instead —{" "}
-              <Link href="/docs/self-host" className="text-accent underline underline-offset-4">
+              . Public and private repositories both work. To run your own instance, create your own
+              App instead; see{" "}
+              <Link href="/docs/self-host" className={LINK}>
                 self-hosting
+              </Link>
+              .
+            </P>
+          </Step>
+          <Step n={2} title="Require the cujo/guard check.">
+            <P>
+              In branch protection for the target branch, turn on{" "}
+              <em>Require status checks to pass</em> and pick <C>cujo/guard</C>. The check appears
+              in the list after the App writes its first one. Without this, a block is a review and
+              a red mark, and the merge stays open.
+            </P>
+          </Step>
+          <Step n={3} title="Open a pull request, or push to an open one.">
+            <P>
+              An eyes reaction appears within about a second. If it does not, the webhook did not
+              arrive.
+            </P>
+          </Step>
+          <Step n={4} title="Read the review.">
+            <P>
+              One review from <C>cujo-guard[bot]</C>, and the reaction changes to show the result.{" "}
+              <Link href="/docs/reviews" className={LINK}>
+                Reading a review
               </Link>{" "}
-              has the settings.
-            </P>
-          </Step>
-          <Step n={2} title="Open a pull request, or push to one that is open.">
-            <P>
-              Within about a second the pull request wears an eye. That reaction arrives before the
-              agent has done anything, so its presence proves the delivery, the signature and the
-              claim; its absence says the failure is at the front of the pipeline.
-            </P>
-          </Step>
-          <Step n={3} title="Read the review.">
-            <P>
-              One review from <C>cujo-guard[bot]</C>, and the reaction settles on the verdict. What
-              the run measured is on this board too, if the repository is public.
+              explains it.
             </P>
           </Step>
         </Steps>
         <P>
-          Nothing needs to be configured first. Cujo infers the install, test and boot commands from
-          the repository&rsquo;s own build files; a{" "}
-          <Link href="/docs/configure" className="text-accent underline underline-offset-4">
+          You do not need to configure anything first. Cujo finds the install, test and boot
+          commands in the repository&rsquo;s build files. Add a{" "}
+          <Link href="/docs/configure" className={LINK}>
             <C>.cujo.yml</C>
           </Link>{" "}
-          overrides what it got wrong.
+          only to correct them.
         </P>
       </Section>
 
       <Section id="skipping" title="Pull requests Cujo skips">
-        <P>
-          Three filters, applied before a sandbox is provisioned or a token is spent. The first two
-          are explicit human choices and are full stops; the third is an inference, so it softens
-          the posture rather than producing silence.
-        </P>
         <Table head={["Condition", "What happens"]}>
           <Row>
-            <Cell head>Draft pull request</Cell>
-            <Cell>Nothing runs. Marking it ready for review starts a run.</Cell>
+            <Cell head>Draft</Cell>
+            <Cell>Nothing runs. Mark it ready for review to start a run.</Cell>
           </Row>
           <Row>
             <Cell head>
               The <C>cujo:skip</C> label
             </Cell>
-            <Cell>Nothing runs. An explicit opt-out by someone with write access.</Cell>
+            <Cell>Nothing runs.</Cell>
           </Row>
           <Row>
             <Cell head>Documentation only</Cell>
             <Cell>
-              Every changed file is prose — <C>.md</C>, <C>.txt</C>, <C>.rst</C>, <C>.adoc</C>,{" "}
-              <C>LICENSE</C>, <C>CHANGELOG</C> and the like. The sandbox still runs in full and
-              every hard rule still fires; the review can only be advisory, so it cannot block a
-              merge.
+              Every changed file is prose, such as <C>.md</C> or <C>LICENSE</C>. The run happens,
+              but the review cannot block. A change to a dependency file is never documentation.
             </Cell>
           </Row>
         </Table>
-        <Note>
-          A file that is a dependency manifest is never documentation, and an empty changed-file
-          list is not documentation-only — a metadata-only pull request should still be judged.
-        </Note>
       </Section>
 
       <Section id="app" title="What the App asks for">
-        <Lead>Five permissions and four event subscriptions, and one of them looks wrong.</Lead>
         <Table head={["Permission", "Why"]}>
           <Row>
             <Cell head>Contents: read</Cell>
-            <Cell>Clone the pull request, and read the default branch&rsquo;s policy.</Cell>
+            <Cell>Read the code and the repository&rsquo;s settings.</Cell>
           </Row>
           <Row>
             <Cell head>Metadata: read</Cell>
-            <Cell>Required by the others.</Cell>
+            <Cell>GitHub requires it.</Cell>
           </Row>
           <Row>
             <Cell head>Pull requests: write</Cell>
-            <Cell>
-              Post the review, the inline comments, the reaction and the replies, and dismiss the
-              review when a maintainer lifts a block.
-            </Cell>
+            <Cell>Post the review, comments and reactions, and dismiss a review.</Cell>
           </Row>
           <Row>
             <Cell head>Checks: write</Cell>
             <Cell>
-              Write the <C>cujo/guard</C> check run on each commit it reviews. This is the merge
-              lock; an installation that has not approved it gets reviews and reactions and no
-              check.
+              Write the <C>cujo/guard</C> check. Each installation approves it once.
             </Cell>
           </Row>
           <Row>
             <Cell head>Issues: read</Cell>
             <Cell>
-              Delivery only. No code here reads an issue — GitHub releases the <C>issue_comment</C>{" "}
-              event on this permission and on nothing else, even for a comment on a pull request,
-              and that event is how <C>/cujo dismiss</C> arrives.
+              Receive pull request comments. GitHub sends comment events only with this permission.
+              Cujo reads no issues.
             </Cell>
           </Row>
         </Table>
-        <P>
-          Events: <C>pull_request</C> (opened, synchronize, ready for review), <C>issue_comment</C>,{" "}
-          <C>pull_request_review_comment</C>, and <C>repository</C> — the last so that a repository
-          going private is noticed within seconds rather than at the next sweep.
-        </P>
+        <UL>
+          <LI>
+            Events: <C>pull_request</C>, <C>issue_comment</C>, <C>pull_request_review_comment</C>,
+            and <C>repository</C>.
+          </LI>
+        </UL>
       </Section>
     </>
   );
