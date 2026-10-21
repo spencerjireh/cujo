@@ -21,3 +21,6 @@ type Story = StoryObj<typeof meta>;
 
 /** What anyone arriving from a link or a search sees. An owner is sent to /activity. */
 export const Visitor: Story = {};
+
+/** Back from a sign-in that took longer than ten minutes. */
+export const SignInExpired: Story = { args: { signin: "expired" } };

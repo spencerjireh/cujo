@@ -772,7 +772,9 @@ The host split is enforced in the process:
   the run stream: `/public/*` with no credential, `/owner/*` with the session
   cookie as a bearer (decisions 27, 153). The board only reads. Sign-in is
   `/api/auth/login`, `/api/auth/callback` and `/api/auth/logout`, which call
-  `/auth/*`. When this process is unreachable the proxy answers `502` with
+  `/auth/*`; a sign-in that fails goes home to `/?signin=expired` (a refused
+  state) or `/?signin=failed`, never to a JSON body. When this process is
+  unreachable the proxy answers `502` with
   `{ok: false, error: "cujo is unreachable"}` (decision 37). It forwards
   `Cf-Ray` as a correlation id.
 - A run page asks the public plane first; on a 404 an owner's session goes to

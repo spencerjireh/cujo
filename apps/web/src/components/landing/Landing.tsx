@@ -19,8 +19,17 @@ import type { ReactNode } from "react";
  * thing would otherwise say it twice.
  *
  * Only a visitor reads it: an owner is sent to their activity (decision 175).
+ * A sign-in that did not finish lands here too, with `signin` saying why, and
+ * gets one line and the button again.
  */
-export function Landing() {
+export type SignInFailure = "expired" | "failed";
+
+const SIGN_IN_FAILURE: Record<SignInFailure, string> = {
+  expired: "Sign-in took too long. Sign in again.",
+  failed: "Sign-in did not complete. Try again.",
+};
+
+export function Landing({ signin }: { signin?: SignInFailure }) {
   return (
     <article>
       <header className="mb-14">
@@ -37,6 +46,14 @@ export function Landing() {
             sandbox. Then it posts what happened.
           </Lead>
         </div>
+        {signin ? (
+          <output className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-line bg-bg-raised px-4 py-3 text-sm text-fg">
+            <span>{SIGN_IN_FAILURE[signin]}</span>
+            <a href="/api/auth/login" className="text-accent underline-offset-4 hover:underline">
+              Sign in with GitHub
+            </a>
+          </output>
+        ) : null}
         <nav aria-label="Where to go" className="mt-8 flex flex-wrap items-center gap-3">
           <Primary href={INSTALL_URL} external>
             Install the App
