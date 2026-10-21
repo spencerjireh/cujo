@@ -24,6 +24,11 @@ export async function GET() {
     return Response.redirect(body.url, 302);
   } catch (error) {
     log.error("proxy.upstream.failed", { path: "/auth/login", ...errorFields(error) });
-    return Response.json({ ok: false, error: "cujo is unreachable" }, { status: 502 });
+    // Home with a reason, as the callback does: the person clicked a button,
+    // and a line of JSON is no answer to that.
+    return new Response(null, {
+      status: 302,
+      headers: { location: "/?signin=failed", "cache-control": "no-store" },
+    });
   }
 }

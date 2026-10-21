@@ -7,17 +7,34 @@ import { errorFields } from "@cujo/log";
  * Where GitHub sends the browser back (decision 153). The code and state go
  * to `apps/cujo`, which trades the code for the verdict and a session; this
  * handler only turns that session into a cookie and sends the browser home.
+ *
+ * A failure goes home too, with the reason in the query, because a person
+ * left on this URL with a line of JSON has no way back. `expired` is cujo
+ * refusing the state, which is what a sign-in that took over ten minutes
+ * gets (`LOGIN_TTL_MS`); everything else is `failed`.
  */
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type Reason = "expired" | "failed";
+
+function home(reason: Reason): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { location: `/?signin=${reason}`, "cache-control": "no-store" },
+  });
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  if (!code || !state)
-    return Response.json({ ok: false, error: "missing code or state" }, { status: 400 });
+  // GitHub sends `error=access_denied` and no code when the person cancels.
+  if (!code || !state) {
+    log.warn("auth.login.refused", { reason: url.searchParams.get("error") ?? "missing" });
+    return home("failed");
+  }
   let res: Response;
   try {
     res = await fetch(`${CUJO_API_URL()}/auth/callback`, {
@@ -28,14 +45,12 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     log.error("proxy.upstream.failed", { path: "/auth/callback", ...errorFields(error) });
-    return Response.json({ ok: false, error: "cujo is unreachable" }, { status: 502 });
+    return home("failed");
   }
   const body = (await res.json().catch(() => ({}))) as { session?: string; error?: string };
   if (!res.ok || !body.session) {
-    return Response.json(
-      { ok: false, error: body.error ?? "sign-in failed" },
-      { status: res.ok ? 502 : res.status },
-    );
+    log.warn("auth.login.refused", { http_status: res.status, reason: body.error ?? "no session" });
+    return home(res.status === 400 ? "expired" : "failed");
   }
   const secure = url.protocol === "https:";
   return new Response(null, {

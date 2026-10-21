@@ -69,4 +69,17 @@ describe("the landing", () => {
     render(await Page());
     expect(screen.getByRole("link", { name: "Install the App" })).toBeTruthy();
   });
+
+  it("says why a sign-in did not finish, and offers it again", async () => {
+    render(await Page({ searchParams: Promise.resolve({ signin: "expired" }) }));
+    expect(screen.getByText("Sign-in took too long. Sign in again.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Sign in with GitHub" }).getAttribute("href")).toBe(
+      "/api/auth/login",
+    );
+  });
+
+  it("ignores a reason it does not know", async () => {
+    render(await Page({ searchParams: Promise.resolve({ signin: "<script>" }) }));
+    expect(screen.queryByRole("link", { name: "Sign in with GitHub" })).toBeNull();
+  });
 });
