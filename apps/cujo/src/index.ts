@@ -28,6 +28,7 @@ import {
 } from "./review/agent-spec";
 import { PrCommandService } from "./review/commands/pr-command.service";
 import { publicRunId } from "./review/links";
+import { backfillPullRequestStates } from "./review/pr-state-backfill";
 import { STANDARDS_FILE_BYTES } from "./review/prepare";
 import { PushDebounce } from "./review/push-debounce";
 import { RegistryService } from "./review/registry.service";
@@ -197,6 +198,7 @@ async function main(): Promise<void> {
         checks: new GitHubChecks(config.githubAppId, config.githubAppPrivateKey, fetch),
         links,
         runs: store.runs,
+        pullRequests: store.pullRequests,
       })
     : null;
   if (checks) {
@@ -506,6 +508,12 @@ async function main(): Promise<void> {
     })
     .catch((error) => log.warn("sandbox.destroy.failed", errorFields(error)));
 
+  // Whether each pull request with runs is still open (decision 179): the
+  // ones that closed before cujo listened for `closed`, asked once at boot.
+  void backfillPullRequestStates({ log, github, pullRequests: store.pullRequests }).catch((error) =>
+    log.warn("pr_state.sweep.failed", errorFields(error)),
+  );
+
   // Reconciles the public board's `is_public` stamps behind the `repository`
   // webhook, and backfills the rows that predate the column (decision 34).
   const visibility = new VisibilityService({
@@ -554,6 +562,7 @@ async function main(): Promise<void> {
           }),
           providers: harness,
           runs: store.runs,
+          pullRequests: store.pullRequests,
           runner,
           log,
         }
@@ -584,6 +593,7 @@ async function main(): Promise<void> {
       judge,
       repositories: store.repositories,
       repositorySettings: store.repositorySettings,
+      pullRequests: store.pullRequests,
       sandboxBudgetTokens: () => settings.current().sandboxBudgetTokens,
       turnTimeoutMs: () => settings.current().turnTimeoutMs,
       // What the review's footer names. A public run gets its id; anything

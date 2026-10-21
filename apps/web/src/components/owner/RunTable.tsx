@@ -1,7 +1,8 @@
 import { RelativeTime } from "@/components/RelativeTime";
 import { StatusBadge } from "@/components/StatusBadge";
-import type { RunSummary } from "@/lib/api/types";
+import type { OwnerRunSummary as RunSummary } from "@/lib/api/types";
 import { SEVERITY_ORDER } from "@/lib/board/tone";
+import { isClosed } from "@/lib/owner/activity";
 import Link from "next/link";
 
 const COUNT_TONE = {
@@ -30,7 +31,8 @@ function FindingCounts({ run }: { run: RunSummary }) {
  * Runs as a table with fixed columns (decision 175), so a status or a count
  * lines up down the page whatever the title's length. The repository column
  * is dropped on a repository's own page, where it would say one thing on
- * every row.
+ * every row. A merged or closed pull request says so beside its number
+ * (decision 179), so a `blocked` row reads as history and not as work.
  */
 export function RunTable({
   runs,
@@ -74,6 +76,11 @@ export function RunTable({
                   {run.pr_title ?? `Pull request #${run.pr_number}`}
                 </Link>
                 <span className="ml-2 font-mono text-xs text-fg-muted">#{run.pr_number}</span>
+                {isClosed(run) ? (
+                  <span className="ml-2 rounded border border-line px-1.5 py-px text-xs text-fg-muted">
+                    {run.pr_state}
+                  </span>
+                ) : null}
               </td>
               {showRepository ? (
                 <td className="hidden py-2.5 pr-4 font-mono text-xs text-fg-muted md:table-cell">

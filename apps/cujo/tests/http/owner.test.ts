@@ -174,6 +174,7 @@ function build(
             }),
             providers,
             runs: store.runs,
+            pullRequests: store.pullRequests,
             runner,
             streamLimit: 1,
             log,
@@ -665,6 +666,26 @@ describe("the owner plane serves every run (decision 159)", () => {
     // The public plane still hides the private one.
     const anon = (await (await h.call("/public/runs")).json()) as { runs: { id: string }[] };
     expect(anon.runs.map((r) => r.id)).toEqual([pub.id]);
+  });
+
+  it("says whether each run's pull request is still open, to the owner only (decision 179)", async () => {
+    const h = build();
+    const { priv, pub } = seed(h.store);
+    h.store.pullRequests.set({ repo: "o/public", prNumber: 2 }, "merged", null, new Date());
+    const { session } = await h.signIn();
+    const list = (await (await h.call("/owner/runs", {}, session)).json()) as {
+      runs: { id: string; pr_state: string | null }[];
+    };
+    const state = Object.fromEntries(list.runs.map((r) => [r.id, r.pr_state]));
+    expect(state).toEqual({ [pub.id]: "merged", [priv.id]: null });
+    const one = (await (await h.call(`/owner/runs/${pub.id}`, {}, session)).json()) as {
+      pr_state: string;
+    };
+    expect(one.pr_state).toBe("merged");
+    // Never on the public plane.
+    const anon = await (await h.call("/public/runs")).text();
+    expect(anon).not.toContain("pr_state");
+    expect(await (await h.call(`/public/runs/${pub.id}`)).text()).not.toContain("pr_state");
   });
 
   it("serves a private run's page and stream, where the public plane says 404", async () => {

@@ -2,8 +2,9 @@
 
 import { WithCommands } from "@/components/common/WithCommands";
 import { Chevron } from "@/components/icons/Chevron";
-import type { Finding, Run } from "@/lib/api/types";
+import type { Finding, OwnerRun } from "@/lib/api/types";
 import { SEVERITY_ORDER, SEVERITY_TONE, TONE_TEXT } from "@/lib/board/tone";
+import { isClosed } from "@/lib/owner/activity";
 import { headline, nextStep, whatHappened } from "@/lib/run/next-step";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import Link from "next/link";
@@ -24,7 +25,7 @@ import { useState } from "react";
  * check that never reported only becomes a finding at the end of the turn.
  */
 
-const HEADLINE_TONE: Partial<Record<Run["status"], string>> = {
+const HEADLINE_TONE: Partial<Record<OwnerRun["status"], string>> = {
   blocked: "text-sev-critical",
   clean: "text-sev-live",
   error: "text-sev-high",
@@ -54,14 +55,16 @@ function FindingItem({ finding }: { finding: Finding }) {
   );
 }
 
-export function RunVerdict({ run }: { run: Run }) {
+export function RunVerdict({ run }: { run: OwnerRun }) {
+  // Only the owner plane says whether the pull request closed (decision 179).
+  const closed = isClosed(run);
   const [othersOpen, setOthersOpen] = useState(false);
   const live = run.status === "running";
   const critical = run.findings.filter((f) => f.severity === "critical");
   const others = run.findings
     .filter((f) => f.severity !== "critical")
     .sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
-  const step = nextStep(run.status);
+  const step = nextStep(run.status, closed);
   const otherCounts = SEVERITY_ORDER.filter((s) => s !== "critical")
     .map((severity) => ({ severity, count: others.filter((f) => f.severity === severity).length }))
     .filter(({ count }) => count > 0);
@@ -72,9 +75,9 @@ export function RunVerdict({ run }: { run: Run }) {
       className="mt-5 rounded-lg border border-line bg-bg-raised p-5 font-ui"
     >
       <p className={`font-display text-xl font-bold ${HEADLINE_TONE[run.status] ?? "text-fg"}`}>
-        {headline(run.status, critical.length, run.mode)}
+        {headline(run.status, critical.length, run.mode, closed)}
       </p>
-      <p className="mt-1 text-sm text-fg-muted">{whatHappened(run.status)}</p>
+      <p className="mt-1 text-sm text-fg-muted">{whatHappened(run.status, closed)}</p>
 
       {!live && critical.length > 0 ? (
         <ul aria-label="Critical findings" className="mt-4 flex flex-col">

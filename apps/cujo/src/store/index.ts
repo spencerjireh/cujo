@@ -1,5 +1,5 @@
 /**
- * One database, nine stores. `Store` owns the connection and nothing else —
+ * One database, eleven stores. `Store` owns the connection and nothing else —
  * deliberately no delegating methods, because a facade that forwarded
  * `getRun` and `getDiscordChannel` alike would compile the moment it was
  * written and leave every consumer holding the same wide dependency the split
@@ -14,6 +14,7 @@ import { DetonationCacheStore } from "./detonations";
 import { ExecutionStore } from "./executions";
 import { NotificationStore } from "./notifications";
 import { OcrReviewStore } from "./ocr";
+import { PullRequestStore } from "./pull-requests";
 import { RepositoryStore } from "./repositories";
 import { RepositorySettingsStore } from "./repository-settings";
 import { RunStore } from "./runs";
@@ -26,6 +27,7 @@ export { NotificationStore } from "./notifications";
 export { DetonationCacheStore } from "./detonations";
 export { ExecutionStore } from "./executions";
 export { OcrReviewStore } from "./ocr";
+export { PullRequestStore } from "./pull-requests";
 export { RepositoryStore } from "./repositories";
 export { RepositorySettingsStore } from "./repository-settings";
 export { SettingsStore } from "./settings";
@@ -39,6 +41,7 @@ export class Store {
   readonly buildFacts: BuildFactsStore;
   readonly executions: ExecutionStore;
   readonly ocr: OcrReviewStore;
+  readonly pullRequests: PullRequestStore;
   readonly repositories: RepositoryStore;
   readonly repositorySettings: RepositorySettingsStore;
   readonly settings: SettingsStore;
@@ -52,6 +55,7 @@ export class Store {
     this.buildFacts = new BuildFactsStore(this.db);
     this.executions = new ExecutionStore(this.db);
     this.ocr = new OcrReviewStore(this.db);
+    this.pullRequests = new PullRequestStore(this.db);
     this.repositories = new RepositoryStore(this.db);
     this.repositorySettings = new RepositorySettingsStore(this.db);
     this.settings = new SettingsStore(this.db);

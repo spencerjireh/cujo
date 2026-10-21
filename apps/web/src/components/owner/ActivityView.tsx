@@ -10,7 +10,7 @@ import {
   ownerRepositoriesOptions,
   ownerRunsOptions,
 } from "@/lib/api/queries";
-import type { RunSummary } from "@/lib/api/types";
+import type { OwnerRunSummary as RunSummary } from "@/lib/api/types";
 import { needsYou, setupSteps } from "@/lib/owner/activity";
 import { deliveryTone } from "@/lib/owner/instance";
 import { nextStep } from "@/lib/run/next-step";

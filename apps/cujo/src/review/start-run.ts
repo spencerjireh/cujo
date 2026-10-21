@@ -196,7 +196,7 @@ export async function startRun(
       // is a normal outcome — but indistinguishable from a lost run without
       // a line saying which head GitHub actually reports.
       log.info("run.superseded", { reason: "stale_head", to: pr.headSha });
-      await deps.runner.supersede(run.id);
+      await deps.runner.supersede(run.id, "stale_head");
       return;
     }
     // GitHub agrees this is the current head, so this run is the one that

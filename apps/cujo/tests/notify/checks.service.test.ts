@@ -181,6 +181,22 @@ describe("PrChecks", () => {
     expect(writes).toHaveLength(1);
   });
 
+  it("writes neutral, not skipped, when the pull request closed (decision 179)", async () => {
+    const { checks, writes } = fake();
+    const old = run("superseded", { id: "old" });
+    const service = build(checks, {
+      runs: { runForPrHead: () => old },
+      pullRequests: { get: () => "merged" },
+    });
+    service.onRunChanged({ run: old, projection: emptyProjection() });
+    await service.flush();
+    expect(writes[0]?.payload).toMatchObject({
+      status: "completed",
+      conclusion: "neutral",
+      output: { title: "Pull request closed" },
+    });
+  });
+
   it("retries a failed write and gives up without throwing", async () => {
     let calls = 0;
     const { checks, writes } = fake(async () => {

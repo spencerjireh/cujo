@@ -34,3 +34,7 @@ export const ErrorStatus: Story = {
 };
 export const Unproven: Story = { args: { run: run({ status: "unproven", findings: [] }) } };
 export const Superseded: Story = { args: { run: run({ status: "superseded" }) } };
+/** Stopped because the pull request closed (decision 179); the owner plane says so. */
+export const PullRequestClosed: Story = {
+  args: { run: { ...run({ status: "superseded", findings: [] }), pr_state: "merged" } },
+};

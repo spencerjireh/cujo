@@ -123,6 +123,7 @@ export function build(
       ...(overrides.converse ? { converse: overrides.converse as never } : {}),
       ...(overrides.debounce ? { debounce: overrides.debounce } : {}),
       ...(overrides.repositories ? { repositories: store.repositories } : {}),
+      pullRequests: store.pullRequests,
     },
     ...(overrides.interactions
       ? {

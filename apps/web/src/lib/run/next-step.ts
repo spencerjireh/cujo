@@ -9,6 +9,10 @@ import type { ReviewMode, RunStatus } from "@/lib/api/types";
  *
  * `STATUS_LINE` stays the record of what Cujo did; this is what the reader
  * does about it. Keyed on `RunStatus`, so a new status fails the build here.
+ *
+ * `closed` is the owner plane's word that the pull request merged or closed
+ * (decision 179). It only changes a superseded run, which is then not
+ * outdated by a newer commit but stopped because the pull request ended.
  */
 
 const NEXT: Record<RunStatus, string | null> = {
@@ -22,7 +26,12 @@ const NEXT: Record<RunStatus, string | null> = {
 };
 
 /** The one-line headline for a run's status. */
-export function headline(status: RunStatus, critical: number, mode?: ReviewMode): string {
+export function headline(
+  status: RunStatus,
+  critical: number,
+  mode?: ReviewMode,
+  closed = false,
+): string {
   switch (status) {
     case "running":
       return mode === "diff" ? "Diff review running" : "Review running";
@@ -39,18 +48,20 @@ export function headline(status: RunStatus, critical: number, mode?: ReviewMode)
     case "unproven":
       return "No results";
     case "superseded":
-      return "Outdated";
+      return closed ? "Pull request closed before the review finished" : "Outdated";
   }
 }
 
 /** What the reader does next, or null when there is nothing to say. */
-export function nextStep(status: RunStatus): string | null {
-  return NEXT[status];
+export function nextStep(status: RunStatus, closed = false): string | null {
+  return status === "superseded" && closed ? null : NEXT[status];
 }
 
 /** What Cujo did, for the line under the headline. */
-export function whatHappened(status: RunStatus): string {
-  return STATUS_LINE[status];
+export function whatHappened(status: RunStatus, closed = false): string {
+  return status === "superseded" && closed
+    ? "Cujo stopped the review when the pull request closed."
+    : STATUS_LINE[status];
 }
 
 /**
