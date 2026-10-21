@@ -17,6 +17,7 @@ import type { PrCommandService } from "../../review/commands/pr-command.service"
 import type { PushDebounce } from "../../review/push-debounce";
 import { type StartRunDeps, startRun } from "../../review/start-run";
 import type { RunStore } from "../../store";
+import type { PullRequestStore } from "../../store/pull-requests";
 import type { RepositoryStore } from "../../store/repositories";
 import type { RequestEnv } from "../request-log";
 
@@ -50,6 +51,9 @@ interface PullRequestEvent {
     /** Explicit `=== true`, same reasoning as `private` above (decision 79). */
     draft?: boolean;
     labels?: Array<{ name: string }>;
+    /** On `closed`: true when it closed by merging (decision 179). */
+    merged?: boolean;
+    closed_at?: string | null;
   };
 }
 
@@ -80,7 +84,13 @@ export interface WebhookDeps extends StartRunDeps {
    * Holds a `synchronize` start for the push window (decision 144). Absent
    * means every delivery starts at once, which is what a test wants.
    */
-  debounce?: Pick<PushDebounce, "schedule">;
+  debounce?: Pick<PushDebounce, "schedule" | "cancel">;
+  /**
+   * Whether each pull request is open (decision 179), from `closed` and
+   * `reopened`. Absent means those actions are ignored like any other,
+   * which is what every test that predates it assumes.
+   */
+  pullRequests?: Pick<PullRequestStore, "set">;
   /**
    * The repository registry (decision 151): fed by the installation events
    * and asked, on every other delivery, whether the owner turned the
@@ -637,6 +647,9 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     const repo = event.repository.full_name;
     const prNumber = event.number;
     const headSha = event.pull_request.head.sha;
+    if ((event.action === "closed" || event.action === "reopened") && deps.pullRequests) {
+      return handlePullRequestState(deps, c, event, log);
+    }
     if (
       event.action !== "opened" &&
       event.action !== "synchronize" &&
@@ -790,4 +803,45 @@ export function webhookRoutes(deps: WebhookDeps): Hono<RequestEnv> {
     return c.json({ ok: true, run_id: run.id }, 202);
   });
   return app;
+}
+
+/**
+ * A pull request closed, merged or reopened (decision 179). Recorded whatever
+ * the owner's switch says, because it is a fact about the pull request and
+ * not a review. A close also ends what is still going on it: a start held by
+ * the push window is dropped, and every unfinished run is superseded, so a
+ * merged pull request does not keep a sandbox and a turn busy. A reopen
+ * starts nothing; `/cujo review` is how to ask for one.
+ */
+async function handlePullRequestState(
+  deps: WebhookDeps,
+  c: Context<RequestEnv>,
+  event: PullRequestEvent,
+  log: Logger,
+): Promise<Response> {
+  const repo = event.repository.full_name;
+  const prNumber = event.number;
+  const state =
+    event.action === "reopened" ? "open" : event.pull_request.merged === true ? "merged" : "closed";
+  deps.pullRequests?.set(
+    { repo, prNumber },
+    state,
+    state === "open" ? null : (event.pull_request.closed_at ?? null),
+    new Date(),
+  );
+  let cancelled = 0;
+  if (state !== "open") {
+    deps.debounce?.cancel(`${repo}#${prNumber}`);
+    for (const run of deps.store.listUnfinishedRuns({ repo, prNumber })) {
+      if (await deps.runner.supersede(run.id, "pr_closed")) cancelled += 1;
+    }
+  }
+  log.info("webhook.pr_state.recorded", {
+    action: event.action,
+    status: state,
+    repo,
+    pr_number: prNumber,
+    count: cancelled,
+  });
+  return c.json({ ok: true, recorded: state }, 200);
 }

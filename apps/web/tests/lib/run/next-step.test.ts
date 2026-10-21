@@ -1,5 +1,5 @@
 import { RUN_STATUSES } from "@/lib/api/types";
-import { headline, nextStep, splitCommands } from "@/lib/run/next-step";
+import { headline, nextStep, splitCommands, whatHappened } from "@/lib/run/next-step";
 import { describe, expect, it } from "vitest";
 
 describe("headline (decision 175)", () => {
@@ -29,6 +29,21 @@ describe("nextStep", () => {
   it("sends an errored run to a re-run, and blames Cujo rather than the pull request", () => {
     expect(nextStep("error")).toContain("Cujo failed.");
     expect(nextStep("error")).toContain("/cujo review");
+  });
+});
+
+describe("a run stopped by its pull request closing (decision 179)", () => {
+  it("says so, with nothing left to do", () => {
+    expect(headline("superseded", 0, undefined, true)).toBe(
+      "Pull request closed before the review finished",
+    );
+    expect(nextStep("superseded", true)).toBeNull();
+    expect(whatHappened("superseded", true)).toContain("pull request closed");
+  });
+
+  it("leaves a superseded run on an open pull request as outdated", () => {
+    expect(headline("superseded", 0)).toBe("Outdated");
+    expect(nextStep("superseded")).toContain("newer run");
   });
 });
 

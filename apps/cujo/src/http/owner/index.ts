@@ -32,6 +32,7 @@ import {
   unresolvable,
 } from "../../settings";
 import type { RunStore } from "../../store";
+import { type PullRequestState, type PullRequestStore, stateKey } from "../../store/pull-requests";
 import type { RepositoryStore } from "../../store/repositories";
 import type { RepositorySettingsStore } from "../../store/repository-settings";
 import type { WebSession, WebSessionStore } from "../../store/web-sessions";
@@ -65,6 +66,12 @@ export interface OwnerDeps {
   providers: Pick<Harness, "listProviderModels" | "testProvider">;
   /** Every run, private ones included (decision 159). */
   runs: Pick<RunStore, "listRunsWithDigests">;
+  /**
+   * Whether each run's pull request is still open (decision 179). Owner-only:
+   * the public serializers never carry it. Absent means every state is
+   * unknown, which the board reads as open.
+   */
+  pullRequests?: Pick<PullRequestStore, "states">;
   runner: Pick<Runner, "view" | "changes">;
   /** Concurrent owner streams held at once; an owner is one person with a few tabs. */
   streamLimit?: number;
@@ -504,14 +511,34 @@ export function ownerRoutes(deps: OwnerDeps): { auth: Hono<RequestEnv>; owner: H
   // is asking has already been settled above. The same stream code, with a
   // limit sized for one person's tabs and not the internet.
   const streams = createStreamLimit(deps.streamLimit ?? OWNER_STREAM_LIMIT);
+  // Each run also says whether its pull request is still open (decision
+  // 179), added here and not in the shared serializers, so the public plane
+  // never carries it.
+  const prStates = (runs: readonly { repo: string; prNumber: number }[]) =>
+    deps.pullRequests?.states(runs) ?? new Map<string, PullRequestState>();
+  const prState = (
+    states: Map<string, PullRequestState>,
+    run: { repo: string; prNumber: number },
+  ) => states.get(stateKey(run)) ?? null;
+
   owner.get("/runs", (c) => {
-    return c.json({ runs: deps.runs.listRunsWithDigests().map(serializePublicSummary) });
+    const rows = deps.runs.listRunsWithDigests();
+    const states = prStates(rows.map((row) => row.run));
+    return c.json({
+      runs: rows.map((row) => ({
+        ...serializePublicSummary(row),
+        pr_state: prState(states, row.run),
+      })),
+    });
   });
 
   owner.get("/runs/:id", (c) => {
     const view = deps.runner.view(c.req.param("id"));
     if (!view) return c.json({ ok: false, error: "not found" }, 404);
-    return c.json(serializePublicRun(view));
+    return c.json({
+      ...serializePublicRun(view),
+      pr_state: prState(prStates([view.run]), view.run),
+    });
   });
 
   owner.get("/runs/:id/events", (c) => {

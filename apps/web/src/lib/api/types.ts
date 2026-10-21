@@ -269,6 +269,20 @@ export interface RunSummary {
   digest?: RunDigest | null;
 }
 
+/**
+ * Whether a run's pull request is still open (decision 179). The owner plane
+ * adds it to every run; the public plane never carries it, which is why it
+ * is a separate shape and not a field of `RunSummary`, whose keys are pinned
+ * to the public serializer. Absent or null is "not known", read as open.
+ */
+type PullRequestState = "open" | "closed" | "merged";
+
+interface OwnerRunFields {
+  pr_state?: PullRequestState | null;
+}
+
+export type OwnerRunSummary = RunSummary & OwnerRunFields;
+
 export interface RunDigest {
   /**
    * A key that is missing is a check that never appeared, which the board must
@@ -381,3 +395,6 @@ export interface Run extends RunSummary {
 export function reviewPosted(run: Run): boolean {
   return !!run.review && run.status !== "running";
 }
+
+/** A run as the owner plane serves it (decision 179). */
+export type OwnerRun = Run & OwnerRunFields;

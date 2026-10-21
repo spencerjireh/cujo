@@ -319,6 +319,18 @@ export const SCHEMA = `
     removed_at TEXT,
     updated_at TEXT NOT NULL
   );
+  -- Whether a pull request is open, closed or merged (decision 179), from
+  -- the \`closed\` and \`reopened\` webhook actions and a backfill at boot.
+  -- No row is "not known", which every reader treats as open. Owner-only:
+  -- nothing on /public reads it.
+  CREATE TABLE IF NOT EXISTS pull_requests (
+    repo TEXT NOT NULL COLLATE NOCASE,
+    pr_number INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('open', 'closed', 'merged')),
+    closed_at TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (repo, pr_number)
+  );
   -- What Open Code Review said about a run (decision 149), verbatim and
   -- read by nothing in this process: the measurement week compares it by
   -- hand over SQL. Never joined by /public, never posted.

@@ -189,6 +189,7 @@ a later one reversed, superseded, refined or amended.
 176. [The images share one package store and take turns installing](#176-the-images-share-one-package-store-and-take-turns-installing)
 177. [The manual is six pages](#177-the-manual-is-six-pages)
 178. [Decisions are short; history is in git and the archive](#178-decisions-are-short-history-is-in-git-and-the-archive)
+179. [Cujo records when a pull request closes](#179-cujo-records-when-a-pull-request-closes)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -2109,3 +2110,15 @@ a later one reversed, superseded, refined or amended.
 **Rejected:** Deleting reversed entries, because code and older entries cite their numbers.
 
 **See:** decision 6; `CONTRIBUTING.md` for the template.
+
+## 179. Cujo records when a pull request closes
+
+**Status:** live
+
+**Decision:** The `pull_request` `closed` and `reopened` actions record each pull request as `open`, `closed` or `merged` in a `pull_requests` table, whatever the owner's switch says. A close drops a pending push-window start and supersedes every unfinished run on the pull request; the check run of such a run completes `neutral` as "Pull request closed" rather than `skipped`. A reopen starts nothing. A backfill at boot asks GitHub about each pull request with runs and no record, one at a time. No record means not known, read as open. The owner plane adds `pr_state` to every run; the public plane never carries it. The owner's "Needs you" and open-block counts skip closed pull requests, run rows say "merged" or "closed", and a run stopped by the close says so on its page.
+
+**Why:** The owner's home listed merged pull requests as needing action (#176, #196, #202 on 2026-10-19), because nothing recorded that they had ended, and a run still going on a merged pull request kept its turn and sandbox.
+
+**Rejected:** Hiding entries older than a cutoff, which hides an old open pull request and shows one merged yesterday. A new `closed` run status, which every status table would have to learn for what `superseded` already means. Publishing the state on the public board, which has no use for it. The Discord card still says "Replaced by a newer commit" for such a run; it reads no store.
+
+**See:** decisions 16, 20, 104, 138, 144, 159, 175.

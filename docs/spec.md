@@ -40,7 +40,8 @@ and an action. The reasons live in `docs/decisions.md`.
 ## Contract 1 — the trigger
 
 The Cujo GitHub App subscribes to `pull_request` (`opened`, `synchronize`,
-`ready_for_review`), `repository` (`privatized`, `publicized`),
+`ready_for_review`, and `closed` and `reopened`, which only record whether
+the pull request is open; decision 179), `repository` (`privatized`, `publicized`),
 `issue_comment` (`created`) and `pull_request_review_comment` (`created`). It
 also receives `installation` (`created`, `deleted`, `suspend`, `unsuspend`)
 and `installation_repositories` (`added`, `removed`), which feed only the
@@ -96,6 +97,13 @@ default; `0` starts at once), logged as `webhook.debounced`. A newer push in
 the window drops the older pending start, and the run that starts supersedes
 the dropped rows. The reaction and the check run land at the start. `opened`,
 `ready_for_review` and shutdown start pending runs at once.
+
+**A close ends what is still going** (decision 179). `closed` records the
+pull request as `merged` or `closed` (even on a repository turned off),
+drops a pending start, and supersedes every unfinished run on it; their
+check runs complete `neutral` as "Pull request closed". `reopened` records
+it as open and starts nothing. A backfill at boot asks GitHub about every
+pull request with runs and no recorded state. No record reads as open.
 
 **Budgets.** A sandbox turn carries `tokenBudget` from `sandboxBudgetTokens`
 (decision 165), as a diff turn carries `diffBudgetTokens`; the run row stamps
@@ -740,8 +748,8 @@ plane serves `/auth` and `/owner` (decision 153), the only write routes:
 | `GET /owner/bot` | The App as GitHub sees it (decision 157): its permissions against the five the reviews need with a verdict each, its installations with the registry's repository count under each, and its last twenty webhook deliveries with the status this process answered. 502 when GitHub does not answer. |
 | `GET /owner/health` | The `/readyz` answer (harness, store, uptime), and `configured`: whether a model is chosen and its provider registered (decision 174). While false, every PR gets a neutral `cujo/guard` check, "Cujo is not configured", and no run. |
 | `GET /owner/repositories` | The registry (decision 151), removed rows included. |
-| `GET /owner/runs` | Every run, private ones included (decision 159), in the public list's shape through the public serializer. |
-| `GET /owner/runs/:id` | One run, public or private, in the public detail's shape. 404 only for a run that does not exist. |
+| `GET /owner/runs` | Every run, private ones included (decision 159), in the public list's shape through the public serializer, plus `pr_state`: `open`, `closed`, `merged` or null for not known (decision 179). The public plane never carries it. |
+| `GET /owner/runs/:id` | One run, public or private, in the public detail's shape plus `pr_state`. 404 only for a run that does not exist. |
 | `GET /owner/runs/:id/events` | The run's live stream, on the public stream's code; its own limit of twenty concurrent streams. 503 past it. |
 | `PATCH /owner/repositories/:owner/:name` | `{ enabled }`. 404 for a repository the registry does not know. |
 

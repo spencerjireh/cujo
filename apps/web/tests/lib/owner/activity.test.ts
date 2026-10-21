@@ -1,6 +1,7 @@
 import type { BotState, Health, InstanceSettings, OwnedRepository } from "@/lib/api/owner-client";
 import { ownerRuns } from "@/lib/fixtures";
 import {
+  isClosed,
   lastRunPerRepository,
   latestPerPullRequest,
   needsYou,
@@ -107,6 +108,23 @@ describe("runs per pull request and per repository", () => {
     expect(ids).toContain("run-1");
     expect(ids).not.toContain("run-12");
     expect(ids[0]).toBe("run-10");
+  });
+
+  it("leaves out a pull request that merged or closed (decision 179)", () => {
+    const ids = needsYou(ownerRuns).map((r) => r.id);
+    expect(ids).not.toContain("run-15");
+    expect(ids).not.toContain("run-16");
+    const merged = ownerRuns.find((r) => r.id === "run-15");
+    expect(merged && isClosed(merged)).toBe(true);
+    // Not known is open: the board's runs carry no state and still count.
+    expect(ownerRuns.find((r) => r.id === "run-1")?.pr_state).toBeUndefined();
+  });
+
+  it("does not count a block on a pull request that merged", () => {
+    const merged = ownerRuns.map((r) =>
+      r.repo === "spencerjireh/orders-api" ? { ...r, pr_state: "merged" as const } : r,
+    );
+    expect(openBlocks(merged, "spencerjireh/orders-api")).toBe(0);
   });
 
   it("finds each repository's newest run and counts its open blocks", () => {

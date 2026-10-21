@@ -1,4 +1,12 @@
-import type { CheckState, DraftedReview, Finding, Run, RunDigest, RunSummary } from "./api/types";
+import type {
+  CheckState,
+  DraftedReview,
+  Finding,
+  OwnerRunSummary,
+  Run,
+  RunDigest,
+  RunSummary,
+} from "./api/types";
 
 /**
  * The three demo runs, plus the states that are awkward to
@@ -438,9 +446,11 @@ export const runs: RunSummary[] = [
  * plus every status an owner's activity has to word — an error that needs a
  * re-run, a lifted block, an unproven review — and a pull request whose older
  * run was blocked and whose newer one is clean, so "blocked now" has to read
- * the newest run and not any run.
+ * the newest run and not any run. Two pull requests have ended (decision
+ * 179): a merged one whose last run errored, and a closed one whose run was
+ * stopped by the close, so neither belongs under "Needs you".
  */
-export const ownerRuns: RunSummary[] = [
+export const ownerRuns: OwnerRunSummary[] = [
   {
     ...summary,
     id: "run-10",
@@ -499,6 +509,32 @@ export const ownerRuns: RunSummary[] = [
     created_at: at(200),
     updated_at: at(230),
     digest: { checks: {}, findings: { critical: 0, warn: 0, info: 1 }, durationMs: 30_000 },
+  },
+  {
+    ...summary,
+    id: "run-15",
+    repo: "spencerjireh/cujo",
+    pr_number: 202,
+    pr_title: "Configure models on the board",
+    head_sha: "b2c3d4e",
+    status: "error",
+    created_at: at(150),
+    updated_at: at(170),
+    digest: null,
+    pr_state: "merged",
+  },
+  {
+    ...summary,
+    id: "run-16",
+    repo: "spencerjireh/notes",
+    pr_number: 5,
+    pr_title: "Try a second sync backend",
+    head_sha: "c3d4e5f",
+    status: "superseded",
+    created_at: at(120),
+    updated_at: at(125),
+    digest: null,
+    pr_state: "closed",
   },
   ...runs,
 ];

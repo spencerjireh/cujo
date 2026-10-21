@@ -61,6 +61,9 @@ export const EVENT_NAMES = [
   // The delivery was good and the run still could not be claimed. Its own name
   // because it is not a refusal: nothing about the request was wrong.
   "webhook.failed",
+  // A pull request closed, merged or reopened (decision 179): recorded, and on
+  // a close the runs still going on it are cancelled.
+  "webhook.pr_state.recorded",
   "repo.visibility.changed",
   // A pull request comment addressed to Cujo. Same plane as the rest of this
   // group: a signature is the only gate in front of it, and `comment.command.*`
@@ -152,6 +155,9 @@ export const EVENT_NAMES = [
   // Background reconciliation and outbound reads.
   "visibility.swept",
   "visibility.sweep.failed",
+  // The boot-time backfill of pull request states (decision 179).
+  "pr_state.swept",
+  "pr_state.sweep.failed",
   "github.page_cap",
   // github-mcp: the only outward write in the system.
   "review.posted",

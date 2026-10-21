@@ -46,6 +46,19 @@ export class PushDebounce {
     return true;
   }
 
+  /**
+   * Drop a pending start without firing it: the pull request closed inside the
+   * window (decision 179). The row it claimed is still `running` with no turn,
+   * and the close supersedes it like any other unfinished run.
+   */
+  cancel(key: string): boolean {
+    const entry = this.pending.get(key);
+    if (!entry) return false;
+    clearTimeout(entry.timer);
+    this.pending.delete(key);
+    return true;
+  }
+
   /** Fire every pending start now. */
   flush(): void {
     for (const [key, entry] of this.pending) {

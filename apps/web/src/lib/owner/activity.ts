@@ -1,5 +1,5 @@
 import type { BotState, Health, InstanceSettings, OwnedRepository } from "@/lib/api/owner-client";
-import type { RunSummary } from "@/lib/api/types";
+import type { OwnerRunSummary as RunSummary } from "@/lib/api/types";
 import { describeHealth, describePermissions } from "./instance";
 
 /**
@@ -112,9 +112,18 @@ export function latestPerPullRequest(runs: RunSummary[]): RunSummary[] {
  * The pull requests that need a person: a block only a maintainer can lift,
  * or a run Cujo itself failed, which needs a re-run.
  */
+/**
+ * Whether the pull request is merged or closed (decision 179). Unknown is
+ * open: a pull request cujo never heard close about still asks for attention
+ * rather than vanishing on a guess.
+ */
+export function isClosed(run: RunSummary): boolean {
+  return run.pr_state === "closed" || run.pr_state === "merged";
+}
+
 export function needsYou(runs: RunSummary[]): RunSummary[] {
   return latestPerPullRequest(runs).filter(
-    (run) => run.status === "blocked" || run.status === "error",
+    (run) => !isClosed(run) && (run.status === "blocked" || run.status === "error"),
   );
 }
 
@@ -133,6 +142,6 @@ export function lastRunPerRepository(runs: RunSummary[]): Map<string, RunSummary
 export function openBlocks(runs: RunSummary[], repo: string): number {
   const name = repo.toLowerCase();
   return latestPerPullRequest(runs).filter(
-    (run) => run.repo.toLowerCase() === name && run.status === "blocked",
+    (run) => run.repo.toLowerCase() === name && run.status === "blocked" && !isClosed(run),
   ).length;
 }

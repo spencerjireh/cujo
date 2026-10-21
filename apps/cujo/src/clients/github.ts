@@ -371,6 +371,28 @@ export class GitHubReader {
   }
 
   /**
+   * Whether a pull request is open, closed or merged (decision 179), for the
+   * boot backfill of pull requests whose state was never delivered. Null on
+   * any failure, which leaves the state unknown rather than guessed.
+   */
+  async pullRequestState(
+    repo: string,
+    prNumber: number,
+  ): Promise<{ state: "open" | "closed" | "merged"; closedAt: string | null } | null> {
+    try {
+      const pr = await this.get<{
+        state: string;
+        merged_at: string | null;
+        closed_at: string | null;
+      }>(repo, `/repos/${repo}/pulls/${prNumber}`);
+      if (pr.state === "open") return { state: "open", closedAt: null };
+      return { state: pr.merged_at ? "merged" : "closed", closedAt: pr.closed_at };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * The App as GitHub sees it (decision 157): what it is, what it holds,
    * where it is installed, and what its webhook delivered lately. Three
    * reads on the App JWT, cached for a minute, since the board asks on every

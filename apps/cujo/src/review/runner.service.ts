@@ -112,6 +112,9 @@ function durationOf(check: CheckState): { duration_ms?: number } {
  */
 type DismissRefusal = "no_such_run" | "not_blocked" | "already_decided" | "github_failed";
 
+/** Why a run was superseded, for its log line (decision 179 adds the close). */
+export type SupersedeReason = "newer_head" | "stale_head" | "pr_closed";
+
 export type DismissResult = { ok: true } | { ok: false; reason: DismissRefusal; detail: string };
 
 const REFUSAL_TEXT: Record<DismissRefusal, string> = {
@@ -1037,14 +1040,18 @@ export class Runner {
    * A finished run — `blocked` included — is superseded in the store alone
    * and emitted, so the card, the reaction and the check run hear that a
    * newer commit moved it on.
+   *
+   * `reason` is only what the log line says: a newer head, a stale delivery,
+   * or the pull request closing (decision 179). The check run and the card
+   * tell a close apart by the pull request's stored state, not by this.
    */
-  async supersede(runId: string): Promise<boolean> {
+  async supersede(runId: string, reason: SupersedeReason = "newer_head"): Promise<boolean> {
     const s = this.state(runId);
     // Already superseded by someone else, and this call cannot see whether
     // their cancel landed. `false` means "not confirmed", never "still live".
     if (s.superseded) return false;
     s.superseded = true;
-    s.log.info("run.superseded", { reason: "newer_head" });
+    s.log.info("run.superseded", { reason });
     const run = this.store.getRun(runId);
     const live = run && run.turnIds.length > 0 && !this.isTerminal(run.status);
     if (!run || !live) {

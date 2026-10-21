@@ -871,6 +871,67 @@ describe("webhook", () => {
     expect(runner.start).toHaveBeenCalledTimes(2);
   });
 
+  describe("a pull request that closes or reopens (decision 179)", () => {
+    const stateEvent = (action: string, merged = false) =>
+      JSON.stringify({
+        action,
+        number: 7,
+        repository: { full_name: "o/r", private: false },
+        pull_request: { head: { sha: "h" }, merged, closed_at: "2026-10-20T00:00:00Z" },
+      });
+
+    it("records a merge and a plain close, and starts nothing", async () => {
+      const { app, store, runner, logged } = build();
+      const merged = await deliver(app, stateEvent("closed", true));
+      expect(merged.status).toBe(200);
+      expect(await merged.json()).toEqual({ ok: true, recorded: "merged" });
+      expect(store.pullRequests.get({ repo: "o/r", prNumber: 7 })).toBe("merged");
+      const other = { ...JSON.parse(stateEvent("closed")), number: 8 };
+      expect(await (await deliver(app, JSON.stringify(other))).json()).toEqual({
+        ok: true,
+        recorded: "closed",
+      });
+      expect(runner.start).not.toHaveBeenCalled();
+      expect(store.runs.listRuns()).toEqual([]);
+      expect(logged("webhook.pr_state.recorded")).toMatchObject([
+        { action: "closed", status: "merged", repo: "o/r", pr_number: 7, count: 0 },
+        { action: "closed", status: "closed", pr_number: 8 },
+      ]);
+    });
+
+    it("supersedes the run still going on it", async () => {
+      const { app, store, runner, nextSettled } = build();
+      const done = nextSettled();
+      const { run_id } = (await (await deliver(app)).json()) as { run_id: string };
+      await done;
+      expect(store.runs.getRun(run_id)?.status).toBe("running");
+      await deliver(app, stateEvent("closed", true));
+      expect(runner.supersede).toHaveBeenCalledWith(run_id, "pr_closed");
+      expect(store.runs.getRun(run_id)?.status).toBe("superseded");
+    });
+
+    it("reopens without starting a run", async () => {
+      const { app, store, runner } = build();
+      await deliver(app, stateEvent("closed"));
+      const res = await deliver(app, stateEvent("reopened"));
+      expect(await res.json()).toEqual({ ok: true, recorded: "open" });
+      expect(store.pullRequests.get({ repo: "o/r", prNumber: 7 })).toBe("open");
+      expect(runner.start).not.toHaveBeenCalled();
+    });
+
+    it("records a close on a repository the owner turned off", async () => {
+      const { app, store } = build({ repositories: true });
+      const at = "2026-09-15T00:00:00.000Z";
+      store.repositories.upsertInstalled(
+        [{ repo: "o/r", installationId: 1, isPrivate: false }],
+        at,
+      );
+      store.repositories.setEnabled("o/r", false, at);
+      await deliver(app, stateEvent("closed", true));
+      expect(store.pullRequests.get({ repo: "o/r", prNumber: 7 })).toBe("merged");
+    });
+  });
+
   describe("the push window (decision 144)", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
@@ -932,6 +993,28 @@ describe("webhook", () => {
       expect(runner.start).toHaveBeenCalledOnce();
       expect(logged("webhook.debounced")).toHaveLength(0);
     });
+
+    it("drops a pending start when the pull request closes in the window", async () => {
+      const debounce = new PushDebounce(60_000);
+      const { app, runner, store } = build({ debounce });
+      const { run_id } = (await (await deliver(app, headPayload("h"))).json()) as {
+        run_id: string;
+      };
+      expect(debounce.size).toBe(1);
+      await deliver(
+        app,
+        JSON.stringify({
+          action: "closed",
+          number: 7,
+          repository: { full_name: "o/r", private: false },
+          pull_request: { head: { sha: "h" }, merged: true },
+        }),
+      );
+      expect(debounce.size).toBe(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(runner.start).not.toHaveBeenCalled();
+      expect(store.runs.getRun(run_id)?.status).toBe("superseded");
+    });
   });
 
   it("does not let a delayed delivery for an older head replace the current run", async () => {
@@ -947,7 +1030,7 @@ describe("webhook", () => {
     done = nextSettled();
     const stale = (await (await deliver(app, headPayload("h1"))).json()) as { run_id: string };
     await done;
-    expect(runner.supersede).toHaveBeenCalledWith(stale.run_id);
+    expect(runner.supersede).toHaveBeenCalledWith(stale.run_id, "stale_head");
     expect(runner.supersede).not.toHaveBeenCalledWith(current.run_id);
     expect(store.runs.getRun(stale.run_id)?.status).toBe("superseded");
     expect(store.runs.getRun(current.run_id)?.status).toBe("running");

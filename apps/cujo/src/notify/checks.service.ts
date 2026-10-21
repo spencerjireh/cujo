@@ -18,6 +18,9 @@
  * that run writes `skipped` — but only while it is still the latest run for
  * its head. On `/cujo review` the replacement run owns the same commit and is
  * about to write its own `in_progress`, so the superseded one writes nothing.
+ * A run superseded because its pull request *closed* (decision 179) writes
+ * `neutral` with that reason instead: nothing newer replaced it, and
+ * `skipped` would say something did.
  */
 
 import { type Logger, errorFields } from "@cujo/log";
@@ -25,6 +28,7 @@ import type { CheckPayload, GitHubChecks } from "../clients/github-checks";
 import { type UiLinks, runUrl } from "../review/links";
 import type { RunView } from "../review/runner.service";
 import type { Projection, RunRecord, RunStatus } from "../review/types";
+import type { PullRequestStore } from "../store/pull-requests";
 import type { RunStore } from "../store/runs";
 import { describe } from "./card";
 
@@ -35,6 +39,11 @@ export interface PrChecksDeps {
   links: UiLinks;
   /** For the superseded rule: is this run still the latest for its head? */
   runs: Pick<RunStore, "runForPrHead">;
+  /**
+   * Whether the pull request closed (decision 179), to tell that apart from a
+   * newer commit. Absent means every supersession reads as a newer commit.
+   */
+  pullRequests?: Pick<PullRequestStore, "get">;
   /** Backoff before each retry of a failed call, as on the reactor. */
   retryDelaysMs?: number[];
   /** Injected so a retry test does not really wait. */
@@ -118,6 +127,15 @@ const SUPERSEDED: Shape = {
   },
 };
 
+const CLOSED: Shape = {
+  status: "completed",
+  conclusion: "neutral",
+  output: {
+    title: "Pull request closed",
+    summary: "The pull request closed before the review finished.",
+  },
+};
+
 export class PrChecks {
   /** The last payload written per run, keyed on its JSON, as the reactor keys on its set. */
   private readonly applied = new Map<string, string>();
@@ -187,11 +205,16 @@ export class PrChecks {
     const { run } = view;
     if (run.status === "superseded") {
       const latest = this.deps.runs.runForPrHead(run.repo, run.prNumber, run.headSha);
-      if (latest && latest.id === run.id) this.apply(run, SUPERSEDED);
+      if (latest && latest.id === run.id) this.apply(run, this.closed(run) ? CLOSED : SUPERSEDED);
       return;
     }
     const shape = BY_STATUS[run.status](view);
     if (shape) this.apply(run, shape);
+  }
+
+  private closed(run: RunRecord): boolean {
+    const state = this.deps.pullRequests?.get({ repo: run.repo, prNumber: run.prNumber });
+    return state === "closed" || state === "merged";
   }
 
   /** Await every queued call. Used by tests and by shutdown. */
