@@ -207,7 +207,9 @@ function ProviderCard({
           </>
         ) : null}
         <Field label="API key" hint="Type a new key to replace it.">
+          {/* A pasted key is the real key until it is saved and comes back masked. */}
           <input
+            type="password"
             className={INPUT}
             value={draft.apiKey}
             onChange={set("apiKey")}

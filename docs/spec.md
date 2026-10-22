@@ -785,10 +785,11 @@ The host split is enforced in the process:
   unreachable the proxy answers `502` with
   `{ok: false, error: "cujo is unreachable"}` (decision 37). It forwards
   `Cf-Ray` as a correlation id.
-- A run page asks the public plane first; on a 404 an owner's session goes to
-  the owner plane (decision 159), and anyone else gets the same 404.
-  `generateMetadata` uses the same anonymous read (decision 86); a private run
-  gets the site default, and the page is `noindex`. An unknown path renders the
+- A run page for a signed-in owner reads the owner plane, which names every
+  run and adds `pr_state` (decisions 159, 179). Anyone else reads the public
+  plane with no credential, and its 404 is the page's 404. `generateMetadata`
+  uses the same read as the page (decision 86); a private run gets the site
+  default for anyone else, and the page is `noindex`. An unknown path renders the
   board's own 404 page with a 404 status (decision 57).
 - The webhook route accepts only a verified HMAC (Contract 1), and
   `/discord/interactions` only a verified Ed25519 signature (Contract 8).

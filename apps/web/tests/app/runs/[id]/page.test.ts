@@ -113,7 +113,7 @@ describe("run page metadata", () => {
   });
 });
 
-describe("run page for a private run (decision 159)", () => {
+describe("run page for a signed-in owner (decisions 159, 179)", () => {
   /** The public plane says 404; the owner plane answers with the run. */
   function stubBothPlanes(body: Run): void {
     vi.stubGlobal(
@@ -131,7 +131,7 @@ describe("run page for a private run (decision 159)", () => {
     );
   }
 
-  it("falls back to the owner plane, with the session, for a signed-in owner", async () => {
+  it("reads a private run from the owner plane, with the session", async () => {
     stubBothPlanes(run("p1", { repo: "o/private" }));
     vi.mocked(whoIsReading).mockResolvedValueOnce({
       me: { login: "octocat", is_owner: true },
@@ -148,6 +148,28 @@ describe("run page for a private run (decision 159)", () => {
     expect(new Headers(ownerCall?.[1].headers).get("authorization")).toBe(
       `Bearer ${"a".repeat(64)}`,
     );
+  });
+
+  it("reads a public run from the owner plane too, so the page knows the pull request closed", async () => {
+    // Both planes name a public run; only the owner's says whether its pull
+    // request has closed, and the run page's headline turns on that.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(run("p3", { status: "superseded" })), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    vi.mocked(whoIsReading).mockResolvedValueOnce({
+      me: { login: "octocat", is_owner: true },
+      session: "a".repeat(64),
+    });
+    await generateMetadata(PARAMS("p3"));
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as [string][];
+    expect(calls.map(([url]) => url)).toEqual(["http://cujo:8080/owner/runs/p3"]);
   });
 
   it("stays a 404 for anyone who is not signed in as an owner, and asks the owner plane nothing", async () => {
