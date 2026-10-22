@@ -18,13 +18,13 @@ export const dynamic = "force-dynamic";
  * The run this page is about, and which plane answered for it.
  *
  * Awaited: this page is nothing without the run, and a 404 from the API has
- * to become a 404 here rather than an empty shell. The public plane first,
- * with no credential, which is what every reader gets. Its 404 is what a
- * private run looks like (decision 34), and for a signed-in owner that is
- * not the whole answer any more (decision 159): the owner plane is asked
- * with the session, and a run it names is rendered on the owner's stream.
- * Anyone else, and any run neither plane names, is a 404 -- the page never
- * says which of the two it was. The client is request-scoped, so the second
+ * to become a 404 here rather than an empty shell. A signed-in owner reads
+ * the owner plane (decision 159), which names every run, private or public,
+ * and says whether its pull request has closed (decision 179); a run it
+ * names is rendered on the owner's stream. Everyone else reads the public
+ * plane, with no credential, and its 404 is what a private run looks like
+ * (decision 34). Any run the reader's plane does not name is a 404 -- the
+ * page never says which it was. The client is request-scoped, so the second
  * call in a request is a cache hit.
  */
 async function readRun(id: string): Promise<{ queryClient: QueryClient; run: Run; plane: Plane }> {
@@ -32,15 +32,17 @@ async function readRun(id: string): Promise<{ queryClient: QueryClient; run: Run
   const cached = queryClient.getQueryData<Run>(runKeys.detail(id));
   const cachedPlane = queryClient.getQueryData<Plane>(planeKey(id));
   if (cached && cachedPlane) return { queryClient, run: cached, plane: cachedPlane };
-  try {
-    const run = await queryClient.fetchQuery(runOptions(id));
-    queryClient.setQueryData(planeKey(id), "public");
-    return { queryClient, run, plane: "public" };
-  } catch (error) {
-    if (!(error instanceof ApiError && error.status === 404)) throw error;
-  }
   const reader = await whoIsReading();
-  if (!("me" in reader)) notFound();
+  if (!("me" in reader)) {
+    try {
+      const run = await queryClient.fetchQuery(runOptions(id));
+      queryClient.setQueryData(planeKey(id), "public");
+      return { queryClient, run, plane: "public" };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) notFound();
+      throw error;
+    }
+  }
   try {
     const run = await fetchOwnerRun(id, reader.session);
     queryClient.setQueryData(runKeys.detail(id), run);
