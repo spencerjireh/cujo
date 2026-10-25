@@ -56,6 +56,12 @@ export interface LocalRuntimeOptions {
   /** The egress gateway image, built from `gateway/Dockerfile`. */
   gatewayImage: string;
   /**
+   * Called before anything is created, so an image the host pruned since boot
+   * is rebuilt rather than run (decision 181). Absent means the images are
+   * somebody else's promise, as `CUJO_SANDBOX_IMAGES_DIR` empty says at boot.
+   */
+  ensureImages?: () => Promise<void>;
+  /**
    * The container runtime. `runsc` is gVisor; empty uses Docker's default.
    *
    * Optional on purpose. A host that has not had gVisor installed yet still runs
@@ -173,6 +179,19 @@ export class LocalRuntime implements SandboxRuntime {
       this.log.warn("sandbox.runtime.default", {
         reason: "no_container_runtime_configured",
       });
+    }
+
+    // Before the network exists, so a missing image leaves nothing to clean up
+    // and the caller learns the real reason rather than `docker run`'s.
+    if (this.options.ensureImages) {
+      try {
+        await this.options.ensureImages();
+      } catch (error) {
+        throw new SandboxError(
+          "provision_failed",
+          `image rebuild failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     // The baseline first, then the repository's additions, minus repeats: a
