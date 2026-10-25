@@ -19,6 +19,12 @@ no sandbox, and posts one advisory review with findings at most `warn`. The
 `.cujo.yml`; a dependency-manifest change or a bot-authored pull request always
 gets the sandbox (decision 135).
 
+**Where this is going.** Cujo is becoming a plugin-based review gate
+(decision 180): plugins produce evidence, one policy decides, and the verdict
+is signed. The design is in [gate/](gate/README.md), five short pages.
+Everything below describes what runs today and stays true until a gate pull
+request replaces a path, each with its own decision.
+
 ## Components
 
 | Piece | Role |
