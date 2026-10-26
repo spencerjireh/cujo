@@ -424,3 +424,41 @@ describe("LocalRuntime.create with staged trees (decision 158)", () => {
     expect(calls.some((c) => c.some((a) => a.includes("tar -xzf")))).toBe(false);
   });
 });
+
+describe("LocalRuntime.create with an image keeper (decision 181)", () => {
+  it("asks for the images before it creates anything", async () => {
+    const { docker, calls } = fakeDocker();
+    const order: string[] = [];
+    const ensureImages = vi.fn(async () => {
+      order.push(`ensure:${calls.length}`);
+    });
+    await new LocalRuntime({
+      image: "cujo/sandbox:pinned",
+      gatewayImage: "cujo/sandbox-gateway:pinned",
+      ensureImages,
+      docker,
+      log: createLogger({ service: "sandbox-mcp", sink: () => {} }),
+    }).create({ allowHosts: [] });
+    expect(ensureImages).toHaveBeenCalledTimes(1);
+    // Zero docker calls had happened when the keeper was asked.
+    expect(order).toEqual(["ensure:0"]);
+  });
+
+  it("fails provisioning, with nothing to clean up, when the rebuild fails", async () => {
+    const { docker, calls } = fakeDocker();
+    const runtimeWithKeeper = new LocalRuntime({
+      image: "cujo/sandbox:pinned",
+      gatewayImage: "cujo/sandbox-gateway:pinned",
+      ensureImages: async () => {
+        throw new Error("docker build cujo/sandbox:pinned exited 1: no space left");
+      },
+      docker,
+      log: createLogger({ service: "sandbox-mcp", sink: () => {} }),
+    });
+    await expect(runtimeWithKeeper.create({ allowHosts: [] })).rejects.toMatchObject({
+      reason: "provision_failed",
+      message: expect.stringMatching(/image rebuild failed: .*no space left/),
+    });
+    expect(calls).toHaveLength(0);
+  });
+});

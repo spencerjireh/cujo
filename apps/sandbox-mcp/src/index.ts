@@ -11,7 +11,7 @@
 
 import { createLogger, errorFields, parseLevel } from "@cujo/log";
 import { dockerCli } from "./docker";
-import { buildImages } from "./images";
+import { type ImageBuild, buildImages, imageKeeper } from "./images";
 import type { SandboxRuntime } from "./runtime";
 import { DaytonaRuntime } from "./runtimes/daytona";
 import { LocalRuntime } from "./runtimes/local";
@@ -31,6 +31,12 @@ const PORT = Number(process.env.PORT ?? 8082);
 const IMAGES_DIR = process.env.CUJO_SANDBOX_IMAGES_DIR ?? "/app/images";
 /** How often expired sandboxes are reaped. Cheap, and a leak here is containers. */
 const REAP_INTERVAL_MS = 5 * 60 * 1000;
+/**
+ * How often the images are checked for between sandboxes (decision 181). Under
+ * Coolify's cleanup cadence, so a pruned image is usually back before the next
+ * create asks for it; two `docker image inspect` a cycle is nothing.
+ */
+const IMAGE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Where a private repository's trees wait for their sandbox (decision 158):
@@ -46,7 +52,10 @@ function requireEnv(name: string): string {
   return value;
 }
 
-export function buildRuntime(log = createLogger({ service: "sandbox-mcp" })): SandboxRuntime {
+export function buildRuntime(
+  log = createLogger({ service: "sandbox-mcp" }),
+  ensureImages?: () => Promise<void>,
+): SandboxRuntime {
   const choice = process.env.CUJO_SANDBOX_RUNTIME ?? "local";
   if (choice === "daytona") {
     return new DaytonaRuntime({
@@ -72,6 +81,7 @@ export function buildRuntime(log = createLogger({ service: "sandbox-mcp" })): Sa
       ? Number(process.env.CUJO_SANDBOX_MAX_LIFETIME_MS)
       : undefined,
     memory: process.env.CUJO_SANDBOX_MEMORY || undefined,
+    ensureImages,
     log,
   });
 }
@@ -81,24 +91,39 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     service: "sandbox-mcp",
     level: parseLevel(process.env.CUJO_LOG_LEVEL),
   });
-  const runtime = buildRuntime(log);
   // The local runtime's images are built here, at boot, from contexts this
   // image carries (decision 118). Nothing else in the deployment builds them:
   // they are started with `docker run` per sandbox, not as compose services,
   // so `up --build` never sees them. The server listens meanwhile and answers
   // 503, so the healthcheck reports a boot in progress rather than a dead port;
   // a build that fails ends the process, because a sandbox service that cannot
-  // provision is one the deploy must not call healthy.
-  const ready =
-    runtime instanceof LocalRuntime && IMAGES_DIR !== ""
-      ? buildImages(
-          [
-            { tag: requireEnv("CUJO_SANDBOX_IMAGE"), context: `${IMAGES_DIR}/sandbox` },
-            { tag: requireEnv("CUJO_SANDBOX_GATEWAY_IMAGE"), context: `${IMAGES_DIR}/gateway` },
-          ],
-          { docker: dockerCli(), log },
-        )
-      : undefined;
+  // provision is one the deploy must not call healthy. After boot the keeper
+  // rebuilds whichever tag the host's cleanup has pruned (decision 181).
+  const builds: ImageBuild[] | null =
+    (process.env.CUJO_SANDBOX_RUNTIME ?? "local") === "local" && IMAGES_DIR !== ""
+      ? [
+          { tag: requireEnv("CUJO_SANDBOX_IMAGE"), context: `${IMAGES_DIR}/sandbox` },
+          { tag: requireEnv("CUJO_SANDBOX_GATEWAY_IMAGE"), context: `${IMAGES_DIR}/gateway` },
+        ]
+      : null;
+  const keeper = builds ? imageKeeper(builds, { docker: dockerCli(), log }) : null;
+  const runtime = buildRuntime(log, keeper ? () => keeper.ensure() : undefined);
+  const ready = builds ? buildImages(builds, { docker: dockerCli(), log }) : undefined;
+  if (keeper && ready) {
+    // Only once the boot build is done: a sweep during it would find the tag
+    // missing and start a second build of the same image.
+    void ready.then(
+      () => {
+        const sweep = setInterval(() => {
+          void keeper
+            .ensure()
+            .catch((error) => log.error("sandbox.image.build.failed", errorFields(error)));
+        }, IMAGE_SWEEP_INTERVAL_MS);
+        sweep.unref();
+      },
+      () => {},
+    );
+  }
   const stage =
     runtime instanceof LocalRuntime && STAGE_DIR !== ""
       ? new StagingStore({ dir: STAGE_DIR, maxBytes: STAGE_MAX_BYTES, ttlMs: STAGE_TTL_MS, log })

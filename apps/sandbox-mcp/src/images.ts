@@ -62,3 +62,58 @@ export async function buildImages(
     });
   }
 }
+
+export interface ImageKeeper {
+  /**
+   * Rebuilds whichever of the images is gone from the daemon. Resolves at once
+   * when both are present; concurrent callers share one rebuild.
+   */
+  ensure(): Promise<void>;
+}
+
+/** `docker image inspect` is a local lookup; a minute is the daemon hanging. */
+const INSPECT_TIMEOUT_MS = 60_000;
+
+/**
+ * Keeps the boot-built images present for as long as the process runs
+ * (decision 181).
+ *
+ * Nothing holds a tag between sandboxes: the runtime starts a container from it
+ * per run and removes the container after. To the host's cleanup that is an
+ * unused image, and Coolify prunes those on a timer once the disk passes a
+ * threshold. The build at boot then promised an image that no longer exists,
+ * and every `sandbox_create` until the next deploy failed naming it. So the
+ * runtime asks before each create, and a timer asks between creates, and a
+ * missing tag is rebuilt from the same context the boot build used. The
+ * rebuild inside a create is the cost 118 refused for the first build; here it
+ * is the rare case, and the timer makes it rarer.
+ */
+export function imageKeeper(
+  builds: readonly ImageBuild[],
+  options: BuildImagesOptions,
+): ImageKeeper {
+  let inFlight: Promise<void> | null = null;
+  const sweep = async (): Promise<void> => {
+    const missing: ImageBuild[] = [];
+    for (const build of builds) {
+      const result = await options.docker(["image", "inspect", "--format", "{{.Id}}", build.tag], {
+        timeoutMs: INSPECT_TIMEOUT_MS,
+      });
+      if (result.exitCode !== 0) {
+        options.log.warn("sandbox.image.missing", { reason: build.tag });
+        missing.push(build);
+      }
+    }
+    if (missing.length > 0) await buildImages(missing, options);
+  };
+  return {
+    ensure() {
+      if (!inFlight) {
+        inFlight = sweep().finally(() => {
+          inFlight = null;
+        });
+      }
+      return inFlight;
+    },
+  };
+}

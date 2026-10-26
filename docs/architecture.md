@@ -215,7 +215,7 @@ environment (decision 174).
 | `cujo` | 8080, published as `cujo-ingress.spencerjireh.com` for `/webhook` and `/discord/interactions` | GitHub, Discord, `web` (as `cujo`) | App key, OAuth client secret, Discord token, model keys, the SQLite run store |
 | `harness` | 8790, internal | `cujo` | Model keys in memory, SQLite event log and pi transcripts |
 | `github-mcp` | 8081, internal | `harness` | The App private key |
-| `sandbox-mcp` | 8082, internal | `harness`, `cujo` | The host Docker socket; builds the sandbox and gateway images at boot (decisions 114, 118) |
+| `sandbox-mcp` | 8082, internal | `harness`, `cujo` | The host Docker socket; builds the sandbox and gateway images at boot and rebuilds one the host pruned (decisions 114, 118, 181) |
 | `ocr-sidecar` | 8083, internal, optional | `cujo` | `OCR_LLM_*` only (decision 149) |
 | `mapper` | 8084, internal, optional | `cujo` | No secret (decision 172) |
 

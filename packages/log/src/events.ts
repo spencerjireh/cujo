@@ -273,10 +273,12 @@ export const EVENT_NAMES = [
   "sandbox.allowlist.refused",
   "sandbox.runtime.default",
   "sandbox.egress.unenforced",
-  // The images the local runtime runs, built by sandbox-mcp at boot (118).
+  // The images the local runtime runs, built by sandbox-mcp at boot (118) and
+  // rebuilt when the host has pruned one since (181).
   "sandbox.image.build.started",
   "sandbox.image.build.finished",
   "sandbox.image.build.failed",
+  "sandbox.image.missing",
   // apps/web's route handlers.
   "proxy.rejected",
   "proxy.upstream.failed",

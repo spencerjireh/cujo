@@ -128,7 +128,7 @@ a later one reversed, superseded, refined or amended.
 115. [`provisioned_ms` replaces the `sandbox.created` event](#115-provisioned_ms-replaces-the-sandboxcreated-event)
 116. [Egress is enforced outside the sandbox, and its allowlist is a crossing](#116-egress-is-enforced-outside-the-sandbox-and-its-allowlist-is-a-crossing) — refined by 121
 117. [The sandbox image is ours, which reverses 46](#117-the-sandbox-image-is-ours-which-reverses-46)
-118. [`sandbox-mcp` builds the images it runs, at boot, from contexts it carries](#118-sandbox-mcp-builds-the-images-it-runs-at-boot-from-contexts-it-carries)
+118. [`sandbox-mcp` builds the images it runs, at boot, from contexts it carries](#118-sandbox-mcp-builds-the-images-it-runs-at-boot-from-contexts-it-carries) — amended by 181
 119. [No review bot; `best_practices.md` goes with it](#119-no-review-bot-best_practicesmd-goes-with-it)
 120. [`sandbox-mcp` says `requireApprovalForTools: []`, because absent means everything](#120-sandbox-mcp-says-requireapprovalfortools--because-absent-means-everything) — reversed in part by 128, amended by 138
 121. [The gateway is the sandbox's router and resolver, which refines 116](#121-the-gateway-is-the-sandboxs-router-and-resolver-which-refines-116)
@@ -191,6 +191,7 @@ a later one reversed, superseded, refined or amended.
 178. [Decisions are short; history is in git and the archive](#178-decisions-are-short-history-is-in-git-and-the-archive)
 179. [Cujo records when a pull request closes](#179-cujo-records-when-a-pull-request-closes)
 180. [Cujo is a review gate: plugins produce evidence, policy decides, the verdict is signed](#180-cujo-is-a-review-gate-plugins-produce-evidence-policy-decides-the-verdict-is-signed)
+181. [An image the host pruned is rebuilt before the next sandbox](#181-an-image-the-host-pruned-is-rebuilt-before-the-next-sandbox)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -1410,7 +1411,7 @@ a later one reversed, superseded, refined or amended.
 
 ## 118. `sandbox-mcp` builds the images it runs, at boot, from contexts it carries
 
-**Status:** live
+**Status:** amended by 181 (an image the host prunes after boot is rebuilt before the next create)
 
 **Decision:** `apps/sandbox-mcp/Dockerfile` copies `sandbox/` and `apps/sandbox-mcp/gateway/` to `/app/images`, and when the runtime is `local`, `buildImages` runs `docker build` on each at boot through the socket, tagging `cujo-sandbox:latest` and `cujo-sandbox-gateway:latest`; `/healthz` and `/mcp` answer 503 until both finish, a failed build ends the process, the healthcheck `start_period` is twenty minutes, and the build does not `--pull`. `CUJO_SANDBOX_IMAGES_DIR` set empty skips the build.
 
@@ -2135,3 +2136,15 @@ a later one reversed, superseded, refined or amended.
 **Rejected:** A new repository, because the executor, `sandbox-mcp` and the check run are the gate's core. Keeping the diff and sandbox modes beside the gate, because two ladders is two policies. Letting the judge block by default, because the model reads the pull request's own text (61).
 
 **See:** Contracts 3, 4, 11; `docs/gate/`; amends 9, 12, 133; ported later with their own entries: 13, 21, 135, 136, 138, 161.
+
+## 181. An image the host pruned is rebuilt before the next sandbox
+
+**Status:** live
+
+**Decision:** `sandbox-mcp` keeps an image keeper beside the boot build: before every `create`, and every five minutes after the boot build finishes, it runs `docker image inspect` on the sandbox and gateway tags and rebuilds any that is missing from the same context the boot build used, one rebuild at a time with concurrent callers sharing it. A rebuild that fails fails the create as `provision_failed` naming the image, before any network or container exists. The boot build, the 503 until it finishes, and the exit on a failed boot build are unchanged.
+
+**Why:** Nothing holds the two tags between sandboxes, so to the host's cleanup they are unused images, and Coolify prunes unused images every fifteen minutes once the disk passes its threshold. On 2026-10-25 every `sandbox_create` failed with `Unable to find image 'cujo-sandbox-gateway:latest'` until a redeploy rebuilt it, and the check concluded `neutral`, so the pull request was mergeable with no review. 118 rejected a lazy first build because minutes of build land inside a tool call; here that is the rare race, and the timer makes it rarer.
+
+**Rejected:** Turning the host's cleanup off, because old deploy images then fill the disk. A running container per image to pin it, because that is a process to keep alive and explain for the price of two inspects. Pre-built images in a registry, for 118's reason.
+
+**See:** decisions 113, 118; `apps/sandbox-mcp/src/images.ts`.
