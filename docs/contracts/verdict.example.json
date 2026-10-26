@@ -1,0 +1,107 @@
+{
+  "_comment": [
+    "The canonical verdict: one complete example of the shape docs/gate/verdict.md",
+    "describes and @cujo/gate-contract types, carrying every field at once.",
+    "",
+    "A fail with three findings: one proven and blocking (a test that passes on",
+    "base and fails on head), one judged and advisory (the judge read something),",
+    "and one that needs a human (a sensor never armed, so nothing was observed).",
+    "The summary counts are the findings; packages/gate-contract/tests asserts it.",
+    "",
+    "The verdict is a pure function of `binding`. Nothing here was reported by",
+    "the pull request about itself."
+  ],
+  "schemaVersion": 1,
+  "status": "fail",
+  "binding": {
+    "repo": "spencerjireh/orders-api",
+    "baseSha": "0b3c1d9a7f2e4c6b8a0d2f4e6c8a0b2d4f6e8a0c",
+    "headSha": "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
+    "prNumber": 42,
+    "plugins": [
+      { "id": "tests", "version": "1.0.0" },
+      { "id": "sensors", "version": "1.0.0" },
+      { "id": "judge", "version": "1.0.0" }
+    ],
+    "configDigest": "sha256:6a4f2e1c9b8d7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f",
+    "sandboxImageDigest": "sha256:1f2e3d4c5b6a79880919a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+    "gateVersion": "0.1.0"
+  },
+  "coverage": {
+    "class": "proven",
+    "counts": { "proven": 1, "judged": 1, "needs_human": 1 },
+    "plugins": [
+      { "id": "tests", "version": "1.0.0", "kind": "exec", "status": "ok", "durationMs": 184233 },
+      {
+        "id": "sensors",
+        "version": "1.0.0",
+        "kind": "exec",
+        "status": "ok",
+        "durationMs": 184233,
+        "note": "The decoy sensor did not arm; decoy reads were not observed."
+      },
+      { "id": "judge", "version": "1.0.0", "kind": "judge", "status": "ok", "durationMs": 41200 }
+    ]
+  },
+  "findings": [
+    {
+      "rule": "tests.base_pass_head_fail",
+      "severity": "critical",
+      "title": "test_total_rounds_half_cent fails on head and passes on base",
+      "message": "The declared test command exits 1 on head and 0 on base.",
+      "evidence": [
+        {
+          "kind": "test",
+          "tree": "head",
+          "command": "uv run pytest -q",
+          "exit": 1,
+          "excerpt": "FAILED tests/test_totals.py::test_total_rounds_half_cent - assert 1001 == 1000\n1 failed, 84 passed in 3.21s",
+          "baseline": { "exit": 0 }
+        }
+      ],
+      "location": { "path": "orders/totals.py", "line": 48, "side": "head" },
+      "fingerprint": "tests/test_totals.py::test_total_rounds_half_cent",
+      "pluginId": "tests",
+      "pluginVersion": "1.0.0",
+      "coverage": "proven",
+      "blocking": true
+    },
+    {
+      "rule": "judge.observation",
+      "severity": "warn",
+      "title": "The docstring still describes banker's rounding",
+      "message": "`round_total` now rounds half up; its docstring says half to even.",
+      "evidence": [
+        {
+          "kind": "reading",
+          "excerpt": "\"\"\"Round to the cent, half to even.\"\"\"\n    return math.floor(total * 100 + 0.5) / 100",
+          "rationale": "The implementation and the docstring disagree on the tie rule."
+        }
+      ],
+      "location": { "path": "orders/totals.py", "line": 41, "side": "head" },
+      "pluginId": "judge",
+      "pluginVersion": "1.0.0",
+      "coverage": "judged",
+      "blocking": false
+    },
+    {
+      "rule": "sensors.unarmed",
+      "severity": "warn",
+      "title": "The decoy sensor did not arm",
+      "message": "Reads of the decoy secret were not observed on this run. A clean decoy result here says nothing.",
+      "evidence": [],
+      "pluginId": "sensors",
+      "pluginVersion": "1.0.0",
+      "coverage": "needs_human",
+      "blocking": false
+    }
+  ],
+  "policy": { "llmBlocks": false, "severityFloor": "critical", "source": "default" },
+  "summary": {
+    "headline": "Blocked: 1 test passes on base and fails on head.",
+    "counts": { "info": 0, "warn": 2, "critical": 1 },
+    "blocking": 1,
+    "detail": "tests.base_pass_head_fail orders/totals.py:48 — test_total_rounds_half_cent fails on head and passes on base.\njudge.observation orders/totals.py:41 — The docstring still describes banker's rounding (advisory).\nsensors.unarmed — The decoy sensor did not arm (coverage)."
+  },
+  "producedAt": "2026-10-25T09:14:03Z"
+}

@@ -1,0 +1,66 @@
+{
+  "_comment": [
+    "The canonical plugin output: what one plugin writes on stdout, before the",
+    "fold. docs/gate/plugins.md describes it; @cujo/gate-contract types it.",
+    "",
+    "A static plugin that ran on both trees. Two findings share a fingerprint,",
+    "one on base and one on head: the fold drops the head one, because the pull",
+    "request did not introduce it. The third is on head only and survives.",
+    "packages/gate-contract/tests asserts exactly that pairing."
+  ],
+  "schemaVersion": 1,
+  "plugin": { "id": "lint", "version": "1.2.0" },
+  "status": "ok",
+  "findings": [
+    {
+      "rule": "lint.unused_import",
+      "severity": "info",
+      "title": "`os` is imported and never used",
+      "evidence": [
+        {
+          "kind": "sensor",
+          "sensor": "ruff",
+          "observation": "orders/totals.py:3:8: F401 `os` imported but unused",
+          "tree": "base"
+        }
+      ],
+      "location": { "path": "orders/totals.py", "line": 3, "side": "base" },
+      "fingerprint": "F401:orders/totals.py:os",
+      "tree": "base"
+    },
+    {
+      "rule": "lint.unused_import",
+      "severity": "info",
+      "title": "`os` is imported and never used",
+      "evidence": [
+        {
+          "kind": "sensor",
+          "sensor": "ruff",
+          "observation": "orders/totals.py:3:8: F401 `os` imported but unused",
+          "tree": "head"
+        }
+      ],
+      "location": { "path": "orders/totals.py", "line": 3, "side": "head" },
+      "fingerprint": "F401:orders/totals.py:os",
+      "tree": "head"
+    },
+    {
+      "rule": "lint.unused_variable",
+      "severity": "warn",
+      "title": "`cents` is assigned and never used",
+      "message": "The half-up rounding computes `cents` and then returns the old expression.",
+      "evidence": [
+        {
+          "kind": "sensor",
+          "sensor": "ruff",
+          "observation": "orders/totals.py:46:5: F841 local variable `cents` is assigned to but never used",
+          "tree": "head"
+        }
+      ],
+      "location": { "path": "orders/totals.py", "line": 46, "side": "head" },
+      "fingerprint": "F841:orders/totals.py:cents",
+      "tree": "head"
+    }
+  ],
+  "durationMs": 2310
+}

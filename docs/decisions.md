@@ -19,10 +19,10 @@ a later one reversed, superseded, refined or amended.
 6. [Reviews auto-post; the human gate is on the block](#6-reviews-auto-post-the-human-gate-is-on-the-block) — superseded by 42, and reversed by 138
 7. [The webhook route is on a non-Access hostname](#7-the-webhook-route-is-on-a-non-access-hostname)
 8. [A free-tier model provider for inference; hosted Daytona for the sandbox](#8-a-free-tier-model-provider-for-inference-hosted-daytona-for-the-sandbox)
-9. [Code senses, the agent judges, hard rules guard the dangerous cases](#9-code-senses-the-agent-judges-hard-rules-guard-the-dangerous-cases)
+9. [Code senses, the agent judges, hard rules guard the dangerous cases](#9-code-senses-the-agent-judges-hard-rules-guard-the-dangerous-cases) — amended by 180
 10. [Sensors: language-agnostic base, Python audit hook on top, TLS later](#10-sensors-language-agnostic-base-python-audit-hook-on-top-tls-later)
 11. [Cujo reviews the whole PR by running it; detonation is one check](#11-cujo-reviews-the-whole-pr-by-running-it-detonation-is-one-check) — narrowed by 133
-12. [Findings with severity, not a single verdict](#12-findings-with-severity-not-a-single-verdict)
+12. [Findings with severity, not a single verdict](#12-findings-with-severity-not-a-single-verdict) — amended by 180
 13. [Agent infers repo commands; `.cujo.yml` overrides](#13-agent-infers-repo-commands-cujoyml-overrides) — extended by 135
 14. [One subagent per check](#14-one-subagent-per-check) — refined by 124
 15. [No tests means one `warn` and stop](#15-no-tests-means-one-warn-and-stop) — refined by 87
@@ -143,7 +143,7 @@ a later one reversed, superseded, refined or amended.
 130. [A harness restart ends a running turn as an error, so Cujo retries it once](#130-a-harness-restart-ends-a-running-turn-as-an-error-so-cujo-retries-it-once) — amended by 138 and 140
 131. [A sensed command refuses to open a second window](#131-a-sensed-command-refuses-to-open-a-second-window)
 132. [A token budget in the spec, enforced by the harness](#132-a-token-budget-in-the-spec-enforced-by-the-harness)
-133. [Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor](#133-cujo-is-a-diff-reviewer-that-can-execute-the-sandbox-is-a-tool-and-a-floor) — amended by 138
+133. [Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor](#133-cujo-is-a-diff-reviewer-that-can-execute-the-sandbox-is-a-tool-and-a-floor) — amended by 138 and 180
 134. [The diff review's package is prepared in code](#134-the-diff-reviews-package-is-prepared-in-code)
 135. [Review mode: deploy default, `.cujo.yml` from base, floors the code enforces](#135-review-mode-deploy-default-cujoyml-from-base-floors-the-code-enforces)
 136. [A diff finding is at most `warn` and always advisory; a `critical` is a contradiction, not clamped](#136-a-diff-finding-is-at-most-warn-and-always-advisory-a-critical-is-a-contradiction-not-clamped) — amended by 138
@@ -190,6 +190,7 @@ a later one reversed, superseded, refined or amended.
 177. [The manual is six pages](#177-the-manual-is-six-pages)
 178. [Decisions are short; history is in git and the archive](#178-decisions-are-short-history-is-in-git-and-the-archive)
 179. [Cujo records when a pull request closes](#179-cujo-records-when-a-pull-request-closes)
+180. [Cujo is a review gate: plugins produce evidence, policy decides, the verdict is signed](#180-cujo-is-a-review-gate-plugins-produce-evidence-policy-decides-the-verdict-is-signed)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -249,7 +250,7 @@ a later one reversed, superseded, refined or amended.
 
 ## 9. Code senses, the agent judges, hard rules guard the dangerous cases
 
-**Status:** live
+**Status:** amended by 180 (the gate: plugins sense, policy decides, and the agent is one plugin whose findings are advisory by default)
 
 **Decision:** The sandbox emits raw signals with no judgment, the agent assigns each finding a severity against the rubric, and deterministic rules force `critical` when a critical signal is present, which the agent cannot override. The hard rules are: a test that passes on base and fails on head; the decoy secret read or seen leaving; a write to a sensitive path; egress during an install to a host that is neither a package index nor allowlisted.
 
@@ -277,7 +278,7 @@ a later one reversed, superseded, refined or amended.
 
 ## 12. Findings with severity, not a single verdict
 
-**Status:** live
+**Status:** amended by 180 (findings keep their severity and gain typed evidence and a coverage class; the verdict's status is a function of them, not a replacement)
 
 **Decision:** Each finding has a severity (`info`, `warn`, `critical`) and an optional line anchor. Any `critical` finding routes to the gated `post_blocking_review` (REQUEST_CHANGES); otherwise `post_advisory_review` posts a COMMENT with the summary and inline comments.
 
@@ -1571,7 +1572,7 @@ a later one reversed, superseded, refined or amended.
 
 ## 133. Cujo is a diff reviewer that can execute; the sandbox is a tool and a floor
 
-**Status:** amended by 138
+**Status:** amended by 138, and by 180 (Cujo is a review gate; the diff review becomes the `judge` plugin and the modes become the plan)
 
 **Decision:** Cujo is a diff reviewer that can execute: a repository may choose the diff review, which reads the pull request against the repository's written standards on a cheap model, with no sandbox and a token budget, and posts one advisory review. The sandbox review is unchanged and the rules send any pull request that needs running to it, such as a dependency change or a pull request nobody wrote.
 
@@ -2122,3 +2123,15 @@ a later one reversed, superseded, refined or amended.
 **Rejected:** Hiding entries older than a cutoff, which hides an old open pull request and shows one merged yesterday. A new `closed` run status, which every status table would have to learn for what `superseded` already means. Publishing the state on the public board, which has no use for it. The Discord card still says "Replaced by a newer commit" for such a run; it reads no store.
 
 **See:** decisions 16, 20, 104, 138, 144, 159, 175.
+
+## 180. Cujo is a review gate: plugins produce evidence, policy decides, the verdict is signed
+
+**Status:** live
+
+**Decision:** Cujo becomes an opinionated, plugin-based pull request gate for repositories where agents write the code: one pipeline — snapshot, plan with no model, run plugins (`static`, `exec`, `proof`, `judge`), fold against base, policy, emit — described in `docs/gate/` and typed in `@cujo/gate-contract`. A block needs executed evidence; a judge finding is advisory unless the repository opts in at base; an indeterminate run concludes `failure` and a human dismisses it; the verdict is bound to head, plugin versions, config digest and sandbox image digest, and signed as an in-toto statement. This entry changes no behavior: every running path stays as its decisions describe until a gate pull request replaces it, each with its own decision, and the replaced path is then deleted.
+
+**Why:** A software factory needs a gate that cannot be argued with, re-executes rather than trusts, and says what it proved and what it only read. The hard rules (9, 21), base-read configuration (13, 135), the check-run lock (138) and the executor (161) already are that gate in pieces; a rubric choosing a tool is not. Five short pages and one contracts package are the description of what Cujo is.
+
+**Rejected:** A new repository, because the executor, `sandbox-mcp` and the check run are the gate's core. Keeping the diff and sandbox modes beside the gate, because two ladders is two policies. Letting the judge block by default, because the model reads the pull request's own text (61).
+
+**See:** Contracts 3, 4, 11; `docs/gate/`; amends 9, 12, 133; ported later with their own entries: 13, 21, 135, 136, 138, 161.

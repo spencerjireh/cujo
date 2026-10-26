@@ -232,6 +232,12 @@ importers:
         specifier: 2.0.0
         version: 2.0.0
 
+  packages/gate-contract:
+    dependencies:
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+
   packages/gh-app-auth:
     dependencies:
       '@octokit/auth-app':
