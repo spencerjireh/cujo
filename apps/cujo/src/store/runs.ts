@@ -13,7 +13,17 @@
 
 import { randomUUID } from "node:crypto";
 import { deriveDigest } from "../review/digest";
-import type { Projection, ReviewMode, RunDigest, RunRecord, RunStatus } from "../review/types";
+import {
+  DISMISSABLE_STATUSES,
+  type Projection,
+  type ReviewMode,
+  type RunDigest,
+  type RunRecord,
+  type RunStatus,
+} from "../review/types";
+
+/** `DISMISSABLE_STATUSES`, quoted for `claimDecision`'s `IN (...)`. */
+const DISMISSABLE_SQL = DISMISSABLE_STATUSES.map((status) => `'${status}'`).join(", ");
 import { type Db, TERMINAL_STATUSES_SQL } from "./db";
 import type { NotificationStore } from "./notifications";
 
@@ -539,11 +549,15 @@ export class RunStore {
    * run is `blocked` and nobody has claimed it, so two `/cujo dismiss`
    * comments racing for one block dismiss the review once (decision 138).
    */
+  /**
+   * The decision is claimed only on a run a person may lift (decision 182).
+   * A SQL string, so the type system cannot check it: the list is the one
+   * `Runner.dismiss` refuses against, quoted here.
+   */
   claimDecision(id: string, approver: string, decidedAt: string): boolean {
     const result = this.db
       .prepare(
-        "UPDATE runs SET approver = ?, decided_at = ?, updated_at = ? " +
-          "WHERE id = ? AND status = 'blocked' AND approver IS NULL",
+        `UPDATE runs SET approver = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status IN (${DISMISSABLE_SQL}) AND approver IS NULL`,
       )
       .run(approver, decidedAt, new Date().toISOString(), id);
     return Number(result.changes) === 1;

@@ -20,11 +20,11 @@ opinion about the code; the gate has a record of what the code did.
 
 A plugin that timed out, exceeded its caps, wrote invalid output, or never
 started makes the verdict `indeterminate`, and the check concludes
-`failure`. Today's `unproven` and `error` runs conclude `neutral`
-(`notify/checks.service.ts`), which GitHub counts as passing a required
-check; that changes with its own decision. A human dismisses an
-`indeterminate` verdict or pushes again; the gate never passes a head it did
-not check.
+`failure`. Today's `unproven` and `error` runs already do (decision 182):
+a `neutral` conclusion counts as passing a required check, so the gate would
+have passed every head it could not check. A human dismisses an
+`indeterminate` verdict with `/cujo dismiss` or pushes again; the gate never
+passes a head it did not check.
 
 ## What a repository can change
 

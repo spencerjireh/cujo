@@ -303,7 +303,7 @@ function dismissText(result: Extract<DismissResult, { ok: false }>): string {
     case "no_such_run":
       return "That run is gone. Push a commit to get a fresh review.";
     case "not_blocked":
-      return "Nothing is blocked on this commit.";
+      return "Nothing is holding this commit: its check is not failing.";
     case "already_decided":
       return "Somebody dismissed this one already.";
     case "github_failed":

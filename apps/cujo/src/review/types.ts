@@ -13,8 +13,9 @@ export type RunStatus =
   /**
    * A `post_blocking_review` posted: REQUEST_CHANGES on the pull request and
    * the `cujo/guard` check run failing on its head (decision 138). Terminal —
-   * the review is on the pull request and nothing is followed — and the one
-   * status a person can move, with `/cujo dismiss`. `approver` is null until
+   * the review is on the pull request and nothing is followed — and a status
+   * a person can move, with `/cujo dismiss`, as they can `error` and
+   * `unproven`, whose checks fail too (decision 182). `approver` is null until
    * they do.
    */
   | "blocked"
@@ -25,6 +26,12 @@ export type RunStatus =
    * `superseded`, where a newer commit and not a person moved the run on.
    */
   | "dismissed"
+  /**
+   * The run did not finish: a turn failed, a sandbox could not be made, or a
+   * report was unreadable. Terminal. The check run fails (decision 182): the
+   * commit was not checked, and a check that said so with `neutral` would
+   * count as passed where branch protection requires it.
+   */
   | "error"
   /**
    * A review posted and not one check produced a report, so the run proved
@@ -32,6 +39,7 @@ export type RunStatus =
    * the fold reached for this case until then, and distinct from `error`,
    * because Cujo did not fall over — it ran, posted, and had no evidence to
    * post. The two are opposite claims and a list view shows only the status.
+   * The check run fails on both (decision 182), for the same reason.
    *
    * Terminal. `TERMINAL_STATUSES_SQL` in `store/db.ts` has to name it or the
    * partial index treats the run as active and refuses the next run on that
@@ -40,6 +48,15 @@ export type RunStatus =
   | "unproven"
   /** A newer head on the same PR replaced this run before it finished. */
   | "superseded";
+
+/**
+ * The statuses a person may lift with `/cujo dismiss`: the ones whose
+ * `cujo/guard` check fails (decisions 138, 182). `blocked` is a verdict;
+ * `error` and `unproven` are the absence of one, and the check fails closed
+ * on both, so the same unlock has to reach them. One list, read by the
+ * runner's refusal and by the store's claim, so the two cannot disagree.
+ */
+export const DISMISSABLE_STATUSES = ["blocked", "error", "unproven"] as const satisfies RunStatus[];
 
 /**
  * The two reviews (decision 133). `sandbox` runs the pull request; `diff`

@@ -29,8 +29,8 @@ const CHECK: Partial<Record<(typeof RUN_STATUSES)[number], string>> = {
   clean: "success",
   blocked: "failure",
   dismissed: "neutral",
-  error: "neutral",
-  unproven: "neutral",
+  error: "failure",
+  unproven: "failure",
   superseded: "skipped",
 };
 
@@ -42,6 +42,11 @@ export function Blocking() {
           Any <C>critical</C> finding blocks. Cujo posts the review as REQUEST_CHANGES and the{" "}
           <C>cujo/guard</C> check fails. With no critical finding, the review is a comment and the
           check passes. Cujo never approves.
+        </P>
+        <P>
+          The check also fails when Cujo could not check the commit: the run ended in error, or it
+          posted a review with no check results behind it. A commit Cujo did not check is not a
+          commit that passed.
         </P>
         <P>
           A review can be dismissed by anyone with write access. The check cannot; only Cujo can
@@ -56,8 +61,9 @@ export function Blocking() {
           <Row>
             <Cell head>/cujo dismiss</Cell>
             <Cell>
-              Dismisses the blocking review on the current commit and sets the check to neutral. The
-              findings stay.
+              Lifts a failing check on the current commit, whether a block, an error, or a run with
+              no results. Dismisses the blocking review, if there is one, and sets the check to
+              neutral. The findings stay.
             </Cell>
             <Cell>Anyone with write access, except the author and bot accounts.</Cell>
           </Row>

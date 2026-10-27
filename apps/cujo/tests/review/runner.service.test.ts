@@ -951,6 +951,25 @@ describe("Runner.dismiss", () => {
     expect(await runner.dismiss("nope", "github:a")).toMatchObject({ reason: "no_such_run" });
   });
 
+  it("lifts an error or unproven run too, whose check fails closed (decision 182)", async () => {
+    for (const status of ["error", "unproven"] as const) {
+      // Such a run posted no REQUEST_CHANGES, so there is nothing on GitHub
+      // to dismiss; the row and the check still have to move.
+      const { store, runner, id, dismissReview, seen } = blocked({
+        github: { listBotReviews: async () => [], dismissReview: vi.fn() },
+      });
+      store.runs.updateRun(id, { status });
+      store.runs.putProjection(id, { ...emptyProjection(), status });
+      expect(await runner.dismiss(id, "github:octocat")).toEqual({ ok: true });
+      expect(dismissReview).not.toHaveBeenCalled();
+      expect(store.runs.getRun(id)).toMatchObject({
+        status: "dismissed",
+        approver: "github:octocat",
+      });
+      expect(seen).toEqual(["dismissed"]);
+    }
+  });
+
   it("moves the row even with no GitHub client, and when no review matches", async () => {
     // The trusted side's record is what the check run, the card and the
     // reaction read; a review somebody dismissed by hand first is not a

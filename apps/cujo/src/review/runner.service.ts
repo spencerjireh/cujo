@@ -17,7 +17,7 @@ import { type FoldOptions, REVIEW_POST_FAILED, fold, lastTurnOutcome } from "./f
 import type { UiLinks } from "./links";
 import { runLogger } from "./start-run";
 import { checkTimings } from "./timings";
-import type { CheckState, Projection, RunRecord } from "./types";
+import { type CheckState, DISMISSABLE_STATUSES, type Projection, type RunRecord } from "./types";
 
 type AnyEvent = SessionEvent | StreamEvent;
 
@@ -112,6 +112,8 @@ function durationOf(check: CheckState): { duration_ms?: number } {
  */
 type DismissRefusal = "no_such_run" | "not_blocked" | "already_decided" | "github_failed";
 
+const DISMISSABLE: ReadonlySet<string> = new Set(DISMISSABLE_STATUSES);
+
 /** Why a run was superseded, for its log line (decision 179 adds the close). */
 export type SupersedeReason = "newer_head" | "stale_head" | "pr_closed";
 
@@ -119,7 +121,7 @@ export type DismissResult = { ok: true } | { ok: false; reason: DismissRefusal; 
 
 const REFUSAL_TEXT: Record<DismissRefusal, string> = {
   no_such_run: "no such run",
-  not_blocked: "run is not blocked",
+  not_blocked: "run is not holding the merge",
   already_decided: "already dismissed",
   github_failed: "github write failed",
 };
@@ -1135,8 +1137,8 @@ export class Runner {
     };
     const run = this.store.getRun(runId);
     if (!run) return refuse("no_such_run");
-    if (run.status !== "blocked") {
-      return refuse("not_blocked", `run is ${run.status}, not blocked`);
+    if (!DISMISSABLE.has(run.status)) {
+      return refuse("not_blocked", `run is ${run.status}, which holds nothing`);
     }
     if (!this.store.claimDecision(runId, approver, new Date().toISOString())) {
       return refuse("already_decided");
@@ -1179,7 +1181,7 @@ export class Runner {
       this.store.putProjection(runId, projection);
     }
     this.store.updateRun(runId, { status: "dismissed" });
-    log.info("run.status.changed", { from: "blocked", to: "dismissed" });
+    log.info("run.status.changed", { from: run.status, to: "dismissed" });
     // The audit line for a decision a human made. `actor` is the login the
     // store has just recorded as the approver, so the log and the row agree
     // by construction.
