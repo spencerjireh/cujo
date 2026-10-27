@@ -32,8 +32,8 @@ export function Overview() {
             the lines they are about.
           </LI>
           <LI>
-            A <C>cujo/guard</C> check on the commit. It fails when a finding is critical, which
-            holds the merge under branch protection.
+            A <C>cujo/guard</C> check on the commit. It fails when a finding is critical, and when
+            Cujo could not check the commit, which holds the merge under branch protection.
           </LI>
         </UL>
         <P>

@@ -186,8 +186,10 @@ const DESCRIPTION: Record<RunStatus, string> = {
   blocked:
     "Blocking review posted as REQUEST_CHANGES; the cujo/guard check fails. A maintainer lifts it with /cujo dismiss.",
   dismissed: "The block was lifted. The observation stands.",
-  error: "The run ended in error.",
-  unproven: "The review posted with no evidence: not one check returned a report.",
+  error:
+    "The run ended in error; the cujo/guard check fails. A maintainer lifts it with /cujo dismiss.",
+  unproven:
+    "The review posted with no evidence: not one check returned a report. The cujo/guard check fails.",
   superseded: "Replaced by a newer commit on this PR.",
 };
 

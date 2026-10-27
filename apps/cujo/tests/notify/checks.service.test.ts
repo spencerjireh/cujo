@@ -80,7 +80,7 @@ const build = (checks: GitHubChecks, extra: Partial<PrChecksDeps> = {}) =>
     log: silentLog,
     checks,
     links: LINKS,
-    runs: { runForPrHead: () => run("superseded") },
+    runs: { latestRunForPr: () => run("superseded") },
     retryDelaysMs: [],
     ...extra,
   });
@@ -130,11 +130,26 @@ describe("PrChecks", () => {
     const by = Object.fromEntries(writes.map((w) => [w.payload.runId, w.payload]));
     expect(by["run-running"]).toMatchObject({ status: "in_progress" });
     expect(by["run-clean"]).toMatchObject({ status: "completed", conclusion: "success" });
-    expect(by["run-unproven"]).toMatchObject({ status: "completed", conclusion: "neutral" });
+    expect(by["run-unproven"]).toMatchObject({ status: "completed", conclusion: "failure" });
     expect(by["run-blocked"]).toMatchObject({ status: "completed", conclusion: "failure" });
     expect(by["run-dismissed"]).toMatchObject({ status: "completed", conclusion: "neutral" });
-    expect(by["run-error"]).toMatchObject({ status: "completed", conclusion: "neutral" });
+    expect(by["run-error"]).toMatchObject({ status: "completed", conclusion: "failure" });
     expect(by["run-blocked"]?.output.summary).toBe("1 critical, 0 warn, 0 info.");
+  });
+
+  it("fails closed on a run with no verdict, and says how a person lifts it (decision 182)", async () => {
+    const { checks, writes } = fake();
+    const service = build(checks);
+    service.onRunChanged(view("error", { id: "run-error" }));
+    service.onRunChanged(view("unproven", { id: "run-unproven" }));
+    await service.flush();
+    const by = Object.fromEntries(writes.map((w) => [w.payload.runId, w.payload]));
+    for (const id of ["run-error", "run-unproven"]) {
+      expect(by[id]?.conclusion).toBe("failure");
+      expect(by[id]?.output.summary).toContain("/cujo dismiss");
+    }
+    expect(by["run-error"]?.output.summary).toMatch(/^Cujo reached no verdict on this commit\./);
+    expect(by["run-unproven"]?.output.summary).toMatch(/^0 critical, 0 warn, 0 info\./);
   });
 
   it("titles a dismissed check with who lifted it, as a login", async () => {
@@ -166,26 +181,45 @@ describe("PrChecks", () => {
     expect(writes[1]?.knownId).toBe(500);
   });
 
-  it("writes skipped for a superseded run only while it is still the latest for its head", async () => {
+  it("writes skipped for a superseded run only once a run on a newer head exists", async () => {
+    const { checks, writes } = fake();
+    const old = run("superseded", { id: "old", headSha: "h1" });
+    const newer = run("running", { id: "new", headSha: "h2" });
+    const service = build(checks, { runs: { latestRunForPr: () => newer } });
+    service.onRunChanged({ run: old, projection: emptyProjection() });
+    await service.flush();
+    expect(writes).toEqual([
+      expect.objectContaining({
+        sha: "h1",
+        payload: expect.objectContaining({ status: "completed", conclusion: "skipped" }),
+      }),
+    ]);
+  });
+
+  it("writes nothing for a run replaced on its own commit, before or after the replacement exists (decision 182)", async () => {
     const { checks, writes } = fake();
     const old = run("superseded", { id: "old" });
-    const latest = build(checks, { runs: { runForPrHead: () => old } });
-    latest.onRunChanged({ run: old, projection: emptyProjection() });
-    await latest.flush();
-    expect(writes[0]?.payload).toMatchObject({ status: "completed", conclusion: "skipped" });
+    // `/cujo review` supersedes first and inserts the replacement after, so at
+    // this moment the superseded run is still the latest row on the pull
+    // request. A `skipped` here would open the merge until the replacement
+    // wrote its `in_progress`.
+    const before = build(checks, { runs: { latestRunForPr: () => old } });
+    before.onRunChanged({ run: old, projection: emptyProjection() });
+    await before.flush();
+    expect(writes).toHaveLength(0);
 
-    // `/cujo review`: a newer run owns the same commit and writes its own.
-    const replaced = build(checks, { runs: { runForPrHead: () => run("running", { id: "new" }) } });
-    replaced.onRunChanged({ run: old, projection: emptyProjection() });
-    await replaced.flush();
-    expect(writes).toHaveLength(1);
+    // And once it exists on the same head, the replacement owns the check.
+    const after = build(checks, { runs: { latestRunForPr: () => run("running", { id: "new" }) } });
+    after.onRunChanged({ run: old, projection: emptyProjection() });
+    await after.flush();
+    expect(writes).toHaveLength(0);
   });
 
   it("writes neutral, not skipped, when the pull request closed (decision 179)", async () => {
     const { checks, writes } = fake();
     const old = run("superseded", { id: "old" });
     const service = build(checks, {
-      runs: { runForPrHead: () => old },
+      runs: { latestRunForPr: () => old },
       pullRequests: { get: () => "merged" },
     });
     service.onRunChanged({ run: old, projection: emptyProjection() });

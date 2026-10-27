@@ -114,7 +114,7 @@ a later one reversed, superseded, refined or amended.
 101. [The page does not bounce](#101-the-page-does-not-bounce)
 102. [The key waits for a stay](#102-the-key-waits-for-a-stay)
 103. [The verdict card stops linking out](#103-the-verdict-card-stops-linking-out)
-104. [Supersede, do not delete, on re-review](#104-supersede-do-not-delete-on-re-review)
+104. [Supersede, do not delete, on re-review](#104-supersede-do-not-delete-on-re-review) — amended by 182
 105. [SessionEvents are validated at the boundary](#105-sessionevents-are-validated-at-the-boundary)
 106. [Every expanded link carries the one branded still](#106-every-expanded-link-carries-the-one-branded-still)
 107. [A run that proved nothing is `unproven`, not `clean`](#107-a-run-that-proved-nothing-is-unproven-not-clean)
@@ -148,7 +148,7 @@ a later one reversed, superseded, refined or amended.
 135. [Review mode: deploy default, `.cujo.yml` from base, floors the code enforces](#135-review-mode-deploy-default-cujoyml-from-base-floors-the-code-enforces)
 136. [A diff finding is at most `warn` and always advisory; a `critical` is a contradiction, not clamped](#136-a-diff-finding-is-at-most-warn-and-always-advisory-a-critical-is-a-contradiction-not-clamped) — amended by 138
 137. [A diff run gets its own harness session](#137-a-diff-run-gets-its-own-harness-session)
-138. [The block is a check run, and the human decision is the unlock](#138-the-block-is-a-check-run-and-the-human-decision-is-the-unlock)
+138. [The block is a check run, and the human decision is the unlock](#138-the-block-is-a-check-run-and-the-human-decision-is-the-unlock) — amended by 182
 139. [Seven run states; the gate's three are migrated](#139-seven-run-states-the-gates-three-are-migrated)
 140. [A review is what posted, not what was called](#140-a-review-is-what-posted-not-what-was-called)
 141. [The run keeps a token ledger per thread](#141-the-run-keeps-a-token-ledger-per-thread)
@@ -192,6 +192,7 @@ a later one reversed, superseded, refined or amended.
 179. [Cujo records when a pull request closes](#179-cujo-records-when-a-pull-request-closes)
 180. [Cujo is a review gate: plugins produce evidence, policy decides, the verdict is signed](#180-cujo-is-a-review-gate-plugins-produce-evidence-policy-decides-the-verdict-is-signed)
 181. [An image the host pruned is rebuilt before the next sandbox](#181-an-image-the-host-pruned-is-rebuilt-before-the-next-sandbox)
+182. [A run with no verdict fails the check, and a person lifts it](#182-a-run-with-no-verdict-fails-the-check-and-a-person-lifts-it)
 
 ## 1. Build on stock TrueForge — no fork
 
@@ -1243,7 +1244,7 @@ a later one reversed, superseded, refined or amended.
 
 ## 104. Supersede, do not delete, on re-review
 
-**Status:** live
+**Status:** amended by 182 (a run superseded on its own commit writes nothing to the check; the replacement does)
 
 **Decision:** `/cujo review` marks the old run `superseded` instead of deleting it, and `runs_head` becomes a partial unique index over non-terminal statuses only, so `createRun` no longer pre-deletes stale error runs. `Runner.supersede` sets the in-memory flag at once but writes the status only after the turn is confirmed stopped; a failed cancellation reverts the flag and returns `false`.
 
@@ -1633,7 +1634,7 @@ a later one reversed, superseded, refined or amended.
 
 ## 138. The block is a check run, and the human decision is the unlock
 
-**Status:** live
+**Status:** amended by 182 (`error` and `unproven` conclude `failure`, and `/cujo dismiss` lifts them too)
 
 **Decision:** Every review posts at once through `post_advisory_review` or `post_blocking_review` on `github-mcp`, one call per run; `post_gated_review`, `accusation_follows`, the `held` key and `/cujo confirm` are gone (machine block `schema_version` 2), and `apps/cujo` writes the `cujo/guard` check run (needs `checks: write`) on every reviewed commit, moving it with the run's status. The unlock is `/cujo dismiss` from a human with repo write or admin, not the author and not a Bot `user.type`: it dismisses the bot's REQUEST_CHANGES review, sets the check neutral as *Dismissed by @login*, and moves the run to `dismissed` with `approver` set; the harness keeps `requireApprovalForTools` as an unnamed capability, a gated call from an older spec folds as an unretried `error`, and `Harness.resume` is deleted.
 
@@ -2148,3 +2149,15 @@ a later one reversed, superseded, refined or amended.
 **Rejected:** Turning the host's cleanup off, because old deploy images then fill the disk. A running container per image to pin it, because that is a process to keep alive and explain for the price of two inspects. Pre-built images in a registry, for 118's reason.
 
 **See:** decisions 113, 118; `apps/sandbox-mcp/src/images.ts`.
+
+## 182. A run with no verdict fails the check, and a person lifts it
+
+**Status:** live
+
+**Decision:** The `cujo/guard` check concludes `failure` on `error` and `unproven`, not `neutral`, with a summary that says how a person lifts it; `/cujo dismiss` accepts those two statuses beside `blocked`, under the same authorization. A run superseded by `/cujo review` on its own commit writes nothing to the check, because the replacement owns the same check run and writes its own `in_progress`; `skipped` is written only once a run on a newer head exists. The not-configured check (174) and the closed check (179) stay `neutral`.
+
+**Why:** GitHub counts a `neutral` required check as passed, so every head Cujo could not check was mergeable on the strength of a check that said nothing: on 2026-10-25 every sandbox failed on a pruned image (181) and each pull request stayed green. A gate that re-executes rather than trusts cannot pass what it did not run (180). The re-review case opened the same door for as long as the replacement took to claim the head, since `/cujo review` supersedes before it can insert (104) and the superseded run saw itself as the latest for its commit.
+
+**Rejected:** `action_required`, because GitHub shows it as a button this App has no page for, and a failure with the lifting sentence in its summary says the same. Failing the not-configured check, because an instance that never looked at a commit is a setup state the owner sees on the board, not a run that fell over. Carrying the supersede reason into the check, because the store already tells the three cases apart and the service then remembers nothing (138).
+
+**See:** Contract 4; decisions 104, 138 (amended), 174, 179, 180, 181.

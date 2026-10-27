@@ -594,21 +594,23 @@ reaction (Contract 9):
 |--------|-----------|
 | `running` | `in_progress`, from the moment the head is claimed |
 | `clean` | `completed` / `success` |
-| `unproven` | `completed` / `neutral` |
+| `unproven` | `completed` / `failure` (decision 182) |
 | `blocked` | `completed` / `failure` |
 | `dismissed` | `completed` / `neutral`, titled *Dismissed by @login* |
-| `error` | `completed` / `neutral` |
-| `superseded` | `completed` / `skipped`, only while this run is still the latest for its head; on `/cujo review` the replacement writes its own |
+| `error` | `completed` / `failure` (decision 182) |
+| `superseded` | `completed` / `skipped`, only once a run on a newer head exists; on `/cujo review` the replacement owns the same check and this run writes nothing; on a close, `neutral` (decision 179) |
 
 The title is the Discord card's status sentence; the summary is the severity
-counts; `details_url` is the run page (decision 159); `external_id` is the run
+counts, and on `error` and `unproven` the sentence that says how a person
+lifts the check; `details_url` is the run page (decision 159); `external_id` is the run
 id. The check is found by name and App on the commit and PATCHed, or POSTed;
 the id is cached per run. It needs `checks: write`; without it the write fails
 with 403 and nothing else changes. `CUJO_PR_CHECKS=0` turns it off. A merge is
 held only where branch protection **requires** `cujo/guard`.
 
-**The unlock is `/cujo dismiss`** (Contract 1, decisions 44, 45, 138), for the
-run on the current head, only when `blocked`. In order: claim
+**The unlock is `/cujo dismiss`** (Contract 1, decisions 44, 45, 138, 182), for
+the run on the current head, when `blocked`, `error` or `unproven`: the three
+statuses whose check fails. In order: claim
 (`claimDecision`, one winner); dismiss the bot's `CHANGES_REQUESTED` reviews
 on that commit with *Dismissed by @login with /cujo dismiss.*; move the run to
 `dismissed` with `approver = github:<login>` and emit. A failed GitHub write
@@ -829,8 +831,8 @@ new run with its own card (Contract 5); the earlier card says superseded.
 | `clean` | grey (`--fg-muted`) | No critical finding; the advisory review posted. | Identity row, `Checks`, `Summary`. |
 | `blocked` | red (`--sev-critical`) | The blocking review posted and the `cujo/guard` check fails; a maintainer lifts it with `/cujo dismiss`. Also posts the ping below. | Identity row with `Findings`, then up to three *distinct* critical findings (grouped by title and evidence, naming the checks that saw it), then `Checks`. |
 | `dismissed` | grey (`--sev-low`) | The block was lifted, and by whom, as a login. | Grouped critical findings, `Checks`. |
-| `error` | blue (`--sev-info`) | The run ended in error. | `Error`. Never red. |
-| `unproven` | blue (`--sev-info`) | The review posted with no evidence: not one check returned a report. | `Checks`, `Summary`. |
+| `error` | blue (`--sev-info`) | The run ended in error; the cujo/guard check fails. A maintainer lifts it with /cujo dismiss. | `Error`. Never red. |
+| `unproven` | blue (`--sev-info`) | The review posted with no evidence: not one check returned a report. The cujo/guard check fails. | `Checks`, `Summary`. |
 | `superseded` | near-black (`--line`) | Replaced by a newer commit. | `Head` and `Pull request` only. No findings. |
 
 The colours are the brand severity ramp, dark values (decision 36).

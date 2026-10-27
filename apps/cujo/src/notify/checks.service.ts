@@ -5,6 +5,12 @@
  * completes it, and only a person's `/cujo dismiss` turns a failure into
  * anything else.
  *
+ * The check fails closed (decision 182). A run that ended in error or proved
+ * nothing concludes `failure`, not `neutral`: GitHub counts a neutral
+ * required check as passed, so a commit Cujo could not check would merge on
+ * the strength of a check that said nothing. The one `neutral` left on a
+ * reviewed commit is the dismissal, which is a person's decision.
+ *
  * The same three properties `PrReactor` holds, for the same reasons: a run
  * never fails because GitHub did, calls are totally ordered, and nothing has
  * to be remembered — the check is looked up by name on the commit and
@@ -15,12 +21,13 @@
  * reaction is per pull request; a check run is per commit. A run superseded
  * by a *newer head* leaves its own commit's check behind, and an `in_progress`
  * check on a commit nobody is reviewing any more would dangle forever, so
- * that run writes `skipped` — but only while it is still the latest run for
- * its head. On `/cujo review` the replacement run owns the same commit and is
- * about to write its own `in_progress`, so the superseded one writes nothing.
- * A run superseded because its pull request *closed* (decision 179) writes
- * `neutral` with that reason instead: nothing newer replaced it, and
- * `skipped` would say something did.
+ * that run writes `skipped` — but only once a run on a newer head exists. A
+ * run replaced on its own commit, by `/cujo review`, writes nothing: the
+ * replacement owns the same check and writes its own `in_progress`, and a
+ * `skipped` written first would open the merge for as long as the
+ * replacement took to claim it. A run superseded because its pull request
+ * *closed* (decision 179) writes `neutral` with that reason instead: nothing
+ * newer replaced it, and `skipped` would say something did.
  */
 
 import { type Logger, errorFields } from "@cujo/log";
@@ -37,8 +44,8 @@ export interface PrChecksDeps {
   log: Logger;
   checks: GitHubChecks;
   links: UiLinks;
-  /** For the superseded rule: is this run still the latest for its head? */
-  runs: Pick<RunStore, "runForPrHead">;
+  /** For the superseded rule: has a run on a newer head replaced this one? */
+  runs: Pick<RunStore, "latestRunForPr">;
   /**
    * Whether the pull request closed (decision 179), to tell that apart from a
    * newer commit. Absent means every supersession reads as a newer commit.
@@ -84,6 +91,13 @@ function running(run: RunRecord): Shape {
   };
 }
 
+/**
+ * What a failing check that is not a verdict says next (decision 182): the
+ * commit is held because nothing was shown, and here is how a person moves it.
+ */
+const LIFT =
+  "The check fails until a maintainer lifts it with /cujo dismiss, or a new commit gets its own review.";
+
 const BY_STATUS: Record<RunStatus, (view: RunView) => Shape | null> = {
   running: ({ run }) => running(run),
   clean: ({ run, projection }) => ({
@@ -93,8 +107,8 @@ const BY_STATUS: Record<RunStatus, (view: RunView) => Shape | null> = {
   }),
   unproven: ({ run, projection }) => ({
     status: "completed",
-    conclusion: "neutral",
-    output: { title: describe(run), summary: counts(projection) },
+    conclusion: "failure",
+    output: { title: describe(run), summary: `${counts(projection)} ${LIFT}` },
   }),
   blocked: ({ run, projection }) => ({
     status: "completed",
@@ -111,8 +125,8 @@ const BY_STATUS: Record<RunStatus, (view: RunView) => Shape | null> = {
   }),
   error: ({ run }) => ({
     status: "completed",
-    conclusion: "neutral",
-    output: { title: describe(run), summary: "Cujo reached no verdict on this commit." },
+    conclusion: "failure",
+    output: { title: describe(run), summary: `Cujo reached no verdict on this commit. ${LIFT}` },
   }),
   // Decided in `onRunChanged`, which knows whether a newer run owns the head.
   superseded: () => null,
@@ -204,12 +218,32 @@ export class PrChecks {
     if (!view) return;
     const { run } = view;
     if (run.status === "superseded") {
-      const latest = this.deps.runs.runForPrHead(run.repo, run.prNumber, run.headSha);
-      if (latest && latest.id === run.id) this.apply(run, this.closed(run) ? CLOSED : SUPERSEDED);
+      this.onSuperseded(run);
       return;
     }
     const shape = BY_STATUS[run.status](view);
     if (shape) this.apply(run, shape);
+  }
+
+  /**
+   * Three supersessions, told apart by the store and not by the reason the
+   * log line carries. A newer head: the run that claimed it is the latest row
+   * on the pull request, on another commit, and this commit's check is
+   * `skipped`. A close: nothing newer exists, and the pull request's record
+   * says why. A re-review of this commit: nothing newer exists yet, because
+   * `/cujo review` supersedes before it can insert the replacement (decision
+   * 104), and the replacement writes its own `in_progress` on the same check;
+   * or it exists already on this head, which says the same thing. Either way
+   * this run writes nothing, so the check never reads `skipped` on a commit
+   * that is about to be reviewed again.
+   */
+  private onSuperseded(run: RunRecord): void {
+    const latest = this.deps.runs.latestRunForPr(run.repo, run.prNumber);
+    if (!latest || latest.id === run.id) {
+      if (this.closed(run)) this.apply(run, CLOSED);
+      return;
+    }
+    if (latest.headSha !== run.headSha) this.apply(run, SUPERSEDED);
   }
 
   private closed(run: RunRecord): boolean {
